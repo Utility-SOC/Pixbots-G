@@ -713,12 +713,15 @@ func _update_stats():
 		total_nrg += p.magnitude
 		
 	var grid_size = grid_renderer.hex_grid.get_all_tiles().size() if grid_renderer.hex_grid else 0
-	
-	stats_label.text = "=== COMPONENT INFO ===\nGrid: Mech Core\nTiles Used: %d\n\n=== SIMULATION ===\nStep: %d\nActive Packets: %d\nTotal Energy: %d" % [
+	var nrg_str = str(int(total_nrg))
+	if total_nrg > 1000000000:
+		nrg_str = "%.2e" % total_nrg
+		
+	stats_label.text = "=== COMPONENT INFO ===\nGrid: Mech Core\nTiles Used: %d\n\n=== SIMULATION ===\nStep: %d\nActive Packets: %d\nTotal Energy: %s" % [
 		grid_size,
 		grid_renderer.simulation_step,
 		grid_renderer.active_packets.size(),
-		int(total_nrg)
+		nrg_str
 	]
 
 func _on_auto_equip_pressed():

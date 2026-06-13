@@ -457,6 +457,9 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 			draw_circle(center, hs * 0.2, base)
 
 func _draw_static_paths(tile: HexTile, center: Vector2):
+	if tile.tile_type == "Amplifier":
+		return # Omnidirectional pass-through, static paths are misleading
+		
 	var hs = hex_size * zoom
 	var default_travel_dir = 3
 	var main_menu = get_tree().current_scene

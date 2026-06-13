@@ -1,0 +1,18 @@
+{
+  "levels": [
+    {
+      "level": 1,
+      "biome": "GRASSLAND",
+      "waves": 5,
+      "squads": ["Standard Assault", "Sniper Squad"],
+      "boss": "Grassland Overseer"
+    },
+    {
+      "level": 2,
+      "biome": "DESERT",
+      "waves": 5,
+      "squads": ["Desert Raider", "Standard Assault"],
+      "boss": "Sandstorm Behemoth"
+    }
+  ]
+}

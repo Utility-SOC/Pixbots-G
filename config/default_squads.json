@@ -1,0 +1,37 @@
+{
+	"profile_name": "default_squads",
+	"version": "1.0",
+	"templates": [
+		{
+			"template_name": "Vanilla Assault",
+			"required_roles": {
+				"melee": 3,
+				"ranged": 2
+			},
+			"spawn_weight": 100.0,
+			"base_spawn_weight": 100.0,
+			"times_deployed": 0,
+			"total_fitness": 0.0
+		},
+		{
+			"template_name": "Sniper Cell",
+			"required_roles": {
+				"ranged": 4
+			},
+			"spawn_weight": 100.0,
+			"base_spawn_weight": 100.0,
+			"times_deployed": 0,
+			"total_fitness": 0.0
+		},
+		{
+			"template_name": "Heavy Melee Rush",
+			"required_roles": {
+				"melee": 5
+			},
+			"spawn_weight": 100.0,
+			"base_spawn_weight": 100.0,
+			"times_deployed": 0,
+			"total_fitness": 0.0
+		}
+	]
+}

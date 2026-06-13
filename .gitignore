@@ -1,0 +1,36 @@
+# Godot 4+ specific ignores
+.godot/
+.godot/imported/
+.godot/export.cfg
+.godot/export_credentials.cfg
+.godot/global_script_class_cache.cfg
+
+# Godot-specific ignores
+.import/
+export.cfg
+export_credentials.cfg
+/android/
+
+# Imported translations (if they generate files)
+*.translation
+
+# Mono-specific ignores
+.mono/
+data_*/
+mono_crash.*.json
+
+# System/tool-specific ignores
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+*~
+
+# C# / Visual Studio
+.vs/
+*.user
+*.userprefs
+*.sln
+*.csproj
+obj/
+bin/

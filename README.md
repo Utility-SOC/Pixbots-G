@@ -1,45 +1,52 @@
-# Pixbots-G
+# PIXBOTS-G: INSTRUCTION BOOKLET
 
-A Godot-based tactical 2D game focusing on Mech combat, hex-based component management, and energy routing. Build and customize your bots, route energy effectively, and engage in tactical skirmishes!
-
-## Features
-
-- **Hex-Grid Component Management**: Equip your mechs by placing and linking components on a hex grid.
-- **Dynamic Energy Routing**: Route energy between cores, accumulators, and weapons to optimize your combat capabilities.
-- **Tactical Combat**: Field customizable mechs with unique weapons, shields, and movement capabilities.
-- **Loot System**: Collect and equip new components dropped during engagements.
-
-## Installation
-
-1. **Install Godot**: Download and install [Godot Engine 4.x](https://godotengine.org/download) (ensure you match the minor version used by the project if applicable).
-2. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/Utility-SOC/Pixbots-G.git
-   ```
-3. **Open the Project**:
-   - Open the Godot Engine.
-   - Click on **Import**.
-   - Navigate to the cloned `Pixbots-G` directory and select the `project.godot` file.
-   - Click **Import & Edit**.
-
-## Gameplay Instructions
-
-1. **Garage & Customization**: Use the Garage UI to modify your Mechs. Place hex tiles (like Microcores, Accumulators, and Weapon Mounts) onto your mech's grid.
-2. **Energy Routing**: Ensure your components are properly linked. Energy must flow from Cores to Weapons and Shields to activate them.
-3. **Combat**: Deploy your customized mechs. Position them tactically, manage energy consumption, and use your weapons to defeat enemy squads!
-
-## Debugging & Testing
-
-The project includes several testing scenes to isolate and test specific mechanics:
-- `test_combat.gd` / `test_combat.tscn`: For testing entity interactions and damage calculation.
-- `test_energy_routing.gd`: For validating hex grid links and energy packet distribution.
-- `test_garage.gd`: For testing the component equipping UI and logic.
-- `test_build.gd`: For testing mech assembly.
-
-**To run a specific test**:
-1. Open the `.tscn` file corresponding to the test you want to run.
-2. Press `F6` (or click "Play Current Scene" in the top right corner).
-3. Check the Output console for debug logs, which will output energy routing status, combat events, and component linking validations.
+*Congratulations on your purchase of Pixbots-G! Please read this instruction booklet carefully to ensure proper handling of your Mechs, and keep it in a safe place for future reference.*
 
 ---
 
+## 1. WELCOME TO THE BATTLEFIELD!
+The world has been overrun by rogue robot factions, and it's up to you, Commander, to reclaim the land! In **Pixbots-G**, you build, customize, and pilot advanced Mechs. By placing high-tech modules onto a hex-grid and managing your energy routing, you can create the ultimate war machine. Are you ready to save the world?
+
+## 2. THE POWER OF ROUTING
+Your Mech isn't just a hunk of metal—it's a complex machine powered by pure energy! Here’s how it works:
+
+- **The Core**: The heart of your Mech! Energy starts here and flows outward.
+- **Conduits & Grids**: Place Hex Tiles adjacent to the Core to link them. Energy naturally flows from one component to the next.
+- **Powering Up**: Weapons and Shields won't work on their own! They *must* receive energy packets routed from the Core. Use **Splitters**, **Amplifiers**, and **Accumulators** to manage the flow and ensure your heavy cannons never run dry!
+
+*PRO TIP: Keep an eye on your energy! A misrouted packet means a weapon that won't fire!*
+
+## 3. SYNERGIES: ELEMENTAL POWER!
+Matching the right components unlocks devastating elemental Synergies. Upgrade your Core and route its specialized energy to unleash these attacks:
+
+- 💥 **KINETIC**: Pure, unadulterated physical force. High impact damage that pierces enemy armor!
+- 🔥 **FIRE**: Scorches the earth! Leaves fiery residues that continue to damage enemies over time.
+- ❄️ **ICE**: Chills enemies to the bone. Slows down enemy movement and firing rates.
+- ☠️ **POISON**: Unleashes an acid ball that melts enemy hulls, dealing deadly damage over time.
+- ⚡ **LIGHTNING**: High voltage! Lightning arcs from one enemy to another, damaging clustered foes.
+- 🦇 **VAMPIRE**: Drains the life force from enemies and returns it to your Mech to heal damage!
+- 🌀 **VORTEX**: Sucks enemies into a swirling gravity well, disrupting their formations.
+
+## 4. THE ENEMY MENACE
+The rogue factions field a variety of deadly bots. Know your enemy!
+
+- **SCOUT**: Fast, lightly armored, and annoying. They’ll rush you to spot your position!
+- **BRAWLER**: Tough, heavily armored bruisers. They want to get up close and smash you. Keep your distance!
+- **SNIPER**: Cowards who attack from afar! They have long-range, high-damage weapons. Use cover to approach them.
+- **AMBUSHER**: Sneaky attackers that hide and strike when you least expect it. Watch your back!
+- **FLAMETHROWER**: Dangerous close-quarters combatants. If they get near you, you're toast!
+
+## 5. SURVIVING THE WAVES
+The enemy doesn't play fair! The diabolical **Squad Director** controls the rogue forces, sending them in continuous **Waves**.
+- As you destroy enemies, the Director learns your tactics and escalates the threat.
+- Harder enemies and bigger squads will spawn as time goes on.
+- Look out for **Loot Drops**! Defeated enemies sometimes drop new hex components. Grab them to upgrade your Mech in the Garage!
+
+---
+
+## HOW TO PLAY
+1. **Download the Game**: Go to the **Releases** tab on GitHub and download the standalone game for your system (Windows or Linux).
+2. **Start the Game**: Double-click the application to launch! No installation required!
+3. **Debug Menu**: Press the **`** (Tilde) key during gameplay to open the Debug Menu. Use this to spawn specific enemies, force legendary loot, or instantly teleport to different maps (like Volcano, Ice, or the Arena)!
+
+*Good luck, Commander! The world is depending on you!*

@@ -239,6 +239,19 @@ func _build_visuals():
 		poly.color = final_color
 		poly.scale = Vector2.ONE * p_scale
 		visual_node.add_child(poly)
+		
+		# Purple spiral
+		var spiral = Line2D.new()
+		var s_pts = PackedVector2Array()
+		for i in range(30):
+			var a = i * PI / 4.0
+			var r = i * 0.4
+			s_pts.append(Vector2(cos(a), sin(a)) * r)
+		spiral.points = s_pts
+		spiral.width = 1.5
+		spiral.default_color = Color(0.6, 0.2, 0.9) # Bright purple
+		spiral.scale = Vector2.ONE * p_scale
+		visual_node.add_child(spiral)
 	else:
 		# Default fallback shape
 		var rect = ColorRect.new()

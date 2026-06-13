@@ -80,9 +80,9 @@ func _serialize_component(comp) -> Dictionary:
 		"slot_type": comp.slot_type,
 		"rarity": comp.rarity,
 		"component_name": comp.component_name,
-		"infusion_level": comp.get("infusion_level", 0),
-		"infusion_xp": comp.get("infusion_xp", 0),
-		"stat_modifiers": comp.get("stat_modifiers", {}),
+		"infusion_level": comp.get("infusion_level") if comp.get("infusion_level") != null else 0,
+		"infusion_xp": comp.get("infusion_xp") if comp.get("infusion_xp") != null else 0,
+		"stat_modifiers": comp.get("stat_modifiers") if comp.get("stat_modifiers") != null else {},
 		"tiles": [],
 		"fixed_sinks": []
 	}

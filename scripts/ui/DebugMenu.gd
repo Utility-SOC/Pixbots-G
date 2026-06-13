@@ -57,6 +57,11 @@ func _ready():
 	btn_restore.pressed.connect(_on_restore_components)
 	vbox.add_child(btn_restore)
 	
+	var btn_god_inv = Button.new()
+	btn_god_inv.text = "Give GOD Inventory (50x All Legendary)"
+	btn_god_inv.pressed.connect(_on_give_god_inventory)
+	vbox.add_child(btn_god_inv)
+	
 	var btn_garage = Button.new()
 	btn_garage.text = "Teleport to Garage"
 	btn_garage.pressed.connect(func():
@@ -367,3 +372,46 @@ func _on_restore_components():
 				main.garage_ui._refresh_grid_ui()
 		print("[Debug] Restored 2 full sets of Legendary components!")
 
+func _on_give_god_inventory():
+	var main = get_tree().current_scene
+	if not main or main.get("player_inventory") == null:
+		return
+		
+	var Rarity = load("res://scripts/core/HexTile.gd").Rarity
+	var tile_scripts = [
+		"res://scripts/tiles/SplitterTile.gd",
+		"res://scripts/tiles/AmplifierTile.gd",
+		"res://scripts/tiles/ReflectorTile.gd",
+		"res://scripts/tiles/CatalystTile.gd",
+		"res://scripts/tiles/InfuserTile.gd",
+		"res://scripts/tiles/JumpjetTile.gd",
+		"res://scripts/tiles/WeaponMountTile.gd"
+	]
+	
+	# Give 50 of each normal tile
+	for path in tile_scripts:
+		var script = load(path)
+		if not script: continue
+		for i in range(50):
+			var tile = script.new()
+			tile.rarity = Rarity.LEGENDARY
+			main.player_inventory.append(tile)
+			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
+				if main.garage_ui.inventory != main.player_inventory:
+					main.garage_ui.inventory.append(tile)
+					
+	# Give 20 Microcores
+	var mc_script = load("res://scripts/tiles/MicrocoreTile.gd")
+	if mc_script:
+		for i in range(20):
+			var tile = mc_script.new()
+			tile.rarity = Rarity.LEGENDARY
+			main.player_inventory.append(tile)
+			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
+				if main.garage_ui.inventory != main.player_inventory:
+					main.garage_ui.inventory.append(tile)
+					
+	if main.get("garage_ui") != null:
+		if main.garage_ui.has_method("_refresh_inventory_ui"):
+			main.garage_ui._refresh_inventory_ui()
+	print("[Debug] Added GOD Inventory (50x All Legendary, 20x Microcores)")

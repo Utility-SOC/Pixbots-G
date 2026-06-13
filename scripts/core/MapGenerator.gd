@@ -64,6 +64,18 @@ func _generate_map():
 						biome = BiomeType.DUNGEON
 				elif map_type == "Open Field":
 					biome = BiomeType.GRASSLAND
+				elif map_type == "Desert":
+					biome = BiomeType.DESERT
+				elif map_type == "Forest":
+					biome = BiomeType.FOREST
+				elif map_type == "Tundra":
+					biome = BiomeType.TUNDRA
+				elif map_type == "Volcano":
+					biome = BiomeType.VOLCANO
+				elif map_type == "Dungeon":
+					biome = BiomeType.DUNGEON
+				elif map_type == "Water":
+					biome = BiomeType.WATER
 				else:
 					var elev = noise.get_noise_2d(x, y)
 					var moist = moisture_noise.get_noise_2d(x, y)
@@ -76,7 +88,7 @@ func _generate_map():
 			terrain.append(row)
 			
 		main_continent_tiles = _analyze_connectivity()
-		if map_type in ["Arena", "Open Field"] or main_continent_tiles.size() >= required_size:
+		if map_type != "Normal" or main_continent_tiles.size() >= required_size:
 			map_valid = true
 
 func _analyze_connectivity() -> Dictionary:

@@ -14,6 +14,8 @@ var ratios: Dictionary = {}
 var total_power: float = 0.0
 var final_color: Color = Color.WHITE
 
+var stat_modifiers: Dictionary = {}
+
 # Modifiers
 var pierce_count: int = 1
 var is_homing: bool = false
@@ -110,6 +112,21 @@ func _calculate_stats():
 	# Homing check
 	if ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0) > 0.05:
 		is_homing = true
+		
+	# Apply Component Stat Modifiers
+	if stat_modifiers.has("dmg_mult"): damage *= stat_modifiers["dmg_mult"]
+	if stat_modifiers.has("spd_mult"): final_speed *= stat_modifiers["spd_mult"]
+	
+	# Apply Elemental Multipliers from Components based on ratios
+	if stat_modifiers.has("kin_mult") and r_kin > 0: damage *= lerp(1.0, stat_modifiers["kin_mult"], r_kin)
+	if stat_modifiers.has("fire_mult") and ratios.has(EnergyPacket.SynergyType.FIRE): damage *= lerp(1.0, stat_modifiers["fire_mult"], ratios[EnergyPacket.SynergyType.FIRE])
+	if stat_modifiers.has("ice_mult") and r_ice > 0: damage *= lerp(1.0, stat_modifiers["ice_mult"], r_ice)
+	if stat_modifiers.has("vtx_mult") and ratios.has(EnergyPacket.SynergyType.VORTEX): damage *= lerp(1.0, stat_modifiers["vtx_mult"], ratios[EnergyPacket.SynergyType.VORTEX])
+	if stat_modifiers.has("ltg_mult") and ratios.has(EnergyPacket.SynergyType.LIGHTNING): damage *= lerp(1.0, stat_modifiers["ltg_mult"], ratios[EnergyPacket.SynergyType.LIGHTNING])
+	if stat_modifiers.has("psn_mult") and r_psn > 0: damage *= lerp(1.0, stat_modifiers["psn_mult"], r_psn)
+	if stat_modifiers.has("exp_mult") and r_exp > 0: damage *= lerp(1.0, stat_modifiers["exp_mult"], r_exp)
+	if stat_modifiers.has("prc_mult") and r_prc > 0: damage *= lerp(1.0, stat_modifiers["prc_mult"], r_prc)
+	if stat_modifiers.has("vmp_mult") and ratios.has(EnergyPacket.SynergyType.VAMPIRIC): damage *= lerp(1.0, stat_modifiers["vmp_mult"], ratios[EnergyPacket.SynergyType.VAMPIRIC])
 		
 	# Color Blending
 	final_color = Color(0,0,0,0)

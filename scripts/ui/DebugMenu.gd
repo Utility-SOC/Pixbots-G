@@ -52,6 +52,11 @@ func _ready():
 	)
 	vbox.add_child(btn_time)
 	
+	var btn_restore = Button.new()
+	btn_restore.text = "Restore Lost Components (2 Sets)"
+	btn_restore.pressed.connect(_on_restore_components)
+	vbox.add_child(btn_restore)
+	
 	var btn_garage = Button.new()
 	btn_garage.text = "Teleport to Garage"
 	btn_garage.pressed.connect(func():
@@ -119,6 +124,11 @@ func _ready():
 	btn_legendary_body.text = "Upgrade All Body Parts to Legendary"
 	btn_legendary_body.pressed.connect(_on_upgrade_body_parts)
 	vbox.add_child(btn_legendary_body)
+	
+	var btn_amped_grid = Button.new()
+	btn_amped_grid.text = "Give AMPED Grid (Edge Loops)"
+	btn_amped_grid.pressed.connect(_on_amped_grid)
+	vbox.add_child(btn_amped_grid)
 	
 	var opt_reactor = OptionButton.new()
 	opt_reactor.add_item("Reactor: KINETIC", 1)
@@ -243,6 +253,74 @@ func _on_upgrade_body_parts():
 		if renderer:
 			renderer._rebuild_visuals()
 
+func _on_amped_grid():
+	var main = get_tree().current_scene
+	if main and main.get("player") != null:
+		var mech = main.player
+		var slots = [load("res://scripts/core/HexTile.gd").BodySlot.TORSO, 
+					 load("res://scripts/core/HexTile.gd").BodySlot.HEAD, 
+					 load("res://scripts/core/HexTile.gd").BodySlot.LEG_L, 
+					 load("res://scripts/core/HexTile.gd").BodySlot.LEG_R, 
+					 load("res://scripts/core/HexTile.gd").BodySlot.ARM_L, 
+					 load("res://scripts/core/HexTile.gd").BodySlot.ARM_R,
+					 load("res://scripts/core/HexTile.gd").BodySlot.BACKPACK]
+		
+		var classes = [
+			load("res://scripts/tiles/SplitterTile.gd"),
+			load("res://scripts/tiles/AmplifierTile.gd"),
+			load("res://scripts/tiles/ReflectorTile.gd")
+		]
+		
+		for slot in slots:
+			if mech.components.has(slot):
+				var comp = mech.components[slot]
+				
+				# Find max distance to identify outer edge
+				var center = load("res://scripts/core/HexCoord.gd").new(0, 0)
+				var max_dist = 0
+				for h in comp.valid_hexes:
+					if h.distance(center) > max_dist:
+						max_dist = h.distance(center)
+						
+				# Place alternating tiles on the edge
+				var edge_hexes = []
+				for h in comp.valid_hexes:
+					if h.distance(center) == max_dist and not comp.hex_grid.has_tile(h):
+						edge_hexes.append(h)
+						
+				for i in range(edge_hexes.size()):
+					var h = edge_hexes[i]
+					var tile_class = classes[i % 3]
+					var tile = tile_class.new()
+					tile.rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
+					tile.active_faces.clear()
+					tile.active_faces.append_array([0, 1, 2, 3, 4, 5])
+					comp.hex_grid.add_tile(h, tile)
+					
+		mech.is_grid_dirty = true
+		print("[Debug] AMPED Grid applied to all components!")
+		
+		var renderer = mech.get_node_or_null("MechRenderer")
+		if renderer:
+			renderer._rebuild_visuals()
+			
+		main = get_tree().current_scene
+		if main and main.get("player_inventory") != null:
+			for i in range(20):
+				var tile = preload("res://scripts/tiles/SplitterTile.gd").new()
+				tile.rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
+				main.player_inventory.append(tile)
+				if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
+					# Ensure it's in the Garage inventory if they are different arrays
+					if main.garage_ui.inventory != main.player_inventory:
+						main.garage_ui.inventory.append(tile)
+						
+		if main and main.get("garage_ui") != null:
+			if main.garage_ui.has_method("_refresh_grid_ui"):
+				main.garage_ui._refresh_grid_ui()
+			if main.garage_ui.has_method("_refresh_inventory_ui"):
+				main.garage_ui._refresh_inventory_ui()
+
 func _on_reactor_changed(index: int):
 	var player = get_tree().get_nodes_in_group("player")
 	if player.size() > 0:
@@ -253,3 +331,39 @@ func _on_reactor_changed(index: int):
 				for i in range(6):
 					core.set_face_output(i, index + 1)
 				print("[Debug] Reactor output overridden to synergy ID: ", index + 1)
+
+func _on_restore_components():
+	var main = get_tree().current_scene
+	if main and main.get("player") != null:
+		var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
+		var rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
+		
+		# Generate 2 full sets
+		for i in range(2):
+			var comps = [
+				ScriptComponentEquipment.create_starter_torso("Legendary Torso", rarity),
+				ScriptComponentEquipment.create_starter_head("Legendary Head", rarity),
+				ScriptComponentEquipment.create_starter_arm(true, "Legendary Arm L", rarity),
+				ScriptComponentEquipment.create_starter_arm(false, "Legendary Arm R", rarity),
+				ScriptComponentEquipment.create_starter_leg(true, "Legendary Leg L", rarity),
+				ScriptComponentEquipment.create_starter_leg(false, "Legendary Leg R", rarity),
+				ScriptComponentEquipment.create_jetpack_backpack()
+			]
+			# Set the backpack rarity to legendary too
+			comps[6].rarity = rarity
+			
+			for c in comps:
+				if main.get("player_component_inventory") != null:
+					main.player_component_inventory.append(c)
+					
+				# If this is the first set, automatically equip them
+				if i == 0:
+					main.player.equip_component(c)
+					
+		if main.get("garage_ui") != null:
+			if main.garage_ui.has_method("_refresh_component_ui"):
+				main.garage_ui._refresh_component_ui()
+			if main.garage_ui.has_method("_refresh_grid_ui"):
+				main.garage_ui._refresh_grid_ui()
+		print("[Debug] Restored 2 full sets of Legendary components!")
+

@@ -37,6 +37,9 @@ func _ready():
 	_generate_map()
 	_draw_map_to_texture()
 	_build_navigation()
+	
+	if get_tree().root.has_node("ProceduralMusic"):
+		ProceduralMusic.set_biome(map_type)
 
 func _generate_map():
 	var map_valid = false

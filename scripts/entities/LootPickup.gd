@@ -42,14 +42,9 @@ func _on_body_entered(body: Node2D):
 	if body.has_method("equip_component") and "is_player" in body and body.is_player:
 		if equipment_data:
 			print("Player picked up equipment: ", equipment_data.component_name)
-			# Extract all tiles from the equipment and give them to player
 			var main = body.get_parent()
-			if main and "player_inventory" in main:
-				var tiles = equipment_data.hex_grid.get_all_tiles()
-				for t in tiles:
-					main.player_inventory.append(t)
-			# Additionally, equip the actual component replacing the existing one
-			body.equip_component(equipment_data)
+			if main and "player_component_inventory" in main:
+				main.player_component_inventory.append(equipment_data)
 		elif tile_data:
 			print("Player picked up tile: ", tile_data.tile_type)
 			var main = body.get_parent()

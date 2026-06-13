@@ -20,6 +20,8 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 			mech.current_move_speed = mech.base_move_speed
 			if "ignore_terrain" in mech:
 				mech.ignore_terrain = true
+			if "jumpjet_rarity" in mech:
+				mech.jumpjet_rarity = max(mech.jumpjet_rarity, rarity)
 				
 	return []
 

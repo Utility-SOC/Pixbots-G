@@ -83,8 +83,9 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 4. **Escalation & Adaptation:** As you fight, the Director analyzes your tactics and deploys counter-measures. You must adapt your combat style on the fly to survive the increasingly difficult waves.
 5. **Re-calibration:** After a successful engagement (or a catastrophic failure), you will return to the Garage. You can redesign your energy grids, test new synergistic combinations, and prepare for the next deployment. *(Note: Once the Loot System is brought online, you will also use this phase to integrate recovered enemy components into your build).*
 
-## 8. KNOWN BUGS & SYSTEM MALFUNCTIONS
-Please be advised that the current build of Pixbots-G is undergoing active maintenance. You may encounter the following known issues:
-- **Loot System Offline:** Defeated enemy Mechs currently do not drop loot or components. You cannot acquire new Hex Tiles during gameplay at this time.
-- **Pacifist AI Subroutines:** An error in the enemy AI logic currently prevents them from firing their weapons. They will successfully spawn, form squads, track your location, and pursue you, but they will not shoot. 
-- **Debug Overlays:** The Debug Menu remains accessible in the live build. Pressing the **`** (Tilde) key will open it, allowing you to manually spawn enemies or alter the map state.
+## 8. RECENT SYSTEM UPDATES (CHANGELOG)
+The following issues have been resolved in the latest system update:
+- **Loot System Restored:** Defeated enemy Mechs will now drop components for the player to collect.
+- **Pacifist AI Subroutines Patched:** Enemy AI will now properly route their Weapon Mounts and actively fire on the player.
+- **Component Infusion Added:** Players can now destroy components to grant XP to other components, levelling them up and granting stat modifiers.
+- **Component Swapping Added:** Players can now swap components on their Mech in the Garage.

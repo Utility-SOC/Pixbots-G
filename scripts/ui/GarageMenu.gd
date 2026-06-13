@@ -36,10 +36,10 @@ func _ready():
 	_setup_ui()
 	
 	# Hook up the player's components if they exist
-	if get_parent() and "player" in get_parent() and get_parent().player:
+	if get_parent() and get_parent().get("player") != null:
 		mech_components = get_parent().player.components
 			
-		if "player_inventory" in get_parent():
+		if get_parent().get("player_inventory") != null:
 			inventory = get_parent().player_inventory
 			
 		# Fallback initial loadout if empty
@@ -60,6 +60,12 @@ func _populate_component_tabs():
 		component_tabs.set_tab_metadata(component_tabs.get_tab_count() - 1, slot)
 		
 	_on_tab_changed(0)
+
+func _refresh_component_ui():
+	# If player was loaded or components changed, update the reference and tabs
+	if get_parent() and get_parent().get("player") != null:
+		mech_components = get_parent().player.components
+	_populate_component_tabs()
 
 func _on_tab_changed(index: int):
 	if index < 0 or index >= component_tabs.get_tab_count():
@@ -148,10 +154,26 @@ func _setup_ui():
 	grid_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top_bar.add_child(grid_label)
 	
+	var tab_hbox = HBoxContainer.new()
+	top_bar.add_child(tab_hbox)
+	
 	component_tabs = TabBar.new()
 	component_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	component_tabs.tab_changed.connect(_on_tab_changed)
-	top_bar.add_child(component_tabs)
+	tab_hbox.add_child(component_tabs)
+	
+	var action_vbox = VBoxContainer.new()
+	tab_hbox.add_child(action_vbox)
+	
+	var swap_btn = Button.new()
+	swap_btn.text = "Swap Component"
+	swap_btn.pressed.connect(_on_swap_component_pressed)
+	action_vbox.add_child(swap_btn)
+	
+	var infuse_btn = Button.new()
+	infuse_btn.text = "Infuse (Destroy part)"
+	infuse_btn.pressed.connect(_on_infuse_component_pressed)
+	action_vbox.add_child(infuse_btn)
 	
 	grid_panel = PanelContainer.new()
 	grid_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -193,13 +215,13 @@ func _setup_ui():
 	var sep_fire_toggle = CheckButton.new()
 	sep_fire_toggle.text = "Separate L/R Firing"
 	
-	if get_parent() and "player" in get_parent() and get_parent().player:
+	if get_parent() and get_parent().get("player") != null:
 		sep_fire_toggle.button_pressed = get_parent().player.separate_arm_firing
 	else:
 		sep_fire_toggle.button_pressed = true
 		
 	sep_fire_toggle.toggled.connect(func(pressed):
-		if get_parent() and "player" in get_parent() and get_parent().player:
+		if get_parent() and get_parent().get("player") != null:
 			get_parent().player.separate_arm_firing = pressed
 	)
 	bottom_bar.add_child(sep_fire_toggle)
@@ -219,7 +241,7 @@ func _setup_ui():
 	deploy_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	deploy_button.pressed.connect(func():
 		var main = get_parent()
-		if main and "player" in main and main.player:
+		if main and main.get("player") != null:
 			SaveManager.save_game("autosave", main.player, inventory)
 		if main and main.has_method("_close_garage"):
 			main._close_garage()
@@ -714,3 +736,94 @@ func _on_auto_equip_pressed():
 		grid_renderer.queue_redraw()
 		_refresh_inventory_ui()
 		print("Auto-Equip completed!")
+
+func _on_swap_component_pressed():
+	if not active_component: return
+	var main = get_tree().current_scene
+	if not main or not "player_component_inventory" in main: return
+	
+	var compatible = []
+	for i in range(main.player_component_inventory.size()):
+		var comp = main.player_component_inventory[i]
+		if comp.slot_type == active_component.slot_type:
+			compatible.append({"index": i, "comp": comp})
+			
+	if compatible.is_empty():
+		_show_warning("No compatible components in inventory!")
+		return
+		
+	var popup = PopupMenu.new()
+	for item in compatible:
+		var name_str = item.comp.component_name
+		if item.comp.rarity > 0: name_str += " (Rarity %d)" % item.comp.rarity
+		if item.comp.get("infusion_level", 0) > 0: name_str += " [Lv%d]" % item.comp.infusion_level
+		popup.add_item(name_str, item.index)
+		
+	popup.id_pressed.connect(func(id):
+		# Swap!
+		var new_comp = main.player_component_inventory[id]
+		main.player_component_inventory.remove_at(id)
+		
+		var main_player = main.player
+		if main_player:
+			# Unequip old
+			main_player.remove_child(active_component)
+			main_player.components.erase(active_component.slot_type)
+			main.player_component_inventory.append(active_component)
+			
+			# Equip new
+			main_player.equip_component(new_comp)
+			mech_components = main_player.components
+			
+			_populate_component_tabs()
+			popup.queue_free()
+	)
+	add_child(popup)
+	popup.popup_centered(Vector2(300, 400))
+
+func _on_infuse_component_pressed():
+	if not active_component: return
+	var main = get_tree().current_scene
+	if not main or not "player_component_inventory" in main: return
+	
+	if main.player_component_inventory.is_empty():
+		_show_warning("No components in inventory to dismantle!")
+		return
+		
+	var popup = PopupMenu.new()
+	for i in range(main.player_component_inventory.size()):
+		var comp = main.player_component_inventory[i]
+		var name_str = comp.component_name
+		if comp.rarity > 0: name_str += " (Rarity %d)" % comp.rarity
+		if comp.get("infusion_level", 0) > 0: name_str += " [Lv%d]" % comp.infusion_level
+		popup.add_item("Dismantle " + name_str, i)
+		
+	popup.id_pressed.connect(func(id):
+		var junk = main.player_component_inventory[id]
+		main.player_component_inventory.remove_at(id)
+		
+		# Transfer tiles from dismantled component to inventory
+		var junk_tiles = junk.hex_grid.get_all_tiles()
+		for t in junk_tiles:
+			if t.tile_type != "Component Link" and t.tile_type != "Core Reactor":
+				inventory.append(t)
+		
+		# Add XP
+		var xp_gain = 100 + (junk.rarity * 150)
+		if active_component.has_method("add_infusion_xp"):
+			active_component.add_infusion_xp(xp_gain)
+			_show_warning("Infused %s! +%d XP to %s" % [junk.component_name, xp_gain, active_component.component_name])
+		else:
+			_show_warning("ComponentEquipment missing Infusion Logic!")
+			
+		_refresh_inventory_ui()
+		popup.queue_free()
+	)
+	add_child(popup)
+	popup.popup_centered(Vector2(300, 400))
+
+func _show_warning(msg: String):
+	var dialog = AcceptDialog.new()
+	dialog.dialog_text = msg
+	add_child(dialog)
+	dialog.popup_centered()

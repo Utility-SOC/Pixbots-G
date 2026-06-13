@@ -1,0 +1,614 @@
+class_name Mech
+extends CharacterBody2D
+
+const CoreTile = preload("res://scripts/tiles/CoreTile.gd")
+const ComponentEquipment = preload("res://scripts/core/ComponentEquipment.gd")
+const ComponentLinkTile = preload("res://scripts/tiles/ComponentLinkTile.gd")
+
+var max_hp: float = 100.0
+var hp: float = 100.0
+var base_move_speed: float = 200.0
+var current_move_speed: float = 200.0
+var status_effects: Dictionary = {}
+
+var shield_hp: float = 0.0
+var max_shield_hp: float = 0.0
+
+func apply_shield_energy(amount: float):
+	max_shield_hp += amount # Max shield grows based on energy it processes!
+	shield_hp = max_shield_hp
+
+var is_player: bool = false
+var combat_role: String = "melee"
+var element_type: String = "kinetic"
+
+var last_aim_position: Vector2 = Vector2.ZERO
+var is_firing_outward: bool = true
+
+var fire_cooldown: float = 0.0
+var fire_rate: float = 0.25 # 4 shots per second
+
+var components: Dictionary = {} # Dict of HexTile.BodySlot -> ComponentEquipment
+var is_grid_dirty: bool = true
+var precalculated_weapons: Array = []
+
+var is_drowning: bool = false
+var drown_timer: float = 1.0
+
+var current_path: PackedVector2Array = []
+var path_update_timer: float = 0.0
+
+# Advanced AI Tactics
+var target: Node2D = null
+var speed_modifier: float = 1.0
+var engagement_distance: float = 200.0 # How close to get before strafing
+var rotational_direction: float = 1.0 # 1.0 for clockwise, -1.0 for counter-clockwise
+var base_speed: float = 150.0
+
+var separate_arm_firing: bool = true
+var base_rarity: int = 0 # HexTile.Rarity.COMMON
+var is_boss: bool = false
+
+signal dealt_damage(amount: float)
+signal died()
+signal fled_to_wild(bot: Node)
+
+func _ready():
+	# Build default body
+	equip_component(ComponentEquipment.create_starter_torso(combat_role if not is_player else "", base_rarity))
+	equip_component(ComponentEquipment.create_starter_arm(true, combat_role if not is_player else "", base_rarity))
+	equip_component(ComponentEquipment.create_starter_arm(false, combat_role if not is_player else "", base_rarity))
+	equip_component(ComponentEquipment.create_starter_leg(true, combat_role if not is_player else "", base_rarity))
+	equip_component(ComponentEquipment.create_starter_leg(false, combat_role if not is_player else "", base_rarity))
+	equip_component(ComponentEquipment.create_starter_head(combat_role if not is_player else "", base_rarity))
+	equip_component(ComponentEquipment.create_starter_backpack(combat_role if not is_player else "", base_rarity))
+	
+	if not is_player:
+		build_loadout_for_role(combat_role)
+	
+	# Attach Visual Renderer
+	var renderer = load("res://scripts/visuals/MechRenderer.gd").new()
+	renderer.name = "MechRenderer"
+	add_child(renderer)
+	
+	# Pass the full components dict so the renderer can draw each piece
+	renderer.components = components
+	renderer._rebuild_visuals()
+	
+	# Collision shape
+	var collision = CollisionShape2D.new()
+	var shape = RectangleShape2D.new()
+	shape.size = Vector2(40, 40)
+	collision.shape = shape
+	add_child(collision)
+	
+	if is_player:
+		collision_layer = 8 # Layer 4 (Player)
+		collision_mask = 1 | 2 | 4 | 16 # Env, Water, Enemy, Loot
+	else:
+		collision_layer = 4 # Layer 3 (Enemy)
+		collision_mask = 1 | 2 | 8 # Env, Water, Player
+	
+func equip_component(comp: ComponentEquipment):
+	if comp.slot_type == HexTile.BodySlot.TORSO:
+		var h0 = HexCoord.new(0, 0)
+		var has_core = false
+		if comp.hex_grid.has_tile(h0):
+			var existing = comp.hex_grid.get_tile(h0)
+			if existing and existing.tile_type == "Core Reactor":
+				has_core = true
+			else:
+				comp.hex_grid.remove_tile(h0)
+		if not has_core:
+			var core_tile = load("res://scripts/tiles/CoreTile.gd").new()
+			core_tile.body_slot = HexTile.BodySlot.TORSO
+			comp.hex_grid.add_tile(h0, core_tile)
+			
+	components[comp.slot_type] = comp
+	add_child(comp)
+	is_grid_dirty = true
+	
+func unequip_component(slot: HexTile.BodySlot) -> ComponentEquipment:
+	if components.has(slot):
+		var comp = components[slot]
+		components.erase(slot)
+		remove_child(comp)
+		is_grid_dirty = true
+		return comp
+	return null
+
+func _physics_process(delta: float):
+	if is_drowning:
+		drown_timer -= delta
+		scale = Vector2.ONE * (drown_timer)
+		modulate.a = drown_timer
+		if drown_timer <= 0:
+			die()
+		return
+		
+	update_status_effects(delta)
+	
+	if fire_cooldown > 0:
+		fire_cooldown -= delta
+	
+	if is_player:
+		_handle_player_input()
+		move_and_slide()
+		
+		# Drowning check
+		if not Input.is_action_pressed("ui_select"):
+			_check_drowning()
+		
+		var renderer = get_node_or_null("MechRenderer")
+		if renderer:
+			renderer.rotate_arms(get_global_mouse_position(), global_position)
+			renderer.animate_legs(velocity, Time.get_ticks_msec() / 1000.0)
+	else:
+		_execute_ai_tactics(delta)
+		move_and_slide()
+		
+		var is_jumping = false
+		if components.has(load("res://scripts/core/HexTile.gd").BodySlot.BACKPACK):
+			if components[load("res://scripts/core/HexTile.gd").BodySlot.BACKPACK].component_name == "Jetpack":
+				is_jumping = true
+		if not is_jumping:
+			_check_drowning()
+		
+		if target:
+			var renderer = get_node_or_null("MechRenderer")
+			if renderer:
+				renderer.rotate_arms(target.global_position, global_position)
+				renderer.animate_legs(velocity, Time.get_ticks_msec() / 1000.0)
+
+func _check_drowning():
+	var space_state = get_world_2d().direct_space_state
+	var query = PhysicsPointQueryParameters2D.new()
+	query.position = global_position
+	query.collision_mask = 2 # Water layer
+	var result = space_state.intersect_point(query)
+	if result.size() > 0:
+		is_drowning = true
+		velocity = Vector2.ZERO
+
+func _handle_player_input():
+	# Simple WASD movement
+	var input_dir = Vector2.ZERO
+	input_dir.x = Input.get_axis("ui_left", "ui_right")
+	input_dir.y = Input.get_axis("ui_up", "ui_down")
+	
+	if input_dir.length() > 0:
+		input_dir = input_dir.normalized()
+		
+	velocity = input_dir * current_move_speed
+	
+	# JumpJets bypass Water (Mask 2)
+	if Input.is_action_pressed("ui_select"): # Spacebar
+		collision_mask = 1 | 4 | 16 # Only collide with walls/obstacles, Enemy, Loot
+	else:
+		collision_mask = 1 | 2 | 4 | 16 # Collide with water too
+		
+	# Mouse Aiming
+	var mouse_pos = get_global_mouse_position()
+	
+	# Firing logic
+	var is_left_pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	var is_right_pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+	
+	if is_left_pressed and is_right_pressed and not separate_arm_firing:
+		_shoot(mouse_pos, true, true)
+	elif is_left_pressed:
+		_shoot(mouse_pos, true, true)
+	elif is_right_pressed:
+		if separate_arm_firing:
+			_shoot(mouse_pos, true, false)
+		else:
+			_shoot(mouse_pos, false, false)
+
+func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true):
+	if fire_cooldown > 0: return
+	fire_cooldown = fire_rate
+	
+	last_aim_position = target_pos
+	is_firing_outward = is_outward
+	
+	if is_grid_dirty:
+		_recalculate_grid()
+		
+	for data in precalculated_weapons:
+		if is_player and separate_arm_firing and data.slot_type != load("res://scripts/core/HexTile.gd").BodySlot.BACKPACK:
+			if fire_left_arm and data.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.ARM_R:
+				continue
+			if not fire_left_arm and data.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.ARM_L:
+				continue
+				
+		data.mount._fire_combined_projectile(self, data.packet, data.step)
+
+func _recalculate_grid():
+	precalculated_weapons.clear()
+	max_shield_hp = 0.0 # Reset shield HP
+	shield_hp = 0.0
+	base_speed = 150.0 # Reset base speed for Jumpjets to calculate
+	
+	if not components.has(HexTile.BodySlot.TORSO):
+		return
+		
+	var torso = components[HexTile.BodySlot.TORSO]
+	
+	# Find Core in Torso
+	var core = null
+	for t in torso.hex_grid.get_all_tiles():
+		if t.has_method("generate_energy"):
+			core = t
+			break
+			
+	if not core:
+		return
+		
+	# Clear pending packets on ALL components
+	for comp in components.values():
+		for tile in comp.hex_grid.get_all_tiles():
+			if "pending_packets" in tile:
+				tile.pending_packets.clear()
+				
+	# Generate initial packets from Core
+	var initial_packets = core.generate_energy(torso.hex_grid)
+	
+	# PHASE 1: Route through Torso grid
+	_simulate_grid(torso.hex_grid, initial_packets)
+	
+	# PHASE 2: Collect transferred packets from Sinks and route into peripheral grids
+	var peripheral_transfer = _collect_transfers(torso)
+	# Simulate HEAD first so it can return energy
+	if peripheral_transfer.has(HexTile.BodySlot.HEAD) and components.has(HexTile.BodySlot.HEAD):
+		var head_comp = components[HexTile.BodySlot.HEAD]
+		var h_pkts = peripheral_transfer[HexTile.BodySlot.HEAD]
+		_route_to_peripheral(h_pkts, head_comp)
+		_simulate_grid(head_comp.hex_grid, h_pkts)
+		
+		# Collect Head return packets
+		var head_return = _collect_transfers(head_comp)
+		if head_return.has(HexTile.BodySlot.TORSO):
+			var return_pkts = head_return[HexTile.BodySlot.TORSO]
+			var return_pos = HexCoord.new(0, 0)
+			var return_tile = null
+			# Find the Head Return node
+			for coord_v in torso.hex_grid.grid.keys():
+				var t = torso.hex_grid.grid[coord_v]
+				if t.tile_type == "Head Return":
+					return_pos = HexCoord.new(coord_v.x, coord_v.y)
+					return_tile = t
+					break
+			
+			var final_return_pkts: Array[EnergyPacket] = []
+			for pkt in return_pkts:
+				if return_tile:
+					# Process it through the Microcore to aim it!
+					var out = return_tile.process_energy(pkt, 0, torso.hex_grid)
+					for p in out:
+						p.position = return_pos
+						p.is_active = true
+						final_return_pkts.append(p)
+				else:
+					pkt.position = return_pos
+					pkt.is_active = true
+					final_return_pkts.append(pkt)
+					
+			# Re-simulate Torso with returned energy!
+			_simulate_grid(torso.hex_grid, final_return_pkts)
+			
+			# Add any new transfers from Torso back into the peripheral pools
+			var second_transfers = _collect_transfers(torso)
+			for slot in second_transfers:
+				if not peripheral_transfer.has(slot):
+					peripheral_transfer[slot] = []
+				peripheral_transfer[slot].append_array(second_transfers[slot])
+
+	# Simulate remaining peripherals (Arms, Legs)
+	for slot in peripheral_transfer.keys():
+		if slot == HexTile.BodySlot.HEAD: continue # Already simulated
+		if components.has(slot):
+			var comp = components[slot]
+			var pkts = peripheral_transfer[slot]
+			_route_to_peripheral(pkts, comp)
+			_simulate_grid(comp.hex_grid, pkts)
+			
+	for comp in components.values():
+		for tile in comp.hex_grid.get_all_tiles():
+			if tile is WeaponMountTile and tile.pending_packets.size() > 0:
+				var step_groups = {}
+				for item in tile.pending_packets:
+					var step = item.step
+					if not step_groups.has(step):
+						step_groups[step] = []
+					step_groups[step].append(item.packet)
+					
+				var sorted_steps = step_groups.keys()
+				sorted_steps.sort()
+				
+				for step in sorted_steps:
+					var group: Array = step_groups[step]
+					if group.is_empty(): continue
+					
+					var merged_packet = group[0].copy()
+					for i in range(1, group.size()):
+						merged_packet.merge(group[i])
+						
+					precalculated_weapons.append({
+						"mount": tile,
+						"packet": merged_packet,
+						"step": step,
+						"slot_type": comp.slot_type
+					})
+					
+				tile.clear_pending()
+				
+	is_grid_dirty = false
+
+func _collect_transfers(comp) -> Dictionary:
+	var result = {}
+	for t in comp.hex_grid.get_all_tiles():
+		if t is ComponentLinkTile:
+			var transfer_pkts = t.get_pending_transfers()
+			if transfer_pkts.size() > 0:
+				if not result.has(t.target_slot):
+					result[t.target_slot] = []
+				result[t.target_slot].append_array(transfer_pkts)
+	return result
+
+func _route_to_peripheral(pkts: Array, comp):
+	for pkt in pkts:
+		var opp_dir = (pkt.direction + 3) % 6
+		pkt.position = HexCoord.new(0, 0).neighbor(opp_dir)
+		pkt.is_active = true
+
+func _simulate_grid(grid: HexGridComponent, starting_packets: Array):
+	for pkt in starting_packets:
+		if pkt.position == null:
+			pkt.position = HexCoord.new(0, 0)
+		pkt.traversal_steps = 0
+		var active_packets = [pkt]
+		var steps = 0
+		
+		# Max 15 routing steps to prevent infinite loops from closed circuits
+		while active_packets.size() > 0 and steps < 15:
+			steps += 1
+			var next_packets: Array[EnergyPacket] = []
+			
+			for p in active_packets:
+				if not p.is_active: continue
+				var dir = p.direction
+				var next_pos = p.position.neighbor(dir)
+				
+				if grid.has_tile(next_pos):
+					var tile = grid.get_tile(next_pos)
+					p.traversal_steps += 1
+					if "sync_adjustment" in tile:
+						p.traversal_steps += tile.sync_adjustment
+						p.traversal_steps = max(0, p.traversal_steps)
+						
+					var out_pkts = tile.process_energy(p, (dir + 3) % 6, grid)
+					for out in out_pkts:
+						out.position = next_pos
+						out.traversal_steps = p.traversal_steps
+					next_packets.append_array(out_pkts)
+				else:
+					# Edge bounce: reflect 180 degrees
+					var bounce_p = p.copy()
+					bounce_p.direction = (dir + 3) % 6
+					bounce_p.position = p.position # Stay on the current tile
+					bounce_p.traversal_steps = steps
+					next_packets.append(bounce_p)
+			
+			var merged_packets = {}
+			for p in next_packets:
+				var key = str(p.position.q) + "_" + str(p.position.r) + "_" + str(p.direction)
+				if merged_packets.has(key):
+					merged_packets[key].merge(p)
+				else:
+					merged_packets[key] = p
+					
+			active_packets = merged_packets.values()
+
+func _execute_ai_tactics(delta):
+	if not target:
+		var players = get_tree().get_nodes_in_group("player")
+		if players.size() > 0:
+			target = players[0]
+			
+	if target:
+		var dist = global_position.distance_to(target.global_position)
+		var dir = global_position.direction_to(target.global_position)
+		
+		path_update_timer -= delta
+		if path_update_timer <= 0:
+			path_update_timer = 0.5 + randf_range(0, 0.2)
+			var maps = get_tree().get_nodes_in_group("map_generator")
+			if maps.size() > 0:
+				var map = maps[0]
+				var start_grid = Vector2i(
+					clamp(floor(global_position.x / map.tile_size), 0, map.width - 1),
+					clamp(floor(global_position.y / map.tile_size), 0, map.height - 1)
+				)
+				var end_grid = Vector2i(
+					clamp(floor(target.global_position.x / map.tile_size), 0, map.width - 1),
+					clamp(floor(target.global_position.y / map.tile_size), 0, map.height - 1)
+				)
+				if not map.astar_grid.is_point_solid(end_grid):
+					current_path = map.astar_grid.get_id_path(start_grid, end_grid)
+					for i in range(current_path.size()):
+						var p = current_path[i]
+						current_path[i] = Vector2(p.x * map.tile_size + map.tile_size/2.0, p.y * map.tile_size + map.tile_size/2.0)
+		
+		if current_path.size() > 1:
+			var next_point = current_path[1]
+			if global_position.distance_to(next_point) < 10.0:
+				current_path.remove_at(0)
+				if current_path.size() > 1:
+					next_point = current_path[1]
+					
+			var path_dir = global_position.direction_to(next_point)
+			
+			if dist > engagement_distance:
+				# Approach full speed
+				velocity = path_dir * base_speed * speed_modifier
+			else:
+				# Reached engagement distance, strafe/orbit at half speed
+				var tangent = Vector2(-dir.y, dir.x) * rotational_direction
+				# Raycast to prevent strafing into walls
+				var space_state = get_world_2d().direct_space_state
+				var query = PhysicsRayQueryParameters2D.create(global_position, global_position + tangent * 50.0, 1)
+				if space_state.intersect_ray(query):
+					rotational_direction *= -1 # Reverse orbit
+					tangent = Vector2(-dir.y, dir.x) * rotational_direction
+					
+				velocity = tangent * base_speed * (speed_modifier * 0.5)
+		else:
+			# Fallback if no path (or too close)
+			if dist > engagement_distance:
+				velocity = dir * base_speed * speed_modifier
+			else:
+				var tangent = Vector2(-dir.y, dir.x) * rotational_direction
+				velocity = tangent * base_speed * (speed_modifier * 0.5)
+			
+		# AI combat shooting
+		if dist < engagement_distance + 150.0 and fire_cooldown <= 0:
+			_shoot(target.global_position, true)
+
+var elemental_resistances: Dictionary = {}
+
+func apply_damage(amount: float, element: String = "RAW"):
+	if elemental_resistances.has(element):
+		amount *= elemental_resistances[element]
+		
+	if not is_player:
+		var main = get_tree().current_scene
+		if main and main.has_node("SquadDirector"):
+			main.get_node("SquadDirector").log_player_damage(amount, element)
+			
+	if shield_hp > 0 and amount > 0:
+		shield_hp -= amount
+		if shield_hp < 0:
+			amount = -shield_hp
+			shield_hp = 0
+		else:
+			return # Shields absorbed all global damage
+			
+	hp -= amount
+	if hp <= 0:
+		die()
+
+func apply_part_damage(slot: int, amount: float, element: String = "RAW"):
+	if shield_hp > 0 and amount > 0:
+		shield_hp -= amount
+		if shield_hp < 0:
+			amount = -shield_hp
+			shield_hp = 0
+		else:
+			return # Shields absorbed all part damage
+			
+	if not components.has(slot): return
+	var comp = components[slot]
+	
+	# Apply damage to a random tile in that component's grid
+	var tiles = comp.hex_grid.get_all_tiles()
+	if tiles.size() > 0:
+		var hit_tile = tiles[randi() % tiles.size()]
+		hit_tile.take_damage(amount)
+		
+	# Apply a small fraction of locational damage to global structure HP
+	apply_damage(amount * 0.2, element)
+
+func apply_status(effect_name: String, duration: float):
+	status_effects[effect_name] = duration
+
+func update_status_effects(delta: float):
+	current_move_speed = base_move_speed
+	
+	var effects_to_remove = []
+	for effect in status_effects:
+		status_effects[effect] -= delta
+		
+		# Handle active effects
+		if effect == "frozen":
+			current_move_speed = base_move_speed * 0.4 # 60% slow
+		elif effect == "burning":
+			apply_damage(5.0 * delta) # 5 damage per second
+			
+		# Check if expired
+		if status_effects[effect] <= 0:
+			effects_to_remove.append(effect)
+			
+	for effect in effects_to_remove:
+		status_effects.erase(effect)
+
+func die():
+	if is_queued_for_deletion():
+		return
+		
+	var loot_manager = load("res://scripts/core/LootManager.gd").new()
+	loot_manager.generate_loot_for_mech(self)
+	loot_manager.queue_free()
+	
+	died.emit()
+	
+	var is_over_water = false
+	var maps = get_tree().get_nodes_in_group("map_generator")
+	if maps.size() > 0:
+		var map = maps[0]
+		var grid_pos = Vector2i(floor(global_position.x / map.tile_size), floor(global_position.y / map.tile_size))
+		if grid_pos.x >= 0 and grid_pos.x < map.width and grid_pos.y >= 0 and grid_pos.y < map.height:
+			if map.terrain[grid_pos.y][grid_pos.x] == map.BiomeType.WATER:
+				is_over_water = true
+				
+	if is_over_water:
+		collision_layer = 0
+		collision_mask = 0
+		set_physics_process(false)
+		var tween = create_tween()
+		tween.tween_property(self, "scale", Vector2(0.2, 0.2), 1.0).set_trans(Tween.TRANS_SINE)
+		tween.parallel().tween_property(self, "global_position", global_position + Vector2(0, 20), 1.0)
+		tween.parallel().tween_property(self, "modulate:a", 0.0, 1.0)
+		tween.tween_callback(queue_free)
+	else:
+		queue_free()
+
+func build_loadout_for_role(role_name: String):
+	var inventory = []
+	
+	var add_tile = func(path, rarity, synergy=0):
+		var tile = load(path).new()
+		tile.rarity = rarity
+		if synergy > 0 and "secondary_synergy" in tile:
+			tile.secondary_synergy = synergy
+		inventory.append(tile)
+		
+	match role_name:
+		"sniper":
+			add_tile.call("res://scripts/tiles/AmplifierTile.gd", load("res://scripts/core/HexTile.gd").Rarity.RARE)
+			add_tile.call("res://scripts/tiles/CatalystTile.gd", load("res://scripts/core/HexTile.gd").Rarity.RARE)
+			add_tile.call("res://scripts/tiles/DirectionalConduitTile.gd", load("res://scripts/core/HexTile.gd").Rarity.COMMON)
+		"brawler":
+			add_tile.call("res://scripts/tiles/SplitterTile.gd", load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON)
+			add_tile.call("res://scripts/tiles/SplitterTile.gd", load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON)
+			add_tile.call("res://scripts/tiles/AmplifierTile.gd", load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON)
+		"flamethrower":
+			add_tile.call("res://scripts/tiles/InfuserTile.gd", load("res://scripts/core/HexTile.gd").Rarity.RARE, 1) # FIRE
+			add_tile.call("res://scripts/tiles/SplitterTile.gd", load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON)
+			add_tile.call("res://scripts/tiles/SplitterTile.gd", load("res://scripts/core/HexTile.gd").Rarity.COMMON)
+		"ambusher":
+			add_tile.call("res://scripts/tiles/InfuserTile.gd", load("res://scripts/core/HexTile.gd").Rarity.RARE, 4) # KINETIC
+			add_tile.call("res://scripts/tiles/AmplifierTile.gd", load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON)
+		"scout":
+			pass # Uses basic conduits if they were available, fallback empty solver handles it
+			
+	var solver = load("res://scripts/core/AutoEquipSolver.gd").new()
+	
+	if components.has(load("res://scripts/core/HexTile.gd").BodySlot.TORSO):
+		inventory = solver.solve(components[load("res://scripts/core/HexTile.gd").BodySlot.TORSO], inventory)
+	if components.has(load("res://scripts/core/HexTile.gd").BodySlot.ARM_R):
+		inventory = solver.solve(components[load("res://scripts/core/HexTile.gd").BodySlot.ARM_R], inventory)
+	if components.has(load("res://scripts/core/HexTile.gd").BodySlot.ARM_L):
+		inventory = solver.solve(components[load("res://scripts/core/HexTile.gd").BodySlot.ARM_L], inventory)
+		
+	_recalculate_grid()
+

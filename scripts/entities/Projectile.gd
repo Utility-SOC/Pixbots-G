@@ -163,6 +163,8 @@ func _build_visuals():
 	
 	# Procedural Shape based on Dominant Element
 	var p_scale = 1.0 + log(1.0 + total_power / 200.0) * 0.5
+	p_scale = min(p_scale, 3.0) # Maximum reasonable scale limit
+	
 	if dominant == EnergyPacket.SynergyType.KINETIC:
 		# Sharp, aerodynamic shape
 		var poly = Polygon2D.new()
@@ -187,6 +189,52 @@ func _build_visuals():
 		var poly = Polygon2D.new()
 		poly.polygon = PackedVector2Array([
 			Vector2(8, 0), Vector2(0, 4), Vector2(-5, 2), Vector2(-3, 0), Vector2(-5, -2), Vector2(0, -4)
+		])
+		poly.color = final_color
+		poly.scale = Vector2.ONE * p_scale
+		visual_node.add_child(poly)
+	elif dominant == EnergyPacket.SynergyType.POISON:
+		# Teardrop shape
+		var poly = Polygon2D.new()
+		poly.polygon = PackedVector2Array([
+			Vector2(8, 0), Vector2(-2, 4), Vector2(-5, 2), Vector2(-5, -2), Vector2(-2, -4)
+		])
+		poly.color = final_color
+		poly.scale = Vector2.ONE * p_scale
+		visual_node.add_child(poly)
+	elif dominant == EnergyPacket.SynergyType.LIGHTNING:
+		# Zig-zag bolt shape
+		var poly = Polygon2D.new()
+		poly.polygon = PackedVector2Array([
+			Vector2(8, -2), Vector2(2, 4), Vector2(0, 0), Vector2(-6, 4), Vector2(-2, -4), Vector2(0, 0)
+		])
+		poly.color = final_color
+		poly.scale = Vector2.ONE * p_scale
+		visual_node.add_child(poly)
+	elif dominant == EnergyPacket.SynergyType.EXPLOSION:
+		# Spiky burst shape
+		var poly = Polygon2D.new()
+		poly.polygon = PackedVector2Array([
+			Vector2(6, 0), Vector2(2, 2), Vector2(0, 6), Vector2(-2, 2),
+			Vector2(-6, 0), Vector2(-2, -2), Vector2(0, -6), Vector2(2, -2)
+		])
+		poly.color = final_color
+		poly.scale = Vector2.ONE * p_scale
+		visual_node.add_child(poly)
+	elif dominant == EnergyPacket.SynergyType.PIERCE:
+		# Needle shape
+		var poly = Polygon2D.new()
+		poly.polygon = PackedVector2Array([
+			Vector2(12, 0), Vector2(-6, 2), Vector2(-4, 0), Vector2(-6, -2)
+		])
+		poly.color = final_color
+		poly.scale = Vector2.ONE * p_scale
+		visual_node.add_child(poly)
+	elif dominant == EnergyPacket.SynergyType.VORTEX:
+		# Diamond shape for vortex core
+		var poly = Polygon2D.new()
+		poly.polygon = PackedVector2Array([
+			Vector2(5, 0), Vector2(0, 5), Vector2(-5, 0), Vector2(0, -5)
 		])
 		poly.color = final_color
 		poly.scale = Vector2.ONE * p_scale
@@ -218,6 +266,7 @@ func _build_visuals():
 			Vector2(5, 0), Vector2(0, 2), Vector2(-5, 0), Vector2(0, -2)
 		])
 		core.color = Color(1.0, 1.0, 1.0, 0.8)
+		core.scale = Vector2.ONE * p_scale
 		visual_node.add_child(core)
 		
 	# Setup helix for multi-synergy combos
@@ -232,7 +281,7 @@ func _build_visuals():
 					"node": h,
 					"phase": helix_particles.size() * PI,
 					"speed": 10.0 + ratios[k] * 10.0,
-					"radius": 4.0 + synergies[k] * 2.0
+					"radius": (8.0 + ratios[k] * 12.0) * p_scale
 				})
 	
 	# Kinetic Trail (Line2D)

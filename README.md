@@ -71,7 +71,7 @@ The Director monitors the elemental damage it sustains. Once you deal over 500 t
 To maximize the efficiency of your Mech's hex grid, consider the following routing configurations:
 
 - **The Closed Loop (Resonator + Reflector):** Route energy through a Resonator, into a Reflector, and back through the Resonator. This allows you to stack efficiency multipliers before splitting the packet off to your weapon systems.
-- **Elemental Dual-Wielding (Catalyst + Splitter):** Use a Splitter early in your grid to divide your Core's kinetic output. Route one packet into a Catalyst (e.g., FIRE) and the other into a different Catalyst (e.g., LIGHTNING). This bypasses the Squad Director's Reactive Resistance Profiling by keeping your elemental damage ratios balanced.
+- **Elemental Dual-Wielding (Elemental Infuser + Splitter):** Use a Splitter early in your grid to divide your Core's kinetic output. Route one packet into a Elemental Infuser (e.g., FIRE) and the other into a different Elemental Infuser (e.g., LIGHTNING). This bypasses the Squad Director's Reactive Resistance Profiling by keeping your elemental damage ratios balanced.
 - **Burst Buffer (Accumulator + Amplifier):** Place an Accumulator right before an Amplifier and Weapon Mount. Allow the Accumulator to store energy during downtime. When engaging an enemy, the stored energy will rapidly push through the Amplifier, creating a massive opening burst attack before settling into a sustained fire rate.
 - **Shield Priority Routing (Directional Conduit):** Always use Directional Conduits when routing to Shield Generators. If a component is damaged or disabled, you do not want energy backflowing away from your critical defensive systems.
 

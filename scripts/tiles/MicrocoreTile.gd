@@ -1,5 +1,5 @@
 class_name MicrocoreTile
-extends CoreTile
+extends "res://scripts/tiles/CoreTile.gd"
 
 func _init():
 	super._init()

@@ -11,11 +11,13 @@ const DROP_RATES = {
 var current_wave: int = 1
 
 func generate_loot_for_mech(mech: Node):
-	if not mech.has_node("HexGridComponent"):
+	if not "components" in mech:
 		return
 		
-	var grid: HexGridComponent = mech.get_node("HexGridComponent")
-	var equipped_tiles = grid.get_all_tiles()
+	var equipped_tiles = []
+	for comp in mech.components.values():
+		if comp and comp.has_node("HexGridComponent"):
+			equipped_tiles.append_array(comp.get_node("HexGridComponent").get_all_tiles())
 	
 	var is_boss = ("is_boss" in mech and mech.is_boss)
 	var is_25th_wave_boss = is_boss and (current_wave % 25 == 0)

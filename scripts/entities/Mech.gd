@@ -7,19 +7,22 @@ const ComponentLinkTile = preload("res://scripts/tiles/ComponentLinkTile.gd")
 
 var max_hp: float = 100.0
 var hp: float = 100.0
-var base_move_speed: float = 200.0
-var current_move_speed: float = 200.0
-var status_effects: Dictionary = {}
-
 var shield_hp: float = 0.0
 var max_shield_hp: float = 0.0
+
+var current_move_speed: float = 200.0
+var base_move_speed: float = 200.0
+var combat_role: String = "melee"
+
+var status_effects: Dictionary = {}
+var stat_modifiers: Dictionary = {}
+var jumpjet_rarity: int = -1
 
 func apply_shield_energy(amount: float):
 	max_shield_hp += amount # Max shield grows based on energy it processes!
 	shield_hp = max_shield_hp
 
 var is_player: bool = false
-var combat_role: String = "melee"
 var element_type: String = "kinetic"
 
 var last_aim_position: Vector2 = Vector2.ZERO
@@ -132,7 +135,7 @@ func _physics_process(delta: float):
 		fire_cooldown -= delta
 	
 	if is_player:
-		_handle_player_input()
+		_handle_player_input(delta)
 		move_and_slide()
 		
 		# Drowning check
@@ -170,7 +173,7 @@ func _check_drowning():
 		is_drowning = true
 		velocity = Vector2.ZERO
 
-func _handle_player_input():
+func _handle_player_input(delta: float):
 	# Simple WASD movement
 	var input_dir = Vector2.ZERO
 	input_dir.x = Input.get_axis("ui_left", "ui_right")
@@ -179,7 +182,17 @@ func _handle_player_input():
 	if input_dir.length() > 0:
 		input_dir = input_dir.normalized()
 		
-	velocity = input_dir * current_move_speed
+	var target_vel = input_dir * current_move_speed
+	
+	if Input.is_key_pressed(KEY_SHIFT) and jumpjet_rarity >= 0:
+		target_vel *= 1.5 # 50% faster sprint
+		var accel = 400.0 + (jumpjet_rarity * 400.0) # 400 (Common) to 1600 (Legendary)
+		if target_vel == Vector2.ZERO:
+			velocity = velocity.move_toward(Vector2.ZERO, accel * delta)
+		else:
+			velocity = velocity.move_toward(target_vel, accel * delta)
+	else:
+		velocity = target_vel
 	
 	# JumpJets bypass Water (Mask 2)
 	if Input.is_action_pressed("ui_select"): # Spacebar
@@ -227,89 +240,101 @@ func _recalculate_grid():
 	precalculated_weapons.clear()
 	max_shield_hp = 0.0 # Reset shield HP
 	shield_hp = 0.0
-	base_speed = 150.0 # Reset base speed for Jumpjets to calculate
+	base_move_speed = 150.0 # Reset base speed for Jumpjets to calculate
+	jumpjet_rarity = -1
+	stat_modifiers.clear()
+	
+	# Aggregate all component stat modifiers
+	for comp in components.values():
+		if comp.get("stat_modifiers"):
+			for k in comp.stat_modifiers:
+				if stat_modifiers.has(k):
+					stat_modifiers[k] += comp.stat_modifiers[k] - 1.0 # Additive percentage bonuses
+				else:
+					stat_modifiers[k] = comp.stat_modifiers[k]
 	
 	if not components.has(HexTile.BodySlot.TORSO):
 		return
 		
 	var torso = components[HexTile.BodySlot.TORSO]
 	
-	# Find Core in Torso
-	var core = null
+	# Collect energy from ALL generators in the Torso
+	var initial_packets: Array[EnergyPacket] = []
 	for t in torso.hex_grid.get_all_tiles():
 		if t.has_method("generate_energy"):
-			core = t
-			break
-			
-	if not core:
-		return
-		
-	# Clear pending packets on ALL components
-	for comp in components.values():
-		for tile in comp.hex_grid.get_all_tiles():
-			if "pending_packets" in tile:
-				tile.pending_packets.clear()
-				
-	# Generate initial packets from Core
-	var initial_packets = core.generate_energy(torso.hex_grid)
+			initial_packets.append_array(t.generate_energy(torso.hex_grid))
 	
 	# PHASE 1: Route through Torso grid
 	_simulate_grid(torso.hex_grid, initial_packets)
 	
 	# PHASE 2: Collect transferred packets from Sinks and route into peripheral grids
 	var peripheral_transfer = _collect_transfers(torso)
-	# Simulate HEAD first so it can return energy
-	if peripheral_transfer.has(HexTile.BodySlot.HEAD) and components.has(HexTile.BodySlot.HEAD):
-		var head_comp = components[HexTile.BodySlot.HEAD]
-		var h_pkts = peripheral_transfer[HexTile.BodySlot.HEAD]
-		_route_to_peripheral(h_pkts, head_comp)
-		_simulate_grid(head_comp.hex_grid, h_pkts)
-		
-		# Collect Head return packets
-		var head_return = _collect_transfers(head_comp)
-		if head_return.has(HexTile.BodySlot.TORSO):
-			var return_pkts = head_return[HexTile.BodySlot.TORSO]
-			var return_pos = HexCoord.new(0, 0)
-			var return_tile = null
-			# Find the Head Return node
-			for coord_v in torso.hex_grid.grid.keys():
-				var t = torso.hex_grid.grid[coord_v]
-				if t.tile_type == "Head Return":
-					return_pos = HexCoord.new(coord_v.x, coord_v.y)
-					return_tile = t
-					break
+	# Simulate HEAD and BACKPACK first so they can return energy
+	var return_pkts: Array[EnergyPacket] = []
+	for accessory_slot in [HexTile.BodySlot.HEAD, HexTile.BodySlot.BACKPACK]:
+		if peripheral_transfer.has(accessory_slot) and components.has(accessory_slot):
+			var accessory_comp = components[accessory_slot]
+			var a_pkts = peripheral_transfer[accessory_slot]
+			_route_to_peripheral(a_pkts, accessory_comp)
 			
-			var final_return_pkts: Array[EnergyPacket] = []
-			for pkt in return_pkts:
-				if return_tile:
-					# Process it through the Microcore to aim it!
-					var out = return_tile.process_energy(pkt, 0, torso.hex_grid)
-					for p in out:
-						p.position = return_pos
-						p.is_active = true
-						final_return_pkts.append(p)
-				else:
-					pkt.position = return_pos
-					pkt.is_active = true
-					final_return_pkts.append(pkt)
+			for t in accessory_comp.hex_grid.get_all_tiles():
+				if t.has_method("generate_energy"):
+					a_pkts.append_array(t.generate_energy(accessory_comp.hex_grid))
 					
-			# Re-simulate Torso with returned energy!
-			_simulate_grid(torso.hex_grid, final_return_pkts)
+			_simulate_grid(accessory_comp.hex_grid, a_pkts)
 			
-			# Add any new transfers from Torso back into the peripheral pools
-			var second_transfers = _collect_transfers(torso)
-			for slot in second_transfers:
-				if not peripheral_transfer.has(slot):
-					peripheral_transfer[slot] = []
-				peripheral_transfer[slot].append_array(second_transfers[slot])
+			# Collect return packets
+			var accessory_return = _collect_transfers(accessory_comp)
+			if accessory_return.has(HexTile.BodySlot.TORSO):
+				return_pkts.append_array(accessory_return[HexTile.BodySlot.TORSO])
+
+	if return_pkts.size() > 0:
+		var return_pos = HexCoord.new(0, 0)
+		var return_tile = null
+		# Find the Accessory Return node
+		for coord_v in torso.hex_grid.grid.keys():
+			var t = torso.hex_grid.grid[coord_v]
+			if t.tile_type == "Accessory Return":
+				return_pos = HexCoord.new(coord_v.x, coord_v.y)
+				return_tile = t
+				break
+		
+		var final_return_pkts: Array[EnergyPacket] = []
+		for pkt in return_pkts:
+			if return_tile:
+				# Process it through the Return Link
+				var out = return_tile.process_energy(pkt, 0, torso.hex_grid)
+				for p in out:
+					p.position = return_pos
+					p.is_active = true
+					final_return_pkts.append(p)
+			else:
+				pkt.position = return_pos
+				pkt.is_active = true
+				final_return_pkts.append(pkt)
+				
+		# Re-simulate Torso with returned energy!
+		_simulate_grid(torso.hex_grid, final_return_pkts)
+		
+		# Add any new transfers from Torso back into the peripheral pools
+		var second_transfers = _collect_transfers(torso)
+		for slot in second_transfers:
+			if not peripheral_transfer.has(slot):
+				peripheral_transfer[slot] = []
+			peripheral_transfer[slot].append_array(second_transfers[slot])
 
 	# Simulate remaining peripherals (Arms, Legs)
 	for slot in peripheral_transfer.keys():
-		if slot == HexTile.BodySlot.HEAD: continue # Already simulated
+		if slot == HexTile.BodySlot.HEAD or slot == HexTile.BodySlot.BACKPACK: continue # Already simulated
 		if components.has(slot):
 			var comp = components[slot]
 			var pkts = peripheral_transfer[slot]
 			_route_to_peripheral(pkts, comp)
+			
+			for t in comp.hex_grid.get_all_tiles():
+				if t.has_method("generate_energy"):
+					pkts.append_array(t.generate_energy(comp.hex_grid))
+					
 			_simulate_grid(comp.hex_grid, pkts)
 			
 	for comp in components.values():

@@ -10,30 +10,20 @@ func _ready():
 
 func save_game(save_name: String, mech: Node, inventory: Array):
 	var data = {
-		"version": 1,
+		"version": 2,
 		"components": {},
-		"inventory": []
+		"inventory": [],
+		"component_inventory": []
 	}
 	
 	# Serialize Components
 	for slot in mech.components.keys():
-		var comp = mech.components[slot]
-		var comp_data = {
-			"slot_type": comp.slot_type,
-			"rarity": comp.rarity,
-			"component_name": comp.component_name,
-			"tiles": [],
-			"fixed_sinks": []
-		}
+		data["components"][str(slot)] = _serialize_component(mech.components[slot])
 		
-		for h in comp.fixed_sinks:
-			comp_data["fixed_sinks"].append({"q": h.q, "r": h.r})
-		
-		for h in comp.hex_grid.grid.keys():
-			var tile = comp.hex_grid.grid[h]
-			comp_data["tiles"].append(_serialize_tile(tile))
-			
-		data["components"][str(slot)] = comp_data
+	# Serialize Component Inventory
+	if "player_component_inventory" in mech.get_parent():
+		for comp in mech.get_parent().player_component_inventory:
+			data["component_inventory"].append(_serialize_component(comp))
 		
 	# Serialize Inventory
 	for tile in inventory:
@@ -58,7 +48,8 @@ func load_game(save_name: String) -> Dictionary:
 		
 	var result = {
 		"components": {},
-		"inventory": []
+		"inventory": [],
+		"component_inventory": []
 	}
 	
 	var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
@@ -66,32 +57,15 @@ func load_game(save_name: String) -> Dictionary:
 	if json.has("components"):
 		for slot_str in json["components"].keys():
 			var cdata = json["components"][slot_str]
-			var comp = ScriptComponentEquipment.new(int(cdata["slot_type"]), int(cdata["rarity"]))
-			comp.component_name = cdata.get("component_name", "Unknown")
-			comp.generate_shape()
-			
-			# Load tiles
-			if cdata.has("tiles"):
-				for tdata in cdata["tiles"]:
-					var tile = _deserialize_tile(tdata)
-					if tile and tile.grid_position:
-						comp.hex_grid.add_tile(tile.grid_position, tile)
-						
-			# Re-calculate fixed sinks based on loaded tiles or saved array
-			comp.fixed_sinks.clear()
-			if cdata.has("fixed_sinks"):
-				for hdata in cdata["fixed_sinks"]:
-					comp.fixed_sinks.append(HexCoord.new(int(hdata["q"]), int(hdata["r"])))
-			else:
-				# Fallback for old saves
-				for h in comp.hex_grid.grid.keys():
-					var tile = comp.hex_grid.grid[h]
-					if tile.tile_type == "Component Link" and tile.get("is_fixed"):
-						comp.fixed_sinks.append(HexCoord.new(h.x, h.y))
-					elif tile.tile_type == "Core Reactor" or tile.tile_type == "Weapon Mount" or tile.tile_type == "Actuator" or tile.tile_type == "Torso Return" or tile.tile_type == "Backpack Link":
-						comp.fixed_sinks.append(HexCoord.new(h.x, h.y))
-					
-			result["components"][int(slot_str)] = comp
+			var comp = _deserialize_component(cdata)
+			if comp:
+				result["components"][int(slot_str)] = comp
+				
+	if json.has("component_inventory"):
+		for cdata in json["component_inventory"]:
+			var comp = _deserialize_component(cdata)
+			if comp:
+				result["component_inventory"].append(comp)
 			
 	if json.has("inventory"):
 		for tdata in json["inventory"]:
@@ -100,6 +74,54 @@ func load_game(save_name: String) -> Dictionary:
 				result["inventory"].append(tile)
 				
 	return result
+
+func _serialize_component(comp) -> Dictionary:
+	var comp_data = {
+		"slot_type": comp.slot_type,
+		"rarity": comp.rarity,
+		"component_name": comp.component_name,
+		"infusion_level": comp.get("infusion_level", 0),
+		"infusion_xp": comp.get("infusion_xp", 0),
+		"stat_modifiers": comp.get("stat_modifiers", {}),
+		"tiles": [],
+		"fixed_sinks": []
+	}
+	for h in comp.fixed_sinks:
+		comp_data["fixed_sinks"].append({"q": h.q, "r": h.r})
+	for h in comp.hex_grid.grid.keys():
+		var tile = comp.hex_grid.grid[h]
+		comp_data["tiles"].append(_serialize_tile(tile))
+	return comp_data
+
+func _deserialize_component(cdata: Dictionary):
+	var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
+	var slot_type = cdata.get("slot_type", 0)
+	var rarity = cdata.get("rarity", 0)
+	var comp = ScriptComponentEquipment.new(int(slot_type), int(rarity))
+	comp.component_name = cdata.get("component_name", "Unknown")
+	if cdata.has("infusion_level"): comp.set("infusion_level", cdata["infusion_level"])
+	if cdata.has("infusion_xp"): comp.set("infusion_xp", cdata["infusion_xp"])
+	if cdata.has("stat_modifiers"): comp.set("stat_modifiers", cdata["stat_modifiers"])
+	comp.generate_shape()
+	
+	if cdata.has("tiles"):
+		for tdata in cdata["tiles"]:
+			var tile = _deserialize_tile(tdata)
+			if tile and tile.grid_position:
+				comp.hex_grid.add_tile(tile.grid_position, tile)
+				
+	comp.fixed_sinks.clear()
+	if cdata.has("fixed_sinks"):
+		for hdata in cdata["fixed_sinks"]:
+			comp.fixed_sinks.append(HexCoord.new(int(hdata["q"]), int(hdata["r"])))
+	else:
+		for h in comp.hex_grid.grid.keys():
+			var tile = comp.hex_grid.grid[h]
+			if tile.tile_type == "Component Link" and tile.get("is_fixed"):
+				comp.fixed_sinks.append(HexCoord.new(h.x, h.y))
+			elif tile.tile_type == "Core Reactor" or tile.tile_type == "Weapon Mount" or tile.tile_type == "Actuator" or tile.tile_type == "Torso Return" or tile.tile_type == "Backpack Link":
+				comp.fixed_sinks.append(HexCoord.new(h.x, h.y))
+	return comp
 
 func _serialize_tile(tile) -> Dictionary:
 	var data = {

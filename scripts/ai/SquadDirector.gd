@@ -88,8 +88,8 @@ func _on_squad_request_linkup(squad: Squad):
 				break
 
 func _merge_squads(squad_a: Squad, squad_b: Squad):
-	# Max merged squad size is 4
-	var max_cap = 4
+	# Max merged squad size is 12
+	var max_cap = 12
 	
 	# Move members from B to A
 	for mech in squad_b.members.duplicate():

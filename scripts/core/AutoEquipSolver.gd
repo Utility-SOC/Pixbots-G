@@ -123,16 +123,21 @@ func solve(component: Node, inventory: Array) -> Array:
 		if num_children > 1:
 			# Needs a Splitter
 			var split_idx = _find_tile_index(inventory, "Splitter")
+			var splitter
 			if split_idx >= 0:
-				var splitter = inventory[split_idx]
+				splitter = inventory[split_idx]
 				inventory.remove_at(split_idx)
-				splitter.active_faces.clear()
-				for child_v in children:
-					var child_h = HexCoord.new(child_v.x, child_v.y)
-					var exit_dir = _get_direction(h, child_h)
-					splitter.active_faces.append(exit_dir)
-				grid.add_tile(h, splitter)
-				placed_tile = true
+			else:
+				# Spawn a generic splitter to prevent broken routing
+				splitter = load("res://scripts/tiles/SplitterTile.gd").new()
+				
+			splitter.active_faces.clear()
+			for child_v in children:
+				var child_h = HexCoord.new(child_v.x, child_v.y)
+				var exit_dir = _get_direction(h, child_h)
+				splitter.active_faces.append(exit_dir)
+			grid.add_tile(h, splitter)
+			placed_tile = true
 				
 		elif num_children == 1:
 			var child_v = children[0]
@@ -141,7 +146,7 @@ func solve(component: Node, inventory: Array) -> Array:
 			
 			if entry_dir == exit_dir:
 				# Straight path -> Amplifier, Catalyst, Infuser
-				var tile_types = ["Amplifier", "Catalyst", "Electric Infuser", "Thermal Infuser", "Kinetic Infuser", "Splitter"]
+				var tile_types = ["Amplifier", "Catalyst", "Elemental Infuser", "Splitter"]
 				var idx = -1
 				for t in tile_types:
 					idx = _find_tile_index(inventory, t)
@@ -170,20 +175,28 @@ func solve(component: Node, inventory: Array) -> Array:
 				else:
 					# Fallback to Splitter
 					idx = _find_tile_index(inventory, "Splitter")
+					var splitter
 					if idx >= 0:
-						var splitter = inventory[idx]
+						splitter = inventory[idx]
 						inventory.remove_at(idx)
-						splitter.active_faces.clear()
-						splitter.active_faces.append(exit_dir)
-						grid.add_tile(h, splitter)
-						placed_tile = true
+					else:
+						# Spawn generic splitter to prevent broken routing at corners
+						splitter = load("res://scripts/tiles/SplitterTile.gd").new()
+						
+					splitter.active_faces.clear()
+					splitter.active_faces.append(exit_dir)
+					grid.add_tile(h, splitter)
+					placed_tile = true
 						
 		if not placed_tile:
 			# Just dump anything that can pass energy
+			var tile
 			if inventory.size() > 0:
-				var tile = inventory[0]
+				tile = inventory[0]
 				inventory.remove_at(0)
-				grid.add_tile(h, tile)
+			else:
+				tile = load("res://scripts/tiles/DirectionalConduitTile.gd").new()
+			grid.add_tile(h, tile)
 				
 	return inventory
 

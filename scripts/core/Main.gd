@@ -13,6 +13,7 @@ var map: MapGenerator
 var garage_ui: CanvasLayer
 var player: Mech
 var player_inventory: Array = []
+var player_component_inventory: Array = []
 
 func _ready():
 	_load_campaign()
@@ -68,6 +69,8 @@ func _setup_player():
 				
 		if load_data.has("inventory"):
 			player_inventory = load_data["inventory"]
+		if load_data.has("component_inventory"):
+			player_component_inventory = load_data["component_inventory"]
 	else:
 		_initialize_starter_inventory()
 	
@@ -82,6 +85,7 @@ func _setup_player():
 
 func _initialize_starter_inventory():
 	player_inventory.clear()
+	player_component_inventory.clear()
 	
 	var rarities = [HexTile.Rarity.COMMON, HexTile.Rarity.UNCOMMON, HexTile.Rarity.RARE, HexTile.Rarity.LEGENDARY]
 	var classes = [
@@ -98,6 +102,12 @@ func _initialize_starter_inventory():
 				tile.rarity = r
 				player_inventory.append(tile)
 				
+	# Add 20 Legendary Splitters per user request
+	for i in range(20):
+		var tile = preload("res://scripts/tiles/SplitterTile.gd").new()
+		tile.rarity = HexTile.Rarity.LEGENDARY
+		player_inventory.append(tile)
+				
 	# Add Infusers
 	var poison_infuser = load("res://scripts/tiles/InfuserTile.gd").new()
 	poison_infuser.rarity = HexTile.Rarity.RARE
@@ -113,6 +123,12 @@ func _initialize_starter_inventory():
 	var leg_cat = load("res://scripts/tiles/CatalystTile.gd").new()
 	leg_cat.rarity = HexTile.Rarity.LEGENDARY
 	player_inventory.append(leg_cat)
+
+	# Add Jumpjets for Water Traversal
+	for i in range(2):
+		var jj = load("res://scripts/tiles/JumpjetTile.gd").new()
+		jj.rarity = HexTile.Rarity.UNCOMMON
+		player_inventory.append(jj)
 
 func _start_intermission():
 	if current_wave > 1 and (current_wave - 1) % 5 == 0:

@@ -61,6 +61,8 @@ func _fire_combined_projectile(mech: Node2D, packet: EnergyPacket, step: int):
 	proj.fired_by_player = mech.get("is_player") == true
 	proj.damage = base_damage
 	proj.synergies = packet.synergies.duplicate()
+	if "stat_modifiers" in mech:
+		proj.stat_modifiers = mech.stat_modifiers.duplicate()
 	proj.global_position = get_muzzle_position(mech)
 	
 	var aim_pos = mech.last_aim_position if "last_aim_position" in mech else mech.global_position + Vector2(0, -100)

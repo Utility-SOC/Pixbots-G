@@ -1,52 +1,68 @@
-# PIXBOTS-G: INSTRUCTION BOOKLET
+# PIXBOTS-G: TECHNICAL MANUAL
 
-*Congratulations on your purchase of Pixbots-G! Please read this instruction booklet carefully to ensure proper handling of your Mechs, and keep it in a safe place for future reference.*
+Welcome to the Pixbots-G operations manual. This document details the technical specifications of your Mech, the component modules at your disposal, and the AI routines governing the enemy units. Please review these parameters prior to deployment.
 
----
-
-## 1. WELCOME TO THE BATTLEFIELD!
-The world has been overrun by rogue robot factions, and it's up to you, Commander, to reclaim the land! In **Pixbots-G**, you build, customize, and pilot advanced Mechs. By placing high-tech modules onto a hex-grid and managing your energy routing, you can create the ultimate war machine. Are you ready to save the world?
-
-## 2. THE POWER OF ROUTING
-Your Mech isn't just a hunk of metal—it's a complex machine powered by pure energy! Here’s how it works:
-
-- **The Core**: The heart of your Mech! Energy starts here and flows outward.
-- **Conduits & Grids**: Place Hex Tiles adjacent to the Core to link them. Energy naturally flows from one component to the next.
-- **Powering Up**: Weapons and Shields won't work on their own! They *must* receive energy packets routed from the Core. Use **Splitters**, **Amplifiers**, and **Accumulators** to manage the flow and ensure your heavy cannons never run dry!
-
-*PRO TIP: Keep an eye on your energy! A misrouted packet means a weapon that won't fire!*
-
-## 3. SYNERGIES: ELEMENTAL POWER!
-Matching the right components unlocks devastating elemental Synergies. Upgrade your Core and route its specialized energy to unleash these attacks:
-
-- 💥 **KINETIC**: Pure, unadulterated physical force. High impact damage that pierces enemy armor!
-- 🔥 **FIRE**: Scorches the earth! Leaves fiery residues that continue to damage enemies over time.
-- ❄️ **ICE**: Chills enemies to the bone. Slows down enemy movement and firing rates.
-- ☠️ **POISON**: Unleashes an acid ball that melts enemy hulls, dealing deadly damage over time.
-- ⚡ **LIGHTNING**: High voltage! Lightning arcs from one enemy to another, damaging clustered foes.
-- 🦇 **VAMPIRE**: Drains the life force from enemies and returns it to your Mech to heal damage!
-- 🌀 **VORTEX**: Sucks enemies into a swirling gravity well, disrupting their formations.
-
-## 4. THE ENEMY MENACE
-The rogue factions field a variety of deadly bots. Know your enemy!
-
-- **SCOUT**: Fast, lightly armored, and annoying. They’ll rush you to spot your position!
-- **BRAWLER**: Tough, heavily armored bruisers. They want to get up close and smash you. Keep your distance!
-- **SNIPER**: Cowards who attack from afar! They have long-range, high-damage weapons. Use cover to approach them.
-- **AMBUSHER**: Sneaky attackers that hide and strike when you least expect it. Watch your back!
-- **FLAMETHROWER**: Dangerous close-quarters combatants. If they get near you, you're toast!
-
-## 5. SURVIVING THE WAVES
-The enemy doesn't play fair! The diabolical **Squad Director** controls the rogue forces, sending them in continuous **Waves**.
-- As you destroy enemies, the Director learns your tactics and escalates the threat.
-- Harder enemies and bigger squads will spawn as time goes on.
-- Look out for **Loot Drops**! Defeated enemies sometimes drop new hex components. Grab them to upgrade your Mech in the Garage!
+*Note on current software version:* Loot drops are currently disabled and will not drop from enemies in this build. Furthermore, enemy weapon systems are currently offline for maintenance; they will track and approach you, but they do not shoot yet.
 
 ---
 
-## HOW TO PLAY
-1. **Download the Game**: Go to the **Releases** tab on GitHub and download the standalone game for your system (Windows or Linux).
-2. **Start the Game**: Double-click the application to launch! No installation required!
-3. **Debug Menu**: Press the **`** (Tilde) key during gameplay to open the Debug Menu. Use this to spawn specific enemies, force legendary loot, or instantly teleport to different maps (like Volcano, Ice, or the Arena)!
+## 1. COMPONENT HEX TILES
+Your Mech's capabilities are determined by the Hex Tiles installed on its grid. Understanding the flow of energy packets through these tiles is essential for optimization. 
 
-*Good luck, Commander! The world is depending on you!*
+### Power Generation & Storage
+- **Core Tile**: The primary power source. Energy originates here and flows outward through active faces.
+- **Microcore Tile**: A secondary, localized power generator. Provides supplementary energy but has limited output faces.
+- **Accumulator Tile**: Stores excess energy packets. Discharges them when the primary draw exceeds generation, serving as a buffer.
+
+### Routing & Modulation
+- **Splitter Tile**: Receives an energy packet and duplicates it, sending it out across multiple faces. Crucial for powering multiple weapons simultaneously.
+- **Directional Conduit Tile**: Forces energy to flow in one specific direction, preventing backflow and ensuring packets reach their intended destination.
+- **Amplifier Tile**: Modulates the packet, increasing the final output value (e.g., weapon damage or shield strength) at the cost of durability.
+- **Filter Tile**: Acts as a gateway that only allows specific elemental energy (e.g., FIRE or ICE) to pass through, blocking unmatched packets.
+- **Catalyst Tile**: Converts standard kinetic energy into elemental energy, allowing you to trigger Synergies without a specialized Core.
+- **Reflector Tile**: Bounces energy packets back in the direction they came from, useful for complex closed-loop routing.
+- **Resonator Tile**: Increases efficiency if multiple packets of the same element pass through it consecutively.
+- **Infuser Tile**: Consumes two different elemental packets to output a combined, higher-tier elemental packet.
+
+### Utilities & Combat
+- **Weapon Mount Tile**: The terminal node for energy. Converts incoming packets into offensive projectiles based on the energy's element.
+- **Shield Generator Tile**: Converts incoming packets into a defensive barrier, absorbing incoming damage before it hits your hull.
+- **Actuator Tile & Jumpjet Tile**: Mobility modules that consume energy to increase the base speed and traversal capabilities of your Mech.
+
+## 2. COMPONENT RARITY & SYNC ADJUSTMENT
+Hex Tiles are classified into four rarities: **COMMON, UNCOMMON, RARE, and LEGENDARY**.
+
+Higher rarity tiles are not just structurally superior; they possess a variance in their **Sync Adjustment**. This adjustment modifies how efficiently the tile links with adjacent components:
+- **COMMON & UNCOMMON**: Standard specification. No sync adjustment (0).
+- **RARE**: Has a 40% probability of exhibiting a minor sync deviation (+1 or -1).
+- **LEGENDARY**: Highly volatile prototypes. Has an 80% probability of exhibiting a significant sync deviation (+1, -1, +2, or -2).
+
+## 3. ELEMENTAL SYNERGIES
+When specific elemental energy packets reach a Weapon Mount, they trigger unique subroutines:
+- **KINETIC**: Standard armor-piercing projectile.
+- **FIRE**: Ignites the impact zone, leaving a residue that causes damage over time.
+- **ICE**: Decreases the target's internal processing speed, lowering their movement rate.
+- **POISON**: Corrosive acid that bypasses standard armor and damages the hull directly.
+- **LIGHTNING**: Arcs to secondary targets within a localized radius.
+- **VAMPIRE**: Absorbs structural integrity from the target and reroutes it to repair your Mech.
+- **VORTEX**: Generates a localized gravity well, pulling nearby units out of formation.
+
+## 4. ENEMY CHASSIS SPECIFICATIONS
+You will encounter five distinct chassis types deployed by the enemy AI:
+- **SCOUT**: Low HP (80), extremely high mobility (220 Speed). Engages at 250 units.
+- **BRAWLER**: High HP (150), moderate mobility (130 Speed). Engages at close range (100 units).
+- **SNIPER**: Fragile (60 HP) but maintains maximum distance (450 units). Low fire rate but high accuracy.
+- **AMBUSHER**: Standard chassis (90 HP, 180 Speed). Engages at 180 units with a high fire-rate burst capability.
+- **FLAMETHROWER**: Heavy chassis (120 HP). Closes in to 150 units to deploy area-of-effect damage.
+
+## 5. SQUAD DIRECTOR (AI ROUTINES)
+The enemy forces are not randomized; they are controlled by the **Squad Director**, an AI that dynamically allocates resources to defeat you.
+
+### Wave Escalation
+The Director operates in waves. For every wave completed, the maximum HP and Shield HP of all newly spawned enemies increases exponentially by a multiplier of `1.10^(Wave - 1)`.
+
+### Tactical Assembly & Link-ups
+The Director spawns units based on weighted templates (e.g., "Sniper Team", "Ambushers"). It actively searches the map for "wild bots" (unassigned units) and recruits them into squads to fulfill required roles. If a squad takes heavy casualties, it will broadcast a link-up request to any other broken squad within a 1000-unit radius, merging them to maintain a full tactical formation of up to 4 units.
+
+### Reactive Resistance Profiling
+The Director monitors the elemental damage it sustains. Once you deal over 500 total damage, the Director evaluates your elemental usage. If you rely on a single element for more than 40% of your damage output, the Director will deploy specialized, element-resistant Mechs. These Mechs take 50% less damage from your favored element and deploy visual dampeners (e.g., a "Grounded" yellowish tint against Lightning, or an "Anti-Heal" red tint against Vampire attacks).

@@ -62,19 +62,53 @@ func _ready():
 	)
 	vbox.add_child(btn_garage)
 	
-	var btn_arena = Button.new()
-	btn_arena.text = "Regenerate as Arena"
-	btn_arena.pressed.connect(func():
-		_toggle_menu()
-		var main = get_tree().current_scene
-		var map = main.get_node_or_null("GameMap")
-		if map:
-			map.map_type = "Arena"
-			map._generate_map()
-			map._draw_map_to_texture()
-			map._build_navigation()
-	)
-	vbox.add_child(btn_arena)
+	var spawn_as_label = Label.new()
+	spawn_as_label.text = "-- Spawn Map As --"
+	spawn_as_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(spawn_as_label)
+	
+	var map_grid = GridContainer.new()
+	map_grid.columns = 3
+	vbox.add_child(map_grid)
+	
+	var map_types = ["Normal", "Arena", "Open Field", "Desert", "Forest", "Tundra", "Volcano", "Dungeon", "Water"]
+	var map_colors = [Color(0.4, 0.8, 0.4), Color(0.15, 0.1, 0.2), Color(0.4, 0.8, 0.4), Color(0.9, 0.8, 0.5), Color(0.1, 0.5, 0.2), Color(0.8, 0.9, 0.9), Color(0.3, 0.1, 0.1), Color(0.15, 0.1, 0.2), Color(0.2, 0.4, 0.9)]
+	
+	for i in range(map_types.size()):
+		var map_type = map_types[i]
+		var color = map_colors[i]
+		
+		var btn = Button.new()
+		btn.custom_minimum_size = Vector2(80, 80)
+		
+		var rect = ColorRect.new()
+		rect.color = color
+		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(rect)
+		
+		var lbl = Label.new()
+		lbl.text = map_type
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		lbl.add_theme_color_override("font_color", Color.WHITE)
+		lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+		lbl.add_theme_constant_override("outline_size", 2)
+		btn.add_child(lbl)
+		
+		btn.pressed.connect(func():
+			_toggle_menu()
+			var main = get_tree().current_scene
+			var map = main.get_node_or_null("GameMap")
+			if map:
+				map.map_type = map_type
+				map._generate_map()
+				map._draw_map_to_texture()
+				map._build_navigation()
+		)
+		map_grid.add_child(btn)
 	
 	var btn_legendary_core = Button.new()
 	btn_legendary_core.text = "Upgrade Core to Legendary"

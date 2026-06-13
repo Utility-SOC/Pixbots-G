@@ -42,4 +42,4 @@ The project includes several testing scenes to isolate and test specific mechani
 3. Check the Output console for debug logs, which will output energy routing status, combat events, and component linking validations.
 
 ---
-*Created and maintained by the Utility-SOC team.*
+

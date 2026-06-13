@@ -740,7 +740,7 @@ func _on_auto_equip_pressed():
 func _on_swap_component_pressed():
 	if not active_component: return
 	var main = get_tree().current_scene
-	if not main or not "player_component_inventory" in main: return
+	if not main or main.get("player_component_inventory") == null: return
 	
 	var compatible = []
 	for i in range(main.player_component_inventory.size()):

@@ -10,7 +10,7 @@ func get_max_faces() -> int:
 		Rarity.COMMON: return 1
 		Rarity.UNCOMMON: return 1
 		Rarity.RARE: return 2
-		Rarity.LEGENDARY: return 2
+		Rarity.LEGENDARY: return 4
 		_: return 1
 
 var power_output: float = 50.0

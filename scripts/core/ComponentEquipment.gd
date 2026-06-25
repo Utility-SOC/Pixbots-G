@@ -149,7 +149,7 @@ func generate_shape():
 			for l in range(length):
 				var tilt = l / 2
 				if role_variant == "scout": tilt = l # more tilted/lithe
-				var shift = -tilt if is_left else tilt
+				var shift = -tilt # Make both legs look like the left leg
 				for w in range(width):
 					if valid_hexes.size() >= base_count: break
 					valid_hexes.append(HexCoord.new(w - width/2 + shift, l))
@@ -381,14 +381,41 @@ static func create_starter_backpack(role: String = "", p_rarity: int = HexTile.R
 	core.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), core)
 	
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+		
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+	
 	return pack
 
 static func create_shield_backpack():
 	var script = load("res://scripts/core/ComponentEquipment.gd")
-	var pack = script.new(HexTile.BodySlot.BACKPACK, HexTile.Rarity.RARE)
-	pack.component_name = "Shield Generator"
+	var pack = script.new(HexTile.BodySlot.BACKPACK, HexTile.Rarity.MYTHIC)
+	pack.component_name = "Mythic Shield"
 	pack.generate_shape()
-	# Optional: fill with shield generators if such tiles exist, or give it high base stats.
+	
+	var shield_class = load("res://scripts/tiles/ShieldTile.gd")
+	if shield_class:
+		var shield = shield_class.new()
+		shield.rarity = HexTile.Rarity.MYTHIC
+		shield.body_slot = HexTile.BodySlot.BACKPACK
+		pack.hex_grid.add_tile(HexCoord.new(0, 0), shield)
+		
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+		
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+		
 	return pack
 
 static func create_jetpack_backpack():

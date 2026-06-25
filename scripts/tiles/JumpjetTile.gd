@@ -14,7 +14,10 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	
 	if grid and grid.get_parent():
 		var mech = grid.get_parent()
-		if "current_move_speed" in mech and "base_move_speed" in mech:
+		if mech is ComponentEquipment:
+			mech = mech.get_parent()
+			
+		if mech and "current_move_speed" in mech and "base_move_speed" in mech:
 			# Apply continuous speed boost while energy is flowing
 			mech.base_move_speed += packet.magnitude * speed_boost_mult * _get_power_multiplier()
 			mech.current_move_speed = mech.base_move_speed

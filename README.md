@@ -62,7 +62,7 @@ The enemy forces are not randomized; they are controlled by the **Squad Director
 The Director operates in waves. For every wave completed, the maximum HP and Shield HP of all newly spawned enemies increases exponentially by a multiplier of `1.10^(Wave - 1)`.
 
 ### Tactical Assembly & Link-ups
-The Director spawns units based on weighted templates (e.g., "Sniper Team", "Ambushers"). It actively searches the map for "wild bots" (unassigned units) and recruits them into squads to fulfill required roles. If a squad takes heavy casualties, it will broadcast a link-up request to any other broken squad within a 1000-unit radius, merging them to maintain a full tactical formation of up to 4 units.
+The Director spawns units based on weighted templates (e.g., "Sniper Team", "Ambushers"). It actively searches the map for "wild bots" (unassigned units) and recruits them into squads to fulfill required roles. If a squad takes heavy casualties, it will broadcast a link-up request to any other broken squad within a 1000-unit radius, merging them to maintain a full tactical formation of up to 12 units.
 
 ### Reactive Resistance Profiling
 The Director monitors the elemental damage it sustains. Once you deal over 500 total damage, the Director evaluates your elemental usage. If you rely on a single element for more than 40% of your damage output, the Director will deploy specialized, element-resistant Mechs. These Mechs take 50% less damage from your favored element and deploy visual dampeners (e.g., a "Grounded" yellowish tint against Lightning, or an "Anti-Heal" red tint against Vampire attacks).

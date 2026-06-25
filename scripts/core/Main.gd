@@ -108,6 +108,13 @@ func _initialize_starter_inventory():
 		tile.rarity = HexTile.Rarity.LEGENDARY
 		player_inventory.append(tile)
 				
+	# Add Magnets
+	for r in rarities:
+		for i in range(5):
+			var tile = load("res://scripts/tiles/MagnetTile.gd").new()
+			tile.rarity = r
+			player_inventory.append(tile)
+				
 	# Add Infusers
 	var poison_infuser = load("res://scripts/tiles/InfuserTile.gd").new()
 	poison_infuser.rarity = HexTile.Rarity.RARE
@@ -171,9 +178,43 @@ func _start_wave():
 		var t_ambush = load("res://scripts/ai/SquadTemplate.gd").new("Ambushers", {"ambusher": 3})
 		director.register_template(t_ambush)
 	
-	# Spawn the squad
-	var squad = director.spawn_squad()
-	if squad:
+	active_enemies = 0
+	
+	# Boss Wave Check
+	if current_wave > 0 and current_wave % 5 == 0:
+		var boss = director._spawn_bot_for_role("brawler")
+		boss.scale = Vector2(2.0, 2.0)
+		boss.max_hp *= 5.0
+		boss.hp = boss.max_hp
+		boss.is_boss = true
+		
+		var backpacks = ["shield", "jetpack", "missile"]
+		var drop_type = backpacks.pick_random()
+		boss.set_meta("boss_drop", drop_type)
+		
+		var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
+		if randf() > 0.5: offset.x *= -1
+		if randf() > 0.5: offset.y *= -1
+		var center_spawn = player.global_position + offset
+		
+		var raw_pos = center_spawn + Vector2(randf_range(-50, 50), randf_range(-50, 50))
+		boss.global_position = map.get_valid_spawn_position(raw_pos)
+		boss.target = get_tree().get_nodes_in_group("player")[0]
+		boss.died.connect(_on_boss_died.bind(boss))
+		boss.collision_layer = 4
+		boss.collision_mask = 1 | 2 | 8
+		active_enemies += 1
+
+	var target_enemy_count = min(80, 5 + int((current_wave - 1) / 4) * 20)
+	
+	var safety_break = 0
+	while active_enemies < target_enemy_count and safety_break < 50:
+		safety_break += 1
+		# Spawn the squad
+		var squad = director.spawn_squad()
+		if not squad: 
+			break
+			
 		# Place them at a random spawn point away from player
 		var offset = Vector2(randf_range(500, 1500), randf_range(500, 1500))
 		if randf() > 0.5: offset.x *= -1
@@ -184,28 +225,6 @@ func _start_wave():
 		center_spawn.x = clamp(center_spawn.x, 100, map.width * map.tile_size - 100)
 		center_spawn.y = clamp(center_spawn.y, 100, map.height * map.tile_size - 100)
 		
-		active_enemies = 0
-		
-		# Boss Wave Check
-		if current_wave > 0 and current_wave % 5 == 0:
-			var boss = director._spawn_bot_for_role("brawler")
-			boss.scale = Vector2(2.0, 2.0)
-			boss.max_hp *= 5.0
-			boss.hp = boss.max_hp
-			boss.is_boss = true
-			
-			var backpacks = ["shield", "jetpack", "missile"]
-			var drop_type = backpacks.pick_random()
-			boss.set_meta("boss_drop", drop_type)
-			
-			var raw_pos = center_spawn + Vector2(randf_range(-50, 50), randf_range(-50, 50))
-			boss.global_position = map.get_valid_spawn_position(raw_pos)
-			boss.target = get_tree().get_nodes_in_group("player")[0]
-			boss.died.connect(_on_boss_died.bind(boss))
-			boss.collision_layer = 4
-			boss.collision_mask = 1 | 2 | 8
-			active_enemies += 1
-		
 		for mech in squad.members:
 			var raw_pos = center_spawn + Vector2(randf_range(-200, 200), randf_range(-200, 200))
 			mech.global_position = map.get_valid_spawn_position(raw_pos)
@@ -214,8 +233,9 @@ func _start_wave():
 			mech.collision_layer = 4 # Enemies are Layer 3 (bit 2)
 			mech.collision_mask = 1 | 2 | 8 # Hit env, water, player
 			active_enemies += 1
-	else:
-		# Fallback if assembly fails
+			
+	if active_enemies <= 0:
+		# Fallback if assembly fails entirely
 		active_enemies = 3
 		var wave_multiplier = pow(1.10, max(0, current_wave - 1))
 		for i in range(3):
@@ -239,7 +259,7 @@ func _on_boss_died(boss):
 		
 	if drop_pack:
 		var pickup = load("res://scripts/entities/LootPickup.gd").new()
-		pickup.component_data = drop_pack
+		pickup.equipment_data = drop_pack
 		pickup.global_position = boss.global_position
 		get_tree().current_scene.add_child(pickup)
 		

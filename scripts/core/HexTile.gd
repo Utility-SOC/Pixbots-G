@@ -6,7 +6,7 @@ enum TileCategory {
 }
 
 enum Rarity {
-	COMMON, UNCOMMON, RARE, LEGENDARY
+	COMMON, UNCOMMON, RARE, LEGENDARY, MYTHIC
 }
 
 enum BodySlot {

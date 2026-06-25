@@ -140,6 +140,8 @@ func _serialize_tile(tile) -> Dictionary:
 	elif tile.tile_type == "Core Reactor":
 		data["active_faces"] = tile.active_faces
 		data["face_outputs"] = tile.face_outputs
+	elif tile.tile_type == "Elemental Infuser":
+		data["secondary_synergy"] = tile.secondary_synergy
 	elif "rotation_steps" in tile:
 		data["rotation_steps"] = tile.rotation_steps
 	elif tile.tile_type == "Component Link" or tile.tile_type == "Actuator" or tile.tile_type == "Torso Return" or tile.tile_type == "Backpack Link":
@@ -171,6 +173,9 @@ func _deserialize_tile(data: Dictionary):
 		tile.active_faces.clear()
 		var faces = data.get("active_faces", [])
 		for f in faces: tile.active_faces.append(int(f))
+	elif tile.tile_type == "Elemental Infuser":
+		if data.has("secondary_synergy"):
+			tile.secondary_synergy = int(data["secondary_synergy"])
 	elif tile.tile_type == "Core Reactor":
 		tile.active_faces.clear()
 		var faces = data.get("active_faces", [])

@@ -41,11 +41,11 @@ func neighbor(direction_idx: int) -> HexCoord:
 static func get_directions() -> Array[HexCoord]:
 	return [
 		HexCoord.new(1, 0),   # 0: East
-		HexCoord.new(0, -1),  # 1: Northeast
-		HexCoord.new(-1, -1), # 2: Northwest
+		HexCoord.new(0, 1),   # 1: South-East
+		HexCoord.new(-1, 1),  # 2: South-West
 		HexCoord.new(-1, 0),  # 3: West
-		HexCoord.new(0, 1),   # 4: Southwest
-		HexCoord.new(1, 1)	# 5: Southeast
+		HexCoord.new(0, -1),  # 4: North-West
+		HexCoord.new(1, -1)   # 5: North-East
 	]
 
 func rotate_left(center: HexCoord) -> HexCoord:

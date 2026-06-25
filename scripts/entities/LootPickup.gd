@@ -2,11 +2,12 @@ class_name LootPickup
 extends Area2D
 
 var tile_data: HexTile = null
-var equipment_data: RefCounted = null # Can be ComponentEquipment
+var equipment_data: Node = null # Can be ComponentEquipment
 
 func _ready():
 	collision_layer = 16 # Layer 5 (Bit 4) for Loot
 	collision_mask = 8   # Collide with player (Layer 4)
+	add_to_group("loot")
 	
 	var poly = Polygon2D.new()
 	poly.polygon = PackedVector2Array([

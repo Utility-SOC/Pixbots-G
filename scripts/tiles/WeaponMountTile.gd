@@ -59,6 +59,7 @@ func _fire_combined_projectile(mech: Node2D, packet: EnergyPacket, step: int):
 	var base_damage = packet.magnitude * damage_multiplier * _get_power_multiplier()
 	
 	proj.fired_by_player = mech.get("is_player") == true
+	proj.source_mech = mech
 	proj.damage = base_damage
 	proj.synergies = packet.synergies.duplicate()
 	if "stat_modifiers" in mech:
@@ -75,11 +76,6 @@ func _fire_combined_projectile(mech: Node2D, packet: EnergyPacket, step: int):
 	if "target_direction" in proj:
 		proj.target_direction = base_direction
 	
-	# Determine if it entered at an angle to increase shots
-	var entry_dir = packet.direction
-	var shots = 1
-	var spread_angle = 0.0
-	
 	# Determine the "straight forward" direction based on which component we are in
 	var forward_dir = 4 # Default South (Down) for Torso/Legs/Backpack
 	if body_slot == load("res://scripts/core/HexTile.gd").BodySlot.ARM_L:
@@ -87,50 +83,39 @@ func _fire_combined_projectile(mech: Node2D, packet: EnergyPacket, step: int):
 	elif body_slot == load("res://scripts/core/HexTile.gd").BodySlot.ARM_R:
 		forward_dir = 0 # East
 	elif body_slot == load("res://scripts/core/HexTile.gd").BodySlot.HEAD:
-		forward_dir = 1 # Northeast (Up) or just let it shoot double if they route sideways
+		forward_dir = 1 # Northeast (Up)
 		
-	if entry_dir != forward_dir:
-		shots = 2
-		spread_angle = deg_to_rad(15.0) # 15 degrees spread
-		
-	# Reduce base damage slightly if we are firing double
-	if shots > 1:
-		proj.damage = base_damage * 0.75
-	else:
-		proj.damage = base_damage
+	var entry_dir = packet.direction
+	var diff = (entry_dir - forward_dir + 6) % 6
+	var angle_offset = 0.0
 	
-	for i in range(shots):
-		var p = proj if i == 0 else proj.duplicate()
-		if i > 0:
-			# Setup physics node since duplicate doesn't always init properly
-			p.synergies = proj.synergies.duplicate()
-			
-		var angle_offset = 0.0
-		if shots > 1:
-			angle_offset = spread_angle if i == 0 else -spread_angle
-		
-		p.direction = base_direction.rotated(angle_offset)
-		
-		# Add slight staggered delay based on step for interleaved shots
-		if step > 0 or i > 0:
-			var delay = (step * 0.05) + (i * 0.02) # 50ms per step, 20ms between multi-shots
-			var timer = Timer.new()
-			timer.wait_time = delay
-			timer.one_shot = true
-			timer.timeout.connect(func():
-				if is_instance_valid(mech) and mech.get_parent():
-					mech.get_parent().add_child(p)
-				elif is_instance_valid(p):
-					p.queue_free()
-				timer.queue_free()
-			)
-			mech.add_child(timer)
-			timer.start()
+	if diff == 1: angle_offset = deg_to_rad(15)
+	elif diff == 5: angle_offset = deg_to_rad(-15)
+	elif diff == 2: angle_offset = deg_to_rad(35)
+	elif diff == 4: angle_offset = deg_to_rad(-35)
+	elif diff == 3: angle_offset = deg_to_rad(180)
+	
+	proj.direction = base_direction.rotated(angle_offset)
+	
+	if step > 0:
+		var delay = (step * 0.05) # 50ms per step
+		var timer = Timer.new()
+		timer.wait_time = delay
+		timer.one_shot = true
+		timer.timeout.connect(func():
+			if is_instance_valid(mech) and mech.get_parent():
+				mech.get_parent().add_child(proj)
+			elif is_instance_valid(proj):
+				proj.queue_free()
+			timer.queue_free()
+		)
+		mech.add_child(timer)
+		timer.start()
+	else:
+		if mech.get_parent():
+			mech.get_parent().add_child(proj)
 		else:
-			if mech.get_parent():
-				mech.get_parent().add_child(p)
-			else:
-				mech.add_child(p)
+			mech.add_child(proj)
 
 func get_muzzle_position(mech: Node2D) -> Vector2:
 	var renderer = mech.get_node_or_null("MechRenderer")

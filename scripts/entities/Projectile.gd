@@ -2,6 +2,7 @@ class_name Projectile
 extends Area2D
 
 const EnergyPacket = preload("res://scripts/core/EnergyPacket.gd")
+const Trail2D = preload("res://scripts/visuals/Trail2D.gd")
 
 var base_speed: float = 500.0
 var final_speed: float = 500.0
@@ -24,6 +25,7 @@ var time_alive: float = 0.0
 var visual_node: Node2D
 var helix_particles: Array = []
 var fired_by_player: bool = true
+var source_mech: Node2D = null
 
 func _ready():
 	# Calculate total power
@@ -61,10 +63,21 @@ func _ready():
 	timer.timeout.connect(func():
 		if ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) > 0.1:
 			_trigger_explosion()
-		queue_free()
+		if not is_queued_for_deletion():
+			queue_free()
 	)
 	add_child(timer)
 	timer.start()
+	
+	# OFF-SCREEN CULLING FOR PERFORMANCE
+	var vis_notifier = VisibleOnScreenNotifier2D.new()
+	vis_notifier.rect = Rect2(-10, -10, 20, 20)
+	vis_notifier.screen_exited.connect(func():
+		# Add a tiny delay to ensure trail can finish or it doesn't clip immediately at edge
+		if not is_queued_for_deletion():
+			queue_free()
+	)
+	add_child(vis_notifier)
 
 func _get_lifetime() -> float:
 	var base_life = 4.0
@@ -128,27 +141,28 @@ func _calculate_stats():
 	if stat_modifiers.has("prc_mult") and r_prc > 0: damage *= lerp(1.0, stat_modifiers["prc_mult"], r_prc)
 	if stat_modifiers.has("vmp_mult") and ratios.has(EnergyPacket.SynergyType.VAMPIRIC): damage *= lerp(1.0, stat_modifiers["vmp_mult"], ratios[EnergyPacket.SynergyType.VAMPIRIC])
 		
-	# Color Blending
+	# Color Blending - Keep vibrancy by picking dominant color and boosting
 	final_color = Color(0,0,0,0)
+	var max_r = 0.0
+	var dom_t = -1
 	for k in ratios:
-		var c = Color.WHITE
-		match k:
-			EnergyPacket.SynergyType.FIRE: c = Color(1.0, 0.3, 0.0)
-			EnergyPacket.SynergyType.ICE: c = Color(0.2, 0.8, 1.0)
-			EnergyPacket.SynergyType.KINETIC: c = Color(1.0, 1.0, 1.0)
-			EnergyPacket.SynergyType.VORTEX: c = Color(0.5, 0.0, 1.0)
-			EnergyPacket.SynergyType.LIGHTNING: c = Color(1.0, 0.9, 0.2)
-			EnergyPacket.SynergyType.POISON: c = Color(0.2, 0.8, 0.2)
-			EnergyPacket.SynergyType.EXPLOSION: c = Color(1.0, 0.5, 0.0)
-			EnergyPacket.SynergyType.PIERCE: c = Color(0.0, 1.0, 0.5)
-			EnergyPacket.SynergyType.VAMPIRIC: c = Color(0.8, 0.0, 0.3)
-		final_color += c * ratios[k]
-	if final_color.a == 0:
+		if ratios[k] > max_r:
+			max_r = ratios[k]
+			dom_t = k
+	if dom_t != -1:
+		final_color = _get_color_for_synergy(dom_t)
+		# Boost vibrancy slightly for additive blending
+		final_color = final_color * 1.5
+		final_color.a = 1.0
+	else:
 		final_color = Color.WHITE
 
 func _build_visuals():
 	visual_node = Node2D.new()
 	add_child(visual_node)
+	var add_mat = CanvasItemMaterial.new()
+	add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	visual_node.material = add_mat
 	
 	# Determine dominant and secondary synergies for shape generation
 	var sorted_synergies = []
@@ -175,15 +189,15 @@ func _build_visuals():
 		poly.scale = Vector2.ONE * p_scale
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.FIRE:
-		# Volatile, spherical shape
-		var circ = Polygon2D.new()
-		var pts = PackedVector2Array()
-		for i in range(16):
-			var a = i * PI / 8.0
-			pts.append(Vector2(cos(a), sin(a)) * 4.0 * p_scale)
-		circ.polygon = pts
-		circ.color = final_color
-		visual_node.add_child(circ)
+		# Spreading fire trail
+		var fire_trail = load("res://scripts/visuals/FireTrail2D.gd").new()
+		fire_trail.base_radius = 8.0 * p_scale
+		fire_trail.max_length = 20
+		# Use MIX instead of ADD so the black soot is visible
+		var mix_mat = CanvasItemMaterial.new()
+		mix_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_MIX
+		fire_trail.material = mix_mat
+		visual_node.add_child(fire_trail)
 	elif dominant == EnergyPacket.SynergyType.ICE:
 		# Crystalline, jagged shape
 		var poly = Polygon2D.new()
@@ -230,6 +244,15 @@ func _build_visuals():
 		poly.color = final_color
 		poly.scale = Vector2.ONE * p_scale
 		visual_node.add_child(poly)
+	elif dominant == EnergyPacket.SynergyType.VAMPIRIC:
+		# Blood drop shape
+		var poly = Polygon2D.new()
+		poly.polygon = PackedVector2Array([
+			Vector2(8, 0), Vector2(-4, 6), Vector2(-2, 0), Vector2(-4, -6)
+		])
+		poly.color = final_color
+		poly.scale = Vector2.ONE * p_scale
+		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.VORTEX:
 		# Diamond shape for vortex core
 		var poly = Polygon2D.new()
@@ -252,23 +275,28 @@ func _build_visuals():
 		spiral.default_color = Color(0.6, 0.2, 0.9) # Bright purple
 		spiral.scale = Vector2.ONE * p_scale
 		visual_node.add_child(spiral)
-	else:
-		# Default fallback shape
-		var rect = ColorRect.new()
-		rect.size = Vector2(5, 5) * p_scale
-		rect.position = -rect.size/2.0
-		rect.color = final_color
-		visual_node.add_child(rect)
+	elif dominant == EnergyPacket.SynergyType.RAW or dominant == -1:
+		# Glowing Raw Energy Sphere
+		var circ = Polygon2D.new()
+		var pts = PackedVector2Array()
+		for i in range(16):
+			var a = i * PI / 8.0
+			pts.append(Vector2(cos(a), sin(a)) * 5.0 * p_scale)
+		circ.polygon = pts
+		circ.color = final_color
+		visual_node.add_child(circ)
 		
 	# Secondary Element modifies properties
 	if secondary == EnergyPacket.SynergyType.POISON:
 		# Toxic trail
-		var trail = CPUParticles2D.new()
+		var trail = GPUParticles2D.new()
 		trail.amount = 20
-		trail.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
-		trail.emission_sphere_radius = 4.0
-		trail.gravity = Vector2(0, 10)
-		trail.color = Color(0.2, 0.8, 0.2, 0.5)
+		var process_mat = ParticleProcessMaterial.new()
+		process_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+		process_mat.emission_sphere_radius = 4.0
+		process_mat.gravity = Vector3(0, 10, 0)
+		process_mat.color = Color(0.2, 0.8, 0.2, 0.5)
+		trail.process_material = process_mat
 		trail.lifetime = 0.5
 		trail.local_coords = false
 		visual_node.add_child(trail)
@@ -286,9 +314,13 @@ func _build_visuals():
 	if sorted_synergies.size() >= 2:
 		for k in synergies:
 			if k != EnergyPacket.SynergyType.RAW:
-				var h = Sprite2D.new()
-				h.modulate = _get_color_for_synergy(k)
-				h.scale = Vector2(0.5, 0.5)
+				var h = Polygon2D.new()
+				var pts = PackedVector2Array()
+				for i in range(8):
+					var a = i * PI / 4.0
+					pts.append(Vector2(cos(a), sin(a)) * 2.0)
+				h.polygon = pts
+				h.color = _get_color_for_synergy(k)
 				visual_node.add_child(h)
 				helix_particles.append({
 					"node": h,
@@ -297,20 +329,22 @@ func _build_visuals():
 					"radius": (8.0 + ratios[k] * 12.0) * p_scale
 				})
 	
-	# Kinetic Trail (Line2D)
+	# Kinetic Trail
 	if ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0) > 0.1:
-		var trail = Line2D.new()
+		var trail = Trail2D.new()
 		trail.width = 4.0
 		trail.default_color = final_color * Color(1,1,1,0.5)
-		trail.set_meta("is_trail", true)
 		visual_node.add_child(trail)
 		
 	# Vortex Helix Orbs
 	if ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) > 0.05:
 		for i in range(3):
-			var orb = ColorRect.new()
-			orb.size = Vector2(4, 4)
-			orb.position = -orb.size/2.0
+			var orb = Polygon2D.new()
+			var pts = PackedVector2Array()
+			for j in range(8):
+				var a = j * PI / 4.0
+				pts.append(Vector2(cos(a), sin(a)) * 2.0)
+			orb.polygon = pts
 			orb.color = _get_color_for_synergy(EnergyPacket.SynergyType.VORTEX)
 			visual_node.add_child(orb)
 			helix_particles.append({
@@ -319,6 +353,12 @@ func _build_visuals():
 				"speed": 15.0,
 				"radius": 8.0
 			})
+
+	# Apply glowing material to all visuals
+	var mat = visual_node.material
+	for child in visual_node.get_children():
+		if child is CanvasItem and child.material == null:
+			child.material = mat
 
 func _get_color_for_synergy(syn: int) -> Color:
 	match syn:
@@ -329,6 +369,7 @@ func _get_color_for_synergy(syn: int) -> Color:
 		EnergyPacket.SynergyType.LIGHTNING: return Color(1.0, 0.9, 0.2)
 		EnergyPacket.SynergyType.PIERCE: return Color(0.9, 0.9, 0.9)
 		EnergyPacket.SynergyType.VORTEX: return Color(0.5, 0.1, 0.8)
+		EnergyPacket.SynergyType.VAMPIRIC: return Color(0.9, 0.1, 0.3)
 		_: return Color(0.5, 0.5, 0.5)
 
 func _process(delta):
@@ -419,10 +460,9 @@ func _physics_process(delta: float):
 			_pull_nearby_items(delta)
 	
 	# 7. LIGHTNING ZIG-ZAG ("The Arc")
-	# Lightning snaps instantly along the path, modeled as a square wave offset.
 	if r_ltg > 0.0:
-		var wave_sign = sign(fmod(time_alive * 20.0, 2.0) - 1.0)
-		visual_offset += ortho * wave_sign * (30.0 * r_ltg)
+		var wave = sin(time_alive * 40.0) * cos(time_alive * 25.0)
+		visual_offset += ortho * wave * (15.0 * r_ltg)
 	
 	# APPLY PHYSICS
 	position += velocity * delta
@@ -440,13 +480,6 @@ func _physics_process(delta: float):
 		for p in helix_particles:
 			var angle = time_alive * p["speed"] + p["phase"]
 			p["node"].position = Vector2(cos(angle)*p["radius"]*0.5, sin(angle)*p["radius"])
-			
-	# Update trails
-	for child in visual_node.get_children():
-		if child.has_meta("is_trail"):
-			child.add_point(Vector2(-velocity.length() * 0.02, 0))
-			if child.get_point_count() > 10:
-				child.remove_point(0)
 func _pull_nearby_items(delta: float):
 	var space_state = get_world_2d().direct_space_state
 	var query = PhysicsShapeQueryParameters2D.new()
@@ -462,11 +495,9 @@ func _pull_nearby_items(delta: float):
 			col.pull_towards(global_position, delta)
 		elif col is CharacterBody2D: # Pull enemies strongly
 			var p_dir = (global_position - col.global_position).normalized()
-			# Overpower their movement entirely
+			# Apply force to velocity only, do not force global_position
 			var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
 			col.velocity = col.velocity.lerp(p_dir * pull_strength, 10.0 * delta)
-			# Physically drag them if they are close enough to ignore friction
-			col.global_position = col.global_position.lerp(global_position, 2.0 * delta * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0))
 
 func _on_body_entered(body: Node2D):
 	if body.get_class() == "CharacterBody2D" and body.has_method("apply_part_damage"):
@@ -498,6 +529,8 @@ func _handle_hit(target: Node2D):
 				
 	# Apply Base Damage
 	target.apply_damage(damage, dominant_str)
+	if is_instance_valid(source_mech) and source_mech.has_signal("dealt_damage") and target != source_mech:
+		source_mech.dealt_damage.emit(damage)
 	
 	# Apply Status Effects
 	if ratios.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1 and target.has_method("apply_status"):

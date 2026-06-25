@@ -345,7 +345,10 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 	if type == "Core Reactor":
 		draw_circle(center, hs * 0.4, base)
 		draw_circle(center, hs * 0.2, Color(1.0, 0.85, 0.4))
-		for i in range(6):
+		var active = range(6)
+		if "active_faces" in tile:
+			active = tile.active_faces
+		for i in active:
 			var angle = deg_to_rad(60 * i)
 			draw_line(center, center + Vector2(cos(angle), sin(angle)) * hs * 0.6, base, 3.0, true)
 			

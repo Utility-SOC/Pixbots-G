@@ -10,6 +10,11 @@ var hp: float = 100.0
 var shield_hp: float = 0.0
 var max_shield_hp: float = 0.0
 
+var shield_recharge_delay: float = 3.0
+var time_since_last_hit: float = 0.0
+var shield_recharge_rate: float = 0.0
+var has_shield_generator: bool = false
+
 var current_move_speed: float = 200.0
 var base_move_speed: float = 200.0
 var combat_role: String = "melee"
@@ -51,6 +56,7 @@ var base_speed: float = 150.0
 var separate_arm_firing: bool = true
 var base_rarity: int = 0 # HexTile.Rarity.COMMON
 var is_boss: bool = false
+var total_magnetic_power: float = 0.0
 
 signal dealt_damage(amount: float)
 signal died()
@@ -133,10 +139,24 @@ func _physics_process(delta: float):
 	
 	if fire_cooldown > 0:
 		fire_cooldown -= delta
-	
+		
+	time_since_last_hit += delta
+	if has_shield_generator and max_shield_hp > 0 and time_since_last_hit >= shield_recharge_delay:
+		if shield_hp < max_shield_hp:
+			shield_hp = min(max_shield_hp, shield_hp + shield_recharge_rate * delta)
+			
 	if is_player:
 		_handle_player_input(delta)
 		move_and_slide()
+		
+		# Magnet Logic
+		if total_magnetic_power > 0.0:
+			var pull_radius = 150.0 + (total_magnetic_power * 10.0)
+			var loot_nodes = get_tree().get_nodes_in_group("loot")
+			for loot in loot_nodes:
+				if loot.global_position.distance_to(global_position) < pull_radius:
+					# Pull strength scales with power
+					loot.pull_towards(global_position, delta * (0.5 + total_magnetic_power * 0.02))
 		
 		# Drowning check
 		if not Input.is_action_pressed("ui_select"):
@@ -186,7 +206,9 @@ func _handle_player_input(delta: float):
 	
 	if Input.is_key_pressed(KEY_SHIFT) and jumpjet_rarity >= 0:
 		target_vel *= 1.5 # 50% faster sprint
-		var accel = 400.0 + (jumpjet_rarity * 400.0) # 400 (Common) to 1600 (Legendary)
+		# Scale acceleration proportionally to the current move speed vs default base speed (150.0)
+		var speed_scale = max(1.0, current_move_speed / 150.0)
+		var accel = (400.0 + (jumpjet_rarity * 400.0)) * speed_scale 
 		if target_vel == Vector2.ZERO:
 			velocity = velocity.move_toward(Vector2.ZERO, accel * delta)
 		else:
@@ -239,9 +261,12 @@ func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true):
 func _recalculate_grid():
 	precalculated_weapons.clear()
 	max_shield_hp = 0.0 # Reset shield HP
-	shield_hp = 0.0
+	has_shield_generator = false
+	shield_recharge_delay = 3.0
+	shield_recharge_rate = 0.0
 	base_move_speed = 150.0 # Reset base speed for Jumpjets to calculate
 	jumpjet_rarity = -1
+	total_magnetic_power = 0.0
 	stat_modifiers.clear()
 	
 	# Aggregate all component stat modifiers
@@ -324,49 +349,65 @@ func _recalculate_grid():
 			peripheral_transfer[slot].append_array(second_transfers[slot])
 
 	# Simulate remaining peripherals (Arms, Legs)
-	for slot in peripheral_transfer.keys():
-		if slot == HexTile.BodySlot.HEAD or slot == HexTile.BodySlot.BACKPACK: continue # Already simulated
-		if components.has(slot):
-			var comp = components[slot]
-			var pkts = peripheral_transfer[slot]
+	for slot in components.keys():
+		if slot == HexTile.BodySlot.HEAD or slot == HexTile.BodySlot.BACKPACK or slot == HexTile.BodySlot.TORSO: 
+			continue # Already simulated
+			
+		var comp = components[slot]
+		var pkts: Array[EnergyPacket] = []
+		if peripheral_transfer.has(slot):
+			pkts.append_array(peripheral_transfer[slot])
 			_route_to_peripheral(pkts, comp)
 			
-			for t in comp.hex_grid.get_all_tiles():
-				if t.has_method("generate_energy"):
-					pkts.append_array(t.generate_energy(comp.hex_grid))
-					
-			_simulate_grid(comp.hex_grid, pkts)
+		for t in comp.hex_grid.get_all_tiles():
+			if t.has_method("generate_energy"):
+				pkts.append_array(t.generate_energy(comp.hex_grid))
+				
+		_simulate_grid(comp.hex_grid, pkts)
 			
 	for comp in components.values():
 		for tile in comp.hex_grid.get_all_tiles():
 			if tile is WeaponMountTile and tile.pending_packets.size() > 0:
-				var step_groups = {}
 				for item in tile.pending_packets:
-					var step = item.step
-					if not step_groups.has(step):
-						step_groups[step] = []
-					step_groups[step].append(item.packet)
-					
-				var sorted_steps = step_groups.keys()
-				sorted_steps.sort()
-				
-				for step in sorted_steps:
-					var group: Array = step_groups[step]
-					if group.is_empty(): continue
-					
-					var merged_packet = group[0].copy()
-					for i in range(1, group.size()):
-						merged_packet.merge(group[i])
-						
 					precalculated_weapons.append({
 						"mount": tile,
-						"packet": merged_packet,
-						"step": step,
+						"packet": item.packet.copy(),
+						"step": item.step,
 						"slot_type": comp.slot_type
 					})
-					
 				tile.clear_pending()
 				
+			if tile.has_method("get_speed_bonus"):
+				base_move_speed += tile.get_speed_bonus()
+				
+			if tile.has_method("get_magnetic_power"):
+				total_magnetic_power += tile.get_magnetic_power()
+				
+			if tile.tile_type == "Shield Generator" and tile.has_method("get_shield_energy"):
+				has_shield_generator = true
+				var shield_energy = tile.get_shield_energy()
+				# 4x player health shield
+				max_shield_hp += max_hp * 4.0 * (shield_energy / 100.0) # Scale by energy relative to base 100
+				# Mythic takes .25s, Legendary takes 0.5s, Rare takes 1.0s, Uncommon 2.0s, Common 3.0s
+				if tile.rarity == load("res://scripts/core/HexTile.gd").Rarity.MYTHIC:
+					shield_recharge_delay = min(shield_recharge_delay, 0.25)
+				elif tile.rarity == load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY:
+					shield_recharge_delay = min(shield_recharge_delay, 0.5)
+				elif tile.rarity == load("res://scripts/core/HexTile.gd").Rarity.RARE:
+					shield_recharge_delay = min(shield_recharge_delay, 1.0)
+				elif tile.rarity == load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON:
+					shield_recharge_delay = min(shield_recharge_delay, 2.0)
+				else:
+					shield_recharge_delay = min(shield_recharge_delay, 3.0)
+					
+				# Rapidly recharge (e.g. fully recharge in 2 seconds)
+				shield_recharge_rate += max_shield_hp * 0.5
+				
+	# Keep shield HP within bounds
+	shield_hp = min(shield_hp, max_shield_hp)
+	if not has_shield_generator:
+		shield_hp = 0.0
+		
 	is_grid_dirty = false
 
 func _collect_transfers(comp) -> Dictionary:
@@ -509,6 +550,9 @@ func apply_damage(amount: float, element: String = "RAW"):
 		var main = get_tree().current_scene
 		if main and main.has_node("SquadDirector"):
 			main.get_node("SquadDirector").log_player_damage(amount, element)
+			
+	if amount > 0:
+		time_since_last_hit = 0.0
 			
 	if shield_hp > 0 and amount > 0:
 		shield_hp -= amount

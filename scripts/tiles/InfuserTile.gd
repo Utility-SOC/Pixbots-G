@@ -19,3 +19,8 @@ func cycle_synergy():
 	secondary_synergy = (secondary_synergy + 1) % 8
 	if secondary_synergy == 0:
 		secondary_synergy = 1
+
+func cycle_synergy_backward():
+	secondary_synergy -= 1
+	if secondary_synergy <= 0:
+		secondary_synergy = 7

@@ -521,11 +521,17 @@ func _on_tile_clicked(tile: HexTile):
 		var btn = Button.new()
 		var current_name = synergies[tile.secondary_synergy] if tile.secondary_synergy < synergies.size() else "UNKNOWN"
 		btn.text = "Synergy: %s" % current_name
-		btn.pressed.connect(func():
-			tile.cycle_synergy()
-			var new_name = synergies[tile.secondary_synergy] if tile.secondary_synergy < synergies.size() else "UNKNOWN"
-			btn.text = "Synergy: %s" % new_name
-			grid_renderer.queue_redraw()
+		btn.gui_input.connect(func(event):
+			if event is InputEventMouseButton and event.pressed:
+				if event.button_index == MOUSE_BUTTON_LEFT:
+					tile.cycle_synergy()
+				elif event.button_index == MOUSE_BUTTON_RIGHT:
+					if tile.has_method("cycle_synergy_backward"):
+						tile.cycle_synergy_backward()
+						
+				var new_name = synergies[tile.secondary_synergy] if tile.secondary_synergy < synergies.size() else "UNKNOWN"
+				btn.text = "Synergy: %s" % new_name
+				grid_renderer.queue_redraw()
 		)
 		vbox.add_child(btn)
 		
@@ -599,30 +605,36 @@ func _on_simulate_pressed():
 	var initial_packets: Array[EnergyPacket] = []
 	
 	if active_component:
-
-		
-		if active_component.slot_type == HexTile.BodySlot.TORSO:
-			var core = grid_renderer.hex_grid.get_tile(grid_renderer.HexCoord.new(0, 0))
-			if core and core.has_method("generate_energy"):
-				initial_packets = core.generate_energy(grid_renderer.hex_grid)
-				for p in initial_packets:
-					p.position = HexCoord.new(0, 0)
-			else:
-				var packet = EnergyPacket.new()
-				packet.magnitude = 100.0
-				packet.position = grid_renderer.HexCoord.new(0, 0)
-				packet.direction = 0
-				initial_packets.append(packet)
-		else:
+		# 1. Generate local energy from any Core Reactors in this component's grid
+		for h in grid_renderer.hex_grid.grid.keys():
+			var tile = grid_renderer.hex_grid.get_tile(h)
+			if tile.has_method("generate_energy"):
+				var pkts = tile.generate_energy(grid_renderer.hex_grid)
+				for p in pkts:
+					p.position = h
+				initial_packets.append_array(pkts)
+				
+		# 2. Add fake transfer packet from Torso to simulate cross-component energy flow
+		if active_component.slot_type != HexTile.BodySlot.TORSO:
 			var packet = EnergyPacket.new()
 			packet.magnitude = 100.0
-			packet.position = grid_renderer.HexCoord.new(0, 0)
+			var dir = 3 # default west
+			
 			if active_component.slot_type == HexTile.BodySlot.ARM_L:
-				packet.direction = 3
-				packet.position = grid_renderer.HexCoord.new(0, 0).neighbor(0)
+				dir = 3
 			elif active_component.slot_type == HexTile.BodySlot.ARM_R:
-				packet.direction = 0
-				packet.position = grid_renderer.HexCoord.new(0, 0).neighbor(3)
+				dir = 0
+			elif active_component.slot_type == HexTile.BodySlot.HEAD:
+				dir = 5 # North-East
+			elif active_component.slot_type == HexTile.BodySlot.LEG_L or active_component.slot_type == HexTile.BodySlot.LEG_R:
+				dir = 1 # South-East
+			elif active_component.slot_type == HexTile.BodySlot.BACKPACK:
+				dir = 4 # North-West
+				
+			packet.direction = dir
+			# Spawn it outside the grid so it steps into (0, 0)
+			var opp_dir = (dir + 3) % 6
+			packet.position = HexCoord.new(0, 0).neighbor(opp_dir)
 			initial_packets.append(packet)
 			
 	for p in initial_packets:

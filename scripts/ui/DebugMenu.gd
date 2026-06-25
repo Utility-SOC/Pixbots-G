@@ -62,6 +62,20 @@ func _ready():
 	btn_god_inv.pressed.connect(_on_give_god_inventory)
 	vbox.add_child(btn_god_inv)
 	
+	var btn_shield = Button.new()
+	btn_shield.text = "Give Mythic Shield Backpack"
+	btn_shield.pressed.connect(func():
+		var main = get_tree().current_scene
+		if main and main.get("player") != null:
+			var pack = load("res://scripts/core/ComponentEquipment.gd").create_shield_backpack()
+			main.player.equip_component(pack)
+			if main.get("garage_ui") != null:
+				if main.garage_ui.has_method("_refresh_component_ui"):
+					main.garage_ui._refresh_component_ui()
+			print("[Debug] Equipped Mythic Shield Backpack!")
+	)
+	vbox.add_child(btn_shield)
+	
 	var btn_garage = Button.new()
 	btn_garage.text = "Teleport to Garage"
 	btn_garage.pressed.connect(func():

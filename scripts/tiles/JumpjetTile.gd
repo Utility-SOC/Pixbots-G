@@ -14,7 +14,7 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	
 	if grid and grid.get_parent():
 		var mech = grid.get_parent()
-		if mech is ComponentEquipment:
+		if mech and "slot_type" in mech:
 			mech = mech.get_parent()
 			
 		if mech and "current_move_speed" in mech and "base_move_speed" in mech:

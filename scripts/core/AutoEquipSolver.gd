@@ -11,9 +11,6 @@ func solve(component: Node, inventory: Array) -> Array:
 	var targets = component.fixed_sinks
 	var start = HexCoord.new(0, 0)
 	
-	if not grid.has_tile(start):
-		return inventory
-		
 	# 1. Clear the board of non-fixed/non-core tiles
 	var current_tiles = grid.grid.keys()
 	for coord_v in current_tiles:
@@ -100,23 +97,35 @@ func solve(component: Node, inventory: Array) -> Array:
 			if t.q == h.q and t.r == h.r:
 				is_target = true
 				break
-		if is_target or (h.q == start.q and h.r == start.r):
-			# If it's the start tile (like the Core), we must update its active faces!
-			if h.q == start.q and h.r == start.r:
-				var start_tile = grid.get_tile(start)
-				if start_tile and "active_faces" in start_tile:
-					start_tile.active_faces.clear()
-					for child_v in tree_nodes[v]:
-						var exit_dir = _get_direction(h, HexCoord.new(child_v.x, child_v.y))
-						start_tile.active_faces.append(exit_dir)
+				
+		if is_target:
 			continue
+			
+		if h.q == start.q and h.r == start.r:
+			# If it's the start tile AND it's a core (like in the Torso), update faces and skip.
+			var start_tile = grid.get_tile(start)
+			if start_tile and "active_faces" in start_tile:
+				start_tile.active_faces.clear()
+				for child_v in tree_nodes[v]:
+					var exit_dir = _get_direction(h, HexCoord.new(child_v.x, child_v.y))
+					start_tile.active_faces.append(exit_dir)
+				continue
 			
 		var children = tree_nodes[v]
 		var num_children = children.size()
-		var parent_v = parent_map.get(v, Vector2i(0,0))
-		var parent_h = HexCoord.new(parent_v.x, parent_v.y)
 		
-		var entry_dir = _get_direction(parent_h, h)
+		var entry_dir = 0
+		if h.q == start.q and h.r == start.r:
+			var HexTileCls = load("res://scripts/core/HexTile.gd")
+			if component.slot_type == HexTileCls.BodySlot.ARM_L: entry_dir = 3
+			elif component.slot_type == HexTileCls.BodySlot.ARM_R: entry_dir = 0
+			elif component.slot_type == HexTileCls.BodySlot.LEG_L or component.slot_type == HexTileCls.BodySlot.LEG_R: entry_dir = 1
+			elif component.slot_type == HexTileCls.BodySlot.HEAD: entry_dir = 5
+			elif component.slot_type == HexTileCls.BodySlot.BACKPACK: entry_dir = 4
+		else:
+			var parent_v = parent_map.get(v, Vector2i(0,0))
+			var parent_h = HexCoord.new(parent_v.x, parent_v.y)
+			entry_dir = _get_direction(parent_h, h)
 		
 		var placed_tile = false
 		
@@ -166,10 +175,14 @@ func solve(component: Node, inventory: Array) -> Array:
 				if idx >= 0:
 					var refl = inventory[idx]
 					inventory.remove_at(idx)
-					# Rotate reflector. entry -> exit
-					# For Reflector, entry_face = exit_face
-					# We just need to make sure the math works. The simplest is just setting rotation_steps.
-					# But we don't have perfect reflector logic here. Let's just place it.
+					
+					var diff = (exit_dir - entry_dir + 6) % 6
+					# entry_face = (entry_dir + 3) % 6
+					# exit = (entry_face + 3 + rotation_steps) % 6
+					# We want exit = exit_dir.
+					# So exit_dir = (entry_dir + rotation_steps) % 6 => rotation_steps = exit_dir - entry_dir
+					refl.rotation_steps = diff
+					
 					grid.add_tile(h, refl)
 					placed_tile = true
 				else:
@@ -196,6 +209,10 @@ func solve(component: Node, inventory: Array) -> Array:
 				inventory.remove_at(0)
 			else:
 				tile = load("res://scripts/tiles/DirectionalConduitTile.gd").new()
+				
+			if "rotation_steps" in tile:
+				tile.rotation_steps = entry_dir
+				
 			grid.add_tile(h, tile)
 				
 	return inventory

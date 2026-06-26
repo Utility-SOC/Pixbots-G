@@ -8,6 +8,7 @@ var current_mode: String = "sandbox"
 var current_wave: int = 1
 var campaign_data: Dictionary = {}
 var active_enemies: int = 0
+var garage_timer: float = 90.0
 
 var map: MapGenerator
 var garage_ui: CanvasLayer
@@ -22,6 +23,13 @@ func _ready():
 	
 	# Assume Sandbox mode defaults for now if not set by MainMenu
 	_start_intermission()
+
+func _process(delta: float):
+	if garage_timer > 0:
+		garage_timer -= delta
+		if garage_timer <= 0:
+			garage_timer = 90.0
+			_open_garage()
 
 func _unhandled_input(event):
 	if event.is_action_pressed("ui_cancel"):
@@ -108,12 +116,16 @@ func _initialize_starter_inventory():
 		tile.rarity = HexTile.Rarity.LEGENDARY
 		player_inventory.append(tile)
 				
-	# Add Magnets
+	# Add Magnets and Shields
 	for r in rarities:
 		for i in range(5):
 			var tile = load("res://scripts/tiles/MagnetTile.gd").new()
 			tile.rarity = r
 			player_inventory.append(tile)
+			
+			var shield = load("res://scripts/tiles/ShieldGeneratorTile.gd").new()
+			shield.rarity = r
+			player_inventory.append(shield)
 				
 	# Add Infusers
 	var poison_infuser = load("res://scripts/tiles/InfuserTile.gd").new()
@@ -138,10 +150,6 @@ func _initialize_starter_inventory():
 		player_inventory.append(jj)
 
 func _start_intermission():
-	if current_wave > 1 and (current_wave - 1) % 5 == 0:
-		_open_garage()
-		return
-		
 	_show_countdown()
 
 func _show_countdown():
@@ -288,6 +296,10 @@ func _open_garage():
 func _close_garage():
 	print("Deploying from Garage...")
 	get_tree().paused = false
+	
+	if player != null:
+		SaveManager.save_game("autosave", player, player_inventory)
+		
 	if garage_ui:
 		garage_ui.queue_free()
 		garage_ui = null

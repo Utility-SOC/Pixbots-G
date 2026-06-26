@@ -61,18 +61,28 @@ func generate_shape():
 		
 	match slot_type:
 		HexTile.BodySlot.HEAD:
-			# Head expands upward based on rarity.
-			var head_len = 4
-			if rarity >= HexTile.Rarity.UNCOMMON: head_len = 6
-			if rarity >= HexTile.Rarity.RARE: head_len = 8
-			if rarity >= HexTile.Rarity.LEGENDARY: head_len = 10
+			# Head expands upward, vertical zig-zag. Squat and wide.
+			var head_len = 3
+			if rarity >= HexTile.Rarity.UNCOMMON: head_len = 4
+			if rarity >= HexTile.Rarity.RARE: head_len = 5
+			if rarity >= HexTile.Rarity.LEGENDARY: head_len = 6
+			
 			for i in range(head_len):
-				valid_hexes.append(HexCoord.new(0, -i))
-			# Add some width for high rarities
-			if rarity >= HexTile.Rarity.RARE:
-				for i in range(2, head_len - 1):
-					valid_hexes.append(HexCoord.new(-1, -i))
-					valid_hexes.append(HexCoord.new(1, -i))
+				var q = i / 2
+				valid_hexes.append(HexCoord.new(q, -i))
+				
+			# Add width for a squat shape
+			if rarity >= HexTile.Rarity.UNCOMMON:
+				for i in range(1, head_len):
+					var q = i / 2
+					valid_hexes.append(HexCoord.new(q - 1, -i))
+					valid_hexes.append(HexCoord.new(q + 1, -i))
+					
+			if rarity >= HexTile.Rarity.LEGENDARY:
+				for i in range(1, head_len - 1):
+					var q = i / 2
+					valid_hexes.append(HexCoord.new(q - 2, -i))
+					valid_hexes.append(HexCoord.new(q + 2, -i))
 					
 		HexTile.BodySlot.BACKPACK:
 			# Backpack is a wide horizontal cluster

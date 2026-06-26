@@ -150,12 +150,15 @@ func _ready():
 	vbox.add_child(btn_amped_grid)
 	
 	var opt_reactor = OptionButton.new()
-	opt_reactor.add_item("Reactor: KINETIC", 1)
-	opt_reactor.add_item("Reactor: FIRE", 2)
-	opt_reactor.add_item("Reactor: POISON", 3)
-	opt_reactor.add_item("Reactor: LIGHTNING", 4)
-	opt_reactor.add_item("Reactor: VAMPIRE", 5)
-	opt_reactor.add_item("Reactor: VORTEX", 6)
+	opt_reactor.add_item("Reactor: KINETIC", load("res://scripts/core/EnergyPacket.gd").SynergyType.KINETIC)
+	opt_reactor.add_item("Reactor: FIRE", load("res://scripts/core/EnergyPacket.gd").SynergyType.FIRE)
+	opt_reactor.add_item("Reactor: ICE", load("res://scripts/core/EnergyPacket.gd").SynergyType.ICE)
+	opt_reactor.add_item("Reactor: LIGHTNING", load("res://scripts/core/EnergyPacket.gd").SynergyType.LIGHTNING)
+	opt_reactor.add_item("Reactor: VORTEX", load("res://scripts/core/EnergyPacket.gd").SynergyType.VORTEX)
+	opt_reactor.add_item("Reactor: POISON", load("res://scripts/core/EnergyPacket.gd").SynergyType.POISON)
+	opt_reactor.add_item("Reactor: EXPLOSION", load("res://scripts/core/EnergyPacket.gd").SynergyType.EXPLOSION)
+	opt_reactor.add_item("Reactor: PIERCE", load("res://scripts/core/EnergyPacket.gd").SynergyType.PIERCE)
+	opt_reactor.add_item("Reactor: VAMPIRIC", load("res://scripts/core/EnergyPacket.gd").SynergyType.VAMPIRIC)
 	opt_reactor.item_selected.connect(_on_reactor_changed)
 	vbox.add_child(opt_reactor)
 
@@ -307,14 +310,44 @@ func _on_amped_grid():
 					if h.distance(center) == max_dist and not comp.hex_grid.has_tile(h):
 						edge_hexes.append(h)
 						
+				# Sort by angle to form a continuous loop
+				edge_hexes.sort_custom(func(a, b):
+					var angle_a = atan2(a.r * 0.866, a.q + a.r * 0.5)
+					var angle_b = atan2(b.r * 0.866, b.q + b.r * 0.5)
+					return angle_a < angle_b
+				)
+						
 				for i in range(edge_hexes.size()):
 					var h = edge_hexes[i]
-					var tile_class = classes[i % 3]
-					var tile = tile_class.new()
-					tile.rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
-					tile.active_faces.clear()
-					tile.active_faces.append_array([0, 1, 2, 3, 4, 5])
-					comp.hex_grid.add_tile(h, tile)
+					var next_h = edge_hexes[(i + 1) % edge_hexes.size()]
+					var prev_h = edge_hexes[(i - 1 + edge_hexes.size()) % edge_hexes.size()]
+					
+					var prev_dir = -1
+					var next_dir = -1
+					for d in range(6):
+						var n = h.neighbor(d)
+						if n.q == next_h.q and n.r == next_h.r: next_dir = d
+						if n.q == prev_h.q and n.r == prev_h.r: prev_dir = d
+					
+					if next_dir != -1 and prev_dir != -1 and next_dir == (prev_dir + 3) % 6:
+						# Straight line - Place Amplifier
+						var tile = load("res://scripts/tiles/AmplifierTile.gd").new()
+						tile.rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
+						comp.hex_grid.add_tile(h, tile)
+					else:
+						# Corner or break - Place Splitter
+						var tile = load("res://scripts/tiles/SplitterTile.gd").new()
+						tile.rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
+						tile.active_faces.clear()
+						if next_dir != -1: tile.active_faces.append(next_dir)
+						# Add inward-facing outputs to flood the grid
+						for d in range(6):
+							if d != next_dir and d != prev_dir:
+								var n = h.neighbor(d)
+								if n.distance(center) < max_dist and comp.can_place_tile(n):
+									if tile.active_faces.size() < tile.get_max_faces():
+										tile.active_faces.append(d)
+						comp.hex_grid.add_tile(h, tile)
 					
 		mech.is_grid_dirty = true
 		print("[Debug] AMPED Grid applied to all components!")
@@ -346,10 +379,18 @@ func _on_reactor_changed(index: int):
 		var grid = player[0].get_node("HexGridComponent")
 		if grid:
 			var core = grid.get_tile(0, 0)
-			if core and core is CoreTile:
+			if core and core.has_method("set_face_output"):
+				# Get the Item ID from the OptionButton which we mapped to SynergyType
+				var opt_reactor = null
+				# Find the option button
+				for child in panel.get_child(0).get_children():
+					if child is OptionButton:
+						opt_reactor = child
+						break
+				var syn_id = opt_reactor.get_item_id(index)
 				for i in range(6):
-					core.set_face_output(i, index + 1)
-				print("[Debug] Reactor output overridden to synergy ID: ", index + 1)
+					core.set_face_output(i, syn_id)
+				print("[Debug] Reactor output overridden to synergy ID: ", syn_id)
 
 func _on_restore_components():
 	var main = get_tree().current_scene

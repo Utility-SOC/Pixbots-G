@@ -446,6 +446,14 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 		draw_rect(Rect2(center - Vector2(w, w), Vector2(w*2, w*2)), Color(0.8, 0.6, 0.1), false, 3.0)
 		draw_circle(center, w * 0.5, Color(0.8, 0.6, 0.1))
 		
+	elif type == "Directional Conduit":
+		var r = tile.get("rotation_steps")
+		if r == null: r = 0
+		var in_angle = r * (PI / 3.0)
+		var out_angle = (r + 3) * (PI / 3.0)
+		draw_line(center + Vector2(cos(in_angle), sin(in_angle)) * hs * 0.7, center, base, 4.0, true)
+		draw_line(center, center + Vector2(cos(out_angle), sin(out_angle)) * hs * 0.7, base, 4.0, true)
+		
 	else:
 		# Generic conduit path
 		var default_travel_dir = 3

@@ -368,11 +368,19 @@ func _recalculate_grid():
 	for comp in components.values():
 		for tile in comp.hex_grid.get_all_tiles():
 			if tile is WeaponMountTile and tile.pending_packets.size() > 0:
+				var step_groups = {}
 				for item in tile.pending_packets:
+					var step = item.step
+					if not step_groups.has(step):
+						step_groups[step] = item.packet.copy()
+					else:
+						step_groups[step].merge(item.packet)
+						
+				for step in step_groups:
 					precalculated_weapons.append({
 						"mount": tile,
-						"packet": item.packet.copy(),
-						"step": item.step,
+						"packet": step_groups[step],
+						"step": step,
 						"slot_type": comp.slot_type
 					})
 				tile.clear_pending()

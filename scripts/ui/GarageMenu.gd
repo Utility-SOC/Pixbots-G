@@ -611,7 +611,7 @@ func _on_simulate_pressed():
 			if tile.has_method("generate_energy"):
 				var pkts = tile.generate_energy(grid_renderer.hex_grid)
 				for p in pkts:
-					p.position = h
+					p.position = HexCoord.new(h.x, h.y)
 				initial_packets.append_array(pkts)
 				
 		# 2. Add fake transfer packet from Torso to simulate cross-component energy flow

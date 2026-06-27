@@ -144,10 +144,6 @@ func _ready():
 	btn_legendary_body.pressed.connect(_on_upgrade_body_parts)
 	vbox.add_child(btn_legendary_body)
 	
-	var btn_amped_grid = Button.new()
-	btn_amped_grid.text = "Give AMPED Grid (Edge Loops)"
-	btn_amped_grid.pressed.connect(_on_amped_grid)
-	vbox.add_child(btn_amped_grid)
 	
 	var opt_reactor = OptionButton.new()
 	opt_reactor.add_item("Reactor: KINETIC", load("res://scripts/core/EnergyPacket.gd").SynergyType.KINETIC)
@@ -274,104 +270,6 @@ func _on_upgrade_body_parts():
 		var renderer = mech.get_node_or_null("MechRenderer")
 		if renderer:
 			renderer._rebuild_visuals()
-
-func _on_amped_grid():
-	var main = get_tree().current_scene
-	if main and main.get("player") != null:
-		var mech = main.player
-		var slots = [load("res://scripts/core/HexTile.gd").BodySlot.TORSO, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.HEAD, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.LEG_L, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.LEG_R, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.ARM_L, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.ARM_R,
-					 load("res://scripts/core/HexTile.gd").BodySlot.BACKPACK]
-		
-		var classes = [
-			load("res://scripts/tiles/SplitterTile.gd"),
-			load("res://scripts/tiles/AmplifierTile.gd"),
-			load("res://scripts/tiles/ReflectorTile.gd")
-		]
-		
-		for slot in slots:
-			if mech.components.has(slot):
-				var comp = mech.components[slot]
-				
-				# Find max distance to identify outer edge
-				var center = load("res://scripts/core/HexCoord.gd").new(0, 0)
-				var max_dist = 0
-				for h in comp.valid_hexes:
-					if h.distance(center) > max_dist:
-						max_dist = h.distance(center)
-						
-				# Place alternating tiles on the edge
-				var edge_hexes = []
-				for h in comp.valid_hexes:
-					if h.distance(center) == max_dist and not comp.hex_grid.has_tile(h):
-						edge_hexes.append(h)
-						
-				# Sort by angle to form a continuous loop
-				edge_hexes.sort_custom(func(a, b):
-					var angle_a = atan2(a.r * 0.866, a.q + a.r * 0.5)
-					var angle_b = atan2(b.r * 0.866, b.q + b.r * 0.5)
-					return angle_a < angle_b
-				)
-						
-				for i in range(edge_hexes.size()):
-					var h = edge_hexes[i]
-					var next_h = edge_hexes[(i + 1) % edge_hexes.size()]
-					var prev_h = edge_hexes[(i - 1 + edge_hexes.size()) % edge_hexes.size()]
-					
-					var prev_dir = -1
-					var next_dir = -1
-					for d in range(6):
-						var n = h.neighbor(d)
-						if n.q == next_h.q and n.r == next_h.r: next_dir = d
-						if n.q == prev_h.q and n.r == prev_h.r: prev_dir = d
-					
-					if next_dir != -1 and prev_dir != -1 and next_dir == (prev_dir + 3) % 6:
-						# Straight line - Place Amplifier
-						var tile = load("res://scripts/tiles/AmplifierTile.gd").new()
-						tile.rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
-						comp.hex_grid.add_tile(h, tile)
-					else:
-						# Corner or break - Place Splitter
-						var tile = load("res://scripts/tiles/SplitterTile.gd").new()
-						tile.rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
-						tile.active_faces.clear()
-						if next_dir != -1: tile.active_faces.append(next_dir)
-						# Add inward-facing outputs to flood the grid
-						for d in range(6):
-							if d != next_dir and d != prev_dir:
-								var n = h.neighbor(d)
-								if n.distance(center) < max_dist and comp.can_place_tile(n):
-									if tile.active_faces.size() < tile.get_max_faces():
-										tile.active_faces.append(d)
-						comp.hex_grid.add_tile(h, tile)
-					
-		mech.is_grid_dirty = true
-		print("[Debug] AMPED Grid applied to all components!")
-		
-		var renderer = mech.get_node_or_null("MechRenderer")
-		if renderer:
-			renderer._rebuild_visuals()
-			
-		main = get_tree().current_scene
-		if main and main.get("player_inventory") != null:
-			for i in range(20):
-				var tile = preload("res://scripts/tiles/SplitterTile.gd").new()
-				tile.rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
-				main.player_inventory.append(tile)
-				if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
-					# Ensure it's in the Garage inventory if they are different arrays
-					if main.garage_ui.inventory != main.player_inventory:
-						main.garage_ui.inventory.append(tile)
-						
-		if main and main.get("garage_ui") != null:
-			if main.garage_ui.has_method("_refresh_grid_ui"):
-				main.garage_ui._refresh_grid_ui()
-			if main.garage_ui.has_method("_refresh_inventory_ui"):
-				main.garage_ui._refresh_inventory_ui()
 
 func _on_reactor_changed(index: int):
 	var player = get_tree().get_nodes_in_group("player")

@@ -10,18 +10,10 @@ config_version=5
 
 [application]
 
-config/name="j:\\pixel_bots\\godot\\"
+config/name="Pixbots-G"
 run/main_scene="res://MainMenu.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
-
-[physics]
-
-3d/physics_engine="Jolt Physics"
-
-[rendering]
-
-rendering_device/driver.windows="d3d12"
 
 [autoload]
 
@@ -30,3 +22,11 @@ DebugMenu="*res://scripts/ui/DebugMenu.gd"
 AudioManager="*res://scripts/audio/AudioManager.gd"
 SaveManager="*res://scripts/core/SaveManager.gd"
 ProceduralMusic="*res://scripts/core/ProceduralMusic.gd"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"

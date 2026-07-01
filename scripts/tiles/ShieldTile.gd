@@ -12,13 +12,13 @@ func _init():
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	var p = packet.copy()
 	
-	var mult = 1.0
+	var mult = 1.1
 	if rarity == Rarity.UNCOMMON: mult = 1.5
 	elif rarity == Rarity.RARE: mult = 2.5
 	elif rarity == Rarity.LEGENDARY: mult = 5.0
 	elif rarity == Rarity.MYTHIC: mult = 10.0
 	
-	stored_energy += p.magnitude * conversion_rate * mult
+	stored_energy += p.magnitude * mult
 	
 	p.is_active = false
 	p.magnitude = 0.0

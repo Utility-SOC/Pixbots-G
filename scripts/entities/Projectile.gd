@@ -1,15 +1,17 @@
 class_name Projectile
 extends Area2D
 
-const EnergyPacket = preload("res://scripts/core/EnergyPacket.gd")
+
 const Trail2D = preload("res://scripts/visuals/Trail2D.gd")
 
 var base_speed: float = 500.0
 var final_speed: float = 500.0
 var damage: float = 10.0
+var is_crit: bool = false
 var direction: Vector2 = Vector2.ZERO
 var target_direction: Vector2 = Vector2.ZERO
 var synergies: Dictionary = {}
+var weapon_rarity: int = 0
 
 var ratios: Dictionary = {}
 var total_power: float = 0.0
@@ -113,8 +115,11 @@ func _calculate_stats():
 	s_mod -= 0.5 * r_prc # PIERCE makes it sleek
 	scale = Vector2(s_mod, s_mod)
 	
-	# Base Damage Multiplier from RAW
-	damage *= (1.0 + r_raw * 1.5)
+	# Base Damage Multiplier
+	# RAW gives max raw damage, but other elements still give baseline scaling 
+	# so that converting RAW into elements doesn't cripple your DPS.
+	var base_mult = 1.0 + (r_raw * 1.5) + ((1.0 - r_raw) * 1.0)
+	damage *= base_mult
 	
 	# Pierce Count (PIERCE sets base to high, otherwise 1)
 	if r_prc > 0.0:
@@ -146,16 +151,21 @@ func _calculate_stats():
 	var max_r = 0.0
 	var dom_t = -1
 	for k in ratios:
+		if k == EnergyPacket.SynergyType.RAW and ratios.size() > 1:
+			continue
 		if ratios[k] > max_r:
 			max_r = ratios[k]
 			dom_t = k
 	if dom_t != -1:
-		final_color = _get_color_for_synergy(dom_t)
+		final_color = EnergyPacket.get_color_for_synergy(dom_t)
 		# Boost vibrancy slightly for additive blending
 		final_color = final_color * 1.5
 		final_color.a = 1.0
 	else:
 		final_color = Color.WHITE
+		
+	if weapon_rarity == 4: # Mythic
+		final_color = Color(0.2, 0.9, 0.9, 1.0) # Shiny teal
 
 func _build_visuals():
 	visual_node = Node2D.new()
@@ -167,6 +177,8 @@ func _build_visuals():
 	# Determine dominant and secondary synergies for shape generation
 	var sorted_synergies = []
 	for k in synergies:
+		if k == EnergyPacket.SynergyType.RAW and synergies.size() > 1:
+			continue # Ignore RAW if we have other synergies
 		sorted_synergies.append({"type": k, "power": synergies[k]})
 	sorted_synergies.sort_custom(func(a, b): return a.power > b.power)
 	
@@ -320,7 +332,7 @@ func _build_visuals():
 					var a = i * PI / 4.0
 					pts.append(Vector2(cos(a), sin(a)) * 2.0)
 				h.polygon = pts
-				h.color = _get_color_for_synergy(k)
+				h.color = EnergyPacket.get_color_for_synergy(k)
 				visual_node.add_child(h)
 				helix_particles.append({
 					"node": h,
@@ -345,7 +357,7 @@ func _build_visuals():
 				var a = j * PI / 4.0
 				pts.append(Vector2(cos(a), sin(a)) * 2.0)
 			orb.polygon = pts
-			orb.color = _get_color_for_synergy(EnergyPacket.SynergyType.VORTEX)
+			orb.color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.VORTEX)
 			visual_node.add_child(orb)
 			helix_particles.append({
 				"node": orb,
@@ -359,21 +371,25 @@ func _build_visuals():
 	for child in visual_node.get_children():
 		if child is CanvasItem and child.material == null:
 			child.material = mat
+			
+	if weapon_rarity == 4: # Mythic
+		var glow = Polygon2D.new()
+		glow.name = "MythicGlow"
+		var pts = PackedVector2Array()
+		for i in range(16):
+			var a = i * PI / 8.0
+			pts.append(Vector2(cos(a), sin(a)) * 12.0 * p_scale)
+		glow.polygon = pts
+		glow.color = Color(0.2, 1.0, 1.0, 0.2)
+		visual_node.add_child(glow)
 
-func _get_color_for_synergy(syn: int) -> Color:
-	match syn:
-		EnergyPacket.SynergyType.KINETIC: return Color(0.8, 0.8, 0.8)
-		EnergyPacket.SynergyType.FIRE: return Color(1.0, 0.4, 0.0)
-		EnergyPacket.SynergyType.ICE: return Color(0.4, 0.8, 1.0)
-		EnergyPacket.SynergyType.POISON: return Color(0.2, 0.8, 0.2)
-		EnergyPacket.SynergyType.LIGHTNING: return Color(1.0, 0.9, 0.2)
-		EnergyPacket.SynergyType.PIERCE: return Color(0.9, 0.9, 0.9)
-		EnergyPacket.SynergyType.VORTEX: return Color(0.5, 0.1, 0.8)
-		EnergyPacket.SynergyType.VAMPIRIC: return Color(0.9, 0.1, 0.3)
-		_: return Color(0.5, 0.5, 0.5)
 
 func _process(delta):
-	pass
+	if weapon_rarity == 4 and visual_node:
+		var glow = visual_node.get_node_or_null("MythicGlow")
+		if glow:
+			glow.scale = Vector2.ONE * (1.0 + sin(time_alive * 8.0) * 0.15)
+			glow.color.a = 0.2 + sin(time_alive * 5.0) * 0.1
 
 func _physics_process(delta: float):
 	time_alive += delta
@@ -394,9 +410,12 @@ func _physics_process(delta: float):
 	
 	# 2. VAMPIRIC TERMINAL HOMING ("The Hunter")
 	var active_homing_target = null
-	if is_homing:
+	if is_homing or r_vamp > 0.0:
 		var closest = null
 		var min_dist = 400.0 + (300.0 * r_vamp)
+		if r_ltg > 0.0 and r_vamp > 0.0:
+			min_dist += 500.0 * r_ltg # Lightning + Vampiric massively increases targeting range
+			
 		var query = PhysicsShapeQueryParameters2D.new()
 		var shape = CircleShape2D.new()
 		shape.radius = min_dist
@@ -404,13 +423,26 @@ func _physics_process(delta: float):
 		query.transform = global_transform
 		query.collision_mask = 4 if collision_mask & 4 else 8
 		var results = space_state.intersect_shape(query)
-		for res in results:
-			var col = res["collider"]
-			if col.has_method("apply_damage"):
-				var d = global_position.distance_to(col.global_position)
-				if d < min_dist:
-					min_dist = d
-					closest = col
+		
+		# If Kinetic + Vampiric, look for FURTHEST target to maximize pierce potential
+		if r_kin > 0.0 and r_vamp > 0.0:
+			var max_dist = 0.0
+			for res in results:
+				var col = res["collider"]
+				if col.has_method("apply_damage"):
+					var d = global_position.distance_to(col.global_position)
+					if d > max_dist:
+						max_dist = d
+						closest = col
+		else:
+			for res in results:
+				var col = res["collider"]
+				if col.has_method("apply_damage"):
+					var d = global_position.distance_to(col.global_position)
+					if d < min_dist:
+						min_dist = d
+						closest = col
+						
 		if closest:
 			active_homing_target = closest
 			target_direction = (closest.global_position - global_position).normalized()
@@ -419,9 +451,15 @@ func _physics_process(delta: float):
 	var current_speed = final_speed
 	
 	if active_homing_target != null:
-		# Vampiric smoothly forces a curve to guarantee hit
 		var turn_speed = (8.0 * r_vamp) / steering_resistance
+		if r_kin > 0.0:
+			# Kinetic makes it turn slower but move faster (already handled by speed/resistance)
+			pass
 		direction = direction.lerp(target_direction, turn_speed * delta).normalized()
+		
+		# If Kinetic + Vampiric, grant pierce based on kinetic ratio
+		if r_kin > 0.0 and r_vamp > 0.0:
+			r_prc = max(r_prc, 0.5) # Force granting pierce
 	elif target_direction != Vector2.ZERO:
 		var turn_speed = 0.5 # Passive drift
 		if r_kin > 0.0:
@@ -529,6 +567,27 @@ func _handle_hit(target: Node2D):
 				
 	# Apply Base Damage
 	target.apply_damage(damage, dominant_str)
+	
+	# Massive Damage Screen Shake on Hit
+	if fired_by_player and target.is_in_group("enemy") and damage >= 10000000.0:
+		var cam = get_tree().get_first_node_in_group("camera")
+		if cam and cam.has_method("shake"):
+			var intensity = clamp(damage / 5000000.0, 1.5, 5.0)
+			cam.shake(intensity, 0.4)
+	
+	if is_crit and target.get_parent():
+		var lbl = Label.new()
+		lbl.text = "CRIT!"
+		lbl.modulate = Color(1.0, 0.2, 0.2)
+		lbl.scale = Vector2(1.5, 1.5)
+		lbl.z_index = 100
+		lbl.global_position = target.global_position + Vector2(-20, -40)
+		target.get_parent().add_child(lbl)
+		var tw = lbl.create_tween()
+		tw.tween_property(lbl, "global_position", lbl.global_position + Vector2(0, -60), 0.8).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+		tw.parallel().tween_property(lbl, "modulate:a", 0.0, 0.8).set_ease(Tween.EASE_IN)
+		tw.tween_callback(lbl.queue_free)
+		
 	if is_instance_valid(source_mech) and source_mech.has_signal("dealt_damage") and target != source_mech:
 		source_mech.dealt_damage.emit(damage)
 	
@@ -538,6 +597,47 @@ func _handle_hit(target: Node2D):
 	if ratios.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1 and target.has_method("apply_status"):
 		target.apply_status("frozen", 3.0 * ratios[EnergyPacket.SynergyType.ICE])
 		
+	# Lightning Arcing
+	var r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
+	if r_ltg > 0.05 and target.is_in_group("enemy"):
+		var space_state = get_world_2d().direct_space_state
+		var query = PhysicsShapeQueryParameters2D.new()
+		var shape = CircleShape2D.new()
+		shape.radius = 400.0 * r_ltg
+		query.shape = shape
+		query.transform = global_transform
+		query.collision_mask = 4 if collision_mask & 4 else 8
+		var results = space_state.intersect_shape(query)
+		
+		var closest = null
+		var min_dist = shape.radius
+		for res in results:
+			var col = res["collider"]
+			if col != target and col.has_method("apply_damage") and col.is_in_group("enemy"):
+				var d = global_position.distance_to(col.global_position)
+				if d < min_dist:
+					min_dist = d
+					closest = col
+		
+		if closest:
+			# Draw visual lightning arc
+			var arc = Line2D.new()
+			arc.width = 4.0
+			arc.default_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.LIGHTNING)
+			arc.points = PackedVector2Array([Vector2.ZERO, closest.global_position - global_position])
+			# Add some jitter to the arc
+			if arc.points[1].length() > 50:
+				var mid = arc.points[1] * 0.5
+				var ortho = Vector2(-arc.points[1].y, arc.points[1].x).normalized()
+				arc.points.insert(1, mid + ortho * (randf() * 40.0 - 20.0))
+			
+			visual_node.add_child(arc)
+			var tw = arc.create_tween()
+			tw.tween_property(arc, "modulate:a", 0.0, 0.2)
+			tw.tween_callback(arc.queue_free)
+			
+			closest.apply_damage(damage * 0.5, "LIGHTNING")
+			
 	# Vampiric Heal
 	if ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0) > 0.1:
 		var players = get_tree().get_nodes_in_group("player")

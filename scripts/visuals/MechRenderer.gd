@@ -1,7 +1,7 @@
 class_name MechRenderer
 extends Node2D
 
-const HexCoord = preload("res://scripts/core/HexCoord.gd")
+
 
 var components: Dictionary = {}
 var drawn_parts: Dictionary = {}
@@ -42,43 +42,85 @@ func _rebuild_visuals():
 	for slot in components.keys():
 		var comp = components[slot]
 		var color = Color(0.3, 0.4, 0.5)
-		var rarity_mult = 1.0 + (comp.rarity * 0.05) # Reduced scale inflation
+		
+		var global_scale = 1.0
+		var mech = get_parent()
+		if mech and "combat_role" in mech:
+			if mech.combat_role == "sniper":
+				color = Color(0.2, 0.3, 0.6) # Blueish tint
+				global_scale = 0.9 # Slimmer
+			elif mech.combat_role == "brawler":
+				color = Color(0.6, 0.2, 0.2) # Reddish tint
+				global_scale = 1.2 # Bulkier
+			elif mech.combat_role == "flamethrower":
+				color = Color(0.8, 0.4, 0.1) # Orange tint
+			elif mech.combat_role == "ambusher":
+				color = Color(0.2, 0.2, 0.2) # Dark tint
+				global_scale = 0.85 # Small and sneaky
+			elif mech.combat_role == "boss":
+				color = Color(0.1, 0.1, 0.1)
+				global_scale = 1.8 # Huge
+				
+		var rarity_mult = (1.0 + (comp.rarity * 0.05)) * global_scale
+
 		
 		# Generate a deterministic random seed
 		var rng = RandomNumberGenerator.new()
-		rng.seed = hash(comp.component_name) + comp.rarity
+		var v_seed = 0
+		if mech and "visual_seed" in mech:
+			v_seed = mech.visual_seed
+		rng.seed = hash(comp.component_name) + comp.rarity + v_seed
 		
 
-		if comp.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.TORSO:
+		if comp.slot_type == HexTile.BodySlot.TORSO:
 			_draw_torso(null, color, rng, rarity_mult, comp.rarity)
-		elif comp.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.ARM_L:
+		elif comp.slot_type == HexTile.BodySlot.ARM_L:
 			_draw_arm(null, color, true, rng, rarity_mult, comp.rarity)
-		elif comp.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.ARM_R:
+		elif comp.slot_type == HexTile.BodySlot.ARM_R:
 			_draw_arm(null, color, false, rng, rarity_mult, comp.rarity)
-		elif comp.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.LEG_L:
+		elif comp.slot_type == HexTile.BodySlot.LEG_L:
 			_draw_leg(null, color, true, rng, rarity_mult, comp.rarity)
-		elif comp.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.LEG_R:
+		elif comp.slot_type == HexTile.BodySlot.LEG_R:
 			_draw_leg(null, color, false, rng, rarity_mult, comp.rarity)
-		elif comp.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.HEAD:
+		elif comp.slot_type == HexTile.BodySlot.HEAD:
 			_draw_head(null, color, rng, rarity_mult, comp.rarity)
 				
 	# Draw standard parts for any slots that weren't overridden by tiles
 	var default_color = Color(0.3, 0.4, 0.5)
+	var global_scale = 1.0
+	var mech = get_parent()
+	if mech and "combat_role" in mech:
+		if mech.combat_role == "sniper":
+			default_color = Color(0.2, 0.3, 0.6)
+			global_scale = 0.9
+		elif mech.combat_role == "brawler":
+			default_color = Color(0.6, 0.2, 0.2)
+			global_scale = 1.2
+		elif mech.combat_role == "flamethrower":
+			default_color = Color(0.8, 0.4, 0.1)
+		elif mech.combat_role == "ambusher":
+			default_color = Color(0.2, 0.2, 0.2)
+			global_scale = 0.85
+		elif mech.combat_role == "boss":
+			default_color = Color(0.1, 0.1, 0.1)
+			global_scale = 1.8
+			
 	var rng_def = RandomNumberGenerator.new()
 	rng_def.seed = 12345
 	
 	if not drawn_parts.has("Torso"):
-		_draw_torso(null, default_color, rng_def, 1.0, 0)
+		_draw_torso(null, default_color, rng_def, global_scale, 0)
 	if not drawn_parts.has("Arm_true"):
-		_draw_arm(null, default_color, true, rng_def, 1.0, 0)
+		_draw_arm(null, default_color, true, rng_def, global_scale, 0)
 	if not drawn_parts.has("Arm_false"):
-		_draw_arm(null, default_color, false, rng_def, 1.0, 0)
+		_draw_arm(null, default_color, false, rng_def, global_scale, 0)
 	if not drawn_parts.has("Leg_true"):
-		_draw_leg(null, default_color, true, rng_def, 1.0, 0)
+		_draw_leg(null, default_color, true, rng_def, global_scale, 0)
 	if not drawn_parts.has("Leg_false"):
-		_draw_leg(null, default_color, false, rng_def, 1.0, 0)
+		_draw_leg(null, default_color, false, rng_def, global_scale, 0)
 	if not drawn_parts.has("Head"):
-		_draw_head(null, default_color, rng_def, 1.0, 0)
+		_draw_head(null, default_color, rng_def, global_scale, 0)
+
 
 # -----------------------------------------------------------------------------
 # SHAPE DEFINITIONS
@@ -95,9 +137,9 @@ func _draw_torso(tile, color, rng, scale_mult, rarity):
 	
 	# Add some random jaggedness
 	for i in range(pts.size()):
-		pts[i] += Vector2(rng.randf_range(-2, 2), rng.randf_range(-2, 2))
+		pts[i] += Vector2(rng.randf_range(-4, 4), rng.randf_range(-4, 4))
 		
-	var body_slot = tile.body_slot if tile else load("res://scripts/core/HexTile.gd").BodySlot.TORSO
+	var body_slot = tile.body_slot if tile else HexTile.BodySlot.TORSO
 	_render_mechanical_part(pts, color, Vector2.ZERO, "Torso", body_slot, rarity)
 	
 	# Core Reactor Glow
@@ -118,7 +160,7 @@ func _draw_arm(tile, color, is_left, rng, scale_mult, rarity):
 	var h = 28.0 * scale_mult
 	
 	var pts = PackedVector2Array()
-	var is_weapon = (tile != null and tile.category == load("res://scripts/core/HexTile.gd").TileCategory.OUTPUT)
+	var is_weapon = (tile != null and tile.category == HexTile.TileCategory.OUTPUT)
 	if is_weapon:
 		# Weapon/Gun arm
 		pts.append_array([
@@ -138,7 +180,10 @@ func _draw_arm(tile, color, is_left, rng, scale_mult, rarity):
 		for i in range(pts.size()):
 			pts[i].x *= -1
 			
-	var slot = load("res://scripts/core/HexTile.gd").BodySlot.ARM_L if is_left else load("res://scripts/core/HexTile.gd").BodySlot.ARM_R
+	for i in range(pts.size()):
+		pts[i] += Vector2(rng.randf_range(-3, 3), rng.randf_range(-3, 3))
+			
+	var slot = HexTile.BodySlot.ARM_L if is_left else HexTile.BodySlot.ARM_R
 	var body_slot = tile.body_slot if tile else slot
 	var part = _render_mechanical_part(pts, color, offset, "Arm_" + str(is_left), body_slot, rarity)
 	
@@ -162,7 +207,10 @@ func _draw_leg(tile, color, is_left, rng, scale_mult, rarity):
 		for i in range(pts.size()):
 			pts[i].x *= -1
 			
-	var slot = load("res://scripts/core/HexTile.gd").BodySlot.LEG_L if is_left else load("res://scripts/core/HexTile.gd").BodySlot.LEG_R
+	for i in range(pts.size()):
+		pts[i] += Vector2(rng.randf_range(-3, 3), rng.randf_range(-3, 3))
+			
+	var slot = HexTile.BodySlot.LEG_L if is_left else HexTile.BodySlot.LEG_R
 	var body_slot = tile.body_slot if tile else slot
 	_render_mechanical_part(pts, color, offset, "Leg_" + str(is_left), body_slot, rarity)
 
@@ -176,7 +224,10 @@ func _draw_head(tile, color, rng, scale_mult, rarity):
 		Vector2(w, h), Vector2(-w, h)
 	])
 	
-	var body_slot = tile.body_slot if tile else load("res://scripts/core/HexTile.gd").BodySlot.HEAD
+	for i in range(pts.size()):
+		pts[i] += Vector2(rng.randf_range(-2, 2), rng.randf_range(-2, 2))
+	
+	var body_slot = tile.body_slot if tile else HexTile.BodySlot.HEAD
 	var container = _render_mechanical_part(pts, color, offset, "Head", body_slot, rarity)
 	
 	# Visor
@@ -199,7 +250,7 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 	container.name = part_name
 	
 	# Complex Edges for RARE and LEGENDARY
-	if rarity >= load("res://scripts/core/HexTile.gd").Rarity.RARE:
+	if rarity >= HexTile.Rarity.RARE:
 		var new_pts = PackedVector2Array()
 		for i in range(pts.size()):
 			var p1 = pts[i]
@@ -224,7 +275,7 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 	container.add_child(energy_base)
 	
 	# Optional: Particles for high rarity components
-	if rarity >= load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON:
+	if rarity >= HexTile.Rarity.UNCOMMON:
 		var particles = CPUParticles2D.new()
 		particles.emission_shape = CPUParticles2D.EMISSION_SHAPE_POINTS
 		particles.emission_points = pts
@@ -239,7 +290,7 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 	# 2. Armor Super-layer (Directional Shaded Metal)
 	var armor_base = Polygon2D.new()
 	var base_armor_color = Color(0.3, 0.35, 0.38) # Slate metal grey
-	if rarity >= load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY:
+	if rarity >= HexTile.Rarity.LEGENDARY:
 		base_armor_color = Color(0.18, 0.20, 0.23) # Darker, sleeker for legendary
 	armor_base.color = base_armor_color
 	
@@ -249,20 +300,20 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 	container.add_child(armor_base)
 	
 	# Greebling (Extra armor plates) for UNCOMMON+
-	if rarity >= load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON:
+	if rarity >= HexTile.Rarity.UNCOMMON:
 		var plate1 = Polygon2D.new()
 		plate1.color = base_armor_color.lightened(0.15)
 		plate1.polygon = _shrink_polygon(pts, 6.0)
 		container.add_child(plate1)
 		
-		if rarity >= load("res://scripts/core/HexTile.gd").Rarity.RARE:
+		if rarity >= HexTile.Rarity.RARE:
 			var plate2 = Polygon2D.new()
 			plate2.color = base_armor_color.darkened(0.1)
 			plate2.polygon = _shrink_polygon(pts, 9.0)
 			container.add_child(plate2)
 			
 	# Energy Lines for RARE+
-	if rarity >= load("res://scripts/core/HexTile.gd").Rarity.RARE:
+	if rarity >= HexTile.Rarity.RARE:
 		var center_poly = _shrink_polygon(pts, 12.0)
 		if center_poly.size() > 0:
 			var line = Line2D.new()

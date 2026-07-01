@@ -1,9 +1,9 @@
 class_name GarageGridRenderer
 extends Control
 
-const HexCoord = preload("res://scripts/core/HexCoord.gd")
-const HexTile = preload("res://scripts/core/HexTile.gd")
-const EnergyPacket = preload("res://scripts/core/EnergyPacket.gd")
+
+
+
 const ComponentEquipment = preload("res://scripts/core/ComponentEquipment.gd")
 
 var hex_size: float = 40.0
@@ -119,7 +119,7 @@ func _gui_input(event: InputEvent):
 					# Remove tile
 					if hovered_hex and hex_grid and hex_grid.has_tile(hovered_hex):
 						var tile = hex_grid.get_tile(hovered_hex)
-						if active_component and active_component.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.TORSO and hovered_hex.q == 0 and hovered_hex.r == 0:
+						if active_component and active_component.slot_type == HexTile.BodySlot.TORSO and hovered_hex.q == 0 and hovered_hex.r == 0:
 							print("Cannot remove Core!")
 						else:
 							hex_grid.remove_tile(hovered_hex)
@@ -227,17 +227,21 @@ func _draw_packet(packet: EnergyPacket):
 	var pos = source_px.lerp(target_px, progress)
 		
 	var dominant = packet.get_dominant_synergy()
-	var color = Color(1, 1, 1)
-	if dominant != EnergyPacket.SynergyType.RAW:
-		color = Color(1, 0.5, 0.5) # simplify for now
+	var color = EnergyPacket.get_color_blend(packet.synergies)
 		
 	var scale = 1.0
+	
 	if not packet.is_active:
-		# If it's being consumed, calculate its progress towards the sink
 		if progress > 0.0:
 			var visual_prog = progress
 			scale = 1.0 - visual_prog
 			color = color.lerp(Color(0.2, 1.0, 0.2), visual_prog)
+			
+	if hex_grid and hex_grid.has_tile(target_hex):
+		var target_tile = hex_grid.get_tile(target_hex)
+		if target_tile and target_tile.tile_type == "Weapon Mount" and progress > 0.7:
+			var font = ThemeDB.fallback_font
+			draw_string(font, pos + Vector2(-20, -20), "FIRE!", HORIZONTAL_ALIGNMENT_CENTER, -1, 16, Color(1, 0.5, 0))
 		
 	# Outer glow
 	draw_circle(pos, 15.0 * zoom * scale, color * Color(1,1,1,0.3))
@@ -342,17 +346,25 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 	
 	var hs = hex_size * zoom
 	
-	if type == "Core Reactor":
+	if type == "Core Reactor" or type == "Microcore":
 		draw_circle(center, hs * 0.4, base)
 		draw_circle(center, hs * 0.2, Color(1.0, 0.85, 0.4))
 		var active = range(6)
 		if "active_faces" in tile:
 			active = tile.active_faces
 		for i in active:
+			var syn_color = base
+			if tile.has_method("get_face_output"):
+				var syn = tile.get_face_output(i)
+				syn_color = _get_synergy_color(syn)
+				
 			var angle = deg_to_rad(60 * i)
-			draw_line(center, center + Vector2(cos(angle), sin(angle)) * hs * 0.6, base, 3.0, true)
+			draw_line(center, center + Vector2(cos(angle), sin(angle)) * hs * 0.6, syn_color, 3.0, true)
+			# Arrowhead
+			var end_pt = center + Vector2(cos(angle), sin(angle)) * hs * 0.7
+			draw_circle(end_pt, 4.0, syn_color)
 			
-	elif type == "Splitter":
+	elif type == "Splitter" or type == "Accessory Return" or type == "Torso Return":
 		var default_travel_dir = 3
 		var entry_face = (default_travel_dir + 3) % 6
 		if tile.has_method("get_exit_directions"):
@@ -441,7 +453,18 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 				
 		draw_polygon(pts, PackedColorArray([current_color]))
 		
+		# EXPLICIT TEXT LABEL FOR SYNERGY
+		var font = ThemeDB.fallback_font
+		var SynergyType = EnergyPacket.SynergyType
+		var syn_name = "RAW"
+		for key_name in SynergyType.keys():
+			if SynergyType[key_name] == dominant_syn:
+				syn_name = key_name
+				break
+		draw_string(font, center + Vector2(-25, 25), "[%s]" % syn_name, HORIZONTAL_ALIGNMENT_CENTER, 50, 10, Color.WHITE)
+		
 	elif type.ends_with("Link"):
+
 		var w = hs * 0.3
 		draw_rect(Rect2(center - Vector2(w, w), Vector2(w*2, w*2)), Color(0.8, 0.6, 0.1), false, 3.0)
 		draw_circle(center, w * 0.5, Color(0.8, 0.6, 0.1))
@@ -476,7 +499,7 @@ func _draw_static_paths(tile: HexTile, center: Vector2):
 	var main_menu = get_tree().current_scene
 	if main_menu and main_menu.get_node_or_null("GarageMenu"):
 		var garage = main_menu.get_node("GarageMenu")
-		if garage.active_component and garage.active_component.slot_type == load("res://scripts/core/HexTile.gd").BodySlot.ARM_L:
+		if garage.active_component and garage.active_component.slot_type == HexTile.BodySlot.ARM_L:
 			default_travel_dir = 3
 			
 	var entry_face = (default_travel_dir + 3) % 6

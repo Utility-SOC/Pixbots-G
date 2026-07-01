@@ -1,33 +1,29 @@
 class_name CatalystTile
 extends HexTile
 
-@export var input_synergies: Array[EnergyPacket.SynergyType] = []
-@export var output_synergy: EnergyPacket.SynergyType = EnergyPacket.SynergyType.RAW
+@export var target_synergy: EnergyPacket.SynergyType = EnergyPacket.SynergyType.FIRE
 @export var efficiency: float = 1.2
 
 func _init():
 	tile_type = "Catalyst"
 	category = TileCategory.CONVERTER
 
+func cycle_synergy():
+	target_synergy = (target_synergy + 1) % 10
+
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
-	if input_synergies.is_empty(): return [packet]
+	if packet.magnitude <= 0.0: return [packet]
 	
-	var has_all = true
-	for syn in input_synergies:
-		if not packet.has_synergy(syn, 0.1):
-			has_all = false
-			break
-			
-	if has_all:
-		var total_consumed = 0.0
-		for syn in input_synergies:
-			if packet.synergies.has(syn):
-				total_consumed += packet.synergies[syn] * 0.5
-				packet.synergies[syn] *= 0.5
+	var total_consumed = 0.0
+	for syn in packet.synergies.keys():
+		total_consumed += packet.synergies[syn]
 		
-		var output_amount = total_consumed * efficiency * _get_power_multiplier()
-		packet.add_synergy(output_synergy, output_amount)
-		
+	packet.synergies.clear()
+	
+	var output_amount = total_consumed * efficiency * _get_power_multiplier()
+	packet.magnitude = 0.0
+	packet.add_synergy(target_synergy, output_amount)
+	
 	return [packet]
 
 func _get_power_multiplier() -> float:

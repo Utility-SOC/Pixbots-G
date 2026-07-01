@@ -23,8 +23,17 @@ func _ready():
 			HexTile.Rarity.UNCOMMON: poly.color = Color(0.2, 0.8, 0.2)
 			HexTile.Rarity.RARE: poly.color = Color(0.2, 0.4, 1.0)
 			HexTile.Rarity.LEGENDARY: poly.color = Color(1.0, 0.8, 0.2)
-			
+			HexTile.Rarity.MYTHIC: 
+				poly.color = Color(0.0, 0.9, 1.0) # Shiny Teal
+				
 	add_child(poly)
+	
+	if (tile_data and tile_data.rarity == HexTile.Rarity.MYTHIC) or (equipment_data and equipment_data.get("rarity") == HexTile.Rarity.MYTHIC):
+		# Very subtle light reflection animation for Mythic items
+		var tw = create_tween().set_loops()
+		tw.tween_property(poly, "color", Color(0.8, 1.0, 1.0), 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		tw.tween_property(poly, "color", Color(0.0, 0.9, 1.0), 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
 	
 	var shape = CollisionShape2D.new()
 	var rect = RectangleShape2D.new()
@@ -34,10 +43,10 @@ func _ready():
 	
 	body_entered.connect(_on_body_entered)
 
-func pull_towards(target_pos: Vector2, delta: float):
+func pull_towards(target_pos: Vector2, delta_mod: float):
 	# The vortex effect
-	var dir = global_position.direction_to(target_pos)
-	global_position += dir * 200.0 * delta
+	var speed = 200.0 * delta_mod
+	global_position = global_position.move_toward(target_pos, speed)
 
 func _on_body_entered(body: Node2D):
 	if body.has_method("equip_component") and "is_player" in body and body.is_player:

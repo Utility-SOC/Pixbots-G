@@ -49,8 +49,8 @@ func _ready():
 	_populate_dummy_inventory()
 
 func _populate_dummy_inventory():
-	var amp = preload("res://scripts/core/HexTile.gd").new("Amplifier", HexTile.TileCategory.PROCESSOR)
-	var split = preload("res://scripts/core/HexTile.gd").new("Splitter", HexTile.TileCategory.ROUTER)
+	var amp = preHexTile.new("Amplifier", HexTile.TileCategory.PROCESSOR)
+	var split = preHexTile.new("Splitter", HexTile.TileCategory.ROUTER)
 	
 	inventory.append(amp)
 	inventory.append(split)

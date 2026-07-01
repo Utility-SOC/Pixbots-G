@@ -62,6 +62,18 @@ func _ready():
 	btn_god_inv.pressed.connect(_on_give_god_inventory)
 	vbox.add_child(btn_god_inv)
 	
+	var btn_mythic_inv = Button.new()
+	btn_mythic_inv.text = "Give MYTHIC Inventory (50x All Mythic)"
+	btn_mythic_inv.pressed.connect(func(): _on_give_god_inventory(true))
+	vbox.add_child(btn_mythic_inv)
+	
+	var btn_mythic_comp = Button.new()
+	btn_mythic_comp.text = "Give Mythic Components to Inventory (1 Set)"
+	btn_mythic_comp.pressed.connect(_on_give_mythic_components)
+	vbox.add_child(btn_mythic_comp)
+
+
+	
 	var btn_shield = Button.new()
 	btn_shield.text = "Give Mythic Shield Backpack"
 	btn_shield.pressed.connect(func():
@@ -146,15 +158,15 @@ func _ready():
 	
 	
 	var opt_reactor = OptionButton.new()
-	opt_reactor.add_item("Reactor: KINETIC", load("res://scripts/core/EnergyPacket.gd").SynergyType.KINETIC)
-	opt_reactor.add_item("Reactor: FIRE", load("res://scripts/core/EnergyPacket.gd").SynergyType.FIRE)
-	opt_reactor.add_item("Reactor: ICE", load("res://scripts/core/EnergyPacket.gd").SynergyType.ICE)
-	opt_reactor.add_item("Reactor: LIGHTNING", load("res://scripts/core/EnergyPacket.gd").SynergyType.LIGHTNING)
-	opt_reactor.add_item("Reactor: VORTEX", load("res://scripts/core/EnergyPacket.gd").SynergyType.VORTEX)
-	opt_reactor.add_item("Reactor: POISON", load("res://scripts/core/EnergyPacket.gd").SynergyType.POISON)
-	opt_reactor.add_item("Reactor: EXPLOSION", load("res://scripts/core/EnergyPacket.gd").SynergyType.EXPLOSION)
-	opt_reactor.add_item("Reactor: PIERCE", load("res://scripts/core/EnergyPacket.gd").SynergyType.PIERCE)
-	opt_reactor.add_item("Reactor: VAMPIRIC", load("res://scripts/core/EnergyPacket.gd").SynergyType.VAMPIRIC)
+	opt_reactor.add_item("Reactor: KINETIC", EnergyPacket.SynergyType.KINETIC)
+	opt_reactor.add_item("Reactor: FIRE", EnergyPacket.SynergyType.FIRE)
+	opt_reactor.add_item("Reactor: ICE", EnergyPacket.SynergyType.ICE)
+	opt_reactor.add_item("Reactor: LIGHTNING", EnergyPacket.SynergyType.LIGHTNING)
+	opt_reactor.add_item("Reactor: VORTEX", EnergyPacket.SynergyType.VORTEX)
+	opt_reactor.add_item("Reactor: POISON", EnergyPacket.SynergyType.POISON)
+	opt_reactor.add_item("Reactor: EXPLOSION", EnergyPacket.SynergyType.EXPLOSION)
+	opt_reactor.add_item("Reactor: PIERCE", EnergyPacket.SynergyType.PIERCE)
+	opt_reactor.add_item("Reactor: VAMPIRIC", EnergyPacket.SynergyType.VAMPIRIC)
 	opt_reactor.item_selected.connect(_on_reactor_changed)
 	vbox.add_child(opt_reactor)
 
@@ -251,18 +263,18 @@ func _on_upgrade_body_parts():
 	var player = get_tree().get_nodes_in_group("player")
 	if player.size() > 0:
 		var mech = player[0]
-		var slots = [load("res://scripts/core/HexTile.gd").BodySlot.TORSO, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.HEAD, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.LEG_L, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.LEG_R, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.ARM_L, 
-					 load("res://scripts/core/HexTile.gd").BodySlot.ARM_R,
-					 load("res://scripts/core/HexTile.gd").BodySlot.BACKPACK]
+		var slots = [HexTile.BodySlot.TORSO, 
+					 HexTile.BodySlot.HEAD, 
+					 HexTile.BodySlot.LEG_L, 
+					 HexTile.BodySlot.LEG_R, 
+					 HexTile.BodySlot.ARM_L, 
+					 HexTile.BodySlot.ARM_R,
+					 HexTile.BodySlot.BACKPACK]
 		
 		for slot in slots:
 			if mech.components.has(slot):
 				var comp = mech.components[slot]
-				comp.rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
+				comp.rarity = HexTile.Rarity.LEGENDARY
 				comp.generate_shape()
 				comp.update_link_positions()
 				print("[Debug] Upgraded slot ", slot, " to Legendary!")
@@ -294,7 +306,7 @@ func _on_restore_components():
 	var main = get_tree().current_scene
 	if main and main.get("player") != null:
 		var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
-		var rarity = load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY
+		var rarity = HexTile.Rarity.LEGENDARY
 		
 		# Generate 2 full sets
 		for i in range(2):
@@ -325,12 +337,13 @@ func _on_restore_components():
 				main.garage_ui._refresh_grid_ui()
 		print("[Debug] Restored 2 full sets of Legendary components!")
 
-func _on_give_god_inventory():
+func _on_give_god_inventory(is_mythic: bool = false):
 	var main = get_tree().current_scene
+
 	if not main or main.get("player_inventory") == null:
 		return
 		
-	var Rarity = load("res://scripts/core/HexTile.gd").Rarity
+	var Rarity = HexTile.Rarity
 	var tile_scripts = [
 		"res://scripts/tiles/SplitterTile.gd",
 		"res://scripts/tiles/AmplifierTile.gd",
@@ -338,7 +351,16 @@ func _on_give_god_inventory():
 		"res://scripts/tiles/CatalystTile.gd",
 		"res://scripts/tiles/InfuserTile.gd",
 		"res://scripts/tiles/JumpjetTile.gd",
-		"res://scripts/tiles/WeaponMountTile.gd"
+		"res://scripts/tiles/WeaponMountTile.gd",
+		"res://scripts/tiles/AccumulatorTile.gd",
+		"res://scripts/tiles/ActuatorTile.gd",
+		"res://scripts/tiles/DirectionalConduitTile.gd",
+		"res://scripts/tiles/FilterTile.gd",
+		"res://scripts/tiles/MagnetTile.gd",
+		"res://scripts/tiles/MicrocoreTile.gd",
+		"res://scripts/tiles/ResonatorTile.gd",
+		"res://scripts/tiles/ShieldGeneratorTile.gd",
+		"res://scripts/tiles/ShieldTile.gd"
 	]
 	
 	# Give 50 of each normal tile
@@ -347,19 +369,9 @@ func _on_give_god_inventory():
 		if not script: continue
 		for i in range(50):
 			var tile = script.new()
-			tile.rarity = Rarity.LEGENDARY
+			tile.rarity = Rarity.MYTHIC if is_mythic else Rarity.LEGENDARY
 			main.player_inventory.append(tile)
-			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
-				if main.garage_ui.inventory != main.player_inventory:
-					main.garage_ui.inventory.append(tile)
-					
-	# Give 20 Microcores
-	var mc_script = load("res://scripts/tiles/MicrocoreTile.gd")
-	if mc_script:
-		for i in range(20):
-			var tile = mc_script.new()
-			tile.rarity = Rarity.LEGENDARY
-			main.player_inventory.append(tile)
+
 			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
 				if main.garage_ui.inventory != main.player_inventory:
 					main.garage_ui.inventory.append(tile)
@@ -367,4 +379,29 @@ func _on_give_god_inventory():
 	if main.get("garage_ui") != null:
 		if main.garage_ui.has_method("_refresh_inventory_ui"):
 			main.garage_ui._refresh_inventory_ui()
-	print("[Debug] Added GOD Inventory (50x All Legendary, 20x Microcores)")
+	print("[Debug] Added GOD Inventory (50x All Legendary or Mythic)")
+
+func _on_give_mythic_components():
+	var main = get_tree().current_scene
+	if main and main.get("player_component_inventory") != null:
+		var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
+		var rarity = HexTile.Rarity.MYTHIC
+		
+		var comps = [
+			ScriptComponentEquipment.create_starter_torso("Mythic Torso", rarity),
+			ScriptComponentEquipment.create_starter_head("Mythic Head", rarity),
+			ScriptComponentEquipment.create_starter_arm(true, "Mythic Arm L", rarity),
+			ScriptComponentEquipment.create_starter_arm(false, "Mythic Arm R", rarity),
+			ScriptComponentEquipment.create_starter_leg(true, "Mythic Leg L", rarity),
+			ScriptComponentEquipment.create_starter_leg(false, "Mythic Leg R", rarity),
+			ScriptComponentEquipment.create_jetpack_backpack()
+		]
+		comps[6].rarity = rarity
+		comps[6].component_name = "Mythic Jetpack"
+		
+		for c in comps:
+			main.player_component_inventory.append(c)
+			
+		if main.get("garage_ui") != null and main.garage_ui.has_method("_refresh_component_ui"):
+			main.garage_ui._refresh_component_ui()
+		print("[Debug] Added 1 full set of Mythic components to inventory!")

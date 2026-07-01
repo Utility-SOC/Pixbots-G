@@ -1,8 +1,8 @@
 class_name GarageMenu
 extends CanvasLayer
 
-const HexTile = preload("res://scripts/core/HexTile.gd")
-const EnergyPacket = preload("res://scripts/core/EnergyPacket.gd")
+
+
 const ComponentEquipment = preload("res://scripts/core/ComponentEquipment.gd")
 const SplitterTile = preload("res://scripts/tiles/SplitterTile.gd")
 const AmplifierTile = preload("res://scripts/tiles/AmplifierTile.gd")
@@ -17,6 +17,8 @@ var stats_label: Label
 var tooltip_label: Label
 var component_tabs: TabBar
 var warning_label: Label
+var scrap_label: Label
+
 
 var active_component: ComponentEquipment
 var mech_components: Dictionary = {}
@@ -81,7 +83,7 @@ func _on_tab_changed(index: int):
 	# Ensure Torso always has a Core
 	if slot == HexTile.BodySlot.TORSO:
 		var has_core = false
-		var h0 = grid_renderer.HexCoord.new(0, 0)
+		var h0 = HexCoord.new(0, 0)
 		if active_component.hex_grid.has_tile(h0):
 			var existing_tile = active_component.hex_grid.get_tile(h0)
 			if existing_tile and existing_tile.tile_type == "Core Reactor":
@@ -248,6 +250,35 @@ func _setup_ui():
 	)
 	bottom_bar.add_child(deploy_button)
 	
+	# Loadouts Bar
+	var loadout_bar = HBoxContainer.new()
+	left_vbox.add_child(loadout_bar)
+	
+	var loadout_lbl = Label.new()
+	loadout_lbl.text = "Loadouts: "
+	loadout_bar.add_child(loadout_lbl)
+	
+	for i in range(1, 4):
+		var btn = Button.new()
+		btn.text = "Load " + str(i)
+		btn.pressed.connect(func():
+			var main = get_parent()
+			if main and main.get("player") != null:
+				if SaveManager.load_loadout(i, main.player, inventory):
+					_refresh_component_ui()
+					_refresh_inventory_ui()
+		)
+		loadout_bar.add_child(btn)
+		
+		var save_btn = Button.new()
+		save_btn.text = "Save " + str(i)
+		save_btn.pressed.connect(func():
+			var main = get_parent()
+			if main and main.get("player") != null:
+				SaveManager.save_loadout(i, main.player)
+		)
+		loadout_bar.add_child(save_btn)
+	
 	# Right Side: Inventory & Stats
 	inventory_panel = PanelContainer.new()
 	inventory_panel.custom_minimum_size = Vector2(300, 0)
@@ -264,9 +295,16 @@ func _setup_ui():
 	right_vbox.add_child(sep)
 	
 	var inv_label = Label.new()
-	inv_label.text = "INVENTORY"
+	inv_label.text = "INVENTORY (Right-click to scrap)"
 	inv_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	right_vbox.add_child(inv_label)
+	
+	scrap_label = Label.new()
+	scrap_label.text = "Scrap: 0"
+	scrap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	scrap_label.modulate = Color(1.0, 0.8, 0.2)
+	right_vbox.add_child(scrap_label)
+
 	
 	var filter_hbox = HBoxContainer.new()
 	right_vbox.add_child(filter_hbox)
@@ -321,6 +359,12 @@ func _refresh_inventory_ui():
 	for c in inv_vbox.get_children():
 		c.queue_free()
 		
+	if scrap_label:
+		var main = get_parent()
+		if main and main.get("player_scrap") != null:
+			scrap_label.text = "Scrap: " + str(main.player_scrap)
+
+		
 	var search_text = ""
 	if search_input: search_text = search_input.text.to_lower()
 	var filter_rarity = 99
@@ -336,8 +380,8 @@ func _refresh_inventory_ui():
 			
 		var btn = Button.new()
 		var mult = 1.0 + (tile.rarity * 0.15)
-		var rarity_name = ["Common", "Uncommon", "Rare", "Legendary"][tile.rarity]
-		var rarity_colors = [Color(0.5, 0.5, 0.5), Color(0.2, 0.7, 0.3), Color(0.2, 0.4, 0.8), Color(0.8, 0.5, 0.1)]
+		var rarity_name = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"][tile.rarity]
+		var rarity_colors = [Color(0.5, 0.5, 0.5), Color(0.2, 0.7, 0.3), Color(0.2, 0.4, 0.8), Color(0.8, 0.5, 0.1), Color(0.1, 0.8, 0.8)]
 		
 		var style = StyleBoxFlat.new()
 		style.bg_color = rarity_colors[tile.rarity] * 0.5 # Darkened background
@@ -345,10 +389,25 @@ func _refresh_inventory_ui():
 		style.border_color = rarity_colors[tile.rarity]
 		btn.add_theme_stylebox_override("normal", style)
 		
+		if tile.rarity == 4:
+			var shader = Shader.new()
+			shader.code = """
+			shader_type canvas_item;
+			void fragment() {
+				float wave = sin(TIME * 1.5 - UV.x * 5.0 - UV.y * 5.0);
+				float shine = smoothstep(0.9, 1.0, wave) * 0.3;
+				COLOR = COLOR + vec4(0.3, 0.9, 0.9, 0.0) * shine;
+			}
+			"""
+			var mat = ShaderMaterial.new()
+			mat.shader = shader
+			btn.material = mat
+		
 		btn.text = tile.tile_type + "\n" + rarity_name + " (x" + str(snapped(mult, 0.01)) + ")"
 		btn.custom_minimum_size = Vector2(0, 50)
-		btn.button_down.connect(_on_inventory_item_down.bind(tile))
+		btn.gui_input.connect(_on_inventory_item_gui_input.bind(tile))
 		inv_vbox.add_child(btn)
+
 
 func _input(event):
 	if event.is_action_pressed("ui_cancel"):
@@ -367,11 +426,43 @@ func _input(event):
 		if dragged_tile:
 			_drop_tile(event.global_position)
 
+func _on_inventory_item_gui_input(event: InputEvent, tile: HexTile):
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			dragged_tile = tile
+			drag_preview.show()
+			drag_preview.global_position = get_viewport().get_mouse_position()
+			tooltip_label.hide()
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			_scrap_tile(tile)
+
+func _scrap_tile(tile: HexTile):
+	var main = get_parent()
+	if main and main.get("player_scrap") != null:
+		var scrap_value = 10
+		if tile.rarity == 1: scrap_value = 25
+		elif tile.rarity == 2: scrap_value = 75
+		elif tile.rarity == 3: scrap_value = 250
+		elif tile.rarity == 4: scrap_value = 1000
+		
+		main.player_scrap += scrap_value
+		inventory.erase(tile)
+		
+		var float_lbl = Label.new()
+		float_lbl.text = "+" + str(scrap_value) + " Scrap"
+		float_lbl.modulate = Color(1.0, 0.8, 0.2)
+		float_lbl.global_position = get_viewport().get_mouse_position() - Vector2(20, 20)
+		add_child(float_lbl)
+		var tw = create_tween()
+		tw.tween_property(float_lbl, "global_position:y", float_lbl.global_position.y - 50, 1.0)
+		tw.parallel().tween_property(float_lbl, "modulate:a", 0.0, 1.0)
+		tw.tween_callback(float_lbl.queue_free)
+		
+		_refresh_inventory_ui()
+
 func _on_inventory_item_down(tile: HexTile):
-	dragged_tile = tile
-	drag_preview.show()
-	drag_preview.global_position = get_viewport().get_mouse_position()
-	tooltip_label.hide()
+	pass # Deprecated in favor of gui_input
+
 
 func _drop_tile(pos: Vector2):
 	if grid_renderer.get_global_rect().has_point(pos):
@@ -407,7 +498,7 @@ func _on_tooltip_requested(tile: HexTile, screen_pos: Vector2):
 	tooltip_label.show()
 	tooltip_label.global_position = screen_pos + Vector2(15, 15)
 	var mult = 1.0 + (tile.rarity * 0.15)
-	var rarity_name = ["Common", "Uncommon", "Rare", "Legendary"][tile.rarity]
+	var rarity_name = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"][tile.rarity]
 	var text = "[ %s ] %s\nPower Multiplier: x%s" % [rarity_name, tile.tile_type, str(snapped(mult, 0.01))]
 	if "sync_adjustment" in tile and tile.sync_adjustment != 0:
 		text += "\nSync Shift: " + ("+" if tile.sync_adjustment > 0 else "") + str(tile.sync_adjustment)
@@ -454,7 +545,7 @@ func _on_tile_clicked(tile: HexTile):
 		popup.popup_centered(Vector2(250, 300))
 		popup.popup_hide.connect(func(): popup.queue_free())
 		
-	elif tile.tile_type == "Splitter":
+	elif tile.tile_type == "Splitter" or tile.tile_type == "Accessory Return":
 		var popup = PopupPanel.new()
 		var vbox = VBoxContainer.new()
 		popup.add_child(vbox)
@@ -508,18 +599,23 @@ func _on_tile_clicked(tile: HexTile):
 		popup.popup_centered(Vector2(250, 100))
 		popup.popup_hide.connect(func(): popup.queue_free())
 	
-	elif tile.tile_type == "Elemental Infuser":
+	elif tile.tile_type == "Elemental Infuser" or tile.tile_type == "Catalyst":
 		var popup = PopupPanel.new()
 		var vbox = VBoxContainer.new()
 		popup.add_child(vbox)
 		
 		var label = Label.new()
-		label.text = "Configure Infuser Synergy"
+		label.text = "Configure " + tile.tile_type + " Synergy"
 		vbox.add_child(label)
 		
-		var synergies = ["RAW", "KINETIC", "FIRE", "POISON", "LIGHTNING", "VAMPIRIC", "VORTEX"]
+		var SynergyType = EnergyPacket.SynergyType
 		var btn = Button.new()
-		var current_name = synergies[tile.secondary_synergy] if tile.secondary_synergy < synergies.size() else "UNKNOWN"
+		var current_name = "RAW"
+		var prop_name = "secondary_synergy" if tile.tile_type == "Elemental Infuser" else "target_synergy"
+		for key_name in SynergyType.keys():
+			if SynergyType[key_name] == tile.get(prop_name):
+				current_name = key_name
+				break
 		btn.text = "Synergy: %s" % current_name
 		btn.gui_input.connect(func(event):
 			if event is InputEventMouseButton and event.pressed:
@@ -529,7 +625,11 @@ func _on_tile_clicked(tile: HexTile):
 					if tile.has_method("cycle_synergy_backward"):
 						tile.cycle_synergy_backward()
 						
-				var new_name = synergies[tile.secondary_synergy] if tile.secondary_synergy < synergies.size() else "UNKNOWN"
+				var new_name = "RAW"
+				for key_name in SynergyType.keys():
+					if SynergyType[key_name] == tile.get(prop_name):
+						new_name = key_name
+						break
 				btn.text = "Synergy: %s" % new_name
 				grid_renderer.queue_redraw()
 		)
@@ -549,7 +649,7 @@ func _on_tile_clicked(tile: HexTile):
 		vbox.add_child(label)
 		
 		var directions = ["East", "South-East", "South-West", "West", "North-West", "North-East"]
-		var synergies = ["RAW", "KINETIC", "FIRE", "POISON", "LIGHTNING", "VAMPIRIC", "VORTEX"]
+		var SynergyType = EnergyPacket.SynergyType
 		
 		for i in range(6):
 			var hbox = HBoxContainer.new()
@@ -560,14 +660,18 @@ func _on_tile_clicked(tile: HexTile):
 			
 			var syn_btn = Button.new()
 			var current_syn = tile.get_face_output(i) if tile.has_method("get_face_output") else 0
-			var syn_name = synergies[current_syn] if current_syn < synergies.size() else "RAW"
+			var syn_name = "RAW"
+			for key_name in SynergyType.keys():
+				if SynergyType[key_name] == current_syn:
+					syn_name = key_name
+					break
 			syn_btn.text = "Syn: %s" % syn_name
-			syn_btn.disabled = not btn.button_pressed or tile.rarity < load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON
+			syn_btn.disabled = not btn.button_pressed or tile.rarity < HexTile.Rarity.UNCOMMON
 			hbox.add_child(syn_btn)
 			
 			btn.toggled.connect(func(pressed):
 				tile.toggle_face(i)
-				syn_btn.disabled = not pressed or tile.rarity < load("res://scripts/core/HexTile.gd").Rarity.UNCOMMON
+				syn_btn.disabled = not pressed or tile.rarity < HexTile.Rarity.UNCOMMON
 				grid_renderer.queue_redraw()
 				for j in range(6):
 					var child_hbox = vbox.get_child(j + 1)
@@ -582,7 +686,11 @@ func _on_tile_clicked(tile: HexTile):
 				if tile.has_method("cycle_face_output"):
 					tile.cycle_face_output(i)
 					var new_syn = tile.get_face_output(i)
-					var new_name = synergies[new_syn] if new_syn < synergies.size() else "RAW"
+					var new_name = "RAW"
+					for key_name in SynergyType.keys():
+						if SynergyType[key_name] == new_syn:
+							new_name = key_name
+							break
 					syn_btn.text = "Syn: %s" % new_name
 			)
 			vbox.add_child(hbox)
@@ -605,7 +713,13 @@ func _on_simulate_pressed():
 	var initial_packets: Array[EnergyPacket] = []
 	
 	if active_component:
+		# Clear pending packets on current grid before simulating
+		for t in active_component.hex_grid.get_all_tiles():
+			if "pending_packets" in t:
+				t.pending_packets.clear()
+				
 		# 1. Generate local energy from any Core Reactors in this component's grid
+
 		for h in grid_renderer.hex_grid.grid.keys():
 			var tile = grid_renderer.hex_grid.get_tile(h)
 			if tile.has_method("generate_energy"):
@@ -614,33 +728,102 @@ func _on_simulate_pressed():
 					p.position = HexCoord.new(h.x, h.y)
 				initial_packets.append_array(pkts)
 				
-		# 2. Add fake transfer packet from Torso to simulate cross-component energy flow
+		# 2. Add actual transfer packets from Torso to simulate cross-component energy flow
 		if active_component.slot_type != HexTile.BodySlot.TORSO:
-			var packet = EnergyPacket.new()
-			packet.magnitude = 100.0
-			var dir = 3 # default west
-			
-			if active_component.slot_type == HexTile.BodySlot.ARM_L:
-				dir = 3
-			elif active_component.slot_type == HexTile.BodySlot.ARM_R:
-				dir = 0
-			elif active_component.slot_type == HexTile.BodySlot.HEAD:
-				dir = 5 # North-East
-			elif active_component.slot_type == HexTile.BodySlot.LEG_L or active_component.slot_type == HexTile.BodySlot.LEG_R:
-				dir = 1 # South-East
-			elif active_component.slot_type == HexTile.BodySlot.BACKPACK:
-				dir = 4 # North-West
+			if mech_components.has(HexTile.BodySlot.TORSO) and mech_components[HexTile.BodySlot.TORSO]:
+				var torso_comp = mech_components[HexTile.BodySlot.TORSO]
+				var t_pkts = []
+				for h in torso_comp.hex_grid.grid.keys():
+					var tile = torso_comp.hex_grid.get_tile(h)
+					if tile.has_method("generate_energy"):
+						var pkts = tile.generate_energy(torso_comp.hex_grid)
+						for p in pkts: p.position = HexCoord.new(h.x, h.y)
+						t_pkts.append_array(pkts)
+						
+				var dummy_mech = load("res://scripts/entities/Mech.gd").new()
+				dummy_mech._simulate_grid(torso_comp.hex_grid, t_pkts)
+				var transfers = dummy_mech._collect_transfers(torso_comp)
 				
-			packet.direction = dir
-			# Spawn it outside the grid so it steps into (0, 0)
-			var opp_dir = (dir + 3) % 6
-			packet.position = HexCoord.new(0, 0).neighbor(opp_dir)
-			initial_packets.append(packet)
+				if transfers.has(active_component.slot_type):
+					for packet in transfers[active_component.slot_type]:
+						var dir = 3 # default west
+						if active_component.slot_type == HexTile.BodySlot.ARM_L: dir = 3
+						elif active_component.slot_type == HexTile.BodySlot.ARM_R: dir = 0
+						elif active_component.slot_type == HexTile.BodySlot.HEAD: dir = 5
+						elif active_component.slot_type == HexTile.BodySlot.LEG_L or active_component.slot_type == HexTile.BodySlot.LEG_R: dir = 1
+						elif active_component.slot_type == HexTile.BodySlot.BACKPACK: dir = 4
+						
+						packet.direction = dir
+						var opp_dir = (dir + 3) % 6
+						packet.position = HexCoord.new(0, 0).neighbor(opp_dir)
+						packet.is_active = true
+						initial_packets.append(packet)
+				dummy_mech.free()
+			
+		# 3. If Torso, pull returning energy from Head and Backpack
+		if active_component.slot_type == HexTile.BodySlot.TORSO:
+			var dummy_mech = load("res://scripts/entities/Mech.gd").new()
+			
+			# We need to simulate the Torso first to find out what it sends out!
+			var dummy_t_pkts: Array[EnergyPacket] = []
+			for p in initial_packets:
+				dummy_t_pkts.append(p.copy())
+			dummy_mech._simulate_grid(active_component.hex_grid, dummy_t_pkts)
+			var dummy_transfers = dummy_mech._collect_transfers(active_component)
+			
+			for p_slot in [HexTile.BodySlot.HEAD, HexTile.BodySlot.BACKPACK]:
+				if mech_components.has(p_slot) and mech_components[p_slot]:
+					var p_comp = mech_components[p_slot]
+					var p_pkts: Array[EnergyPacket] = []
+					
+					# 3a. Add energy received from Torso
+					if dummy_transfers.has(p_slot):
+						var incoming = dummy_transfers[p_slot]
+						dummy_mech._route_to_peripheral(incoming, p_comp)
+						p_pkts.append_array(incoming)
+					
+					# 3b. Add generated energy
+					for h in p_comp.hex_grid.grid.keys():
+						var tile = p_comp.hex_grid.get_tile(h)
+						if tile.has_method("generate_energy"):
+							var pkts = tile.generate_energy(p_comp.hex_grid)
+							for p in pkts: p.position = HexCoord.new(h.x, h.y)
+							p_pkts.append_array(pkts)
+							
+					dummy_mech._simulate_grid(p_comp.hex_grid, p_pkts)
+					var transfers = dummy_mech._collect_transfers(p_comp)
+					
+					if transfers.has(HexTile.BodySlot.TORSO):
+						# Find Accessory Return on Torso
+						var acc_pos = HexCoord.new(0, 0)
+						for coord_v in grid_renderer.hex_grid.grid.keys():
+							var t = grid_renderer.hex_grid.grid[coord_v]
+							if t.tile_type == "Accessory Return":
+								acc_pos = HexCoord.new(coord_v.x, coord_v.y)
+								break
+								
+						for pkt in transfers[HexTile.BodySlot.TORSO]:
+							# Start them one step backwards based on their direction, but wait: we want them to enter the Accessory Return. 
+							# If we just let them enter with a fixed direction like North (2), they will be processed.
+							pkt.direction = 2 # Entering from North
+							var opp_dir = (pkt.direction + 3) % 6
+							pkt.position = acc_pos.neighbor(opp_dir)
+							pkt.is_active = true
+							initial_packets.append(pkt)
+			dummy_mech.free()
+			
+			# Clean up any leftover packets on peripheral weapon mounts so they don't leak
+			for p_slot in [HexTile.BodySlot.HEAD, HexTile.BodySlot.BACKPACK]:
+				if mech_components.has(p_slot) and mech_components[p_slot]:
+					for t in mech_components[p_slot].hex_grid.get_all_tiles():
+						if t.tile_type == "Weapon Mount" and "pending_packets" in t:
+							t.pending_packets.clear()
 			
 	for p in initial_packets:
 		p.set_meta("source_hex", p.position)
 		p.set_meta("target_hex", p.position)
 		p.set_meta("anim_progress", 1.0)
+		p.is_active = true
 	
 	grid_renderer.active_packets = initial_packets
 	grid_renderer.simulation_step = 0
@@ -675,12 +858,30 @@ func _simulate_step():
 				out.set_meta("target_hex", next_pos)
 				out.set_meta("anim_progress", 0.0)
 		else:
-			# Bounce off empty space
-			pkt.direction = (dir + 3) % 6
-			pkt.set_meta("source_hex", pos)
-			pkt.set_meta("target_hex", pos)
-			pkt.set_meta("anim_progress", 0.0)
-			out_pkts = [pkt]
+			var is_valid_empty = false
+			if active_component and "valid_hexes" in active_component:
+				for h in active_component.valid_hexes:
+					if h.q == next_pos.q and h.r == next_pos.r:
+						is_valid_empty = true
+						break
+						
+			if is_valid_empty:
+				# Pass straight through empty hex with 5% loss
+				pkt.position = next_pos
+				pkt.magnitude *= 0.95
+				for k in pkt.synergies.keys():
+					pkt.synergies[k] *= 0.95
+				pkt.set_meta("source_hex", pos)
+				pkt.set_meta("target_hex", next_pos)
+				pkt.set_meta("anim_progress", 0.0)
+				out_pkts = [pkt]
+			else:
+				# Bounce off edge of component
+				pkt.direction = (dir + 3) % 6
+				pkt.set_meta("source_hex", pos)
+				pkt.set_meta("target_hex", pos)
+				pkt.set_meta("anim_progress", 0.0)
+				out_pkts = [pkt]
 			
 		new_packets.append_array(out_pkts)
 		
@@ -725,16 +926,52 @@ func _update_stats():
 		total_nrg += p.magnitude
 		
 	var grid_size = grid_renderer.hex_grid.get_all_tiles().size() if grid_renderer.hex_grid else 0
+	
+	# Aggregate synergies from all Weapon Mounts/Accessory Returns
+	var synergy_totals = {}
+	var total_output = 0.0
+	if grid_renderer.hex_grid:
+		for t in grid_renderer.hex_grid.get_all_tiles():
+			if "pending_packets" in t:
+				for item in t.pending_packets:
+					var p = item.packet
+					total_output += p.magnitude
+					for k in p.synergies:
+						synergy_totals[k] = synergy_totals.get(k, 0.0) + p.synergies[k]
+						
+	var syn_str = ""
+	var SynergyType = EnergyPacket.SynergyType
+	var syn_names = SynergyType.keys()
+	for k in synergy_totals.keys():
+		var val = synergy_totals[k]
+		if val > 0:
+			var syn_name = "UNKNOWN"
+			for key_name in syn_names:
+				if SynergyType[key_name] == k:
+					syn_name = key_name
+					break
+			syn_str += "%s: %s\n" % [syn_name, str(int(val)) if val < 1000000 else "%.2e" % val]
+			
+	if syn_str == "":
+		syn_str = "None\n"
+		
 	var nrg_str = str(int(total_nrg))
 	if total_nrg > 1000000000:
 		nrg_str = "%.2e" % total_nrg
 		
-	stats_label.text = "=== COMPONENT INFO ===\nGrid: Mech Core\nTiles Used: %d\n\n=== SIMULATION ===\nStep: %d\nActive Packets: %d\nTotal Energy: %s" % [
+	var out_str = str(int(total_output))
+	if total_output > 1000000000:
+		out_str = "%.2e" % total_output
+		
+	stats_label.text = "=== COMPONENT INFO ===\nTiles Used: %d\n\n=== OUTPUT ===\nTotal Damage: %s\n%s\n=== SIMULATION ===\nStep: %d\nActive Packets: %d\nMoving Energy: %s" % [
 		grid_size,
+		out_str,
+		syn_str,
 		grid_renderer.simulation_step,
 		grid_renderer.active_packets.size(),
 		nrg_str
 	]
+
 
 func _on_auto_equip_pressed():
 	if not active_component or not active_component.hex_grid:

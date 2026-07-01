@@ -7,13 +7,19 @@ func _init():
 
 func get_max_faces() -> int:
 	match rarity:
-		Rarity.COMMON: return 1
-		Rarity.UNCOMMON: return 1
-		Rarity.RARE: return 2
+		Rarity.COMMON: return 2
+		Rarity.UNCOMMON: return 2
+		Rarity.RARE: return 3
 		Rarity.LEGENDARY: return 4
-		_: return 1
+		_: return 2
 
-var power_output: float = 50.0
+func get_power_output() -> float:
+	match rarity:
+		Rarity.COMMON: return 50.0
+		Rarity.UNCOMMON: return 75.0
+		Rarity.RARE: return 120.0
+		Rarity.LEGENDARY: return 200.0
+		_: return 50.0
 
 func set_face_output(direction: int, synergy: EnergyPacket.SynergyType):
 	face_outputs[direction] = synergy
@@ -25,19 +31,17 @@ func get_face_output(direction: int) -> int:
 
 func cycle_face_output(direction: int):
 	var current = get_face_output(direction)
-	current = (current + 1) % 7 # Assumes up to 7 synergies exist
+	current = (current + 1) % EnergyPacket.SynergyType.size()
 	face_outputs[direction] = current
 
 func generate_energy(grid: Node) -> Array[EnergyPacket]:
 	var packets: Array[EnergyPacket] = []
+	var current_power = get_power_output()
 	for face in active_faces:
-		var pkt = EnergyPacket.new()
-		pkt.magnitude = power_output
+		var pkt = EnergyPacket.new(0.0, null)
+		pkt.synergies.clear()
+		pkt.add_synergy(get_face_output(face), current_power)
 		pkt.direction = face
-		
-		var syn = get_face_output(face)
-		if syn != EnergyPacket.SynergyType.RAW:
-			pkt.add_synergy(syn, power_output)
 			
 		packets.append(pkt)
 	return packets

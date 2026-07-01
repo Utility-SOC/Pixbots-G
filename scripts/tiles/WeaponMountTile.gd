@@ -4,6 +4,7 @@ extends HexTile
 @export var damage_multiplier: float = 1.0
 
 var pending_packets: Array = [] # Stores dictionary: { "packet": packet, "step": step }
+var current_charge: float = 0.0 # Used by Mech to track accumulator charging
 
 func _init():
 	tile_type = "Weapon Mount"
@@ -58,12 +59,18 @@ func _fire_combined_projectile(mech: Node2D, packet: EnergyPacket, step: int):
 	var proj = ProjectileClass.new()
 	var base_damage = packet.magnitude * damage_multiplier * _get_power_multiplier()
 	
+	var is_crit = (packet.magnitude >= 30000.0) or (randf() < 0.05)
+	if is_crit:
+		base_damage *= 2.0
+		
 	proj.fired_by_player = mech.get("is_player") == true
 	proj.source_mech = mech
 	proj.damage = base_damage
+	proj.is_crit = is_crit
 	proj.synergies = packet.synergies.duplicate()
 	if "stat_modifiers" in mech:
 		proj.stat_modifiers = mech.stat_modifiers.duplicate()
+	proj.set("weapon_rarity", rarity)
 	proj.global_position = get_muzzle_position(mech)
 	
 	var aim_pos = mech.last_aim_position if "last_aim_position" in mech else mech.global_position + Vector2(0, -100)
@@ -78,11 +85,11 @@ func _fire_combined_projectile(mech: Node2D, packet: EnergyPacket, step: int):
 	
 	# Determine the "straight forward" direction based on which component we are in
 	var forward_dir = 4 # Default South (Down) for Torso/Legs/Backpack
-	if body_slot == load("res://scripts/core/HexTile.gd").BodySlot.ARM_L:
+	if body_slot == HexTile.BodySlot.ARM_L:
 		forward_dir = 3 # West
-	elif body_slot == load("res://scripts/core/HexTile.gd").BodySlot.ARM_R:
+	elif body_slot == HexTile.BodySlot.ARM_R:
 		forward_dir = 0 # East
-	elif body_slot == load("res://scripts/core/HexTile.gd").BodySlot.HEAD:
+	elif body_slot == HexTile.BodySlot.HEAD:
 		forward_dir = 1 # Northeast (Up)
 		
 	var entry_dir = packet.direction

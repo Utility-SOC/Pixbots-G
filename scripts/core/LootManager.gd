@@ -1,11 +1,11 @@
 extends Node
 
 # Probability map based on rarity
-const DROP_RATES = {
-	HexTile.Rarity.COMMON: 0.20,
-	HexTile.Rarity.UNCOMMON: 0.10,
-	HexTile.Rarity.RARE: 0.05,
-	HexTile.Rarity.LEGENDARY: 0.01
+var DROP_RATES = {
+	0: 0.20, # COMMON
+	1: 0.10, # UNCOMMON
+	2: 0.05, # RARE
+	3: 0.01  # LEGENDARY
 }
 
 var current_wave: int = 1

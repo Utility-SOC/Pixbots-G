@@ -21,6 +21,15 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 			# Apply continuous speed boost while energy is flowing
 			mech.base_move_speed += packet.magnitude * speed_boost_mult * _get_power_multiplier()
 			mech.current_move_speed = mech.base_move_speed
+			
+			if not "jumpjet_energy" in mech:
+				mech.set("jumpjet_energy", EnergyPacket.new(0.0, null))
+				mech.get("jumpjet_energy").synergies.clear()
+				
+			var j_energy = mech.get("jumpjet_energy")
+			if j_energy:
+				j_energy.merge(packet)
+			
 			if "ignore_terrain" in mech:
 				mech.ignore_terrain = true
 			if "jumpjet_rarity" in mech:

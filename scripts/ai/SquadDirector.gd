@@ -128,7 +128,12 @@ func _all_roles_filled(roles: Dictionary) -> bool:
 	return true
 
 func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0) -> Node:
-	var bot = load("res://scripts/entities/Mech.gd").new()
+	var bot
+	if role == "jammer":
+		bot = load("res://scripts/entities/JammerMech.gd").new()
+	else:
+		bot = load("res://scripts/entities/Mech.gd").new()
+		
 	bot.combat_role = role
 	bot.base_rarity = p_rarity
 	
@@ -154,6 +159,10 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 		
 	var base_hp = 100.0
 	match role:
+		"jammer":
+			base_hp = 300.0 # High HP, moves slow, stays near backline
+			bot.base_speed = 60.0
+			bot.engagement_distance = 600.0
 		"sniper":
 			base_hp = 60.0
 			bot.base_speed = 100.0

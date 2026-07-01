@@ -188,7 +188,7 @@ func add_infusion_xp(amount: int):
 		needed = 500 + (infusion_level * 500)
 
 func _roll_stat_modifier():
-	if rarity < load("res://scripts/core/HexTile.gd").Rarity.LEGENDARY: return # Only legendary gear can be augmented
+	if rarity < HexTile.Rarity.LEGENDARY: return # Only legendary gear can be augmented
 	
 	var possible_stats = ["kin_mult", "fire_mult", "ice_mult", "vtx_mult", "ltg_mult", "psn_mult", "exp_mult", "prc_mult", "vmp_mult", "dmg_mult", "spd_mult"]
 	var roll = possible_stats[randi() % possible_stats.size()]
@@ -259,8 +259,13 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 	var head_return_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new()
 	head_return_sink.body_slot = HexTile.BodySlot.TORSO
 	head_return_sink.tile_type = "Accessory Return"
-	torso.hex_grid.add_tile(HexCoord.new(0, min_r + 1), head_return_sink)
-	torso.fixed_sinks.append(HexCoord.new(0, min_r + 1))
+	var acc_pos = HexCoord.new(0, min_r + 1)
+	for h in torso.valid_hexes:
+		if not torso.hex_grid.has_tile(h):
+			acc_pos = h
+			break
+	torso.hex_grid.add_tile(acc_pos, head_return_sink)
+	torso.fixed_sinks.append(acc_pos)
 	
 	# Add Sink for Backpack
 	var backpack_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.BACKPACK, true)
@@ -280,7 +285,6 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 		torso.fixed_sinks.append(ai_mount_pos)
 		
 		var ai_core = load("res://scripts/tiles/MicrocoreTile.gd").new()
-		ai_core.power_output = 50.0
 		var ai_core_pos = null
 		for d in range(6):
 			var n = ai_mount_pos.neighbor(d)
@@ -305,6 +309,12 @@ static func create_starter_arm(is_left: bool, role: String = "", p_rarity: int =
 	arm.role_variant = role
 	arm.generate_shape()
 	
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = slot
+	arm.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	arm.fixed_sinks.append(HexCoord.new(0, 0))
+	
 	# Add a Weapon Mount at the furthest extent
 	var max_q = 0
 	var mount_h = HexCoord.new(0, 0)
@@ -321,7 +331,6 @@ static func create_starter_arm(is_left: bool, role: String = "", p_rarity: int =
 	
 	if role != "":
 		var ai_core = load("res://scripts/tiles/MicrocoreTile.gd").new()
-		ai_core.power_output = 50.0
 		var ai_core_pos = null
 		for d in range(6):
 			var n = mount_h.neighbor(d)
@@ -346,6 +355,12 @@ static func create_starter_leg(is_left: bool, role: String = "", p_rarity: int =
 	leg.role_variant = role
 	leg.generate_shape()
 	
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = slot
+	leg.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	leg.fixed_sinks.append(HexCoord.new(0, 0))
+	
 	# Add Actuator at bottom
 	var max_r = 0
 	var mount_h = HexCoord.new(0, 0)
@@ -367,6 +382,12 @@ static func create_starter_head(role: String = "", p_rarity: int = HexTile.Rarit
 	head.component_name = "Head"
 	head.role_variant = role
 	head.generate_shape()
+	
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.HEAD
+	head.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	head.fixed_sinks.append(HexCoord.new(0, 0))
 	
 	var min_r = 0
 	for h in head.valid_hexes:
@@ -409,12 +430,18 @@ static func create_shield_backpack():
 	pack.component_name = "Mythic Shield"
 	pack.generate_shape()
 	
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	
 	var shield_class = load("res://scripts/tiles/ShieldTile.gd")
 	if shield_class:
 		var shield = shield_class.new()
 		shield.rarity = HexTile.Rarity.MYTHIC
 		shield.body_slot = HexTile.BodySlot.BACKPACK
-		pack.hex_grid.add_tile(HexCoord.new(0, 0), shield)
+		pack.hex_grid.add_tile(HexCoord.new(0, 1), shield)
 		
 	var max_r = 0
 	for h in pack.valid_hexes:
@@ -433,6 +460,23 @@ static func create_jetpack_backpack():
 	var pack = script.new(HexTile.BodySlot.BACKPACK, HexTile.Rarity.UNCOMMON)
 	pack.component_name = "Jetpack"
 	pack.generate_shape()
+	
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+		
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+	
 	return pack
 
 static func create_missile_backpack():
@@ -440,6 +484,22 @@ static func create_missile_backpack():
 	var pack = script.new(HexTile.BodySlot.BACKPACK, HexTile.Rarity.LEGENDARY)
 	pack.component_name = "Missile Pod"
 	pack.generate_shape()
+	
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+		
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
 	
 	# Pre-wire with microcores and mounts
 	var microcore_class = load("res://scripts/tiles/MicrocoreTile.gd")
@@ -454,11 +514,11 @@ static func create_missile_backpack():
 		core.set_face_output(1, (i % 6) + 1) # Set specific synergy
 		core.set_face_output(5, (i % 6) + 1)
 		# Just drop them in arbitrary valid positions for now
-		if pack.valid_hexes.size() > i:
-			pack.hex_grid.add_tile(pack.valid_hexes[i], core)
+		if pack.valid_hexes.size() > i + 2:
+			pack.hex_grid.add_tile(pack.valid_hexes[i + 2], core)
 			
 	# Add 6 Mounts (Legendary)
-	var offset = 3
+	var offset = 5
 	for i in range(6):
 		var mount = mount_class.new()
 		mount.rarity = HexTile.Rarity.LEGENDARY
@@ -468,7 +528,7 @@ static func create_missile_backpack():
 	return pack
 
 func update_link_positions():
-	if slot_type != load("res://scripts/core/HexTile.gd").BodySlot.TORSO:
+	if slot_type != HexTile.BodySlot.TORSO:
 		return
 		
 	var min_q = 0
@@ -492,15 +552,15 @@ func update_link_positions():
 		var tile = hex_grid.get_tile(h)
 		if tile.tile_type == "Component Link":
 			var new_coord = h
-			if tile.target_slot == load("res://scripts/core/HexTile.gd").BodySlot.ARM_L:
+			if tile.target_slot == HexTile.BodySlot.ARM_L:
 				new_coord = HexCoord.new(min_q, 0)
-			elif tile.target_slot == load("res://scripts/core/HexTile.gd").BodySlot.ARM_R:
+			elif tile.target_slot == HexTile.BodySlot.ARM_R:
 				new_coord = HexCoord.new(max_q, 0)
-			elif tile.target_slot == load("res://scripts/core/HexTile.gd").BodySlot.HEAD:
+			elif tile.target_slot == HexTile.BodySlot.HEAD:
 				new_coord = HexCoord.new(0, min_r)
-			elif tile.target_slot == load("res://scripts/core/HexTile.gd").BodySlot.LEG_L:
+			elif tile.target_slot == HexTile.BodySlot.LEG_L:
 				new_coord = HexCoord.new(-1, max_r)
-			elif tile.target_slot == load("res://scripts/core/HexTile.gd").BodySlot.LEG_R:
+			elif tile.target_slot == HexTile.BodySlot.LEG_R:
 				new_coord = HexCoord.new(1, max_r)
 			
 			if new_coord.q != h.q or new_coord.r != h.r:

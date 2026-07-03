@@ -48,16 +48,28 @@ func pull_towards(target_pos: Vector2, delta_mod: float):
 	var speed = 200.0 * delta_mod
 	global_position = global_position.move_toward(target_pos, speed)
 
+# Used by Mech's Magnet pull logic (Mythic Magnets can filter by rarity).
+func get_rarity() -> int:
+	if equipment_data:
+		return equipment_data.get("rarity")
+	elif tile_data:
+		return tile_data.rarity
+	return -1
+
 func _on_body_entered(body: Node2D):
 	if body.has_method("equip_component") and "is_player" in body and body.is_player:
+		# NOTE: was body.get_parent() - that broke when the player mech moved
+		# from being a direct child of Main to a child of Main.world (the
+		# pixel-viewport game world). current_scene still resolves to Main
+		# regardless of nesting depth.
 		if equipment_data:
 			print("Player picked up equipment: ", equipment_data.component_name)
-			var main = body.get_parent()
+			var main = body.get_tree().current_scene
 			if main and "player_component_inventory" in main:
 				main.player_component_inventory.append(equipment_data)
 		elif tile_data:
 			print("Player picked up tile: ", tile_data.tile_type)
-			var main = body.get_parent()
+			var main = body.get_tree().current_scene
 			if main and "player_inventory" in main:
 				main.player_inventory.append(tile_data)
 			

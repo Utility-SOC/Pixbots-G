@@ -3,6 +3,7 @@ extends Area2D
 
 
 const Trail2D = preload("res://scripts/visuals/Trail2D.gd")
+const FireTrail2D = preload("res://scripts/visuals/FireTrail2D.gd")
 
 var base_speed: float = 500.0
 var final_speed: float = 500.0
@@ -28,6 +29,13 @@ var visual_node: Node2D
 var helix_particles: Array = []
 var fired_by_player: bool = true
 var source_mech: Node2D = null
+
+# Lightning zig-zag state - jagged, held-and-snapped offsets rather than a
+# smooth wave, so it actually reads as a bolt (see the LIGHTNING ZIG-ZAG
+# section of _physics_process()).
+var _lightning_segment_index: int = -1
+var _lightning_prev_offset: float = 0.0
+var _lightning_target_offset: float = 0.0
 
 func _ready():
 	# Calculate total power
@@ -108,7 +116,12 @@ func _calculate_stats():
 	final_speed = base_speed + spd_mod
 	if final_speed < 50.0: final_speed = 50.0
 	
-	# Size/Mass
+	# Size/Mass (ratio-driven only - magnitude-driven size lives entirely in
+	# _build_visuals()'s p_scale below. An earlier pass also added a
+	# magnitude factor HERE, which multiplied against p_scale instead of
+	# replacing/adding to it - two compounding exponential-ish curves
+	# instead of one produced the "comically big" shapes. One authoritative
+	# place for magnitude scaling now.)
 	var s_mod = 1.0 + r_raw # RAW directly increases volume
 	s_mod += 1.5 * r_ice # ICE adds crystalline mass
 	s_mod += 2.0 * r_exp # EXPLOSION adds volatility/size
@@ -163,9 +176,17 @@ func _calculate_stats():
 		final_color.a = 1.0
 	else:
 		final_color = Color.WHITE
-		
+
 	if weapon_rarity == 4: # Mythic
 		final_color = Color(0.2, 0.9, 0.9, 1.0) # Shiny teal
+
+	# Chromatic intensity scales with magnitude the same way size does - a
+	# massive combined blast should visually READ as more powerful, not
+	# just bigger. Additive blending (see _build_visuals) makes an
+	# overbright color actually glow harder rather than just clip to white.
+	var intensity = 1.0 + sqrt(total_power / 500.0) * 0.3
+	final_color = final_color * intensity
+	final_color.a = 1.0
 
 func _build_visuals():
 	visual_node = Node2D.new()
@@ -187,9 +208,14 @@ func _build_visuals():
 	if sorted_synergies.size() > 0: dominant = sorted_synergies[0].type
 	if sorted_synergies.size() > 1: secondary = sorted_synergies[1].type
 	
-	# Procedural Shape based on Dominant Element
+	# Procedural Shape based on Dominant Element - this is the ONE place
+	# magnitude drives visual size (see _calculate_stats() for why it's not
+	# also duplicated there anymore). Log growth is gentle/self-limiting on
+	# its own (only reaches ~4.3 even at the 150,000 magnitude ceiling), so
+	# this cap is mostly just a hard safety ceiling, not the thing actually
+	# doing the limiting day to day.
 	var p_scale = 1.0 + log(1.0 + total_power / 200.0) * 0.5
-	p_scale = min(p_scale, 3.0) # Maximum reasonable scale limit
+	p_scale = min(p_scale, 5.0)
 	
 	if dominant == EnergyPacket.SynergyType.KINETIC:
 		# Sharp, aerodynamic shape
@@ -202,9 +228,9 @@ func _build_visuals():
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.FIRE:
 		# Spreading fire trail
-		var fire_trail = load("res://scripts/visuals/FireTrail2D.gd").new()
-		fire_trail.base_radius = 8.0 * p_scale
-		fire_trail.max_length = 20
+		var fire_trail = FireTrail2D.new()
+		fire_trail.scale_amount_min *= p_scale
+		fire_trail.scale_amount_max *= p_scale
 		# Use MIX instead of ADD so the black soot is visible
 		var mix_mat = CanvasItemMaterial.new()
 		mix_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_MIX
@@ -498,9 +524,24 @@ func _physics_process(delta: float):
 			_pull_nearby_items(delta)
 	
 	# 7. LIGHTNING ZIG-ZAG ("The Arc")
+	# Was a smooth sin(t*40)*cos(t*25) beat pattern, which reads as a slow
+	# side-to-side wobble rather than a bolt. Real lightning is jagged and
+	# irregular, so instead we hold a random lateral offset for a short
+	# segment, then snap-lerp to the next one - sharp direction changes,
+	# no smooth oscillation.
 	if r_ltg > 0.0:
-		var wave = sin(time_alive * 40.0) * cos(time_alive * 25.0)
-		visual_offset += ortho * wave * (15.0 * r_ltg)
+		var segment_length = 0.045
+		var segment_index = int(time_alive / segment_length)
+		if segment_index != _lightning_segment_index:
+			_lightning_segment_index = segment_index
+			_lightning_prev_offset = _lightning_target_offset
+			var seed = int(hash(get_instance_id())) ^ segment_index
+			_lightning_target_offset = (float(abs(seed) % 2000) / 1000.0) - 1.0 # deterministic pseudo-random in [-1, 1]
+		var seg_t = clamp(fmod(time_alive, segment_length) / segment_length, 0.0, 1.0)
+		# Ease sharply so it snaps rather than glides between segments
+		seg_t = seg_t * seg_t
+		var lightning_wave = lerp(_lightning_prev_offset, _lightning_target_offset, seg_t)
+		visual_offset += ortho * lightning_wave * (26.0 * r_ltg)
 	
 	# APPLY PHYSICS
 	position += velocity * delta
@@ -525,17 +566,31 @@ func _pull_nearby_items(delta: float):
 	shape.radius = 150.0 + 100.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
 	query.shape = shape
 	query.transform = global_transform
-	query.collision_mask = 16 | 4 
+	
+	# Always pull Loot (16), Enemies (4), and Player (8)
+	query.collision_mask = 16 | 4 | 8
+		
 	var results = space_state.intersect_shape(query)
 	for res in results:
 		var col = res["collider"]
+		if col == self: continue
+		
+		var pull_mult = 3.0 # Targets get pulled 300% as hard
+		if "is_player" in col:
+			if fired_by_player and col.is_player:
+				pull_mult = 0.05 # Shooter is barely affected
+			elif not fired_by_player and not col.is_player:
+				pull_mult = 0.05 # Shooter is barely affected
+				
+		var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) * pull_mult
+		
 		if col.has_method("pull_towards"):
-			col.pull_towards(global_position, delta)
-		elif col is CharacterBody2D: # Pull enemies strongly
+			col.pull_towards(global_position, delta, pull_strength)
+		elif col is CharacterBody2D: # Fallback
 			var p_dir = (global_position - col.global_position).normalized()
-			# Apply force to velocity only, do not force global_position
-			var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
-			col.velocity = col.velocity.lerp(p_dir * pull_strength, 10.0 * delta)
+			var lerp_weight = 10.0 * delta
+			if lerp_weight > 1.0: lerp_weight = 1.0
+			col.velocity = col.velocity.lerp(p_dir * pull_strength, lerp_weight)
 
 func _on_body_entered(body: Node2D):
 	if body.get_class() == "CharacterBody2D" and body.has_method("apply_part_damage"):
@@ -597,46 +652,47 @@ func _handle_hit(target: Node2D):
 	if ratios.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1 and target.has_method("apply_status"):
 		target.apply_status("frozen", 3.0 * ratios[EnergyPacket.SynergyType.ICE])
 		
-	# Lightning Arcing
+	# Lightning Arcing - chains through multiple enemies in sequence (not
+	# just one jump), each hop dealing falloff damage. Hop count and jump
+	# radius both scale with how much of the packet was actually Lightning.
 	var r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	if r_ltg > 0.05 and target.is_in_group("enemy"):
-		var space_state = get_world_2d().direct_space_state
-		var query = PhysicsShapeQueryParameters2D.new()
-		var shape = CircleShape2D.new()
-		shape.radius = 400.0 * r_ltg
-		query.shape = shape
-		query.transform = global_transform
-		query.collision_mask = 4 if collision_mask & 4 else 8
-		var results = space_state.intersect_shape(query)
-		
-		var closest = null
-		var min_dist = shape.radius
-		for res in results:
-			var col = res["collider"]
-			if col != target and col.has_method("apply_damage") and col.is_in_group("enemy"):
-				var d = global_position.distance_to(col.global_position)
-				if d < min_dist:
-					min_dist = d
-					closest = col
-		
-		if closest:
-			# Draw visual lightning arc
-			var arc = Line2D.new()
-			arc.width = 4.0
-			arc.default_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.LIGHTNING)
-			arc.points = PackedVector2Array([Vector2.ZERO, closest.global_position - global_position])
-			# Add some jitter to the arc
-			if arc.points[1].length() > 50:
-				var mid = arc.points[1] * 0.5
-				var ortho = Vector2(-arc.points[1].y, arc.points[1].x).normalized()
-				arc.points.insert(1, mid + ortho * (randf() * 40.0 - 20.0))
-			
-			visual_node.add_child(arc)
-			var tw = arc.create_tween()
-			tw.tween_property(arc, "modulate:a", 0.0, 0.2)
-			tw.tween_callback(arc.queue_free)
-			
-			closest.apply_damage(damage * 0.5, "LIGHTNING")
+		var max_hops = 1 + int(round(4.0 * r_ltg)) # up to 5 hops at 100% lightning
+		var jump_radius = 350.0 * r_ltg
+		var already_hit: Array = [target]
+		var chain_from_pos = global_position
+		var chain_damage = damage * 0.5
+
+		for hop in range(max_hops):
+			var space_state = get_world_2d().direct_space_state
+			var query = PhysicsShapeQueryParameters2D.new()
+			var shape = CircleShape2D.new()
+			shape.radius = jump_radius
+			query.shape = shape
+			query.transform = Transform2D(0, chain_from_pos)
+			query.collision_mask = 4 if collision_mask & 4 else 8
+			var results = space_state.intersect_shape(query)
+
+			var closest = null
+			var min_dist = shape.radius
+			for res in results:
+				var col = res["collider"]
+				if col in already_hit: continue
+				if col.has_method("apply_damage") and col.is_in_group("enemy"):
+					var d = chain_from_pos.distance_to(col.global_position)
+					if d < min_dist:
+						min_dist = d
+						closest = col
+
+			if not closest:
+				break
+
+			_draw_lightning_arc(chain_from_pos - global_position, closest.global_position - global_position)
+			closest.apply_damage(chain_damage, "LIGHTNING")
+
+			already_hit.append(closest)
+			chain_from_pos = closest.global_position
+			chain_damage *= 0.7 # each additional hop falls off
 			
 	# Vampiric Heal
 	if ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0) > 0.1:
@@ -670,6 +726,35 @@ func _handle_hit(target: Node2D):
 	pierce_count -= 1
 	if pierce_count <= 0:
 		queue_free()
+
+# Draws one jagged bolt segment between two points, LOCAL to visual_node
+# (i.e. relative to the projectile's own position at the moment of the
+# hit). Used per-hop by the lightning chain above. Multiple offset
+# midpoints (not just one) so it reads as an actual bolt rather than a
+# single bent line.
+func _draw_lightning_arc(from_local: Vector2, to_local: Vector2):
+	var arc = Line2D.new()
+	arc.width = 4.0
+	arc.default_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.LIGHTNING)
+
+	var span = to_local - from_local
+	var length = span.length()
+	var ortho = Vector2(-span.y, span.x).normalized() if length > 0.01 else Vector2.RIGHT
+
+	var points = PackedVector2Array([from_local])
+	if length > 30.0:
+		var segments = clamp(int(length / 40.0), 1, 5)
+		for i in range(1, segments):
+			var t = float(i) / segments
+			var jitter = ortho * randf_range(-length * 0.18, length * 0.18)
+			points.append(from_local.lerp(to_local, t) + jitter)
+	points.append(to_local)
+	arc.points = points
+
+	visual_node.add_child(arc)
+	var tw = arc.create_tween()
+	tw.tween_property(arc, "modulate:a", 0.0, 0.2)
+	tw.tween_callback(arc.queue_free)
 
 func _trigger_explosion():
 	var space_state = get_world_2d().direct_space_state

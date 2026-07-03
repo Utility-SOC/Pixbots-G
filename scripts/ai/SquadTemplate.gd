@@ -11,6 +11,13 @@ extends Resource
 @export var base_spawn_weight: float = 100.0
 @export var has_shields: bool = false
 
+# Templates produced by mutation, random generation, or from a successful
+# merged-squad composition start out "experimental": SquadDirector tracks
+# them separately, caps how many can be on trial at once, and culls them if
+# they underperform after a minimum number of trials (see SquadDirector's
+# MAX_EXPERIMENTAL_TEMPLATES / MIN_TRIALS_BEFORE_CULL / CULL_FITNESS_THRESHOLD).
+@export var is_experimental: bool = false
+
 # Total number of times this squad has been deployed
 var times_deployed: int = 0
 # Cumulative fitness score (used for averaging)
@@ -52,7 +59,8 @@ func to_dict() -> Dictionary:
 		"spawn_weight": spawn_weight,
 		"base_spawn_weight": base_spawn_weight,
 		"times_deployed": times_deployed,
-		"total_fitness": total_fitness
+		"total_fitness": total_fitness,
+		"is_experimental": is_experimental
 	}
 
 func from_dict(data: Dictionary):
@@ -62,4 +70,5 @@ func from_dict(data: Dictionary):
 	if data.has("base_spawn_weight"): base_spawn_weight = float(data["base_spawn_weight"])
 	if data.has("times_deployed"): times_deployed = int(data["times_deployed"])
 	if data.has("total_fitness"): total_fitness = float(data["total_fitness"])
+	if data.has("is_experimental"): is_experimental = bool(data["is_experimental"])
 

@@ -2,8 +2,18 @@ class_name AutoEquipSolver
 extends RefCounted
 
 var HexCoord = preload("res://scripts/core/HexCoord.gd")
+const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 
-func solve(component: Node, inventory: Array) -> Array:
+# `profile` (SolverProfile, optional) is what makes this solver actually
+# aim at something instead of always doing the same fixed Amplifier ->
+# Catalyst -> Elemental Infuser -> Splitter placement regardless of who
+# it's building for. When a profile is given: Elemental Infusers get
+# prioritized for placement (previously they were checked LAST, so they
+# barely ever got used even when present in inventory), and any Infuser the
+# solver places gets its synergy configured toward the profile's favored
+# element / pierce priority rather than whatever it happened to be set to
+# when created.
+func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> Array:
 	if not component or not component.hex_grid:
 		return inventory
 		
@@ -155,18 +165,20 @@ func solve(component: Node, inventory: Array) -> Array:
 			
 			if entry_dir == exit_dir:
 				# Straight path -> Amplifier, Catalyst, Infuser
-				var tile_types = ["Amplifier", "Catalyst", "Elemental Infuser", "Splitter"]
+				var tile_types = _straight_tile_priority(profile)
 				var idx = -1
 				for t in tile_types:
 					idx = _find_tile_index(inventory, t)
 					if idx >= 0: break
-					
+
 				if idx >= 0:
 					var tile = inventory[idx]
 					inventory.remove_at(idx)
 					if tile.tile_type == "Splitter":
 						tile.active_faces.clear()
 						tile.active_faces.append(exit_dir)
+					elif tile.tile_type == "Elemental Infuser" and profile != null:
+						tile.secondary_synergy = _pick_profile_synergy(profile)
 					grid.add_tile(h, tile)
 					placed_tile = true
 			else:
@@ -209,14 +221,39 @@ func solve(component: Node, inventory: Array) -> Array:
 				inventory.remove_at(0)
 			else:
 				tile = load("res://scripts/tiles/DirectionalConduitTile.gd").new()
-				
+
+			if tile.tile_type == "Elemental Infuser" and profile != null:
+				tile.secondary_synergy = _pick_profile_synergy(profile)
+
 			if "rotation_steps" in tile:
 				tile.rotation_steps = entry_dir
-				
+
 			grid.add_tile(h, tile)
-				
+
 	return inventory
 
+# Straight-run tile search order. With no profile, this is the original
+# fixed order. With a profile, Elemental Infuser goes first - it's the tile
+# that actually lets a loadout build toward a specific element or Pierce,
+# so burying it behind Amplifier/Catalyst (as the original fixed order did)
+# meant profiles could almost never express themselves even when the
+# inventory had the right tiles.
+func _straight_tile_priority(profile: SolverProfile) -> Array:
+	if profile == null:
+		return ["Amplifier", "Catalyst", "Elemental Infuser", "Splitter"]
+	return ["Elemental Infuser", "Amplifier", "Catalyst", "Splitter"]
+
+# Rolls between the profile's favored counter-element and Pierce, weighted
+# by amplify_priority vs pierce_priority. A profile with no favored_synergy
+# set (pure -1) just leans on Pierce/Kinetic as a safe default.
+func _pick_profile_synergy(profile: SolverProfile) -> int:
+	if profile.favored_synergy < 0:
+		return EnergyPacket.SynergyType.PIERCE if randf() < profile.pierce_priority else EnergyPacket.SynergyType.KINETIC
+
+	var total = max(0.01, profile.pierce_priority + profile.amplify_priority)
+	if randf() < profile.pierce_priority / total:
+		return EnergyPacket.SynergyType.PIERCE
+	return profile.favored_synergy
 
 func _get_direction(from: HexCoord, to: HexCoord) -> int:
 	for d in range(6):

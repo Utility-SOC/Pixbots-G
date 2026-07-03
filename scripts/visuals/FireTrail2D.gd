@@ -1,44 +1,28 @@
 class_name FireTrail2D
-extends Node2D
+extends CPUParticles2D
 
-@export var max_length: int = 15
-@export var base_radius: float = 12.0
-var _target: Node2D
-var _points: Array[Vector2] = []
-
-func _ready():
-	top_level = true
-	_target = get_parent()
-
-func _physics_process(_delta):
-	if is_instance_valid(_target):
-		_points.push_front(_target.global_position)
-		if _points.size() > max_length:
-			_points.pop_back()
-	else:
-		_points.pop_back()
-		if _points.is_empty():
-			queue_free()
-	queue_redraw()
-
-func _draw():
-	if _points.is_empty(): return
+func _init():
+	amount = 15
+	lifetime = 0.5
+	explosiveness = 0.0
+	local_coords = false
+	direction = Vector2(0, -1)
+	spread = 20.0
+	gravity = Vector2(0, -100) # Flames rise up slightly
+	initial_velocity_min = 15.0
+	initial_velocity_max = 30.0
+	scale_amount_min = 4.0
+	scale_amount_max = 12.0
 	
-	# Draw from back to front (oldest point to newest point) so front circle covers the rest
-	for i in range(_points.size() - 1, -1, -1):
-		var pt = _points[i] - global_position
-		var t = float(i) / max_length
-		
-		# Gradient: Bright Yellow (front) -> Red -> Black (back/soot)
-		var color = Color.WHITE
-		if t < 0.4:
-			# t=0 is front (Yellow), t=0.4 is middle (Red)
-			color = Color(1.0, 1.0, 0.2).lerp(Color(1.0, 0.0, 0.0), t / 0.4)
-		else:
-			# t=0.4 is middle (Red), t=1.0 is back (Black soot)
-			color = Color(1.0, 0.0, 0.0).lerp(Color(0.1, 0.1, 0.1, 0.5), (t - 0.4) / 0.6)
-			
-		# Radius shrinks as it goes back
-		var radius = base_radius * (1.0 - (t * 0.7)) # Drops down to 30% size
-		
-		draw_circle(pt, radius, color)
+	# Gradient for fire: Yellow -> Red -> Black soot
+	var grad = Gradient.new()
+	grad.offsets = [0.0, 0.4, 1.0]
+	grad.colors = [
+		Color(1.0, 1.0, 0.2, 1.0), # Bright yellow
+		Color(1.0, 0.2, 0.0, 0.8), # Red-orange
+		Color(0.1, 0.1, 0.1, 0.0)  # Fading soot
+	]
+	color_ramp = grad
+	
+	# To ensure it stays behind the projectile
+	show_behind_parent = true

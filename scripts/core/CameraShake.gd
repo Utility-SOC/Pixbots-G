@@ -10,7 +10,9 @@ func _process(delta: float):
 			randf_range(-shake_intensity, shake_intensity),
 			randf_range(-shake_intensity, shake_intensity)
 		)
-		shake_intensity = lerp(shake_intensity, 0.0, 10.0 * delta)
+		var lerp_weight = 10.0 * delta
+		if lerp_weight > 1.0: lerp_weight = 1.0
+		shake_intensity = lerp(shake_intensity, 0.0, lerp_weight)
 	else:
 		offset = Vector2.ZERO
 		shake_intensity = 0.0

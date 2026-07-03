@@ -22,16 +22,35 @@ func generate_loot_for_mech(mech: Node):
 	var is_boss = ("is_boss" in mech and mech.is_boss)
 	var is_25th_wave_boss = is_boss and (current_wave % 25 == 0)
 	
-	if mech.has_meta("boss_drop"):
-		var drop_type = mech.get_meta("boss_drop")
+	if is_boss:
+		# Bosses drop full components instead of just tiles
 		var comp_script = load("res://scripts/core/ComponentEquipment.gd")
 		var pack = null
-		if drop_type == "shield":
-			pack = comp_script.create_shield_backpack()
-		elif drop_type == "jetpack":
-			pack = comp_script.create_jetpack_backpack()
-		elif drop_type == "missile":
-			pack = comp_script.create_missile_backpack()
+		if mech.has_meta("boss_drop"):
+			var drop_type = mech.get_meta("boss_drop")
+			if drop_type == "shield":
+				pack = comp_script.create_shield_backpack()
+			elif drop_type == "jetpack":
+				pack = comp_script.create_jetpack_backpack()
+			elif drop_type == "missile":
+				pack = comp_script.create_missile_backpack()
+				
+		if pack == null:
+			# Procedural random component
+			var rarity = HexTile.Rarity.LEGENDARY if is_25th_wave_boss else HexTile.Rarity.RARE
+			var slots = [HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R, HexTile.BodySlot.LEG_L, HexTile.BodySlot.LEG_R, HexTile.BodySlot.HEAD, HexTile.BodySlot.TORSO]
+			var slot = slots[randi() % slots.size()]
+			pack = comp_script.new(slot, rarity)
+			pack.component_name = "Boss " + str(slot) + " Drop"
+			pack.role_variant = mech.combat_role if "combat_role" in mech else ""
+			pack.generate_procedural_shape()
+			
+			# Add intake
+			var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+			intake.tile_type = "Energy Intake"
+			intake.body_slot = slot
+			pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+			pack.fixed_sinks.append(HexCoord.new(0, 0))
 			
 		if pack != null:
 			# Wrap it in a LootPickup

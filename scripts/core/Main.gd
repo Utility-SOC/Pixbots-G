@@ -23,16 +23,98 @@ var wave_label: Label
 var timer_label: Label
 var extraction_marker: Node2D = null
 var extraction_indicator: Polygon2D = null
+var vision_jam_overlay: ColorRect
+
+# The actual game world (map/mechs/projectiles/VFX) renders inside a small
+# fixed-resolution SubViewport, then gets scaled up with nearest-neighbor
+# filtering - this is what makes everything read as chunky pixel art
+# instead of smooth vector shapes, no matter how coarse we snap individual
+# polygon vertices. HUD/menus stay OUTSIDE this (added directly to Main)
+# so text stays crisp and readable rather than also getting pixelated.
+#
+# The ground texture already looks chunky at basically any internal
+# resolution because its "fat pixel" blocks are baked directly into the
+# Image at generation time (see MapGenerator._paint_textured_tile) - that's
+# NOT evidence the low-res viewport itself is pixelating things enough.
+# Vector-drawn content (every mech) has no such baked-in chunkiness and is
+# the honest test.
+#
+# IMPORTANT: SubViewportContainer.stretch = true makes the container drive
+# the child SubViewport's actual render size to match the CONTAINER (i.e.
+# the full window) - manually setting viewport.size gets silently
+# overridden the moment stretch is enabled. That was the real bug behind
+# the first two attempts at this: the viewport was rendering at native
+# resolution the whole time, so changing the "size" constant did nothing.
+# The actual documented mechanism for low-res pixel art is stretch_shrink,
+# an integer divisor: the container renders its viewport at
+# (container_size / stretch_shrink) and upscales by that same factor. This
+# also adapts automatically to window resizing, which a fixed size wouldn't.
+# Higher = chunkier/more pixelated, lower = closer to native/smoother.
+#
+# Mechs now bake their OWN genuine pixel grid directly (see
+# MechPartRenderer.gd - real Image rasterization, not vector-then-downscale)
+# at CELL_SIZE=3 world-units-per-cell. That means this viewport-level
+# downscale is no longer the primary source of chunkiness for mechs - it's
+# now a second, independent pixel grid layered on top of an already-baked
+# one. If this factor pushes the viewport's own effective world-units-per-
+# pixel finer than the mech sprites' baked CELL_SIZE, the viewport ends up
+# re-quantizing already-crisp pixel art onto a second, misaligned grid,
+# which can look worse, not better (a subtle jitter/moire rather than clean
+# pixels). Keeping this modest avoids fighting the baked sprites, while
+# still giving projectiles/particles/VFX (which are NOT baked pixel art)
+# some benefit. If mechs ever stop baking their own pixels, this is the
+# dial to push back up for the ground/world overall.
+const PIXEL_SHRINK_FACTOR = 2
+var world: Node2D
 
 func _ready():
+	_setup_pixel_viewport()
 	_load_campaign()
 	_setup_environment()
 	_setup_player()
-	
+
 	_setup_hud()
-	
+
 	# Assume Sandbox mode defaults for now if not set by MainMenu
 	_start_intermission()
+
+func _setup_pixel_viewport():
+	# A Control anchored PRESET_FULL_RECT under a bare Node2D (Main) doesn't
+	# reliably inherit the window's rect - Godot's anchor system needs a
+	# Control/CanvasLayer basis to size against, and a plain Node2D doesn't
+	# provide one. hud_canvas (below, in _setup_hud) already proves the
+	# CanvasLayer -> Control pattern works correctly in this exact project,
+	# so the pixel viewport uses the same structure instead of relying on
+	# anchor behavior under a Node2D parent that isn't guaranteed to resize
+	# the container (the failure mode is a correctly-running but invisible/
+	# zero-sized viewport - exactly a blank screen with only the HUD showing).
+	var canvas_layer = CanvasLayer.new()
+	canvas_layer.name = "PixelViewportLayer"
+	canvas_layer.layer = 0 # Below hud_canvas (layer 5), so HUD draws on top
+	add_child(canvas_layer)
+
+	var container = SubViewportContainer.new()
+	container.name = "PixelViewportContainer"
+	container.stretch = true
+	container.stretch_shrink = PIXEL_SHRINK_FACTOR
+	container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	container.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	# Deliberately leaving mouse_filter at its default (STOP) - the
+	# SubViewportContainer needs to actively receive mouse events so it can
+	# forward them into the SubViewport for player aiming.
+	canvas_layer.add_child(container)
+
+	var viewport = SubViewport.new()
+	viewport.name = "PixelViewport"
+	# No explicit size - with stretch_shrink active, the container manages
+	# the viewport's render size automatically (container.size / shrink),
+	# continuously, including on window resize.
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	container.add_child(viewport)
+
+	world = Node2D.new()
+	world.name = "World"
+	viewport.add_child(world)
 
 func _setup_hud():
 	hud_canvas = CanvasLayer.new()
@@ -55,9 +137,26 @@ func _setup_hud():
 	extraction_indicator.color = Color(0.2, 1.0, 0.4)
 	extraction_indicator.visible = false
 	hud_canvas.add_child(extraction_indicator)
-	
+
+	# Full-screen overlay used by enemy Jammer Modules (vision-jam pulse).
+	# Sits on top of everything else in the HUD layer, starts invisible.
+	vision_jam_overlay = ColorRect.new()
+	vision_jam_overlay.color = Color(0.0, 0.0, 0.0, 1.0)
+	vision_jam_overlay.modulate.a = 0.0
+	vision_jam_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vision_jam_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hud_canvas.add_child(vision_jam_overlay)
+
 	add_child(hud_canvas)
 	_update_hud()
+
+func _on_vision_jammed(duration: float):
+	if not vision_jam_overlay:
+		return
+	var tween = create_tween()
+	tween.tween_property(vision_jam_overlay, "modulate:a", 0.85, 0.2)
+	tween.tween_interval(max(0.0, duration - 0.5))
+	tween.tween_property(vision_jam_overlay, "modulate:a", 0.0, 0.3)
 
 func _update_hud():
 	if wave_label:
@@ -102,7 +201,7 @@ func _spawn_extraction_marker():
 			if map:
 				target_pos = map.get_valid_spawn_position(target_pos)
 			extraction_marker.global_position = target_pos
-		add_child(extraction_marker)
+		world.add_child(extraction_marker)
 
 
 func _unhandled_input(event):
@@ -124,7 +223,7 @@ func _setup_environment():
 	map = MapGenerator.new()
 	map.map_type = "Open Field"
 	map.name = "GameMap"
-	add_child(map)
+	world.add_child(map)
 
 func _setup_player():
 	player = Mech.new()
@@ -136,10 +235,11 @@ func _setup_player():
 	player.collision_mask = 1 | 2 | 4 # Collides with environment, water, enemies
 	
 	player.global_position = map.get_valid_spawn_position(Vector2(map.width * map.tile_size / 2.0, map.height * map.tile_size / 2.0))
-	
-	add_child(player)
+
+	world.add_child(player)
 	player.add_to_group("player")
 	player.died.connect(_on_player_died)
+	player.vision_jammed.connect(_on_vision_jammed)
 	
 	if SaveManager.save_to_load != "":
 		var load_data = SaveManager.load_game(SaveManager.save_to_load)
@@ -164,7 +264,15 @@ func _setup_player():
 	camera.set_script(load("res://scripts/core/CameraShake.gd"))
 	camera.position_smoothing_enabled = true
 	camera.position_smoothing_speed = 5.0
-	camera.zoom = Vector2(1.5, 1.5)
+	# Camera2D.zoom is relative to the viewport it's actually rendering
+	# into, not the window - since that's now the small internal
+	# PixelViewport (container_size / PIXEL_SHRINK_FACTOR), the old zoom of
+	# 1.5 (tuned for native rendering) made the camera capture 1/Nth the
+	# world area it used to, which is why everything rendered N times too
+	# big AND paradoxically too smooth (more internal pixels ended up spent
+	# per mech than intended). Dividing by the shrink factor here keeps the
+	# on-screen framing where it was while still getting the low-res pass.
+	camera.zoom = Vector2(1.5, 1.5) / PIXEL_SHRINK_FACTOR
 	camera.add_to_group("camera")
 	player.add_child(camera)
 	
@@ -244,13 +352,14 @@ func _show_countdown():
 func _start_wave():
 	_update_hud()
 	print("--- WAVE ", current_wave, " COMMENCING ---")
-	
+	LootManager.current_wave = current_wave
+
 	# Spawn Squad Director if it doesn't exist
-	var director = get_node_or_null("SquadDirector")
+	var director = world.get_node_or_null("SquadDirector")
 	if not director:
 		director = load("res://scripts/ai/SquadDirector.gd").new()
 		director.name = "SquadDirector"
-		add_child(director)
+		world.add_child(director)
 		
 		# New Diverse Templates
 		var t_sniper = load("res://scripts/ai/SquadTemplate.gd").new("Sniper Team", {"sniper": 2, "brawler": 1})
@@ -271,7 +380,20 @@ func _start_wave():
 		t_jammer.has_shields = true
 		t_jammer.spawn_weight = 80.0
 		director.register_template(t_jammer)
-	
+
+		var t_support = load("res://scripts/ai/SquadTemplate.gd").new("Support Detachment", {"support": 1, "brawler": 2})
+		t_support.spawn_weight = 70.0
+		director.register_template(t_support)
+
+	# Periodically let the director try out a new experimental squad
+	# composition (mutation or fresh random template). Not every wave, so
+	# each trial gets a few waves to actually accumulate deployments before
+	# the next one shows up.
+	if current_wave % 3 == 0:
+		director.maybe_introduce_experimental_template()
+	if current_wave % 4 == 0:
+		director.maybe_introduce_experimental_profile()
+
 	active_enemies = 0
 	
 	# Megaboss Wave Check (Every 25 waves)
@@ -321,7 +443,7 @@ func _start_wave():
 			m.global_position = map.get_valid_spawn_position(Vector2(1600 + i*50, 1600))
 			m.died.connect(_on_enemy_died)
 			m.target = player
-			add_child(m)
+			world.add_child(m)
 
 func _spawn_boss(director, is_mega: bool):
 	var boss = director._spawn_bot_for_role("brawler")
@@ -370,7 +492,7 @@ func _on_boss_died(boss):
 		var legend_tile = tile_types.pick_random().new()
 		legend_tile.rarity = HexTile.Rarity.LEGENDARY
 		pickup.item_data = legend_tile
-		get_tree().current_scene.add_child(pickup)
+		world.add_child(pickup)
 	else:
 		if drop_type == "shield":
 			drop_pack = load("res://scripts/core/ComponentEquipment.gd").create_shield_backpack()
@@ -383,7 +505,7 @@ func _on_boss_died(boss):
 			var pickup = load("res://scripts/entities/LootPickup.gd").new()
 			pickup.equipment_data = drop_pack
 			pickup.global_position = boss.global_position
-			get_tree().current_scene.add_child(pickup)
+			world.add_child(pickup)
 		
 	_on_enemy_died()
 
@@ -402,7 +524,7 @@ func _on_player_died():
 	
 	var explosion = load("res://scripts/visuals/DeathExplosion.gd").new()
 	explosion.global_position = player.global_position
-	add_child(explosion)
+	world.add_child(explosion)
 	
 	# Wait 3 seconds, then kick back to garage
 	var timer = Timer.new()

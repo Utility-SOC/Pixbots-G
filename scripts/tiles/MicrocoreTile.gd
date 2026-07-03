@@ -11,6 +11,7 @@ func get_max_faces() -> int:
 		Rarity.UNCOMMON: return 2
 		Rarity.RARE: return 3
 		Rarity.LEGENDARY: return 4
+		Rarity.MYTHIC: return 6 # geometric ceiling
 		_: return 2
 
 func get_power_output() -> float:
@@ -19,6 +20,7 @@ func get_power_output() -> float:
 		Rarity.UNCOMMON: return 75.0
 		Rarity.RARE: return 120.0
 		Rarity.LEGENDARY: return 200.0
+		Rarity.MYTHIC: return 320.0
 		_: return 50.0
 
 func set_face_output(direction: int, synergy: EnergyPacket.SynergyType):

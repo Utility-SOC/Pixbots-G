@@ -43,7 +43,7 @@ func _on_body_entered(body: Node2D):
 func spawn_residue():
 	var residue = preload("res://scripts/attacks/FireResidue.gd").new()
 	residue.global_position = global_position
-	get_tree().current_scene.add_child(residue)
+	get_parent().add_child(residue)
 
 
 # ------------------------------------------------------------------------------

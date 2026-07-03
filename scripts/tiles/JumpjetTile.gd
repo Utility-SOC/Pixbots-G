@@ -18,10 +18,6 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 			mech = mech.get_parent()
 			
 		if mech and "current_move_speed" in mech and "base_move_speed" in mech:
-			# Apply continuous speed boost while energy is flowing
-			mech.base_move_speed += packet.magnitude * speed_boost_mult * _get_power_multiplier()
-			mech.current_move_speed = mech.base_move_speed
-			
 			if not "jumpjet_energy" in mech:
 				mech.set("jumpjet_energy", EnergyPacket.new(0.0, null))
 				mech.get("jumpjet_energy").synergies.clear()
@@ -42,4 +38,5 @@ func _get_power_multiplier() -> float:
 	if rarity == Rarity.UNCOMMON: mult = 1.2
 	elif rarity == Rarity.RARE: mult = 1.5
 	elif rarity == Rarity.LEGENDARY: mult = 3.0
+	elif rarity == Rarity.MYTHIC: mult = 5.0
 	return mult * (1.0 + (level - 1) * 0.1)

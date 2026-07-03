@@ -26,6 +26,17 @@ var mech_components: Dictionary = {}
 var dragged_tile: HexTile = null
 var drag_preview: Polygon2D = null
 
+# Drag-to-paint-a-line state: normal drag-and-drop still just places one
+# tile at wherever you release (unchanged). But if you pause over a cell
+# mid-drag, that becomes a fill origin - continuing to drag from there
+# paints a line of the SAME tile type across every cell the drag crosses,
+# consuming additional matching copies from inventory as it goes.
+const FILL_PAUSE_THRESHOLD = 0.4 # seconds stationary before fill mode kicks in
+var drag_hover_hex: HexCoord = null
+var drag_hover_since: float = 0.0
+var fill_mode: bool = false
+var fill_origin_hex: HexCoord = null
+
 var inventory: Array = []
 var search_input: LineEdit
 var rarity_filter: OptionButton
@@ -213,6 +224,12 @@ func _setup_ui():
 	auto_button.custom_minimum_size = Vector2(120, 50)
 	auto_button.pressed.connect(_on_auto_equip_pressed)
 	bottom_bar.add_child(auto_button)
+
+	var clear_button = Button.new()
+	clear_button.text = "Clear Grid"
+	clear_button.custom_minimum_size = Vector2(120, 50)
+	clear_button.pressed.connect(_on_clear_grid_pressed)
+	bottom_bar.add_child(clear_button)
 	
 	var sep_fire_toggle = CheckButton.new()
 	sep_fire_toggle.text = "Separate L/R Firing"
@@ -305,6 +322,27 @@ func _setup_ui():
 	scrap_label.modulate = Color(1.0, 0.8, 0.2)
 	right_vbox.add_child(scrap_label)
 
+	var mass_sell_hbox = HBoxContainer.new()
+	mass_sell_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	right_vbox.add_child(mass_sell_hbox)
+	
+	var sell_c_btn = Button.new()
+	sell_c_btn.text = "Sell Common"
+	sell_c_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sell_c_btn.pressed.connect(_on_sell_all.bind(0))
+	mass_sell_hbox.add_child(sell_c_btn)
+
+	var sell_uc_btn = Button.new()
+	sell_uc_btn.text = "Sell <= Uncommon"
+	sell_uc_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sell_uc_btn.pressed.connect(_on_sell_all.bind(1))
+	mass_sell_hbox.add_child(sell_uc_btn)
+
+	var sell_r_btn = Button.new()
+	sell_r_btn.text = "Sell <= Rare"
+	sell_r_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sell_r_btn.pressed.connect(_on_sell_all.bind(2))
+	mass_sell_hbox.add_child(sell_r_btn)
 	
 	var filter_hbox = HBoxContainer.new()
 	right_vbox.add_child(filter_hbox)
@@ -370,8 +408,17 @@ func _refresh_inventory_ui():
 	var filter_rarity = 99
 	if rarity_filter: filter_rarity = rarity_filter.get_selected_id()
 	
-	for i in range(inventory.size()):
-		var tile = inventory[i]
+	var grouped_inventory = {}
+	for tile in inventory:
+		var key = tile.tile_type + "_" + str(tile.rarity)
+		if not grouped_inventory.has(key):
+			grouped_inventory[key] = []
+		grouped_inventory[key].append(tile)
+	
+	for key in grouped_inventory.keys():
+		var stack = grouped_inventory[key]
+		var tile = stack[0]
+		var count = stack.size()
 		
 		if search_text != "" and not tile.tile_type.to_lower().contains(search_text):
 			continue
@@ -404,6 +451,8 @@ func _refresh_inventory_ui():
 			btn.material = mat
 		
 		btn.text = tile.tile_type + "\n" + rarity_name + " (x" + str(snapped(mult, 0.01)) + ")"
+		if count > 1:
+			btn.text += " [%d]" % count
 		btn.custom_minimum_size = Vector2(0, 50)
 		btn.gui_input.connect(_on_inventory_item_gui_input.bind(tile))
 		inv_vbox.add_child(btn)
@@ -417,14 +466,47 @@ func _input(event):
 			main._close_garage()
 		else:
 			queue_free()
-			
+
 	if event is InputEventMouseMotion:
 		if dragged_tile:
 			drag_preview.global_position = event.global_position
-			
+
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if dragged_tile:
 			_drop_tile(event.global_position)
+
+# Polling (not motion-event-driven) on purpose: if the cursor goes
+# perfectly still, no InputEventMouseMotion fires at all, so a "have you
+# been stationary for N seconds" check needs a per-frame timer instead of
+# only re-checking whenever the mouse happens to twitch.
+func _process(_delta):
+	if not dragged_tile:
+		return
+
+	var pos = get_viewport().get_mouse_position()
+	if not grid_renderer.get_global_rect().has_point(pos):
+		drag_hover_hex = null
+		if not fill_mode:
+			grid_renderer.fill_preview_hexes = []
+			grid_renderer.queue_redraw()
+		return
+
+	var local_pos = grid_renderer.get_global_transform().affine_inverse() * pos
+	var hex = grid_renderer._pixel_to_hex(local_pos)
+
+	if drag_hover_hex == null or not hex.equals(drag_hover_hex):
+		drag_hover_hex = hex
+		drag_hover_since = Time.get_ticks_msec() / 1000.0
+	elif not fill_mode:
+		var paused_for = Time.get_ticks_msec() / 1000.0 - drag_hover_since
+		if paused_for >= FILL_PAUSE_THRESHOLD:
+			fill_mode = true
+			fill_origin_hex = hex
+
+	if fill_mode:
+		var line = HexCoord.hex_line(fill_origin_hex, hex)
+		grid_renderer.fill_preview_hexes = line
+		grid_renderer.queue_redraw()
 
 func _on_inventory_item_gui_input(event: InputEvent, tile: HexTile):
 	if event is InputEventMouseButton and event.pressed:
@@ -433,6 +515,12 @@ func _on_inventory_item_gui_input(event: InputEvent, tile: HexTile):
 			drag_preview.show()
 			drag_preview.global_position = get_viewport().get_mouse_position()
 			tooltip_label.hide()
+			# Fresh drag - reset any leftover fill-mode state from a
+			# previous drag/drop cycle.
+			drag_hover_hex = null
+			fill_mode = false
+			fill_origin_hex = null
+			grid_renderer.fill_preview_hexes = []
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			_scrap_tile(tile)
 
@@ -448,6 +536,7 @@ func _scrap_tile(tile: HexTile):
 		main.player_scrap += scrap_value
 		inventory.erase(tile)
 		
+		_refresh_inventory_ui()
 		var float_lbl = Label.new()
 		float_lbl.text = "+" + str(scrap_value) + " Scrap"
 		float_lbl.modulate = Color(1.0, 0.8, 0.2)
@@ -457,18 +546,49 @@ func _scrap_tile(tile: HexTile):
 		tw.tween_property(float_lbl, "global_position:y", float_lbl.global_position.y - 50, 1.0)
 		tw.parallel().tween_property(float_lbl, "modulate:a", 0.0, 1.0)
 		tw.tween_callback(float_lbl.queue_free)
+
+func _on_sell_all(max_rarity: int):
+	var main = get_parent()
+	if not main or main.get("player_scrap") == null: return
+	var to_remove = []
+	var total_scrap = 0
+	for tile in inventory:
+		if tile.rarity <= max_rarity:
+			to_remove.append(tile)
+			var scrap_value = 10
+			if tile.rarity == 1: scrap_value = 25
+			elif tile.rarity == 2: scrap_value = 75
+			elif tile.rarity == 3: scrap_value = 250
+			elif tile.rarity == 4: scrap_value = 1000
+			total_scrap += scrap_value
+			
+	for tile in to_remove:
+		inventory.erase(tile)
 		
+	if total_scrap > 0:
+		main.player_scrap += total_scrap
 		_refresh_inventory_ui()
+		var float_lbl = Label.new()
+		float_lbl.text = "+" + str(total_scrap) + " Scrap"
+		float_lbl.modulate = Color(1.0, 0.8, 0.2)
+		float_lbl.global_position = get_viewport().get_mouse_position() - Vector2(20, 20)
+		add_child(float_lbl)
+		var tw = create_tween()
+		tw.tween_property(float_lbl, "global_position:y", float_lbl.global_position.y - 50, 1.0)
+		tw.parallel().tween_property(float_lbl, "modulate:a", 0.0, 1.0)
+		tw.tween_callback(float_lbl.queue_free)
 
 func _on_inventory_item_down(tile: HexTile):
 	pass # Deprecated in favor of gui_input
 
 
 func _drop_tile(pos: Vector2):
-	if grid_renderer.get_global_rect().has_point(pos):
+	if fill_mode and grid_renderer.fill_preview_hexes.size() > 1:
+		_drop_fill_line()
+	elif grid_renderer.get_global_rect().has_point(pos):
 		var local_pos = grid_renderer.get_global_transform().affine_inverse() * pos
 		var hex = grid_renderer._pixel_to_hex(local_pos)
-		
+
 		# Check if valid in current component shape
 		if active_component and not active_component.can_place_tile(hex):
 			print("Cannot place tile outside component bounds or on fixed sinks!")
@@ -485,9 +605,58 @@ func _drop_tile(pos: Vector2):
 				grid_renderer.queue_redraw()
 			else:
 				print("Slot occupied!")
-				
+
 	dragged_tile = null
 	drag_preview.hide()
+	fill_mode = false
+	fill_origin_hex = null
+	drag_hover_hex = null
+	grid_renderer.fill_preview_hexes = []
+
+# Places dragged_tile at the first valid cell in the paused-then-dragged
+# line, then keeps placing additional matching copies (same tile_type +
+# rarity) pulled from inventory at each subsequent valid, empty cell along
+# the line - stopping early if inventory runs out. Skips the Torso Core
+# cell and anything outside the component's shape, same protections as a
+# normal single-tile drop.
+func _drop_fill_line():
+	if not grid_renderer.hex_grid or not dragged_tile:
+		return
+
+	var placed_first = false
+	for hex in grid_renderer.fill_preview_hexes:
+		if active_component and not active_component.can_place_tile(hex):
+			continue
+		if active_component and active_component.slot_type == HexTile.BodySlot.TORSO and hex.q == 0 and hex.r == 0:
+			continue
+		if grid_renderer.hex_grid.has_tile(hex):
+			continue
+
+		if not placed_first:
+			grid_renderer.hex_grid.add_tile(hex, dragged_tile)
+			inventory.erase(dragged_tile)
+			placed_first = true
+		else:
+			var match_idx = _find_matching_inventory_index(dragged_tile)
+			if match_idx < 0:
+				break # Out of matching copies - stop filling
+			var next_tile = inventory[match_idx]
+			inventory.remove_at(match_idx)
+			grid_renderer.hex_grid.add_tile(hex, next_tile)
+
+	if not placed_first:
+		# Even the origin cell was blocked/invalid - give the tile back
+		inventory.append(dragged_tile)
+
+	_refresh_inventory_ui()
+	grid_renderer.queue_redraw()
+
+func _find_matching_inventory_index(reference: HexTile) -> int:
+	for i in range(inventory.size()):
+		var t = inventory[i]
+		if t.tile_type == reference.tile_type and t.rarity == reference.rarity:
+			return i
+	return -1
 
 func _add_to_inventory(tile: HexTile):
 	inventory.append(tile)
@@ -697,6 +866,78 @@ func _on_tile_clicked(tile: HexTile):
 			
 		add_child(popup)
 		popup.popup_centered(Vector2(400, 300))
+		popup.popup_hide.connect(func(): popup.queue_free())
+		
+	elif tile.tile_type == "Accumulator":
+		var popup = PopupPanel.new()
+		var vbox = VBoxContainer.new()
+		popup.add_child(vbox)
+		
+		var label = Label.new()
+		label.text = "Configure Accumulator Trigger Key"
+		vbox.add_child(label)
+		
+		var opt = OptionButton.new()
+		opt.add_item("None")
+		opt.add_item("Key 1")
+		opt.add_item("Key 2")
+		opt.add_item("Key 3")
+		
+		var current = 0
+		if tile.trigger_key == "1": current = 1
+		elif tile.trigger_key == "2": current = 2
+		elif tile.trigger_key == "3": current = 3
+		opt.select(current)
+		
+		opt.item_selected.connect(func(index):
+			if index == 0: tile.trigger_key = "None"
+			elif index == 1: tile.trigger_key = "1"
+			elif index == 2: tile.trigger_key = "2"
+			elif index == 3: tile.trigger_key = "3"
+			grid_renderer.queue_redraw()
+		)
+		vbox.add_child(opt)
+
+		add_child(popup)
+		popup.popup_centered(Vector2(250, 100))
+		popup.popup_hide.connect(func(): popup.queue_free())
+
+	elif tile.tile_type == "Magnet":
+		var popup = PopupPanel.new()
+		var vbox = VBoxContainer.new()
+		popup.add_child(vbox)
+
+		var label = Label.new()
+		label.text = "Configure Magnet"
+		vbox.add_child(label)
+
+		var rarity_names = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
+		var btn = Button.new()
+
+		var describe_filter = func() -> String:
+			if tile.rarity < HexTile.Rarity.MYTHIC:
+				return "Rarity filter is a Mythic-only ability"
+			elif tile.min_attract_rarity < 0:
+				return "Attracts: Any Rarity (click to change)"
+			else:
+				return "Attracts: %s or above (click to change)" % rarity_names[tile.min_attract_rarity]
+
+		btn.text = describe_filter.call()
+		btn.disabled = tile.rarity < HexTile.Rarity.MYTHIC
+		btn.pressed.connect(func():
+			tile.cycle_min_attract_rarity()
+			btn.text = describe_filter.call()
+		)
+		vbox.add_child(btn)
+
+		if tile.rarity < HexTile.Rarity.MYTHIC:
+			var hint = Label.new()
+			hint.text = "Upgrade this Magnet to Mythic to filter what it attracts."
+			hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+			vbox.add_child(hint)
+
+		add_child(popup)
+		popup.popup_centered(Vector2(280, 120))
 		popup.popup_hide.connect(func(): popup.queue_free())
 
 func _on_simulate_pressed():
@@ -950,18 +1191,21 @@ func _update_stats():
 				if SynergyType[key_name] == k:
 					syn_name = key_name
 					break
-			syn_str += "%s: %s\n" % [syn_name, str(int(val)) if val < 1000000 else "%.2e" % val]
+			var val_str = str(int(val))
+			if val >= 1000000:
+				val_str = str(snapped(val / 1000000.0, 0.01)) + "M"
+			syn_str += "%s: %s\n" % [syn_name, val_str]
 			
 	if syn_str == "":
 		syn_str = "None\n"
 		
 	var nrg_str = str(int(total_nrg))
 	if total_nrg > 1000000000:
-		nrg_str = "%.2e" % total_nrg
+		nrg_str = str(snapped(total_nrg / 1000000000.0, 0.01)) + "B"
 		
 	var out_str = str(int(total_output))
 	if total_output > 1000000000:
-		out_str = "%.2e" % total_output
+		out_str = str(snapped(total_output / 1000000000.0, 0.01)) + "B"
 		
 	stats_label.text = "=== COMPONENT INFO ===\nTiles Used: %d\n\n=== OUTPUT ===\nTotal Damage: %s\n%s\n=== SIMULATION ===\nStep: %d\nActive Packets: %d\nMoving Energy: %s" % [
 		grid_size,
@@ -988,6 +1232,32 @@ func _on_auto_equip_pressed():
 		grid_renderer.queue_redraw()
 		_refresh_inventory_ui()
 		print("Auto-Equip completed!")
+
+# Sends every removable tile in the active component's grid back to
+# inventory. Uses the exact same protection rule the existing single-tile
+# right-click removal already uses (only the Torso Core at (0,0) is
+# protected) rather than inventing new, stricter rules that would behave
+# differently from removing tiles one at a time.
+func _on_clear_grid_pressed():
+	if not active_component or not grid_renderer.hex_grid:
+		return
+
+	var tiles = grid_renderer.hex_grid.get_all_tiles()
+	var cleared = 0
+	for tile in tiles:
+		var h = tile.grid_position
+		if not h:
+			continue
+		if active_component.slot_type == HexTile.BodySlot.TORSO and h.q == 0 and h.r == 0:
+			continue # Never clear the Torso Core
+		grid_renderer.hex_grid.remove_tile(h)
+		inventory.append(tile)
+		cleared += 1
+
+	if cleared > 0:
+		_refresh_inventory_ui()
+		grid_renderer.queue_redraw()
+		print("[Garage] Cleared %d tiles back to inventory" % cleared)
 
 func _on_swap_component_pressed():
 	if not active_component: return

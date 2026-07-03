@@ -4,11 +4,14 @@ extends Node
 # Maps Vector2i(q, r) -> HexTile
 var grid: Dictionary = {}
 
+# NOTE: process_durability() is defined on the HexTile base class itself
+# (scripts/core/HexTile.gd), so every tile in `grid` has it - the old code
+# called tile.has_method("process_durability") here on every tile, every
+# frame, for every mech on the field. has_method() is a reflective lookup
+# and was pure overhead since the check could never be false; call directly.
 func _process(delta: float):
 	for key in grid:
-		var tile = grid[key]
-		if tile.has_method("process_durability"):
-			tile.process_durability(delta)
+		grid[key].process_durability(delta)
 
 func has_tile(coord) -> bool:
 	if typeof(coord) == TYPE_OBJECT and coord is HexCoord:

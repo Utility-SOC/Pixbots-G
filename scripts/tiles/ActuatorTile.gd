@@ -18,6 +18,16 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	if p.has_synergy(EnergyPacket.SynergyType.LIGHTNING):
 		current_speed_bonus *= 2.0
 		
+	if grid and grid.get_parent():
+		var mech = grid.get_parent()
+		if mech and "slot_type" in mech:
+			mech = mech.get_parent()
+			
+		if mech and "actuator_energy" in mech:
+			if not mech.get("actuator_energy"):
+				mech.set("actuator_energy", EnergyPacket.new(0.0, null))
+			mech.get("actuator_energy").merge(p)
+		
 	p.is_active = false
 	p.magnitude = 0.0
 	return [p]

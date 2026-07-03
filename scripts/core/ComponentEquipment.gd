@@ -170,6 +170,135 @@ func generate_shape():
 				for r in range(grid_height):
 					valid_hexes.append(HexCoord.new(q, r))
 
+func generate_procedural_shape():
+	valid_hexes.clear()
+	var base_count = 0
+	match rarity:
+		HexTile.Rarity.COMMON: base_count = 10
+		HexTile.Rarity.UNCOMMON: base_count = 18
+		HexTile.Rarity.RARE: base_count = 28
+		HexTile.Rarity.LEGENDARY: base_count = 48
+		HexTile.Rarity.MYTHIC: base_count = 48
+
+	var start = HexCoord.new(0, 0)
+	valid_hexes.append(start)
+
+	var rng = RandomNumberGenerator.new()
+	rng.randomize()
+
+	var role = role_variant
+	if role == "":
+		var roles = ["ambusher", "brawler", "sniper", "jammer"]
+		role = roles[rng.randi() % roles.size()]
+
+	# Composable shapes: a component is built from a handful of "primitives"
+	# (attached edge-to-edge so the whole thing stays contiguous), rather
+	# than one big undifferentiated random walk. Three primitive kinds:
+	#   line  - a straight single-file run of hexes in one direction
+	#   hook  - a straight run that bends 60 degrees partway through (hex
+	#           neighbor directions are exactly 60 degrees apart, so
+	#           switching from direction d to d+-1 IS a 60-degree turn) -
+	#           this gives the "thin hook, single diagonal track" look
+	#   block - a small blobby cluster (local random-frontier growth)
+	# Higher rarity = more primitives combined = more complex silhouettes
+	# (e.g. "a big block with a thin hook coming off it").
+	var weights = _get_archetype_weights(role)
+	var num_primitives = 1
+	match rarity:
+		HexTile.Rarity.COMMON: num_primitives = 1
+		HexTile.Rarity.UNCOMMON: num_primitives = 2
+		HexTile.Rarity.RARE: num_primitives = 3
+		HexTile.Rarity.LEGENDARY, HexTile.Rarity.MYTHIC: num_primitives = 4
+
+	var remaining = base_count - 1 # start hex already placed
+	for p in range(num_primitives):
+		if remaining <= 0:
+			break
+		var slots_left = num_primitives - p
+		var budget = max(2, int(ceil(float(remaining) / slots_left)))
+		var attach = valid_hexes[rng.randi() % valid_hexes.size()]
+		var archetype = _pick_weighted_archetype(weights, rng)
+		var added = _grow_primitive(attach, archetype, budget, rng)
+		remaining -= added
+
+# Role-flavored odds of picking each primitive type. Keys must match the
+# match statement in _grow_primitive().
+func _get_archetype_weights(role: String) -> Dictionary:
+	match role:
+		"sniper", "scout":
+			return {"line": 0.6, "hook": 0.15, "block": 0.25} # long lines
+		"brawler":
+			return {"line": 0.15, "hook": 0.15, "block": 0.7} # dense blocks
+		"ambusher":
+			return {"line": 0.15, "hook": 0.6, "block": 0.25} # sharp hooks
+		"jammer", "support":
+			return {"line": 0.3, "hook": 0.2, "block": 0.5}
+		_:
+			return {"line": 0.33, "hook": 0.33, "block": 0.34}
+
+func _pick_weighted_archetype(weights: Dictionary, rng: RandomNumberGenerator) -> String:
+	var total = 0.0
+	for w in weights.values(): total += w
+	var roll = rng.randf() * total
+	var acc = 0.0
+	for key in weights:
+		acc += weights[key]
+		if roll <= acc:
+			return key
+	return "block"
+
+# Grows one primitive starting from an existing placed hex `attach`, adding
+# up to `budget` new hexes. Returns how many were actually added (duplicates
+# and out-of-bounds cells are skipped, so this can be less than budget).
+func _grow_primitive(attach: HexCoord, archetype: String, budget: int, rng: RandomNumberGenerator) -> int:
+	var added = 0
+	match archetype:
+		"line":
+			var dir = rng.randi() % 6
+			var cur = attach
+			for i in range(budget):
+				cur = cur.neighbor(dir)
+				if _try_add_hex(cur): added += 1
+		"hook":
+			var dir = rng.randi() % 6
+			var bend_at = max(1, int(budget * rng.randf_range(0.3, 0.6)))
+			var cur = attach
+			for i in range(bend_at):
+				cur = cur.neighbor(dir)
+				if _try_add_hex(cur): added += 1
+			var turn = 1 if rng.randf() < 0.5 else -1
+			var new_dir = (dir + turn + 6) % 6
+			for i in range(budget - bend_at):
+				cur = cur.neighbor(new_dir)
+				if _try_add_hex(cur): added += 1
+		"block":
+			var frontier = [attach]
+			var attempts = 0
+			while added < budget and frontier.size() > 0 and attempts < budget * 20:
+				attempts += 1
+				var idx = rng.randi() % frontier.size()
+				var cell = frontier[idx]
+				var d = rng.randi() % 6
+				var n = cell.neighbor(d)
+				if _try_add_hex(n):
+					frontier.append(n)
+					added += 1
+				elif rng.randf() < 0.3:
+					frontier.remove_at(idx) # cell is likely saturated, stop probing it as often
+	return added
+
+# Adds a hex to valid_hexes if it's not already present and stays within a
+# sane bounding radius (keeps procedural components from sprawling into
+# absurd, unusable shapes at high primitive counts).
+func _try_add_hex(h: HexCoord) -> bool:
+	if abs(h.q) > 12 or abs(h.r) > 12:
+		return false
+	for existing in valid_hexes:
+		if existing.equals(h):
+			return false
+	valid_hexes.append(h)
+	return true
+
 func can_place_tile(coord: HexCoord) -> bool:
 	var is_valid = false
 	for h in valid_hexes:
@@ -525,6 +654,104 @@ static func create_missile_backpack():
 		if pack.valid_hexes.size() > offset + i:
 			pack.hex_grid.add_tile(pack.valid_hexes[offset + i], mount)
 			
+	return pack
+
+static func create_cloak_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
+	var script = load("res://scripts/core/ComponentEquipment.gd")
+	var pack = script.new(HexTile.BodySlot.BACKPACK, p_rarity)
+	pack.component_name = "Cloak Field"
+	pack.role_variant = "ambusher"
+	pack.generate_shape()
+
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+
+	var cloak = load("res://scripts/tiles/CloakTile.gd").new()
+	cloak.rarity = p_rarity
+	cloak.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(1, 0), cloak)
+
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+
+	return pack
+
+static func create_jammer_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
+	var script = load("res://scripts/core/ComponentEquipment.gd")
+	var pack = script.new(HexTile.BodySlot.BACKPACK, p_rarity)
+	pack.component_name = "Jammer Module"
+	pack.role_variant = "scout"
+	pack.generate_shape()
+
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+
+	var jammer = load("res://scripts/tiles/JammerModuleTile.gd").new()
+	jammer.rarity = p_rarity
+	jammer.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(1, 0), jammer)
+
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+
+	return pack
+
+static func create_support_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
+	var script = load("res://scripts/core/ComponentEquipment.gd")
+	var pack = script.new(HexTile.BodySlot.BACKPACK, p_rarity)
+	pack.component_name = "Support Kit"
+	pack.role_variant = "support"
+	pack.generate_shape()
+
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+
+	var healer = load("res://scripts/tiles/HealBeaconTile.gd").new()
+	healer.rarity = p_rarity
+	healer.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(1, 0), healer)
+
+	# Higher-rarity support kits have room for a second ability: a jammer
+	# module, giving support bots occasional crowd-control utility too.
+	if p_rarity >= HexTile.Rarity.RARE:
+		var jammer = load("res://scripts/tiles/JammerModuleTile.gd").new()
+		jammer.rarity = p_rarity
+		jammer.body_slot = HexTile.BodySlot.BACKPACK
+		pack.hex_grid.add_tile(HexCoord.new(-1, 0), jammer)
+
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+
 	return pack
 
 func update_link_positions():

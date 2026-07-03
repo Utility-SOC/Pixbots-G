@@ -16,18 +16,23 @@ func save_game(save_name: String, mech: Node, inventory: Array):
 		"component_inventory": [],
 		"scrap": 0
 	}
-	
-	if "player_scrap" in mech.get_parent():
-		data["scrap"] = mech.get_parent().player_scrap
 
-	
+	# NOTE: was mech.get_parent() - that broke when the player mech moved
+	# from being a direct child of Main to a child of Main.world (the
+	# pixel-viewport game world). current_scene still resolves to Main
+	# regardless of nesting depth.
+	var main = mech.get_tree().current_scene if mech.is_inside_tree() else null
+
+	if main and "player_scrap" in main:
+		data["scrap"] = main.player_scrap
+
 	# Serialize Components
 	for slot in mech.components.keys():
 		data["components"][str(slot)] = _serialize_component(mech.components[slot])
-		
+
 	# Serialize Component Inventory
-	if "player_component_inventory" in mech.get_parent():
-		for comp in mech.get_parent().player_component_inventory:
+	if main and "player_component_inventory" in main:
+		for comp in main.player_component_inventory:
 			data["component_inventory"].append(_serialize_component(comp))
 		
 	# Serialize Inventory

@@ -21,6 +21,7 @@ func get_max_faces() -> int:
 		Rarity.UNCOMMON: return 1
 		Rarity.RARE: return 2
 		Rarity.LEGENDARY: return 6
+		Rarity.MYTHIC: return 6 # 6 is the geometric ceiling (one per hex face) - Legendary already maxed this out
 		_: return 1
 
 func toggle_face(direction: int):
@@ -38,13 +39,28 @@ func toggle_face(direction: int):
 func set_face_output(direction: int, synergy: EnergyPacket.SynergyType):
 	face_outputs[direction] = synergy
 
+
+# The Core's own rarity previously only affected how many faces it could use
+# (get_max_faces above), not how much power it actually put out - a Common
+# and a Legendary Core Reactor produced the exact same 10.0-magnitude
+# packets. This gives rarity a real payoff on the primary power source too.
+func get_power_output() -> float:
+	match rarity:
+		Rarity.COMMON: return 10.0
+		Rarity.UNCOMMON: return 14.0
+		Rarity.RARE: return 20.0
+		Rarity.LEGENDARY: return 35.0
+		Rarity.MYTHIC: return 55.0
+		_: return 10.0
+
 func generate_energy(grid: Node) -> Array[EnergyPacket]:
 	var packets: Array[EnergyPacket] = []
+	var power = get_power_output()
 	for dir in face_outputs.keys():
 		if not active_faces.has(dir): continue
 		var packet = EnergyPacket.new(0.0, null)
 		packet.synergies.clear()
-		packet.add_synergy(face_outputs[dir], 10.0)
+		packet.add_synergy(face_outputs[dir], power)
 		packet.direction = dir
 		packets.append(packet)
 	return packets

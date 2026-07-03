@@ -5,18 +5,31 @@ enum SynergyType {
 	RAW, FIRE, ICE, LIGHTNING, VORTEX, POISON, EXPLOSION, KINETIC, PIERCE, VAMPIRIC
 }
 
+# These are project-defined design limits, not an engine constraint -
+# nothing in Godot caps a float. Raised from the original 30,000/100 to
+# give real headroom for stacked-Accumulator "capacitor bank" volleys
+# (see AccumulatorTile.gd / Mech._get_adjacent_accumulator_bonus) to keep
+# growing instead of plateauing well short of what a big investment should
+# feel like. Defined once here (previously the 30000 cap was ALSO
+# duplicated as a literal inside amplify() below - a classic way for two
+# copies of the same limit to quietly drift apart) so raising it again
+# later is a one-line change.
+const MAX_MAGNITUDE = 150000.0
+const MAX_CHARGE_REQUIRED = 500.0 # ~100s at base fire rate - a genuinely long charge-up for the biggest builds
+
 var magnitude: float = 100.0 :
 	set(val):
-		magnitude = min(val, 30000.0)
+		magnitude = min(val, MAX_MAGNITUDE)
 var synergies: Dictionary = {}
 
 var position: HexCoord = null
 var direction: int = 0
 var is_active: bool = true
+var trigger_key: String = "None"
 var traversal_steps: int = 0
 var charge_required: float = 1.0 :
 	set(val):
-		charge_required = min(val, 100.0) # Cap charge time at 100x base (approx 20 seconds)
+		charge_required = min(val, MAX_CHARGE_REQUIRED)
 
 func _init(_magnitude: float = 100.0, _position: HexCoord = null):
 	magnitude = _magnitude
@@ -64,8 +77,8 @@ func convert_synergy(from_type: int, to_type: int, percentage: float):
 	
 func amplify(multiplier: float):
 	var new_mag = magnitude * multiplier
-	if new_mag > 30000.0 and magnitude > 0:
-		multiplier = 30000.0 / magnitude
+	if new_mag > MAX_MAGNITUDE and magnitude > 0:
+		multiplier = MAX_MAGNITUDE / magnitude
 	elif magnitude <= 0:
 		multiplier = 1.0
 		
@@ -94,7 +107,9 @@ func split(ratio: float) -> EnergyPacket:
 func copy() -> EnergyPacket:
 	var new_packet = EnergyPacket.new(magnitude, position)
 	new_packet.direction = direction
+	new_packet.position = position
 	new_packet.is_active = is_active
+	new_packet.trigger_key = trigger_key
 	new_packet.synergies = synergies.duplicate()
 	new_packet.traversal_steps = traversal_steps
 	new_packet.charge_required = charge_required

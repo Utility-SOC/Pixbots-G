@@ -28,8 +28,6 @@ func _ready():
 	add_child(jammer_visual)
 
 func _process(delta: float):
-	super._process(delta)
-	
 	if is_instance_valid(target) and target.has_method("apply_jammer_debuff"):
 		var dist = global_position.distance_to(target.global_position)
 		if dist <= jammer_radius:

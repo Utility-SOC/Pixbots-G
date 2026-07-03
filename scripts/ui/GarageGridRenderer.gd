@@ -21,6 +21,10 @@ var is_panning: bool = false
 var pan_start_pos: Vector2 = Vector2.ZERO
 var camera_start_pos: Vector2 = Vector2.ZERO
 
+# Cells the drag-to-paint-a-line feature would fill if released right now
+# (see GarageMenu.gd's fill-mode drag tracking). Empty when not active.
+var fill_preview_hexes: Array = []
+
 var active_packets: Array[EnergyPacket] = []
 var simulation_step: int = 0
 var tooltip_label: Label
@@ -176,7 +180,12 @@ func _draw():
 	# 3. Draw hover highlight
 	if hovered_hex and hovered_hex in valid_coords:
 		_draw_hex_filled(hovered_hex, COLOR_HOVER)
-		
+
+	# 3.5 Draw fill-line preview (drag-to-paint-a-line)
+	for h in fill_preview_hexes:
+		if h in valid_coords:
+			_draw_hex_filled(h, Color(1.0, 0.85, 0.2, 0.4))
+
 	# 4. Draw Simulation Packets
 	for pkt in active_packets:
 		_draw_packet(pkt)

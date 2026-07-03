@@ -4,37 +4,63 @@ const CoreTile = preload("res://scripts/tiles/CoreTile.gd")
 
 var panel: PanelContainer
 var is_open: bool = false
+var squad_type_dropdown: OptionButton
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 100 # Always on top
-	
+
 	panel = PanelContainer.new()
-	panel.custom_minimum_size = Vector2(300, 400)
+	panel.custom_minimum_size = Vector2(320, 500)
 	panel.position = Vector2(20, 20)
 	panel.hide()
 	add_child(panel)
-	
+
+	# The button list was already long enough to overflow a fixed-size
+	# panel before this session's additions - wrapping in a ScrollContainer
+	# instead of just growing the panel further (which would eventually run
+	# off-screen anyway) so everything stays reachable regardless of how
+	# many debug tools get added over time.
+	var scroll = ScrollContainer.new()
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scroll.custom_minimum_size = Vector2(320, 500)
+	panel.add_child(scroll)
+
 	var vbox = VBoxContainer.new()
-	panel.add_child(vbox)
-	
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(vbox)
+
 	var title = Label.new()
 	title.text = "--- DEBUG MENU ---"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
-	
+
 	var btn_spawn = Button.new()
 	btn_spawn.text = "Spawn Enemy"
 	btn_spawn.pressed.connect(_on_spawn_enemy)
 	vbox.add_child(btn_spawn)
-	
+
 	var btn_spawn_mass = Button.new()
 	btn_spawn_mass.text = "Spawn Army (50)"
 	btn_spawn_mass.pressed.connect(func():
 		for i in range(50): _on_spawn_enemy()
 	)
 	vbox.add_child(btn_spawn_mass)
-	
+
+	var squad_spawn_label = Label.new()
+	squad_spawn_label.text = "-- Spawn Squad Type --"
+	squad_spawn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(squad_spawn_label)
+
+	squad_type_dropdown = OptionButton.new()
+	squad_type_dropdown.custom_minimum_size = Vector2(0, 32)
+	vbox.add_child(squad_type_dropdown)
+
+	var btn_spawn_squad = Button.new()
+	btn_spawn_squad.text = "Spawn Selected Squad"
+	btn_spawn_squad.pressed.connect(_on_spawn_squad_type)
+	vbox.add_child(btn_spawn_squad)
+
 	var btn_loot = Button.new()
 	btn_loot.text = "Force Legendary Drop"
 	btn_loot.pressed.connect(_on_force_loot)
@@ -137,7 +163,9 @@ func _ready():
 		btn.pressed.connect(func():
 			_toggle_menu()
 			var main = get_tree().current_scene
-			var map = main.get_node_or_null("GameMap")
+			# GameMap lives under Main.world (the pixel-viewport game world),
+			# not directly under Main - see Main.gd's _setup_pixel_viewport().
+			var map = main.world.get_node_or_null("GameMap") if (main and "world" in main and main.world) else null
 			if map:
 				map.map_type = map_type
 				map._generate_map()
@@ -179,15 +207,71 @@ func _toggle_menu():
 	is_open = not is_open
 	panel.visible = is_open
 	get_tree().paused = is_open
+	if is_open:
+		_refresh_squad_dropdown()
+
+# Templates evolve over a session (mutation/culling - see SquadDirector.gd),
+# so this list is rebuilt fresh every time the menu opens rather than once
+# at _ready(), when SquadDirector likely doesn't even exist yet.
+func _refresh_squad_dropdown():
+	if not squad_type_dropdown:
+		return
+	squad_type_dropdown.clear()
+	var director = _get_squad_director()
+	if not director:
+		return
+	for t in director.templates:
+		var label = t.template_name
+		if t.is_experimental:
+			label += " (experimental)"
+		squad_type_dropdown.add_item(label)
+
+func _get_squad_director():
+	var main = get_tree().current_scene
+	# SquadDirector lives under Main.world (the pixel-viewport game world),
+	# not directly under Main - see Main.gd's _setup_pixel_viewport().
+	if not main or not ("world" in main) or not main.world:
+		return null
+	return main.world.get_node_or_null("SquadDirector")
+
+func _on_spawn_squad_type():
+	var director = _get_squad_director()
+	if not director or squad_type_dropdown.item_count == 0:
+		return
+	var idx = squad_type_dropdown.selected
+	if idx < 0 or idx >= director.templates.size():
+		return
+	var template = director.templates[idx]
+
+	var main = get_tree().current_scene
+	if not main or not main.get("map") or not main.get("player"):
+		return
+
+	# Spawn point is always 50 units closer to the map center than the
+	# player currently is, regardless of which direction that ends up being.
+	var map = main.map
+	var map_center = Vector2(map.width * map.tile_size / 2.0, map.height * map.tile_size / 2.0)
+	var player_pos = main.player.global_position
+	var dir_to_center = (map_center - player_pos).normalized()
+	if dir_to_center == Vector2.ZERO:
+		dir_to_center = Vector2.RIGHT # Player is exactly at map center - direction is arbitrary
+	var spawn_pos = player_pos + dir_to_center * 50.0
+
+	director.spawn_specific_squad(template, spawn_pos)
+	_toggle_menu() # Close (and unpause) so you can immediately see it
 
 func _on_spawn_enemy():
 	var main = get_tree().current_scene
-	var director = main.get_node_or_null("SquadDirector")
-	
+	if not main or not ("world" in main) or not main.world:
+		return
+	# SquadDirector (and anything it spawns) lives under Main.world (the
+	# pixel-viewport game world) - see Main.gd's _setup_pixel_viewport().
+	var director = main.world.get_node_or_null("SquadDirector")
+
 	if not director:
 		director = load("res://scripts/ai/SquadDirector.gd").new()
 		director.name = "SquadDirector"
-		main.add_child(director)
+		main.world.add_child(director)
 		
 		# Register default templates just in case
 		var t_sniper = load("res://scripts/ai/SquadTemplate.gd").new("Sniper Team", {"sniper": 2, "brawler": 1})
@@ -232,7 +316,11 @@ func _on_force_loot():
 		var drop = load("res://scripts/entities/LootPickup.gd").new()
 		drop.tile_data = tile
 		drop.global_position = player[0].global_position + Vector2(50, 50)
-		get_tree().current_scene.add_child(drop)
+		# Spawn as a sibling of the player (i.e. into Main.world, the pixel
+		# viewport's game world) rather than via current_scene, which is
+		# Main itself - outside the pixelated viewport since this session's
+		# visual identity pass.
+		player[0].get_parent().add_child(drop)
 
 func _on_heal_player():
 	var player = get_tree().get_nodes_in_group("player")

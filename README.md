@@ -1,14 +1,8 @@
-# PIXBOTS-G: TECHNICAL MANUAL & SANDBOX GUIDE
+# PIXBOTS-G: THE COMPREHENSIVE TECHNICAL MANUAL
 
-Welcome to the Pixbots-G operations manual. This document details the technical specifications of your Mech, the component modules at your disposal, and the AI routines governing enemy units. 
+Welcome to Pixbots-G, an engineering-focused Mech combat sandbox. This comprehensive manual details everything from the procedural energy-routing engine to the evolving AI that learns to defeat you.
 
-Currently, Pixbots-G is in an active **Sandbox / Toy** phase. While formal progression mechanics (like a campaign) are still under construction, the game features a robust procedural energy-routing engine and an AI director that allows for infinite hours of tinkering, limit-testing, and chaotic battles.
-
----
-
-## 1. INSTALLATION & SETUP INSTRUCTIONS
-
-To get started with the Pixbots-G sandbox, you will need the Godot Engine and a local copy of this repository.
+## 1. INSTALLATION & SETUP
 
 ### Prerequisites
 - **Godot Engine**: Download and install Godot Engine **v4.2 or higher** (Standard version, .NET not required) from the [official website](https://godotengine.org/download).
@@ -16,153 +10,152 @@ To get started with the Pixbots-G sandbox, you will need the Godot Engine and a 
 
 ### Installation Steps
 1. **Clone the Repository**:
-   Open your terminal/command prompt and run:
    ```bash
    git clone https://github.com/Utility-SOC/Pixbots-G.git
    ```
-   *(Alternatively, you can download the project as a .zip file from GitHub and extract it).*
-2. **Open the Project in Godot**:
-   - Launch the Godot Engine.
-   - Click the **Import** button.
-   - Navigate to the cloned `Pixbots-G/godot` directory and select the `project.godot` file.
-   - Click **Import & Edit**.
-3. **Run the Game**:
-   - In the top right corner of the Godot editor, click the **Play** button (or press `F5`).
-   - The Main Menu will appear. Click **Start Game** to deploy!
+2. **Open the Project in Godot**: Launch Godot, click **Import**, select `project.godot` inside the `Pixbots-G/godot` directory, and click **Import & Edit**.
+3. **Run the Game**: Click the **Play** button (or press `F5`). 
 
 ---
 
-## 2. HOW TO PLAY IT AS A TOY (SANDBOX MODE)
+## 2. THE GARAGE & UPGRADE ECONOMY
 
-Pixbots-G is currently designed to be an engineering sandbox. The most fun you can have right now is by pushing the procedural energy grid to its absolute breaking point. 
+The Garage is your engineering bay. Here, you construct the energy grids that power your Mech. 
 
-### The Debug Menu
-During gameplay, press **`~` (Tilde)** or **`F3`** (or whatever key is bound to the Debug Menu) to open the Sandbox Controls. This menu allows you to break all the rules:
-- **Give AMPED Grid**: Instantly replaces your Torso grid with an insanely complex, pre-built loop of Legendary Splitters and Amplifiers. Warning: Firing this weapon may cause excessive screen shake and frame drops due to the sheer volume of projectiles spawned!
-- **Upgrade Core**: Instantly sets your core reactor to Legendary rarity, allowing it to output maximum energy across all faces.
-- **Reactor Override**: Force your core to output specific elemental synergies (e.g., Vortex, Ice, Kinetic) regardless of what components you actually have installed.
-- **Spawn Specific Enemies**: Want to test your build against a specific threat? Use the debug buttons to instantly drop a Brawler, Scout, or Sniper right on top of you.
-- **Spawn Boss**: Test your mettle against a massive, 5x-scaled Boss mech with extreme health pools and unique drop tables.
-- **Restore Components**: Instantly heal your mech to 100% and revive any destroyed component grids.
+### The Garage Interface (Buttons & Toggles)
+When you enter the Garage, you will interact with several controls:
+- **Component Tabs**: Select which part of your Mech to edit (Torso, Left Arm, Right Arm, Left Leg, Right Leg, Head).
+- **Swap Component**: Opens your inventory to replace the currently selected component with another one (e.g., swapping a damaged limb for a new one).
+- **Infuse (Destroy part)**: Destroys a component from your inventory to grant XP to the currently equipped component, leveling it up and unlocking stat modifiers.
+- **Simulate Energy Flow**: A crucial debugging tool. Clicking this button visualizes the BFS (Breadth-First Search) routing of energy packets through your grid, showing exactly what output your Weapon Mounts will receive.
+- **Auto-Equip**: The solver automatically fills empty grid spaces with a mathematically optimal setup. It can even route energy feeds from your Torso across components, snaking pipes into your Arms, Legs, and Head seamlessly!
+- **Clear Grid**: Wipes all tiles off the currently selected component.
+- **Separate L/R Firing**: A toggle that dictates whether Left-click fires all weapons, or if Left-click fires Left Arm/Torso weapons and Right-click fires Right Arm weapons.
+- **Show Static Paths**: Toggles the permanent visualization of energy pipes.
 
-### Limit Testing
-The engine is robust, but you can try to break it! 
-- **The Speed Demon**: Try filling your Legs and Torso exclusively with `Jumpjet Tiles` and `Actuator Tiles`, feed them pure KINETIC energy, and see if you can make your mech move so fast it phases through the environment!
-- **The Black Hole**: Stack multiple VORTEX elemental packets into a highly amplified weapon mount. The resulting projectile will create a gravity well so strong it will permanently stick enemy squads to the walls!
-- **The Infinite Loop**: Try to build a closed circuit using `Reflector Tiles` and `Amplifier Tiles` without a Weapon Mount attached. Open the Garage Menu and click **Simulate Energy Flow** to watch the energy packets multiply until they crash the mathematical float limits of the engine (producing a massive negative integer overflow)!
-
-*(Screenshots to be added here: `![Garage Simulation](assets/images/garage_sim.png)`, `![Battlefield Chaos](assets/images/battlefield.png)`)*
+### The Black Market
+The Black Market is a shop that offers specialized, high-tier components and tiles.
+- **Rotation**: The shop rotates its inventory deterministically every 10 minutes of real time.
+- **Purchasing**: You buy items using Scrap gathered from combat.
+- **Equipping**: Once purchased, new tiles go to your inventory for grid placement, and new components can be swapped onto your chassis via the **Swap Component** button in the Garage. Beware: Black Market components often come with "forbidden-tile" drawbacks or unique cursed geometries!
 
 ---
 
-## 3. COMPONENT HEX TILES
+## 3. HEX TILES, RARITIES, AND SYNC DEVIATIONS
 
-Your Mech's capabilities are determined by the Hex Tiles installed on its grid. Understanding the flow of energy packets through these tiles is essential for optimization. 
+Your Mech is built from Hex Tiles. Every tile belongs to a rarity tier that dictates its efficiency, volatility, and features.
 
-### Power Generation & Storage
-- **Core Tile**: The primary power source. Energy originates here and flows outward through active faces.
-- **Microcore Tile**: A secondary, localized power generator. Provides supplementary energy but has limited output faces.
-- **Accumulator Tile**: Stores excess energy packets. Discharges them when the primary draw exceeds generation, serving as a buffer.
+### Rarity System & Sync Deviations
+Higher rarity tiles offer massive multipliers, but they introduce **Sync Deviations**. 
+In Pixbots-G, if two energy paths merge at a Weapon Mount, they only combine their power if they arrive on the EXACT same **Traversal Step** (the "latency" or "phase" of the packet). 
+- **COMMON & UNCOMMON**: Standard specification. Reliable, with no sync adjustment (deviation of 0).
+- **RARE**: 40% probability of exhibiting a minor sync deviation (+1 or -1 traversal step).
+- **LEGENDARY**: Highly volatile prototypes. 80% probability of exhibiting a significant sync deviation (+1, -1, +2, or -2).
+- **MYTHIC**: Game-breaking tiles with unique, rule-bending toggles (see tile descriptions below).
 
-### Routing & Modulation
-- **Splitter Tile**: Receives an energy packet and duplicates it, sending it out across multiple faces. Crucial for powering multiple weapons simultaneously.
-- **Directional Conduit Tile**: Forces energy to flow in one specific direction, preventing backflow and ensuring packets reach their intended destination.
-- **Amplifier Tile**: Modulates the packet, increasing the final output value (e.g., weapon damage or shield strength) at the cost of durability.
-- **Filter Tile**: Acts as a gateway that only allows specific elemental energy (e.g., FIRE or ICE) to pass through, blocking unmatched packets.
-- **Catalyst Tile**: Converts standard kinetic energy into elemental energy, allowing you to trigger Synergies without a specialized Core.
-- **Reflector Tile**: Bounces energy packets back in the direction they came from, useful for complex closed-loop routing.
-- **Resonator Tile**: Increases efficiency if multiple packets of the same element pass through it consecutively.
+*Warning: If you split a packet into two parallel paths using Legendary tiles, their Sync Deviations might desync the packets, causing them to arrive at the weapon mount at different times, firing two weak shots instead of merging into one massive shot!*
+
+### Exhaustive Tile Glossary
+
+**Power Generation & Storage**
+- **Core Tile**: The primary power source. Generates RAW energy packets. *Mythic Toggle*: Native Element (Core outputs a specific element instead of RAW).
+- **Microcore Tile**: A secondary, localized generator with fewer output faces.
+- **Accumulator Tile**: Stores excess energy. Discharges when primary draw exceeds generation. *Combat Mechanics*: Accumulators passively charge. You can left-click for standard fire (with a quality tax) or hold 1/2/3 to pre-prime and dump the full stored value in a massive volley.
+
+**Routing & Modulation**
+- **Splitter Tile**: Receives a packet and duplicates it. *Mythic Feature*: 6-face output and x2 multiplier!
+- **Directional Conduit Tile**: Forces energy to flow in one specific direction (prevents backflow).
+- **Amplifier Tile**: Modulates the packet, increasing its magnitude. *Overlimit Note*: Amplification has a hard mathematical ceiling of **150,000 magnitude**. If a packet exceeds this ceiling, it is clamped. *Mythic Toggle*: Focus (Condense amplification to a single extreme output).
+- **Filter Tile**: Only allows specific elemental energy to pass through.
+- **Catalyst Tile**: Converts standard energy into elemental energy. *Mythic Toggle*: `cycle_synergy()` (Invert or rotate the output element).
+- **Reflector Tile**: Bounces energy packets back in the direction they came from.
+- **Resonator Tile**: Increases efficiency if multiple packets of the same element pass through consecutively. 
 - **Infuser Tile**: Consumes two different elemental packets to output a combined, higher-tier elemental packet.
+- **Magnet Tile**: Alters the flow of packets based on rules. *Mythic Toggle*: Attract/Repel mode + Rarity Filter!
 
-### Utilities & Combat
-- **Weapon Mount Tile**: The terminal node for energy. Converts incoming packets into offensive projectiles based on the energy's element.
-- **Shield Generator Tile**: Converts incoming packets into a defensive barrier, absorbing incoming damage before it hits your hull.
-- **Actuator Tile & Jumpjet Tile**: Mobility modules that consume energy to increase the base speed and traversal capabilities of your Mech.
-
----
-
-## 4. COMPONENT RARITY & SYNC ADJUSTMENT
-
-Hex Tiles are classified into four rarities: **COMMON, UNCOMMON, RARE, and LEGENDARY**.
-
-Higher rarity tiles are not just structurally superior; they possess a variance in their **Sync Adjustment**. This adjustment modifies how efficiently the tile links with adjacent components:
-- **COMMON & UNCOMMON**: Standard specification. No sync adjustment (0).
-- **RARE**: Has a 40% probability of exhibiting a minor sync deviation (+1 or -1).
-- **LEGENDARY**: Highly volatile prototypes. Has an 80% probability of exhibiting a significant sync deviation (+1, -1, +2, or -2).
+**Utilities & Combat**
+- **Weapon Mount Tile**: Converts incoming packets into offensive projectiles based on the energy's element. *Mythic Feature*: Custom spread patterns.
+- **Shield Generator Tile**: Converts packets into a defensive barrier that fully absorbs incoming damage while it holds.
+- **Actuator Tile**: Consumes energy to increase base movement speed.
+- **Jumpjet Tile**: Grants aerial evasion/traversal. *Mechanic*: If you traverse water hazards, jumpjets automatically activate and sustain to prevent drowning! *Mythic Toggle*: Blink (Instant teleportation).
 
 ---
 
-## 5. ELEMENTAL SYNERGIES
+## 4. ELEMENTAL SYNERGIES
 
-When specific elemental energy packets reach a Weapon Mount, they trigger unique subroutines. Combining elements creates uniquely tinted projectiles with blended physical properties!
-- **KINETIC**: Standard armor-piercing projectile that maintains a straight trajectory.
-- **FIRE**: Ignites the impact zone and experiences high air resistance ("The Plume").
-- **ICE**: Heavy, crystalline mass that resists steering and slows target processing speeds.
-- **POISON**: Corrosive acid that arches in a gravity-affected lob ("The Mortar").
-- **LIGHTNING**: Arcs to secondary targets within a localized radius.
-- **VAMPIRIC**: Actively curves its trajectory to seek and hunt down enemy units ("The Hunter").
+When specialized energy packets reach a Weapon Mount, they trigger unique subroutines. Projectiles blend physical properties (speed, scale, lifetime, trails, and color) proportionally based on the synergy ratios in the packet.
+
+- **RAW**: Baseline energy. Reliable but no special effects.
+- **KINETIC**: Armor-piercing projectile maintaining a straight trajectory.
+- **FIRE**: Ignites the impact zone. Experiences high air resistance.
+- **ICE**: Heavy, crystalline mass that resists steering and slows target movement/processing speeds (Freezing).
+- **POISON**: Corrosive acid that arches in a gravity-affected lob.
+- **LIGHTNING**: Fires an instant stylized polyline that arcs to secondary targets within a localized radius, paralyzing them.
+- **VAMPIRIC**: Actively curves its trajectory to seek and hunt down enemy units ("The Hunter"). Heals the shooter based on damage dealt.
 - **VORTEX**: Generates a localized gravity well, pulling nearby units out of formation.
+- **PIERCE**: Has a percentage chance to instantly execute ("cut in half") non-boss targets.
+- **EXPLOSION**: Standard AoE blast damage on impact.
 
 ---
 
-## 6. SQUAD DIRECTOR (AI ROUTINES) & ENEMIES
+## 5. THE AI SYSTEM & SQUAD DIRECTOR
 
-The enemy forces are not randomized; they are controlled by the **Squad Director**, an AI that dynamically allocates resources to defeat you.
+Pixbots-G doesn't use random spawns; you are fighting a learning AI called the **Squad Director**. 
 
-### Chassis Specifications
-- **SCOUT**: Low HP (80), extremely high mobility (220 Speed). Engages at 250 units.
-- **BRAWLER**: High HP (150), moderate mobility (130 Speed). Engages at close range (100 units).
-- **SNIPER**: Fragile (60 HP) but maintains maximum distance (450 units). Low fire rate but high accuracy.
-- **AMBUSHER**: Standard chassis (90 HP, 180 Speed). Engages at 180 units with a high fire-rate burst capability.
-- **FLAMETHROWER**: Heavy chassis (120 HP). Closes in to 150 units to deploy area-of-effect damage.
+### Enemy Chassis & Roles
+The AI fields specialized bots tailored to counter you:
+- **SCOUT**: Low HP, extreme mobility. Engages at max range. Often equipped with Jumpjets or Jammers.
+- **BRAWLER**: High HP, moderate mobility. Engages at close range.
+- **SNIPER**: Fragile, maintains maximum distance. Low fire rate, extreme accuracy.
+- **AMBUSHER**: Uses Cloaking to sneak up and unleash high fire-rate bursts. 
+- **FLAMETHROWER**: Heavy chassis built to close in and deploy AoE elemental damage.
+- **SUPPORT**: Carries Heal Beacons and defensive auras to protect the squad.
+- **JAMMER**: Specialized electronic-warfare mechs that disable your elemental synergies.
+- **COMMANDER**: A high-tier leader unit that can carry up to 5 support modules to buff an entire squad!
+- **BOSS**: A massive, 5x-scaled mech with extreme health pools and unique drop tables.
 
-### Tactical Assembly & Link-ups
-The Director spawns units based on weighted templates (e.g., "Sniper Team", "Ambushers"). It actively searches the map for "wild bots" (unassigned units) and recruits them into squads to fulfill required roles. If a squad takes heavy casualties, it will broadcast a link-up request to any other broken squad within a 1000-unit radius, merging them to maintain a full tactical formation of up to 12 units.
+### The Squad Director & Persistent Learning
+The AI merges wild bots into squads and actively mutates its templates based on fitness (combat success).
+- **Persistent Evolution**: The AI Director **saves its learned strategies** to disk between sessions! If it learns that Snipers beat you today, it will spawn Snipers tomorrow. 
+- **Reactive Resistance Profiling**: The Director tracks your elemental damage output. If you over-rely on FIRE, it will deploy Fire-resistant mechs and FIRE-Jammer modules.
+- **Execute Counterplay**: If you over-rely on Piercing instant-kills, the Director logs your "kill methods" and will dynamically deploy **Piercing Jammers**. Units inside a Piercing Jammer's aura (along with Bosses and Commanders) are immune to executes!
 
-### Reactive Resistance Profiling
-The Director monitors the elemental damage it sustains. Once you deal over 500 total damage, the Director evaluates your elemental usage. If you rely on a single element for more than 40% of your damage output, the Director will deploy specialized, element-resistant Mechs with visual dampeners!
-
-*(Screenshots to be added here: `![Auto-Equipped Limbs](assets/images/auto_equip.png)`)*
-
----
-
-## 7. HEX GRID DESIGN SUGGESTIONS & ENGINEERING BEST PRACTICES
-
-To maximize the efficiency of your Mech's hex grid, consider the following routing configurations:
-
-- **The Closed Loop (Resonator + Reflector):** Route energy through a Resonator, into a Reflector, and back through the Resonator. This allows you to stack efficiency multipliers before splitting the packet off to your weapon systems.
-- **Elemental Dual-Wielding (Elemental Infuser + Splitter):** Use a Splitter early in your grid to divide your Core's kinetic output. Route one packet into a Elemental Infuser (e.g., FIRE) and the other into a different Elemental Infuser (e.g., LIGHTNING). This bypasses the Squad Director's Reactive Resistance Profiling by keeping your elemental damage ratios balanced.
-- **Burst Buffer (Accumulator + Amplifier):** Place an Accumulator right before an Amplifier and Weapon Mount. Allow the Accumulator to store energy during downtime. When engaging an enemy, the stored energy will rapidly push through the Amplifier, creating a massive opening burst attack before settling into a sustained fire rate.
-- **Shield Priority Routing (Directional Conduit):** Always use Directional Conduits when routing to Shield Generators. If a component is damaged or disabled, you do not want energy backflowing away from your critical defensive systems.
+### The War Room Interface
+Press **`TAB`** in-game to access the War Room. 
+- **Lineage Graphs & Fitness Logs**: View a visual log of the AI's evolving lineage, the current fitness scores of its Squad Templates, and what compositions it is favoring.
+- **Export to Clipboard**: Copies the AI's current learned profile (as JSON text) so you can share it with friends!
+- **Import from Clipboard**: Overwrites the AI's current state with a profile you pasted, allowing you to fight the exact AI your friend trained.
 
 ---
 
-## 8. CORE GAMEPLAY LOOP
+## 6. ENGINEERING BEST PRACTICES & SANDBOX FUN
 
-Understanding the operational flow of Pixbots-G is essential for sustained success on the battlefield:
-1. **The Garage Phase:** You begin in the Garage. Here, you will install Hex Tiles into your Mech's chassis. Your primary goal is to ensure that energy packets generated by your Cores are efficiently routed through modifiers (like Amplifiers and Catalysts) and safely deposited into Weapon Mounts and Shield Generators.
-2. **Deployment:** Once your systems are online, you deploy to the battlefield. The environment is procedurally generated with varying biomes and obstacles. Every time you leave the garage, the game will automatically create an `autosave.json` backup of your configuration!
-3. **The Engagement:** The Squad Director will spawn continuous waves of enemy bots. You must maneuver your Mech, manage your energy reserves, and eliminate the hostile forces. 
-4. **Escalation & Adaptation:** As you fight, the Director analyzes your tactics and deploys counter-measures. You must adapt your combat style on the fly to survive the increasingly difficult waves.
-5. **Re-calibration:** After a successful engagement (or a catastrophic failure), you will return to the Garage. You can redesign your energy grids, test new synergistic combinations, and prepare for the next deployment.
+The engine is robust, but you can try to break it!
 
-*(Screenshots to be added here: `![Component Infusion](assets/images/infusion.png)`)*
+### Routing Suggestions
+- **The Closed Loop**: Route energy through a Resonator, into a Reflector, and back through the Resonator to stack efficiency multipliers before splitting the packet off to your weapons.
+- **Elemental Dual-Wielding**: Split your Core's output and route them through two different Elemental Infusers. This bypasses the Squad Director's Resistance Profiling by keeping your elemental damage ratios perfectly balanced!
+- **Burst Buffer**: Place an Accumulator right before an Amplifier and Weapon Mount. Store energy during downtime, then release a massive pre-primed volley (by holding 1/2/3) to unleash an opening burst attack.
+- **The Speed Demon**: Try filling your Legs and Torso exclusively with Jumpjet and Actuator Tiles, feed them pure KINETIC energy, and phase through the environment.
+- **The Black Hole**: Stack multiple VORTEX elemental packets into a highly amplified weapon mount to permanently stick enemy squads to the walls.
+
+### Main Menu Interface
+- **Difficulty Options**: The dropdown lets you set the baseline scaling. The highest difficulty forces the AI to remain peer-to-peer with your loadout strength.
+- **Continue Game**: Loads the most recent autosave (which happens automatically every time you leave the garage).
+- **New Campaign / Endless / Sandbox**: Different launch vectors for deploying your mech.
+
+### Debug Controls
+Press **`~` (Tilde)** or **`F3`** during gameplay to open the Sandbox Debug Menu. 
+- **Give AMPED Grid**: Instantly injects a pre-built legendary loop into your torso.
+- **Upgrade Core**: Maxes out your reactor's rarity.
+- **Reactor Override**: Force your core to output specific elemental synergies (e.g., Vortex, Ice, Kinetic) bypassing your internal grid.
+- **Spawn specific Enemies / Bosses**: Drops a custom threat right in front of you.
+- **Restore Components**: Instantly heals your mech to 100% and revives any destroyed component grids.
 
 ---
 
-## 9. RECENT SYSTEM UPDATES (CHANGELOG)
+## 7. MODDING & ROADMAP
 
-- **Performance Overhaul:** Significantly improved the Big O complexity of Weapon Mount projectile spawning. Packets are now cleanly merged by traversal step, preventing infinite frame-freezes on Amped grids.
-- **Peripheral Auto-Equip:** The Auto-Equip solver now properly hooks into external energy feeds from the Torso, allowing it to seamlessly snake pipes across Arms, Legs, and Heads!
-- **Squat Head Geometry:** Fixed the procedural generation for the Head component so it builds vertically and wide, rather than leaning at an acute angle.
-- **Debug Sync:** Fixed the Reactor Override dropdown to accurately push Vampiric/Seeking synergies without falling back to Poison.
-- **Loot System Restored:** Defeated enemy Mechs will now drop components and tiles for the player to collect!
-- **Pacifist AI Subroutines Patched:** Enemy AI will now properly route their Weapon Mounts and actively fire on the player.
-- **Component Infusion Added:** Players can now destroy components to grant XP to other components, levelling them up and granting stat modifiers.
-- **Component Swapping Added:** Players can now swap components on their Mech in the Garage.
-- **AI War Room & Persistent Learning:** The AI Director now saves its learned strategies between sessions! You can view its evolving squads and lineage in the new War Room UI (press `TAB`), and even export/import profiles to swap trained AI with friends.
-- **Modding Support (Phase 1):** You can now define and load custom baseline squad packs via `config/default_squads.json`. See `MODDING.md` for full documentation!
-- **Minimap Added:** A new minimap overlay helps you track terrain and enemy squad movements.
-- **Environmental & Tactical Additions:** Destructible Ruin Obstacles have been added. Furthermore, jumpjets now automatically activate and sustain when traversing water hazards!
-- **Visual Improvements:** The cloaking effect has been redesigned with a new distortion-circle shader, and lightning strikes now use an instant stylized polyline effect.
-- **Roadmap & Docs:** `FEATURE_ROADMAP.md` has been added with all upcoming design decisions (including the scrap economy and lightweight heat system).
+Pixbots-G was built with an open architecture. 
+- **Modding AI Squads**: You can define custom baseline squad packs by editing `config/default_squads.json`. See the `MODDING.md` file in the repository for full documentation on how to write custom JSON profiles and share them.
+- **Future Development**: Check out `FEATURE_ROADMAP.md` for a comprehensive list of upcoming design decisions, including the Scrap Economy, Lightweight Heat System, and Melee/Mass Physics engine!

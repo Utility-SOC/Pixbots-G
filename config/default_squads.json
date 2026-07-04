@@ -1,37 +1,54 @@
 {
 	"profile_name": "default_squads",
-	"version": "1.0",
+	"version": "1.1",
+	"__comment": "Moddable baseline squad pack. Loaded by SquadDirector.load_learned_state() and merged (by template_name) with the in-code defaults before any learned state applies. Valid roles: sniper, brawler, flamethrower, ambusher, scout, jammer, support. See MODDING.md.",
 	"templates": [
 		{
 			"template_name": "Vanilla Assault",
 			"required_roles": {
-				"melee": 3,
-				"ranged": 2
+				"brawler": 3,
+				"sniper": 2
 			},
 			"spawn_weight": 100.0,
 			"base_spawn_weight": 100.0,
 			"times_deployed": 0,
-			"total_fitness": 0.0
+			"total_fitness": 0.0,
+			"is_experimental": false
 		},
 		{
 			"template_name": "Sniper Cell",
 			"required_roles": {
-				"ranged": 4
+				"sniper": 4
 			},
 			"spawn_weight": 100.0,
 			"base_spawn_weight": 100.0,
 			"times_deployed": 0,
-			"total_fitness": 0.0
+			"total_fitness": 0.0,
+			"is_experimental": false
 		},
 		{
-			"template_name": "Heavy Melee Rush",
+			"template_name": "Heavy Brawler Rush",
 			"required_roles": {
-				"melee": 5
+				"brawler": 5
 			},
 			"spawn_weight": 100.0,
 			"base_spawn_weight": 100.0,
 			"times_deployed": 0,
-			"total_fitness": 0.0
+			"total_fitness": 0.0,
+			"is_experimental": false
+		},
+		{
+			"template_name": "Burn Detail",
+			"required_roles": {
+				"flamethrower": 2,
+				"scout": 2
+			},
+			"spawn_weight": 80.0,
+			"base_spawn_weight": 80.0,
+			"times_deployed": 0,
+			"total_fitness": 0.0,
+			"is_experimental": false
 		}
-	]
+	],
+	"solver_profiles": []
 }

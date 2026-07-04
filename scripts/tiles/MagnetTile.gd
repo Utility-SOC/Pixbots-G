@@ -9,6 +9,15 @@ var current_magnetic_power: float = 0.0
 # and the only meaningful state below Mythic rarity).
 @export var min_attract_rarity: int = -1
 
+# MYTHIC ability: flip the field. Attract (default) pulls loot inward as
+# usual; Repel turns the magnet into a kinetic field that shoves nearby
+# enemies away from the mech (see Mech's magnet block).
+@export var repel_mode: bool = false
+
+func toggle_repel_mode():
+	if rarity == Rarity.MYTHIC:
+		repel_mode = not repel_mode
+
 func cycle_min_attract_rarity():
 	if rarity != Rarity.MYTHIC:
 		return

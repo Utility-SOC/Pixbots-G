@@ -17,6 +17,9 @@ var weapon_rarity: int = 0
 var ratios: Dictionary = {}
 var total_power: float = 0.0
 var final_color: Color = Color.WHITE
+# From Mythic AoE-focused Amplifiers (EnergyPacket.aoe_bonus): grows the
+# projectile's scale and explosion radius.
+var aoe_bonus: float = 0.0
 
 var stat_modifiers: Dictionary = {}
 
@@ -88,6 +91,39 @@ func _ready():
 			queue_free()
 	)
 	add_child(vis_notifier)
+
+	# INSTANT LIGHTNING (FEATURE_ROADMAP.md group 3): a lightning-dominant
+	# shot shouldn't visibly "fly". The projectile still exists - every bit
+	# of hit/chain/status logic is unchanged - but it crosses the screen
+	# near-instantly, and what the player SEES is a world-anchored bolt
+	# flash along the flight path plus the arc flashes on whatever gets
+	# struck. Stylized-jagged, not photoreal, to keep the pixel identity.
+	if ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) > 0.5:
+		final_speed = max(final_speed, 4200.0)
+		call_deferred("_spawn_instant_bolt_flash")
+
+func _spawn_instant_bolt_flash():
+	if not get_parent() or direction == Vector2.ZERO:
+		return
+	var bolt = Line2D.new()
+	bolt.width = 3.0
+	bolt.default_color = EnergyPacket.get_color_blend(synergies)
+	bolt.z_index = 60
+	var span = direction * 520.0
+	var ortho = Vector2(-direction.y, direction.x)
+	var pts = PackedVector2Array([Vector2.ZERO])
+	var segments = 9
+	for i in range(1, segments):
+		var t = float(i) / segments
+		# sin(t*PI) envelope keeps the jag pinned at muzzle and endpoint
+		pts.append(span * t + ortho * randf_range(-26.0, 26.0) * sin(t * PI))
+	pts.append(span)
+	bolt.points = pts
+	bolt.global_position = global_position
+	get_parent().add_child(bolt)
+	var tw = bolt.create_tween()
+	tw.tween_property(bolt, "modulate:a", 0.0, 0.18)
+	tw.tween_callback(bolt.queue_free)
 
 func _get_lifetime() -> float:
 	var base_life = 4.0
@@ -216,6 +252,9 @@ func _build_visuals():
 	# doing the limiting day to day.
 	var p_scale = 1.0 + log(1.0 + total_power / 200.0) * 0.5
 	p_scale = min(p_scale, 5.0)
+	# Mythic AoE-focused Amplifiers physically grow the projectile
+	p_scale *= (1.0 + 0.5 * aoe_bonus)
+	p_scale = min(p_scale, 8.0)
 	
 	if dominant == EnergyPacket.SynergyType.KINETIC:
 		# Sharp, aerodynamic shape
@@ -646,11 +685,55 @@ func _handle_hit(target: Node2D):
 	if is_instance_valid(source_mech) and source_mech.has_signal("dealt_damage") and target != source_mech:
 		source_mech.dealt_damage.emit(damage)
 	
-	# Apply Status Effects
-	if ratios.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1 and target.has_method("apply_status"):
-		target.apply_status("burning", 3.0 * ratios[EnergyPacket.SynergyType.FIRE])
-	if ratios.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1 and target.has_method("apply_status"):
-		target.apply_status("frozen", 3.0 * ratios[EnergyPacket.SynergyType.ICE])
+	# Apply Status Effects - every synergy past its threshold leaves a
+	# signature mark (FEATURE_ROADMAP.md group 3). Durations and proc
+	# chances scale with the synergy's RATIO, so trace amounts from a
+	# blended packet stay subtle instead of full-strength.
+	if target.has_method("apply_status"):
+		if ratios.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1:
+			target.apply_status("burning", 3.0 * ratios[EnergyPacket.SynergyType.FIRE])
+		if ratios.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1:
+			target.apply_status("frozen", 3.0 * ratios[EnergyPacket.SynergyType.ICE])
+
+		# LIGHTNING: paralyze chance - a full-stop lockup, brief
+		var rl = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
+		if rl > 0.15 and randf() < 0.35 * rl:
+			target.apply_status("paralyzed", 0.4 + 0.5 * rl)
+
+		# POISON: lingering toxin - DoT plus a mild slow
+		var rp = ratios.get(EnergyPacket.SynergyType.POISON, 0.0)
+		if rp > 0.1:
+			target.apply_status("poisoned", 4.0 + 3.0 * rp)
+
+		# KINETIC: stagger + physical shove along the shot's direction
+		var rk = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
+		if rk > 0.2:
+			target.apply_status("staggered", 0.4 + 0.3 * rk)
+			if "external_force" in target:
+				target.external_force += direction * 260.0 * rk
+
+		# PIERCE: rent armor - target takes increased damage for a while
+		if ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0) > 0.15:
+			target.apply_status("rent", 4.0)
+
+		# EXPLOSION: concussion chance - near-total slow, very brief
+		var re = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
+		if re > 0.2 and randf() < 0.5 * re:
+			target.apply_status("concussed", 0.35)
+
+		# VORTEX: dragged toward the impact point for a moment
+		var rv = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
+		if rv > 0.15:
+			if "vortex_drag_point" in target:
+				target.vortex_drag_point = global_position
+			target.apply_status("vortexed", 0.4 + 0.6 * rv)
+
+		# VAMPIRIC: bleed; heavy vampiric hits can briefly immobilize
+		var rvm = ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
+		if rvm > 0.1:
+			target.apply_status("bleeding", 3.0 + 2.0 * rvm)
+			if rvm > 0.5 and randf() < 0.3:
+				target.apply_status("immobilized", 0.5)
 		
 	# Lightning Arcing - chains through multiple enemies in sequence (not
 	# just one jump), each hop dealing falloff damage. Hop count and jump
@@ -760,7 +843,8 @@ func _trigger_explosion():
 	var space_state = get_world_2d().direct_space_state
 	var query = PhysicsShapeQueryParameters2D.new()
 	var shape = CircleShape2D.new()
-	shape.radius = 100.0 * ratios[EnergyPacket.SynergyType.EXPLOSION]
+	# aoe_bonus: Mythic AoE-focused Amplifiers widen the blast
+	shape.radius = 100.0 * ratios[EnergyPacket.SynergyType.EXPLOSION] * (1.0 + 0.5 * aoe_bonus)
 	query.shape = shape
 	query.transform = global_transform
 	query.collision_mask = collision_mask

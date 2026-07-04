@@ -79,6 +79,7 @@ func _refresh_component_ui():
 	if get_parent() and get_parent().get("player") != null:
 		mech_components = get_parent().player.components
 	_populate_component_tabs()
+	_update_chip_label()
 
 func _on_tab_changed(index: int):
 	if index < 0 or index >= component_tabs.get_tab_count():
@@ -295,6 +296,106 @@ func _setup_ui():
 				SaveManager.save_loadout(i, main.player)
 		)
 		loadout_bar.add_child(save_btn)
+
+	# Per-component loadout bar (FEATURE_ROADMAP.md group 1): same idea as
+	# the full-build slots above, but scoped to whichever component tab is
+	# currently open - lets a favorite arm/torso wiring be reused across
+	# otherwise different builds. Slots are keyed per body-slot type in
+	# SaveManager, so "Part Load 1" on the Torso tab is a different file
+	# from "Part Load 1" on the Left Arm tab.
+	var part_loadout_bar = HBoxContainer.new()
+	left_vbox.add_child(part_loadout_bar)
+
+	var part_lbl = Label.new()
+	part_lbl.text = "This part: "
+	part_loadout_bar.add_child(part_lbl)
+
+	for i in range(1, 4):
+		var p_load = Button.new()
+		p_load.text = "Load " + str(i)
+		p_load.pressed.connect(func():
+			var main = get_parent()
+			if not active_component or not main or main.get("player") == null:
+				return
+			var slot_type = active_component.slot_type
+			var loaded = SaveManager.load_component_loadout(i, slot_type)
+			if not loaded:
+				return
+			# Swap just this one component on the mech, then re-point the
+			# garage at the fresh instance via the normal tab-change path.
+			# (Same replace semantics as the full-build loadout slots: the
+			# outgoing part and its tiles are not refunded to inventory.)
+			var old = main.player.unequip_component(slot_type)
+			if old:
+				old.queue_free()
+			main.player.equip_component(loaded)
+			_refresh_component_ui()
+			_on_tab_changed(component_tabs.current_tab)
+		)
+		part_loadout_bar.add_child(p_load)
+
+		var p_save = Button.new()
+		p_save.text = "Save " + str(i)
+		p_save.pressed.connect(func():
+			if active_component:
+				SaveManager.save_component_loadout(i, active_component)
+		)
+		part_loadout_bar.add_child(p_save)
+
+	# Scrap sinks (FEATURE_ROADMAP.md group 2): repair and infusion give
+	# scrap something to buy beyond the tile-upgrade middle-click.
+	var scrap_sink_bar = HBoxContainer.new()
+	left_vbox.add_child(scrap_sink_bar)
+
+	var repair_btn = Button.new()
+	repair_btn.text = "Repair All"
+	repair_btn.tooltip_text = "1 scrap per 2 missing HP, +25 per knocked-out tile"
+	repair_btn.pressed.connect(_on_repair_all)
+	scrap_sink_bar.add_child(repair_btn)
+
+	# NOTE: named infuse_xp_btn, not infuse_btn - _setup_ui already declares
+	# an infuse_btn at the top (the "Infuse (Destroy part)" modifier-infusion
+	# button), and GDScript treats a duplicate local name in the same
+	# function scope as a compile error, which silently killed the whole
+	# garage (GDScript::reload fails -> _open_garage gets a scriptless class).
+	var infuse_xp_btn = Button.new()
+	infuse_xp_btn.text = "Infuse This Part (+100 XP / 100 scrap)"
+	infuse_xp_btn.tooltip_text = "500 XP per infusion level. Legendary+ parts roll a random stat modifier each level."
+	infuse_xp_btn.pressed.connect(_on_infuse_part)
+	scrap_sink_bar.add_child(infuse_xp_btn)
+
+	# --- Feature 5 row: upgrades, modifier chips, Black Market ---------------
+	var feature5_bar = HBoxContainer.new()
+	left_vbox.add_child(feature5_bar)
+
+	var upgrade_part_btn = Button.new()
+	upgrade_part_btn.text = "Upgrade Part"
+	upgrade_part_btn.tooltip_text = "Tier this part up one rarity: costs scrap plus ONE same-slot salvage part. YOU place the new hexes - click the pulsing cells on the grid."
+	upgrade_part_btn.pressed.connect(_on_upgrade_part)
+	feature5_bar.add_child(upgrade_part_btn)
+
+	var extract_btn = Button.new()
+	extract_btn.text = "Extract Modifier"
+	extract_btn.tooltip_text = "Scraps the first spare component that carries a stat modifier and saves that modifier as a chip."
+	extract_btn.pressed.connect(_on_extract_modifier)
+	feature5_bar.add_child(extract_btn)
+
+	var chip_btn = Button.new()
+	chip_btn.text = "Infuse Chip"
+	chip_btn.tooltip_text = "Applies your oldest extracted modifier chip to the current part. Chips stack, capped at +50% per stat."
+	chip_btn.pressed.connect(_on_infuse_chip)
+	feature5_bar.add_child(chip_btn)
+
+	chip_count_label = Label.new()
+	chip_count_label.text = "Chips: 0"
+	feature5_bar.add_child(chip_count_label)
+
+	var market_btn = Button.new()
+	market_btn.text = "BLACK MARKET"
+	market_btn.modulate = Color(1.0, 0.5, 0.9)
+	market_btn.tooltip_text = "Experimental oversized parts with severe drawbacks. Stock rotates every 10 real-time minutes."
+	market_btn.pressed.connect(_open_black_market)
+	feature5_bar.add_child(market_btn)
 	
 	# Right Side: Inventory & Stats
 	inventory_panel = PanelContainer.new()
@@ -312,7 +413,7 @@ func _setup_ui():
 	right_vbox.add_child(sep)
 	
 	var inv_label = Label.new()
-	inv_label.text = "INVENTORY (Right-click to scrap)"
+	inv_label.text = "INVENTORY (R-click: scrap | M-click: upgrade)"
 	inv_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	right_vbox.add_child(inv_label)
 	
@@ -523,29 +624,311 @@ func _on_inventory_item_gui_input(event: InputEvent, tile: HexTile):
 			grid_renderer.fill_preview_hexes = []
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			_scrap_tile(tile)
+		elif event.button_index == MOUSE_BUTTON_MIDDLE:
+			_upgrade_tile(tile)
+
+# Single source of truth for what a tile is worth - this exact
+# rarity->value ladder was previously copy-pasted in three places
+# (_scrap_tile, _on_sell_all, and now upgrade costs derive from it too).
+static func tile_scrap_value(tile: HexTile) -> int:
+	match tile.rarity:
+		1: return 25
+		2: return 75
+		3: return 250
+		4: return 1000
+		_: return 10
+
+const MAX_TILE_LEVEL = 10
+
+# Upgrading costs roughly double the tile's scrap value per current level -
+# so leveling your favorite tile is always pricier than scrapping chaff,
+# and high-rarity upgrades are a serious investment (Mythic L1->2 = 2000).
+static func tile_upgrade_cost(tile: HexTile) -> int:
+	return tile_scrap_value(tile) * 2 * tile.level
+
+func _show_scrap_float(text: String, color: Color = Color(1.0, 0.8, 0.2)):
+	var float_lbl = Label.new()
+	float_lbl.text = text
+	float_lbl.modulate = color
+	float_lbl.global_position = get_viewport().get_mouse_position() - Vector2(20, 20)
+	add_child(float_lbl)
+	var tw = create_tween()
+	tw.tween_property(float_lbl, "global_position:y", float_lbl.global_position.y - 50, 1.0)
+	tw.parallel().tween_property(float_lbl, "modulate:a", 0.0, 1.0)
+	tw.tween_callback(float_lbl.queue_free)
 
 func _scrap_tile(tile: HexTile):
 	var main = get_parent()
 	if main and main.get("player_scrap") != null:
-		var scrap_value = 10
-		if tile.rarity == 1: scrap_value = 25
-		elif tile.rarity == 2: scrap_value = 75
-		elif tile.rarity == 3: scrap_value = 250
-		elif tile.rarity == 4: scrap_value = 1000
-		
+		var scrap_value = tile_scrap_value(tile)
 		main.player_scrap += scrap_value
 		inventory.erase(tile)
-		
 		_refresh_inventory_ui()
-		var float_lbl = Label.new()
-		float_lbl.text = "+" + str(scrap_value) + " Scrap"
-		float_lbl.modulate = Color(1.0, 0.8, 0.2)
-		float_lbl.global_position = get_viewport().get_mouse_position() - Vector2(20, 20)
-		add_child(float_lbl)
-		var tw = create_tween()
-		tw.tween_property(float_lbl, "global_position:y", float_lbl.global_position.y - 50, 1.0)
-		tw.parallel().tween_property(float_lbl, "modulate:a", 0.0, 1.0)
-		tw.tween_callback(float_lbl.queue_free)
+		_show_scrap_float("+" + str(scrap_value) + " Scrap")
+
+# Middle-click: spend scrap to level a tile up (+10% power per level via
+# the shared _get_power_multiplier() curve every tile type already uses).
+func _upgrade_tile(tile: HexTile):
+	var main = get_parent()
+	if not main or main.get("player_scrap") == null:
+		return
+	if tile.level >= MAX_TILE_LEVEL:
+		_show_scrap_float("Max level!", Color(0.9, 0.4, 0.3))
+		return
+	var cost = tile_upgrade_cost(tile)
+	if main.player_scrap < cost:
+		_show_scrap_float("Need " + str(cost) + " scrap", Color(0.9, 0.4, 0.3))
+		return
+	main.player_scrap -= cost
+	tile.level += 1
+	_refresh_inventory_ui()
+	_show_scrap_float("Lv." + str(tile.level) + "  (-" + str(cost) + " scrap)", Color(0.4, 1.0, 0.5))
+
+func _on_repair_all():
+	var main = get_parent()
+	if not main or main.get("player") == null or main.get("player_scrap") == null:
+		return
+	var mech = main.player
+
+	var missing_hp = max(0.0, mech.max_hp - mech.hp)
+	var damaged_tiles = 0
+	var disabled_tiles = 0
+	for comp in mech.components.values():
+		for tile in comp.hex_grid.get_all_tiles():
+			if tile.is_disabled:
+				disabled_tiles += 1
+			elif tile.hp < tile.max_hp:
+				damaged_tiles += 1
+
+	var cost = int(ceil(missing_hp / 2.0)) + disabled_tiles * 25
+	if cost <= 0 and damaged_tiles == 0:
+		_show_scrap_float("Nothing to repair", Color(0.7, 0.7, 0.7))
+		return
+	cost = max(cost, 1)
+	if main.player_scrap < cost:
+		_show_scrap_float("Need " + str(cost) + " scrap", Color(0.9, 0.4, 0.3))
+		return
+
+	main.player_scrap -= cost
+	mech.hp = mech.max_hp
+	for comp in mech.components.values():
+		for tile in comp.hex_grid.get_all_tiles():
+			tile.hp = tile.max_hp
+			tile.is_disabled = false
+			tile.disable_timer = 0.0
+			tile.times_disabled = 0
+	_refresh_inventory_ui() # updates the scrap label
+	_show_scrap_float("Fully repaired  (-" + str(cost) + " scrap)", Color(0.4, 1.0, 0.5))
+
+const INFUSE_COST = 100
+const INFUSE_XP = 100
+
+func _on_infuse_part():
+	var main = get_parent()
+	if not main or main.get("player_scrap") == null or not active_component:
+		return
+	if main.player_scrap < INFUSE_COST:
+		_show_scrap_float("Need " + str(INFUSE_COST) + " scrap", Color(0.9, 0.4, 0.3))
+		return
+	main.player_scrap -= INFUSE_COST
+	var before_level = active_component.infusion_level
+	active_component.add_infusion_xp(INFUSE_XP)
+	_refresh_inventory_ui() # updates the scrap label
+	if active_component.infusion_level > before_level:
+		_show_scrap_float("INFUSION LEVEL UP! (Lv." + str(active_component.infusion_level) + ")", Color(0.3, 0.9, 1.0))
+	else:
+		_show_scrap_float("+%d XP (%d/%d)" % [INFUSE_XP, active_component.infusion_xp, 500 + active_component.infusion_level * 500], Color(0.4, 1.0, 0.5))
+
+# --- Feature 5: manual-hex upgrades ----------------------------------------
+
+# Hexes the player still has to place after an upgrade (consumed by
+# GarageGridRenderer's expansion-click mode).
+var pending_expansion_hexes: int = 0
+var chip_count_label: Label = null
+
+const UPGRADE_COSTS = [0, 500, 1500, 4000, 10000] # cost to REACH rarity index
+
+func _on_upgrade_part():
+	var main = get_parent()
+	if not active_component or not main or main.get("player_scrap") == null:
+		return
+	if active_component.rarity >= HexTile.Rarity.MYTHIC:
+		_show_scrap_float("Already Mythic!", Color(0.7, 0.7, 0.7))
+		return
+	var cost = UPGRADE_COSTS[active_component.rarity + 1]
+	if main.player_scrap < cost:
+		_show_scrap_float("Need " + str(cost) + " scrap", Color(0.9, 0.4, 0.3))
+		return
+	# Consume one same-slot salvage component - drops feed the upgrade loop
+	var salvage_idx = -1
+	if main.get("player_component_inventory") != null:
+		for i in range(main.player_component_inventory.size()):
+			var c = main.player_component_inventory[i]
+			if c != active_component and c.slot_type == active_component.slot_type:
+				salvage_idx = i
+				break
+	if salvage_idx < 0:
+		_show_scrap_float("Need a spare same-slot part to sacrifice", Color(0.9, 0.4, 0.3))
+		return
+
+	main.player_scrap -= cost
+	main.player_component_inventory.remove_at(salvage_idx)
+	var granted = active_component.upgrade_rarity()
+	pending_expansion_hexes += granted
+	_mark_player_grid_dirty()
+	_refresh_component_ui()
+	_refresh_inventory_ui()
+	_show_scrap_float("UPGRADED! Click %d pulsing cells to grow the part" % granted, Color(0.3, 0.9, 1.0))
+	grid_renderer.queue_redraw()
+
+# --- Feature 5: modifier extraction + chip infusion --------------------------
+
+func _update_chip_label():
+	var main = get_parent()
+	if chip_count_label and main and main.get("player_modifier_chips") != null:
+		var txt = "Chips: %d" % main.player_modifier_chips.size()
+		if main.player_modifier_chips.size() > 0:
+			var next = main.player_modifier_chips[0]
+			txt += "  (next: %s +%d%%)" % [str(next["stat"]), int(round((float(next["value"]) - 1.0) * 100.0))]
+		chip_count_label.text = txt
+
+func _on_extract_modifier():
+	var main = get_parent()
+	if not main or main.get("player_modifier_chips") == null or main.get("player_component_inventory") == null:
+		return
+	# First spare component carrying a stat modifier gets sacrificed
+	for i in range(main.player_component_inventory.size()):
+		var c = main.player_component_inventory[i]
+		var mods = c.get("stat_modifiers")
+		if mods != null and not mods.is_empty():
+			var stat = mods.keys()[0]
+			main.player_modifier_chips.append({"stat": stat, "value": float(mods[stat])})
+			main.player_component_inventory.remove_at(i)
+			_update_chip_label()
+			_show_scrap_float("Extracted %s chip (part destroyed)" % str(stat), Color(0.3, 0.9, 1.0))
+			return
+	_show_scrap_float("No spare part with a modifier to extract", Color(0.9, 0.4, 0.3))
+
+func _on_infuse_chip():
+	var main = get_parent()
+	if not active_component or not main or main.get("player_modifier_chips") == null:
+		return
+	if main.player_modifier_chips.is_empty():
+		_show_scrap_float("No chips - extract one first", Color(0.9, 0.4, 0.3))
+		return
+	var chip = main.player_modifier_chips.pop_front()
+	var stat = str(chip["stat"])
+	var bonus = float(chip["value"]) - 1.0
+	var current = float(active_component.stat_modifiers.get(stat, 1.0))
+	# Chips stack, capped at +50% per stat per component ("constants later")
+	active_component.stat_modifiers[stat] = min(1.5, current + bonus)
+	_update_chip_label()
+	_mark_player_grid_dirty()
+	_show_scrap_float("%s now +%d%% on this part" % [stat, int(round((active_component.stat_modifiers[stat] - 1.0) * 100.0))], Color(0.4, 1.0, 0.5))
+
+# --- Feature 5: Black Market -------------------------------------------------
+# Stock is deterministic per 10-minute real-time window (seeded from unix
+# time / 600), so reopening the popup shows the same rotation until the
+# window rolls over. Purchases are remembered per window.
+
+const MARKET_CYCLE_SECONDS = 600
+const MARKET_FORBIDDABLE = ["Amplifier", "Accumulator", "Splitter", "Catalyst", "Shield Generator"]
+var _market_sold: Dictionary = {}
+
+func _open_black_market():
+	var main = get_parent()
+	if not main or main.get("player_scrap") == null:
+		return
+	var cycle = int(Time.get_unix_time_from_system()) / MARKET_CYCLE_SECONDS
+	var rng = RandomNumberGenerator.new()
+	rng.seed = cycle
+
+	var popup = PopupPanel.new()
+	var vbox = VBoxContainer.new()
+	popup.add_child(vbox)
+
+	var title = Label.new()
+	title.text = "BLACK MARKET - stock rotates in %d s" % (MARKET_CYCLE_SECONDS - int(Time.get_unix_time_from_system()) % MARKET_CYCLE_SECONDS)
+	title.modulate = Color(1.0, 0.5, 0.9)
+	vbox.add_child(title)
+
+	var slot_names = {HexTile.BodySlot.TORSO: "Torso", HexTile.BodySlot.ARM_L: "Left Arm", HexTile.BodySlot.ARM_R: "Right Arm", HexTile.BodySlot.LEG_L: "Left Leg", HexTile.BodySlot.LEG_R: "Right Leg", HexTile.BodySlot.HEAD: "Head"}
+	var rarity_names = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
+	var prices = [0, 0, 1200, 3200, 8000]
+
+	for i in range(3):
+		var roll = rng.randf()
+		var rarity = HexTile.Rarity.RARE
+		if roll > 0.85: rarity = HexTile.Rarity.MYTHIC
+		elif roll > 0.5: rarity = HexTile.Rarity.LEGENDARY
+		var slots = slot_names.keys()
+		var slot = slots[rng.randi() % slots.size()]
+		var extra_hexes = 4 + rarity
+		var forb_a = MARKET_FORBIDDABLE[rng.randi() % MARKET_FORBIDDABLE.size()]
+		var forb_b = MARKET_FORBIDDABLE[rng.randi() % MARKET_FORBIDDABLE.size()]
+		var price = prices[rarity]
+		var sold_key = "%d_%d" % [cycle, i]
+
+		var offer_btn = Button.new()
+		var forb_txt = forb_a if forb_a == forb_b else forb_a + " & " + forb_b
+		offer_btn.text = "%s %s  |  +%d extra hexes  |  FORBIDS: %s  |  %d scrap" % [rarity_names[rarity], slot_names[slot], extra_hexes, forb_txt, price]
+		offer_btn.disabled = _market_sold.has(sold_key)
+		if offer_btn.disabled:
+			offer_btn.text += "  [SOLD]"
+
+		# Capture loop state for the purchase lambda
+		var offer = {"rarity": rarity, "slot": slot, "extra": extra_hexes, "forbidden": [forb_a, forb_b] if forb_a != forb_b else [forb_a], "price": price, "key": sold_key, "seed": cycle * 100 + i}
+		offer_btn.pressed.connect(func():
+			if main.player_scrap < offer.price:
+				_show_scrap_float("Need " + str(offer.price) + " scrap", Color(0.9, 0.4, 0.3))
+				return
+			main.player_scrap -= offer.price
+			_market_sold[offer.key] = true
+			main.player_component_inventory.append(_build_market_component(offer))
+			_refresh_inventory_ui()
+			offer_btn.disabled = true
+			offer_btn.text += "  [SOLD]"
+			_show_scrap_float("Deal done. No refunds.", Color(1.0, 0.5, 0.9))
+		)
+		vbox.add_child(offer_btn)
+
+	var warning = Label.new()
+	warning.text = "Experimental hardware. Oversized grids, hard restrictions, no refunds."
+	warning.modulate = Color(0.7, 0.7, 0.7)
+	vbox.add_child(warning)
+
+	add_child(popup)
+	popup.popup_centered(Vector2(640, 220))
+	popup.popup_hide.connect(func(): popup.queue_free())
+
+func _build_market_component(offer: Dictionary):
+	var comp = ComponentEquipment.new(offer.slot, offer.rarity)
+	comp.component_name = "Black Market " + str(offer.slot)
+	comp.forbidden_tile_types = offer.forbidden.duplicate()
+	comp.generate_procedural_shape()
+
+	# Oversized: bolt on the extra hexes procedurally (deterministic per offer)
+	var rng = RandomNumberGenerator.new()
+	rng.seed = offer.seed
+	var added = 0
+	var guard = 0
+	while added < offer.extra and guard < 200:
+		guard += 1
+		if comp.valid_hexes.is_empty():
+			break
+		var base = comp.valid_hexes[rng.randi() % comp.valid_hexes.size()]
+		var n = HexCoord.new(base.q, base.r).neighbor(rng.randi() % 6)
+		if comp.add_expansion_hex(n):
+			added += 1
+
+	# Standard entry point so energy can actually route in
+	if comp.slot_type != HexTile.BodySlot.TORSO and not comp.hex_grid.has_tile(HexCoord.new(0, 0)):
+		var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+		intake.tile_type = "Energy Intake"
+		intake.body_slot = comp.slot_type
+		comp.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+		comp.fixed_sinks.append(HexCoord.new(0, 0))
+	return comp
 
 func _on_sell_all(max_rarity: int):
 	var main = get_parent()
@@ -555,12 +938,7 @@ func _on_sell_all(max_rarity: int):
 	for tile in inventory:
 		if tile.rarity <= max_rarity:
 			to_remove.append(tile)
-			var scrap_value = 10
-			if tile.rarity == 1: scrap_value = 25
-			elif tile.rarity == 2: scrap_value = 75
-			elif tile.rarity == 3: scrap_value = 250
-			elif tile.rarity == 4: scrap_value = 1000
-			total_scrap += scrap_value
+			total_scrap += tile_scrap_value(tile)
 			
 	for tile in to_remove:
 		inventory.erase(tile)
@@ -592,6 +970,9 @@ func _drop_tile(pos: Vector2):
 		# Check if valid in current component shape
 		if active_component and not active_component.can_place_tile(hex):
 			print("Cannot place tile outside component bounds or on fixed sinks!")
+		elif active_component and dragged_tile and active_component.forbidden_tile_types.has(dragged_tile.tile_type):
+			# Black Market drawback: this component refuses certain tile types
+			_show_scrap_float("FORBIDDEN: this part rejects %s tiles" % dragged_tile.tile_type, Color(1.0, 0.4, 0.4))
 		elif hex.q == 0 and hex.r == 0 and active_component.slot_type == HexTile.BodySlot.TORSO:
 			print("Cannot override Torso Core!")
 			# Return the dragged tile to inventory
@@ -709,11 +1090,28 @@ func _on_tile_clicked(tile: HexTile):
 						child_btn.set_block_signals(false)
 			)
 			vbox.add_child(btn)
-			
+
+		# MYTHIC Core: shift native generation to a single element on every
+		# face at once, bypassing the need for early Catalysts.
+		if tile.rarity == HexTile.Rarity.MYTHIC:
+			var syn_names = ["RAW", "FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON", "EXPLOSION", "KINETIC", "PIERCE", "VAMPIRIC"]
+			var native_state = [int(tile.face_outputs.get(0, 0))]
+			var native_btn = Button.new()
+			native_btn.text = "MYTHIC native element: %s (click to cycle all faces)" % syn_names[native_state[0] % 10]
+			native_btn.pressed.connect(func():
+				native_state[0] = (native_state[0] + 1) % 10
+				for f in range(6):
+					tile.set_face_output(f, native_state[0])
+				native_btn.text = "MYTHIC native element: %s (click to cycle all faces)" % syn_names[native_state[0]]
+				_mark_player_grid_dirty()
+				grid_renderer.queue_redraw()
+			)
+			vbox.add_child(native_btn)
+
 		add_child(popup)
 		popup.popup_centered(Vector2(250, 300))
 		popup.popup_hide.connect(func(): popup.queue_free())
-		
+
 	elif tile.tile_type == "Splitter" or tile.tile_type == "Accessory Return":
 		var popup = PopupPanel.new()
 		var vbox = VBoxContainer.new()
@@ -803,11 +1201,24 @@ func _on_tile_clicked(tile: HexTile):
 				grid_renderer.queue_redraw()
 		)
 		vbox.add_child(btn)
-		
+
+		# MYTHIC Catalyst: Inverted mode - a purity filter instead of a
+		# converter (voids everything except the chosen element).
+		if tile.tile_type == "Catalyst" and tile.rarity == HexTile.Rarity.MYTHIC:
+			var inv_btn = CheckButton.new()
+			inv_btn.text = "MYTHIC: Inverted (void all but chosen element)"
+			inv_btn.button_pressed = tile.get("inverted") == true
+			inv_btn.toggled.connect(func(on):
+				tile.inverted = on
+				_mark_player_grid_dirty()
+				grid_renderer.queue_redraw()
+			)
+			vbox.add_child(inv_btn)
+
 		add_child(popup)
 		popup.popup_centered(Vector2(250, 100))
 		popup.popup_hide.connect(func(): popup.queue_free())
-		
+
 	elif tile.tile_type == "Microcore":
 		var popup = PopupPanel.new()
 		var vbox = VBoxContainer.new()
@@ -935,10 +1346,74 @@ func _on_tile_clicked(tile: HexTile):
 			hint.text = "Upgrade this Magnet to Mythic to filter what it attracts."
 			hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 			vbox.add_child(hint)
+		else:
+			# MYTHIC Magnet: Attract/Repel field flip (joins the rarity
+			# filter above - Mythic gets BOTH, per design ruling).
+			var repel_btn = CheckButton.new()
+			repel_btn.text = "MYTHIC: Repel mode (shove enemies away)"
+			repel_btn.button_pressed = tile.get("repel_mode") == true
+			repel_btn.toggled.connect(func(_on):
+				tile.toggle_repel_mode()
+				_mark_player_grid_dirty()
+			)
+			vbox.add_child(repel_btn)
 
 		add_child(popup)
 		popup.popup_centered(Vector2(280, 120))
 		popup.popup_hide.connect(func(): popup.queue_free())
+
+	elif tile.tile_type == "Weapon Mount" or tile.tile_type == "Jumpjet" or tile.tile_type == "Amplifier":
+		# Mythic-ability popup for tiles that had no click config before.
+		var popup = PopupPanel.new()
+		var vbox = VBoxContainer.new()
+		popup.add_child(vbox)
+
+		var label = Label.new()
+		label.text = "Configure " + tile.tile_type
+		vbox.add_child(label)
+
+		if tile.rarity < HexTile.Rarity.MYTHIC:
+			var hint = Label.new()
+			hint.text = "Mythic ability locked - upgrade this tile to Mythic."
+			hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+			vbox.add_child(hint)
+		else:
+			var mode_names: Array = []
+			var prop = ""
+			var cycle_method = ""
+			match tile.tile_type:
+				"Weapon Mount":
+					mode_names = ["Normal", "Shotgun", "Radial Burst", "Beam"]
+					prop = "mythic_pattern"
+					cycle_method = "cycle_mythic_pattern"
+				"Jumpjet":
+					mode_names = ["Jump", "Blink"]
+					prop = "mythic_mode"
+					cycle_method = "cycle_mythic_mode"
+				"Amplifier":
+					mode_names = ["Balanced", "Pure Damage", "AoE Focus"]
+					prop = "mythic_focus"
+					cycle_method = "cycle_mythic_focus"
+
+			var mode_btn = Button.new()
+			mode_btn.text = "MYTHIC mode: %s (click to cycle)" % mode_names[int(tile.get(prop)) % mode_names.size()]
+			mode_btn.pressed.connect(func():
+				tile.call(cycle_method)
+				mode_btn.text = "MYTHIC mode: %s (click to cycle)" % mode_names[int(tile.get(prop)) % mode_names.size()]
+				_mark_player_grid_dirty()
+			)
+			vbox.add_child(mode_btn)
+
+		add_child(popup)
+		popup.popup_centered(Vector2(300, 120))
+		popup.popup_hide.connect(func(): popup.queue_free())
+
+# Any Mythic-mode change alters the precalculated grid state - make sure
+# the mech rebuilds it before the next shot.
+func _mark_player_grid_dirty():
+	var main = get_parent()
+	if main and main.get("player") != null:
+		main.player.is_grid_dirty = true
 
 func _on_simulate_pressed():
 	if is_simulating:

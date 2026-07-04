@@ -1,0 +1,436 @@
+extends CanvasLayer
+
+# WAR ROOM v2 - full-screen menu (garage-style), TAB to toggle, Esc closes.
+#
+# Tabs:
+#   Threat Board - the default view: top 6 most effective squad templates
+#     against the player (highest average fitness among deployed), each with
+#     an efficacy graph of its per-deployment fitness history.
+#   Family Tree  - dendrogram of evolved squad lineages (mutation/fusion
+#     parents from SquadTemplate.parent_name). Culled ancestors appear as
+#     ghost nodes so successful lines still show their full history.
+#   Doctrines    - complete template + solver-profile lists, clipboard
+#     export/import of the AI's learned state.
+
+var root_panel: PanelContainer
+var is_open: bool = false
+var tabs: TabContainer
+var threat_vbox: VBoxContainer
+var tree_view: DendrogramView
+var doctrine_vbox: VBoxContainer
+var status_label: Label
+
+const SYNERGY_NAMES = ["RAW", "FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON", "EXPLOSION", "KINETIC", "PIERCE", "VAMPIRIC"]
+
+const COL_TITLE = Color(1.0, 0.85, 0.4)
+const COL_SECTION = Color(0.5, 0.9, 1.0)
+const COL_CORE = Color(0.9, 0.9, 0.9)
+const COL_TRIAL = Color(1.0, 0.8, 0.3)
+const COL_GOOD = Color(0.4, 1.0, 0.5)
+const COL_BAD = Color(1.0, 0.45, 0.4)
+const COL_DIM = Color(0.65, 0.65, 0.7)
+const COL_GHOST = Color(0.45, 0.45, 0.5)
+
+func _ready():
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	layer = 99 # under the debug menu (100)
+
+	root_panel = PanelContainer.new()
+	root_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.07, 0.08, 0.11, 0.97)
+	root_panel.add_theme_stylebox_override("panel", style)
+	root_panel.hide()
+	add_child(root_panel)
+
+	var outer = VBoxContainer.new()
+	root_panel.add_child(outer)
+
+	# Header bar
+	var header = HBoxContainer.new()
+	outer.add_child(header)
+	var title = Label.new()
+	title.text = "  WAR ROOM - ENEMY DOCTRINE ANALYSIS"
+	title.add_theme_font_size_override("font_size", 22)
+	title.modulate = COL_TITLE
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+	var close_btn = Button.new()
+	close_btn.text = "Close (TAB)"
+	close_btn.pressed.connect(_toggle)
+	header.add_child(close_btn)
+
+	tabs = TabContainer.new()
+	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(tabs)
+
+	# --- Tab: Threat Board -------------------------------------------------
+	var threat_scroll = ScrollContainer.new()
+	threat_scroll.name = "Threat Board"
+	tabs.add_child(threat_scroll)
+	threat_vbox = VBoxContainer.new()
+	threat_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	threat_scroll.add_child(threat_vbox)
+
+	# --- Tab: Family Tree ----------------------------------------------------
+	var tree_scroll = ScrollContainer.new()
+	tree_scroll.name = "Family Tree"
+	tabs.add_child(tree_scroll)
+	tree_view = DendrogramView.new()
+	tree_scroll.add_child(tree_view)
+
+	# --- Tab: Doctrines -------------------------------------------------------
+	var doc_scroll = ScrollContainer.new()
+	doc_scroll.name = "Doctrines"
+	tabs.add_child(doc_scroll)
+	doctrine_vbox = VBoxContainer.new()
+	doctrine_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	doc_scroll.add_child(doctrine_vbox)
+
+func _input(event):
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.physical_keycode == KEY_TAB:
+			if not is_open and get_tree().paused:
+				return # don't fight other paused UIs
+			_toggle()
+		elif event.physical_keycode == KEY_ESCAPE and is_open:
+			_toggle()
+			get_viewport().set_input_as_handled()
+
+func _toggle():
+	is_open = not is_open
+	root_panel.visible = is_open
+	get_tree().paused = is_open
+	if is_open:
+		_refresh()
+
+func _get_director() -> Node:
+	var main = get_tree().current_scene
+	if main and "world" in main and main.world:
+		return main.world.get_node_or_null("SquadDirector")
+	return null
+
+# --- Shared row/label builders ---------------------------------------------
+
+func _lbl(parent: Control, text: String, color: Color = COL_CORE, font_size: int = 13) -> Label:
+	var l = Label.new()
+	l.text = text
+	l.modulate = color
+	l.add_theme_font_size_override("font_size", font_size)
+	parent.add_child(l)
+	return l
+
+func _clear(parent: Control):
+	for c in parent.get_children():
+		c.queue_free()
+
+func _format_roles(roles: Dictionary) -> String:
+	var parts: Array[String] = []
+	for r in roles:
+		parts.append(str(int(roles[r])) + "x " + str(r))
+	return ", ".join(parts)
+
+func _fitness_color(avg: float, deployed: int) -> Color:
+	if deployed == 0: return COL_DIM
+	if avg >= 110.0: return COL_GOOD
+	if avg < 60.0: return COL_BAD
+	return COL_CORE
+
+func _refresh():
+	var director = _get_director()
+
+	_clear(threat_vbox)
+	_clear(doctrine_vbox)
+
+	if not director:
+		_lbl(threat_vbox, "No combat data yet - the Director deploys with the first wave.", COL_DIM)
+		tree_view.set_templates([])
+		return
+
+	_build_threat_board(director)
+	tree_view.set_templates(director.templates)
+	_build_doctrines(director)
+
+# --- Threat Board ------------------------------------------------------------
+
+func _build_threat_board(director):
+	_lbl(threat_vbox, "TOP THREATS - most effective squad doctrines against you", COL_SECTION, 16)
+	_lbl(threat_vbox, "Efficacy graphs show per-deployment fitness (dashed line = expected average, 100).", COL_DIM, 11)
+
+	var deployed: Array = director.templates.filter(func(t): return t.times_deployed > 0)
+	deployed.sort_custom(func(a, b): return a.get_average_fitness() > b.get_average_fitness())
+
+	if deployed.is_empty():
+		_lbl(threat_vbox, "\nNo squads have completed a deployment yet.", COL_DIM)
+	for i in range(min(6, deployed.size())):
+		var t = deployed[i]
+		var row = PanelContainer.new()
+		var row_style = StyleBoxFlat.new()
+		row_style.bg_color = Color(0.11, 0.12, 0.16)
+		row_style.content_margin_left = 10
+		row_style.content_margin_right = 10
+		row_style.content_margin_top = 6
+		row_style.content_margin_bottom = 6
+		row.add_theme_stylebox_override("panel", row_style)
+		threat_vbox.add_child(row)
+
+		var h = HBoxContainer.new()
+		row.add_child(h)
+
+		var info = VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		h.add_child(info)
+		var avg = t.get_average_fitness()
+		var status = "TRIAL" if t.is_experimental else "CORE"
+		_lbl(info, "#%d  %s  [%s]" % [i + 1, t.template_name, status], COL_TRIAL if t.is_experimental else COL_TITLE, 16)
+		_lbl(info, _format_roles(t.required_roles) + ("  |  shielded" if t.has_shields else ""), COL_DIM, 12)
+		_lbl(info, "avg fitness %.0f  |  deployed %d  |  spawn weight %.0f" % [avg, t.times_deployed, t.spawn_weight], _fitness_color(avg, t.times_deployed), 12)
+		if t.parent_name != "":
+			_lbl(info, "lineage: " + t.parent_name, COL_GHOST, 11)
+
+		var spark = Sparkline.new()
+		spark.data = t.fitness_history.duplicate()
+		spark.custom_minimum_size = Vector2(260, 64)
+		h.add_child(spark)
+
+	# Intel + field status below the board
+	_lbl(threat_vbox, "\nINTEL: YOUR OBSERVED DOCTRINE", COL_SECTION, 15)
+	if director.total_damage_taken <= 0.0:
+		_lbl(threat_vbox, "No damage telemetry logged yet.", COL_DIM, 12)
+	else:
+		var usage: Array = []
+		for element in director.player_element_usage:
+			usage.append([element, director.player_element_usage[element] / director.total_damage_taken])
+		usage.sort_custom(func(a, b): return a[1] > b[1])
+		for u in usage:
+			var el_name = str(u[0])
+			var as_int = int(u[0]) if str(u[0]).is_valid_int() else -1
+			if as_int >= 0 and as_int < SYNERGY_NAMES.size():
+				el_name = SYNERGY_NAMES[as_int]
+			var warn = "   << countered when >40%" if u[1] > 0.4 else ""
+			_lbl(threat_vbox, "  %s: %.0f%%%s" % [el_name, u[1] * 100.0, warn], COL_TRIAL if u[1] > 0.4 else COL_CORE, 12)
+
+	if director.total_player_kills > 0:
+		_lbl(threat_vbox, "\nKILL METHODS (what actually finishes enemies)", COL_SECTION, 13)
+		var kills: Array = []
+		for element in director.player_kill_methods:
+			kills.append([element, director.player_kill_methods[element]])
+		kills.sort_custom(func(a, b): return a[1] > b[1])
+		for kv in kills:
+			var share = float(kv[1]) / float(director.total_player_kills)
+			# Any non-RAW synergy carrying >=50% of kills draws the
+			# director's jammer counter-doctrine (see SquadDirector).
+			var overuse = str(kv[0]) != "RAW" and share >= 0.5 and director.total_player_kills >= 15
+			var warn_txt = "   << jammer counter-doctrine targeting this" if overuse else ""
+			_lbl(threat_vbox, "  %s: %d (%.0f%%)%s" % [str(kv[0]), kv[1], share * 100.0, warn_txt], COL_BAD if overuse else COL_CORE, 12)
+
+	_lbl(threat_vbox, "\nFIELD STATUS", COL_SECTION, 15)
+	_lbl(threat_vbox, "  Active squads: %d  |  Unaffiliated bots: %d" % [director.active_squads.size(), director.wild_bots.size()], COL_CORE, 12)
+	for squad in director.active_squads:
+		if is_instance_valid(squad) and squad.template:
+			_lbl(threat_vbox, "  > '%s': %d/%d members" % [squad.template.template_name, squad.active_members, squad.initial_members], COL_DIM, 12)
+
+# --- Doctrines ---------------------------------------------------------------
+
+func _build_doctrines(director):
+	_lbl(doctrine_vbox, "ALL SQUAD DOCTRINES", COL_SECTION, 15)
+	var sorted_templates: Array = director.templates.duplicate()
+	sorted_templates.sort_custom(func(a, b): return a.spawn_weight > b.spawn_weight)
+	for t in sorted_templates:
+		var avg = t.get_average_fitness()
+		var fit_str = ("%.0f" % avg) if t.times_deployed > 0 else "-"
+		_lbl(doctrine_vbox, "%s  [%s]" % [t.template_name, "TRIAL" if t.is_experimental else "CORE"], COL_TRIAL if t.is_experimental else COL_CORE, 14)
+		_lbl(doctrine_vbox, "   %s | weight %.0f | deployed %d | avg %s" % [_format_roles(t.required_roles), t.spawn_weight, t.times_deployed, fit_str], _fitness_color(avg, t.times_deployed), 12)
+
+	_lbl(doctrine_vbox, "\nLOADOUT DOCTRINES (solver profiles)", COL_SECTION, 15)
+	var sorted_profiles: Array = director.solver_profiles.duplicate()
+	sorted_profiles.sort_custom(func(a, b): return a.spawn_weight > b.spawn_weight)
+	if sorted_profiles.is_empty():
+		_lbl(doctrine_vbox, "   (reactive baseline only - no mutations on trial yet)", COL_DIM, 12)
+	for p in sorted_profiles:
+		var avg = p.get_average_fitness()
+		var syn = "none"
+		if p.favored_synergy >= 0 and p.favored_synergy < SYNERGY_NAMES.size():
+			syn = SYNERGY_NAMES[p.favored_synergy]
+		var fit_str = ("%.0f" % avg) if p.times_used > 0 else "-"
+		_lbl(doctrine_vbox, "%s  [%s]" % [p.profile_name, "TRIAL" if p.is_experimental else "CORE"], COL_TRIAL if p.is_experimental else COL_CORE, 14)
+		_lbl(doctrine_vbox, "   element %s | pierce %.2f / amp %.2f | weight %.0f | used %d | avg %s" % [syn, p.pierce_priority, p.amplify_priority, p.spawn_weight, p.times_used, fit_str], _fitness_color(avg, p.times_used), 12)
+
+	var share_bar = HBoxContainer.new()
+	doctrine_vbox.add_child(share_bar)
+	var btn_export = Button.new()
+	btn_export.text = "Export AI Profile to Clipboard"
+	btn_export.pressed.connect(func():
+		var d = _get_director()
+		if d:
+			d.export_learned_state_to_clipboard()
+			status_label.text = "Exported - paste anywhere to share."
+	)
+	share_bar.add_child(btn_export)
+	var btn_import = Button.new()
+	btn_import.text = "Import AI Profile from Clipboard"
+	btn_import.pressed.connect(func():
+		var d = _get_director()
+		if d and d.import_learned_state_from_clipboard():
+			_refresh()
+			status_label.text = "Imported and merged."
+		elif status_label:
+			status_label.text = "Clipboard doesn't contain a valid profile."
+	)
+	share_bar.add_child(btn_import)
+	status_label = _lbl(doctrine_vbox, "", COL_DIM, 11)
+
+# =============================================================================
+# Efficacy sparkline: per-deployment fitness, dashed baseline at 100.
+class Sparkline:
+	extends Control
+
+	var data: Array = []
+
+	func _draw():
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.05, 0.06, 0.08), true)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.3, 0.32, 0.38), false, 1.0)
+
+		var pad = 6.0
+		var lo = 0.0
+		var hi = 150.0
+		for v in data:
+			hi = max(hi, float(v) + 10.0)
+
+		var y_for = func(v: float) -> float:
+			return size.y - pad - (clamp(v, lo, hi) - lo) / (hi - lo) * (size.y - pad * 2.0)
+
+		# Baseline: fitness 100 = "expected average" per SquadTemplate's convention
+		var base_y = y_for.call(100.0)
+		draw_dashed_line(Vector2(pad, base_y), Vector2(size.x - pad, base_y), Color(0.5, 0.5, 0.55, 0.7), 1.0, 4.0)
+
+		if data.size() == 0:
+			draw_string(ThemeDB.fallback_font, Vector2(pad + 2, size.y / 2.0), "no deployments", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.5, 0.5, 0.55))
+			return
+
+		var n = data.size()
+		var pts = PackedVector2Array()
+		for i in range(n):
+			var x = pad + (float(i) / max(1, n - 1)) * (size.x - pad * 2.0)
+			pts.append(Vector2(x, y_for.call(float(data[i]))))
+
+		if n == 1:
+			draw_circle(pts[0], 3.0, Color(0.4, 1.0, 0.5))
+			return
+		for i in range(n - 1):
+			var seg_color = Color(0.4, 1.0, 0.5) if float(data[i + 1]) >= 100.0 else Color(1.0, 0.55, 0.4)
+			draw_line(pts[i], pts[i + 1], seg_color, 1.5)
+		draw_circle(pts[n - 1], 3.0, Color(1.0, 0.85, 0.4))
+
+# =============================================================================
+# Dendrogram of squad lineages, built from SquadTemplate.parent_name.
+# Culled/unknown ancestors render as grey "ghost" nodes so surviving lines
+# keep their full history visible.
+class DendrogramView:
+	extends Control
+
+	const COL_W = 240.0
+	const ROW_H = 44.0
+	const MARGIN = 24.0
+	const NODE_R = 6.0
+
+	var _nodes: Dictionary = {}   # name -> {template, children: [names], depth, y}
+	var _roots: Array = []
+
+	func set_templates(templates: Array):
+		_nodes.clear()
+		_roots = []
+
+		for t in templates:
+			_nodes[t.template_name] = {"template": t, "children": [], "depth": 0, "y": 0.0}
+		# Link children; materialize ghost ancestors for culled parents.
+		for t in templates:
+			if t.parent_name == "":
+				continue
+			if not _nodes.has(t.parent_name):
+				_nodes[t.parent_name] = {"template": null, "children": [], "depth": 0, "y": 0.0}
+			_nodes[t.parent_name]["children"].append(t.template_name)
+
+		var has_parent := {}
+		for name in _nodes:
+			for c in _nodes[name]["children"]:
+				has_parent[c] = true
+		for name in _nodes:
+			if not has_parent.has(name):
+				_roots.append(name)
+		_roots.sort()
+
+		# Layout: depth-first; leaves get successive rows, parents center on
+		# their children. Standard dendrogram shape.
+		var next_row = [0]
+		for r in _roots:
+			_layout(r, 0, next_row)
+
+		var max_depth = 0
+		for name in _nodes:
+			max_depth = max(max_depth, _nodes[name]["depth"])
+		custom_minimum_size = Vector2(
+			MARGIN * 2.0 + (max_depth + 1) * COL_W,
+			MARGIN * 2.0 + next_row[0] * ROW_H
+		)
+		queue_redraw()
+
+	func _layout(name: String, depth: int, next_row: Array) -> float:
+		var node = _nodes[name]
+		node["depth"] = depth
+		var kids: Array = node["children"]
+		if kids.is_empty():
+			node["y"] = next_row[0] * ROW_H
+			next_row[0] += 1
+		else:
+			var first_y = 0.0
+			var last_y = 0.0
+			for i in range(kids.size()):
+				var ky = _layout(kids[i], depth + 1, next_row)
+				if i == 0: first_y = ky
+				last_y = ky
+			node["y"] = (first_y + last_y) / 2.0
+		return node["y"]
+
+	func _node_pos(name: String) -> Vector2:
+		var node = _nodes[name]
+		return Vector2(MARGIN + node["depth"] * COL_W, MARGIN + node["y"] + ROW_H * 0.5)
+
+	func _draw():
+		if _nodes.is_empty():
+			draw_string(ThemeDB.fallback_font, Vector2(20, 30), "No templates registered yet.", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.6, 0.6, 0.6))
+			return
+
+		# Elbow connectors first, so nodes draw on top
+		for name in _nodes:
+			var p = _node_pos(name)
+			for c in _nodes[name]["children"]:
+				var q = _node_pos(c)
+				var mid_x = p.x + COL_W * 0.45
+				var line_color = Color(0.4, 0.45, 0.55, 0.8)
+				draw_line(p, Vector2(mid_x, p.y), line_color, 1.5)
+				draw_line(Vector2(mid_x, p.y), Vector2(mid_x, q.y), line_color, 1.5)
+				draw_line(Vector2(mid_x, q.y), q, line_color, 1.5)
+
+		for name in _nodes:
+			var node = _nodes[name]
+			var p = _node_pos(name)
+			var t = node["template"]
+			var color: Color
+			var label: String
+			if t == null:
+				color = Color(0.45, 0.45, 0.5) # ghost: culled or hand-authored ancestor no longer in rotation
+				label = name + "  (culled)"
+				draw_arc(p, NODE_R, 0, TAU, 16, color, 1.5)
+			else:
+				var avg = t.get_average_fitness()
+				if t.is_experimental:
+					color = Color(1.0, 0.8, 0.3)
+				elif t.times_deployed > 0 and avg >= 110.0:
+					color = Color(0.4, 1.0, 0.5)
+				else:
+					color = Color(0.9, 0.9, 0.9)
+				var avg_str = (" %.0f" % avg) if t.times_deployed > 0 else ""
+				label = name + avg_str
+				draw_circle(p, NODE_R, color)
+			draw_string(ThemeDB.fallback_font, p + Vector2(NODE_R + 4.0, 4.0), label, HORIZONTAL_ALIGNMENT_LEFT, COL_W - NODE_R * 2.0 - 8.0, 12, color)

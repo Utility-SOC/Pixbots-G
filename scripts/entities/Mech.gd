@@ -29,6 +29,15 @@ var combat_role: String = "melee"
 
 var status_effects: Dictionary = {}
 var stat_modifiers: Dictionary = {}
+# Element of the most recent damaging hit - reported by die() as the
+# player's kill method (see SquadDirector.log_player_kill).
+var last_damage_element: String = "RAW"
+# Where a VORTEX hit is dragging us toward (see "vortexed" status).
+var vortex_drag_point: Vector2 = Vector2.ZERO
+# Mythic tile modes collected during _recalculate_grid:
+var magnet_repel_mode: bool = false   # Mythic Magnet flipped to Repel
+var jumpjet_blink_mode: bool = false  # Mythic Jumpjet set to Blink
+var _blink_cooldown: float = 0.0
 var jumpjet_rarity: int = -1
 var jumpjet_energy = null
 var actuator_energy = null
@@ -196,6 +205,8 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 				return ComponentEquipment.create_jammer_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
 		"support":
 			return ComponentEquipment.create_support_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
+		"commander":
+			return ComponentEquipment.create_command_backpack(max(p_rarity, HexTile.Rarity.RARE))
 	return ComponentEquipment.create_starter_backpack(role, p_rarity)
 
 func equip_component(comp: ComponentEquipment):
@@ -238,9 +249,12 @@ func _physics_process(delta: float):
 		return
 		
 	update_status_effects(delta)
-	
+
 	if fire_cooldown > 0:
 		fire_cooldown -= delta
+
+	_tick_weapon_charges(delta)
+	_update_heat(delta)
 		
 	time_since_last_hit += delta
 	if has_shield_generator and max_shield_hp > 0 and time_since_last_hit >= shield_recharge_delay:
@@ -263,6 +277,19 @@ func _physics_process(delta: float):
 		if total_magnetic_power > 0.0:
 			var pull_radius = 150.0 + (total_magnetic_power * 10.0)
 			_update_magnet_visual(pull_radius)
+
+			# Mythic Repel mode: the same field, inverted - shoves enemies
+			# outward. Loot attraction below still works either way (repel
+			# pushes threats, not your paycheck).
+			if magnet_repel_mode:
+				for enemy in get_tree().get_nodes_in_group("enemy"):
+					if not is_instance_valid(enemy):
+						continue
+					var d = enemy.global_position.distance_to(global_position)
+					if d < pull_radius and "external_force" in enemy:
+						var away = (enemy.global_position - global_position).normalized()
+						enemy.external_force += away * (600.0 + total_magnetic_power * 10.0) * delta
+
 			var loot_nodes = get_tree().get_nodes_in_group("loot")
 			for loot in loot_nodes:
 				if min_loot_attract_rarity >= 0 and loot.has_method("get_rarity") and loot.get_rarity() < min_loot_attract_rarity:
@@ -340,8 +367,72 @@ func _check_drowning():
 	query.collision_mask = 2 # Water layer
 	var result = space_state.intersect_point(query)
 	if result.size() > 0:
+		# Locked design rule (FEATURE_ROADMAP.md): a mech with jumpjets never
+		# drowns - the jets kick on automatically the moment it's over water
+		# (including spawning directly onto it) and stay on until dry land.
+		if _has_jumpjets():
+			_force_jumpjets_on()
+			return
 		is_drowning = true
 		velocity = Vector2.ZERO
+	elif _water_hover_active:
+		_water_hover_active = false
+		if jumpjet_trail:
+			for p in jumpjet_trail.get_children():
+				p.emitting = false
+
+# Trail creation, shared between sprint (player input) and water-hover
+# (both player and AI) - was inlined in _handle_player_input, which meant
+# AI mechs could never show a jet trail at all.
+func _ensure_jumpjet_trail():
+	if jumpjet_trail != null:
+		return
+	jumpjet_trail = Node2D.new()
+	jumpjet_trail.show_behind_parent = true
+
+	var p_l = CPUParticles2D.new()
+	p_l.local_coords = false
+	p_l.lifetime = 0.5
+	p_l.explosiveness = 0.0
+	p_l.spread = 180.0
+	p_l.initial_velocity_min = 10.0
+	p_l.initial_velocity_max = 30.0
+	p_l.scale_amount_min = 4.0
+	p_l.scale_amount_max = 8.0
+	p_l.amount = 10
+	p_l.position = Vector2(-14, 44) # Left foot
+	jumpjet_trail.add_child(p_l)
+
+	var p_r = p_l.duplicate()
+	p_r.position = Vector2(14, 44) # Right foot
+	jumpjet_trail.add_child(p_r)
+
+	add_child(jumpjet_trail)
+
+func _has_jumpjets() -> bool:
+	if jumpjet_rarity >= 0:
+		return true
+	if jumpjet_energy and jumpjet_energy.magnitude > 0:
+		return true
+	if components.has(HexTile.BodySlot.BACKPACK):
+		if components[HexTile.BodySlot.BACKPACK].component_name == "Jetpack":
+			return true
+	return false
+
+# Auto-hover over water: light the jet trail so the save reads visually
+# ("why am I not drowning?" - because your jets are visibly firing).
+# Runs after _handle_player_input in the frame, so it wins over the
+# sprint-off branch while over water; _check_drowning's elif above hands
+# control back to the normal sprint logic once on dry land.
+var _water_hover_active: bool = false
+
+func _force_jumpjets_on():
+	_water_hover_active = true
+	_ensure_jumpjet_trail()
+	var new_color = EnergyPacket.get_color_blend(jumpjet_energy.synergies) if jumpjet_energy else Color.WHITE
+	for p in jumpjet_trail.get_children():
+		if p.color != new_color: p.color = new_color
+		p.emitting = true
 
 func _handle_player_input(delta: float):
 	if jumpjet_energy and jumpjet_energy.magnitude > 0:
@@ -375,29 +466,8 @@ func _handle_player_input(delta: float):
 			sprint_mult = min(sprint_mult, 2.5) # Up to +2.5x from jumpjets, so jumpjets alone = 3.5x walking speed max
 			
 		if is_player:
-			if jumpjet_trail == null:
-				jumpjet_trail = Node2D.new()
-				jumpjet_trail.show_behind_parent = true
-				
-				var p_l = CPUParticles2D.new()
-				p_l.local_coords = false
-				p_l.lifetime = 0.5
-				p_l.explosiveness = 0.0
-				p_l.spread = 180.0
-				p_l.initial_velocity_min = 10.0
-				p_l.initial_velocity_max = 30.0
-				p_l.scale_amount_min = 4.0
-				p_l.scale_amount_max = 8.0
-				p_l.amount = 10
-				p_l.position = Vector2(-14, 44) # Left foot
-				jumpjet_trail.add_child(p_l)
-				
-				var p_r = p_l.duplicate()
-				p_r.position = Vector2(14, 44) # Right foot
-				jumpjet_trail.add_child(p_r)
-				
-				add_child(jumpjet_trail)
-			
+			_ensure_jumpjet_trail()
+
 			var new_color = EnergyPacket.get_color_blend(jumpjet_energy.synergies) if jumpjet_energy else Color.WHITE
 			for p in jumpjet_trail.get_children():
 				if p.color != new_color: p.color = new_color
@@ -447,9 +517,31 @@ func _handle_player_input(delta: float):
 	var is_left_pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	var is_right_pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
 	
-	if Input.is_key_pressed(KEY_1): _fire_terapackets("1", mouse_pos)
-	if Input.is_key_pressed(KEY_2): _fire_terapackets("2", mouse_pos)
-	if Input.is_key_pressed(KEY_3): _fire_terapackets("3", mouse_pos)
+	# 1/2/3 ARE the fire buttons for the big charged shots (and only those).
+	# Edge-triggered: one press = one big hit, if it's ready. The mouse
+	# never fires these; they never fire from the mouse. See _fire_charged.
+	for key_pair in [[KEY_1, "1"], [KEY_2, "2"], [KEY_3, "3"]]:
+		var held = Input.is_key_pressed(key_pair[0])
+		if held and not _terakey_held.get(key_pair[1], false):
+			_fire_charged(key_pair[1], mouse_pos)
+		_terakey_held[key_pair[1]] = held
+
+	# Mythic Jumpjet Blink: Space teleports toward the cursor, capped range,
+	# landing snapped to valid ground, on a cooldown.
+	if jumpjet_blink_mode:
+		_blink_cooldown -= delta
+		if Input.is_action_just_pressed("ui_select") and _blink_cooldown <= 0.0:
+			_blink_cooldown = 3.0
+			var to_cursor = get_global_mouse_position() - global_position
+			if to_cursor.length() > 4.0:
+				var dest = global_position + to_cursor.normalized() * min(to_cursor.length(), 240.0)
+				var maps = get_tree().get_nodes_in_group("map_generator")
+				if maps.size() > 0 and maps[0].has_method("get_valid_spawn_position"):
+					dest = maps[0].get_valid_spawn_position(dest)
+				_ensure_jumpjet_trail()
+				for p in jumpjet_trail.get_children():
+					p.emitting = true
+				global_position = dest
 	
 	var is_firing = false
 	if is_left_pressed and is_right_pressed and not separate_arm_firing:
@@ -465,8 +557,39 @@ func _handle_player_input(delta: float):
 			_shoot(mouse_pos, false, false, delta)
 		is_firing = true
 		
-	if not is_firing:
-		_shoot_release()
+	# NOTE: no release-fire anymore. Under the pre-prime model charge builds
+	# passively, so the old "fire partial charge on mouse release" behavior
+	# turned into constant unprompted spray (charge crossed the 10% floor
+	# while idling and the next mouse-up frame fired it). Releasing the
+	# mouse now does nothing; charge just holds at cap until you shoot.
+
+# Passive background charging - the "pre-prime" model. Every weapon's
+# accumulator charge builds all the time, whether or not anyone is holding
+# the trigger, capped at one full shot. _shoot() then releases on demand
+# like a completely normal gun, and the 1/2/3 keys become an optional
+# early dump (fire a partial charge NOW) rather than the only release.
+func _tick_weapon_charges(delta: float):
+	for data in precalculated_weapons:
+		var mount = data.mount
+		var required = data.packet.charge_required
+		if data.get("bank_mode", "") == "bank":
+			if mount.bank_current_charge < required:
+				mount.bank_current_charge = min(required, mount.bank_current_charge + delta / max(0.01, fire_rate))
+			if mount.bank_current_charge >= required:
+				mount.bank_primed = true
+				# AI never clicks a mouse: auto-release the bank when full.
+				if not is_player:
+					var packet_to_fire = data.packet.copy()
+					packet_to_fire.magnitude *= current_jammer_debuff
+					for k in packet_to_fire.synergies:
+						packet_to_fire.synergies[k] *= current_jammer_debuff
+					_apply_synergy_jamming(packet_to_fire)
+					mount._fire_combined_projectile(self, packet_to_fire, data.step)
+					mount.bank_current_charge = 0.0
+					heat = max(0.0, heat - required * 0.6) # AI vents on auto-release too
+		else:
+			if mount.current_charge < required:
+				mount.current_charge = min(required, mount.current_charge + delta / max(0.01, fire_rate))
 
 func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, delta: float = 0.0):
 	last_aim_position = target_pos
@@ -487,112 +610,156 @@ func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, d
 
 		var mount = data.mount
 		var bank_mode = data.get("bank_mode", "")
-
-		if bank_mode == "bank":
-			# Charges independently in the background. The player releases
-			# it manually via the trigger key (see _fire_terapackets()) -
-			# but AI-controlled mechs never press number keys, so without
-			# this they'd charge a bank forever and never actually use it.
-			# AI auto-releases the instant it's full instead.
-			mount.bank_current_charge += (delta / max(0.01, fire_rate))
-			if mount.bank_current_charge >= data.packet.charge_required:
-				mount.bank_primed = true
-				if not is_player:
-					var packet_to_fire = data.packet.copy()
-					packet_to_fire.magnitude *= current_jammer_debuff
-					for k in packet_to_fire.synergies:
-						packet_to_fire.synergies[k] *= current_jammer_debuff
-					_apply_synergy_jamming(packet_to_fire)
-					mount._fire_combined_projectile(self, packet_to_fire, data.step)
-					mount.bank_current_charge = 0.0
-			continue
-
-		if bank_mode == "normal" and not mount.bank_primed:
-			continue # Silent until the bank has fully charged at least once
-
 		var required_charge = data.packet.charge_required
 
-		# Tick the charge upwards
-		mount.current_charge += (delta / max(0.01, fire_rate))
+		# Charging happens passively in _tick_weapon_charges(). The mouse
+		# fires ONLY normal entries - the big charged shot belongs to its
+		# 1/2/3 key exclusively (_fire_charged). Two independent weapons
+		# sharing one barrel.
+		if bank_mode == "bank":
+			continue
 
-		if mount.current_charge >= required_charge:
-			if data.packet.trigger_key != "None":
-				pass # Just accumulate infinitely until triggered manually
-			else:
-				# Fully charged, fire and loop remainder
-				var packet_to_fire = data.packet.copy()
-				packet_to_fire.magnitude *= current_jammer_debuff
-				for k in packet_to_fire.synergies:
-					packet_to_fire.synergies[k] *= current_jammer_debuff
-				_apply_synergy_jamming(packet_to_fire)
-				if was_cloaked:
-					packet_to_fire.magnitude *= 2.5
+		if mount.current_charge < required_charge:
+			continue
 
-				mount._fire_combined_projectile(self, packet_to_fire, data.step)
-				mount.current_charge -= required_charge
-				fired_a_shot = true
+		# While the big shot is still charging, the accumulator siphons
+		# HALF of every normal shot's payload. Once the bank sits full
+		# (waiting on its key), the siphon stops - full-strength fire.
+		var siphon = 1.0
+		if bank_mode == "normal":
+			var bank_required = float(data.get("bank_required", 0.0))
+			if bank_required > 0.0 and mount.bank_current_charge < bank_required:
+				siphon = 0.5
+
+		var packet_to_fire = data.packet.copy()
+		# The "almost as if there were no accumulator": normal fire pays
+		# the small quality tax (shrinks with accumulator rarity/level).
+		var tax = data.packet.accumulator_quality * current_jammer_debuff * siphon
+		packet_to_fire.magnitude *= tax
+		for k in packet_to_fire.synergies:
+			packet_to_fire.synergies[k] *= tax
+		_apply_synergy_jamming(packet_to_fire)
+		if was_cloaked:
+			packet_to_fire.magnitude *= 2.5
+
+		mount._fire_combined_projectile(self, packet_to_fire, data.step)
+		mount.current_charge -= required_charge
+		# Thermal venting: firing sheds heat proportional to the volley
+		heat = max(0.0, heat - required_charge * 0.6)
+		fired_a_shot = true
 
 	if fired_a_shot and was_cloaked:
 		_break_cloak()
 
-func _fire_terapackets(key: String, target_pos: Vector2):
+# Last-frame state of the 1/2/3 keys for edge detection (one press = one
+# big shot, see _fire_charged / _handle_player_input).
+var _terakey_held: Dictionary = {}
+
+# Fire the big charged accumulator shot bound to `key`. This is the ONLY
+# player-side release path for bank entries: press once, it fires if fully
+# charged; if it isn't ready yet you get a charge readout instead of a
+# wasted squib. No quality tax here - the big hit always lands full value.
+func _fire_charged(key: String, target_pos: Vector2):
 	last_aim_position = target_pos
 	is_firing_outward = true
 
-	var ambush_mult = _consume_ambush_bonus()
-
 	for data in precalculated_weapons:
-		if data.packet.trigger_key == key:
-			var mount = data.mount
-			var is_bank = data.get("bank_mode", "") == "bank"
-			# Bank entries charge in their own separate counter (see
-			# _shoot()) so releasing one doesn't reset/steal from normal
-			# fire's charge cycle on the same mount.
-			var charge = mount.bank_current_charge if is_bank else mount.current_charge
-			if charge > 0.0:
-				var required_charge = data.packet.charge_required
-				var proportion = min(1.0, charge / required_charge)
-
-				var terapacket = data.packet.copy()
-				terapacket.magnitude *= proportion * current_jammer_debuff
-				for k in terapacket.synergies:
-					terapacket.synergies[k] *= proportion * current_jammer_debuff
-				_apply_synergy_jamming(terapacket)
-				terapacket.magnitude *= ambush_mult
-
-				mount._fire_combined_projectile(self, terapacket, 0) # Fire all at once instantly
-				if is_bank:
-					mount.bank_current_charge = 0.0
-				else:
-					mount.current_charge = 0.0
-
-func _shoot_release():
-	var was_cloaked = is_cloaked
-	var fired_a_shot = false
-
-	for data in precalculated_weapons:
+		if data.get("bank_mode", "") != "bank":
+			continue
+		if data.packet.trigger_key != key:
+			continue
 		var mount = data.mount
-		if mount.current_charge > 0.0:
-			var required_charge = data.packet.charge_required
-			var proportion = min(1.0, mount.current_charge / required_charge)
+		var required = data.packet.charge_required
 
-			if proportion > 0.1 and data.packet.trigger_key == "None": # Only fire if at least 10% charged to prevent micro-spam
-				var early_packet = data.packet.copy()
-				var total_mod = proportion * current_jammer_debuff
-				early_packet.magnitude *= total_mod
-				for k in early_packet.synergies:
-					early_packet.synergies[k] *= total_mod
-				_apply_synergy_jamming(early_packet)
-				if was_cloaked:
-					early_packet.magnitude *= 2.5
-				mount._fire_combined_projectile(self, early_packet, data.step)
-				fired_a_shot = true
+		if mount.bank_current_charge < required:
+			_show_floating_text("Charging %d%%" % int(100.0 * mount.bank_current_charge / max(0.001, required)), Color(0.6, 0.8, 1.0))
+			continue
 
-			if data.packet.trigger_key == "None":
-				mount.current_charge = 0.0
+		var packet_to_fire = data.packet.copy()
+		packet_to_fire.magnitude *= current_jammer_debuff
+		for k in packet_to_fire.synergies:
+			packet_to_fire.synergies[k] *= current_jammer_debuff
+		_apply_synergy_jamming(packet_to_fire)
+		if is_cloaked:
+			packet_to_fire.magnitude *= 2.5
+			_break_cloak()
 
-	if fired_a_shot and was_cloaked:
-		_break_cloak()
+		mount._fire_combined_projectile(self, packet_to_fire, 0)
+		mount.bank_current_charge = 0.0
+		heat = max(0.0, heat - required * 0.6) # big shot = big heat dump
+
+# --- Lightweight heat, v1 (FEATURE_ROADMAP.md group 5, locked spec) --------
+# No live packet simulation: heat is ONE scalar per mech, derived from the
+# static grid sim. Everything is proportional to totals (Natalia's ruling):
+#   - generation rate ~ sum of charge_required across armed weapons
+#   - venting ~ the volley just released
+#   - volatility severity ~ current heat
+# ICE-dominant circuits actively cool (can fully solve heat); LIGHTNING-
+# heavy circuits arc into adjacent tiles when hot; hitting the cap knocks
+# out an Accumulator via the existing disable/reboot machinery.
+const HEAT_CAPACITY = 100.0
+var heat: float = 0.0
+var heat_rate: float = 0.0      # computed in _recalculate_grid
+var heat_ice_frac: float = 0.0
+var heat_ltg_frac: float = 0.0
+var _heat_arc_timer: float = 0.0
+
+func _update_heat(delta: float):
+	if precalculated_weapons.is_empty():
+		heat = max(0.0, heat - 10.0 * delta)
+		return
+
+	# Generation minus constant ambient dissipation. heat_rate can already
+	# be negative (ICE cooling), so heavily iced builds pin to 0 here.
+	heat = clamp(heat + (heat_rate - 2.0) * delta, 0.0, HEAT_CAPACITY)
+
+	# LIGHTNING volatility: above 70% heat, lightning-heavy storage arcs
+	# into the grid - severity proportional to current heat.
+	if heat > HEAT_CAPACITY * 0.7 and heat_ltg_frac > 0.3:
+		_heat_arc_timer -= delta
+		if _heat_arc_timer <= 0.0:
+			_heat_arc_timer = 2.0
+			_heat_arc_damage()
+
+	if heat >= HEAT_CAPACITY:
+		_overheat()
+
+func _heat_arc_damage():
+	# Shock a random tile in a random component - reuses the standard
+	# take_damage -> disable/reboot pipeline, no new failure states.
+	var comps = components.values()
+	if comps.is_empty():
+		return
+	var comp = comps[randi() % comps.size()]
+	var tiles = comp.hex_grid.get_all_tiles()
+	if tiles.is_empty():
+		return
+	var tile = tiles[randi() % tiles.size()]
+	tile.take_damage(heat * 0.1) # proportional to heat, not flat
+	if is_player:
+		_show_floating_text("ARC!", Color(1.0, 1.0, 0.3))
+
+func _overheat():
+	# Knock out one Accumulator (the thing storing all that energy) via the
+	# existing disable machinery, shed a big chunk of heat, carry on.
+	for comp in components.values():
+		for tile in comp.hex_grid.get_all_tiles():
+			if tile.tile_type == "Accumulator" and not tile.is_disabled:
+				tile.take_damage(tile.hp + 1.0)
+				heat = HEAT_CAPACITY * 0.55
+				if is_player:
+					_show_floating_text("OVERHEAT!", Color(1.0, 0.35, 0.2))
+				is_grid_dirty = true
+				return
+	# No accumulator to sacrifice: vent hard instead (raw/kinetic builds
+	# shouldn't really get here - they generate almost nothing).
+	heat = HEAT_CAPACITY * 0.4
+
+# _shoot_release() is gone. Under the old hold-to-charge model it fired
+# the partial charge when the mouse was released; under the pre-prime model
+# (passive charging) it fired unprompted every idle frame the moment charge
+# crossed its 10% floor - the "shooting randomly" playtest bug. Partial
+# releases are now exclusively the hold-1/2/3 dump in _shoot().
 
 func _recalculate_grid():
 	precalculated_weapons.clear()
@@ -602,6 +769,8 @@ func _recalculate_grid():
 	shield_recharge_rate = 0.0
 	base_move_speed = 150.0 # Reset base speed for Jumpjets to calculate
 	jumpjet_rarity = -1
+	magnet_repel_mode = false
+	jumpjet_blink_mode = false
 
 	if jumpjet_energy == null:
 		jumpjet_energy = EnergyPacket.new(0.0, null)
@@ -733,54 +902,69 @@ func _recalculate_grid():
 	for comp in components.values():
 		for tile in comp.hex_grid.get_all_tiles():
 			if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Accessory Return" or tile.tile_type == "Torso Return") and "pending_packets" in tile and tile.pending_packets.size() > 0:
-				# Capacitor-bank mode: if this Weapon Mount has Accumulators
-				# sitting directly adjacent to it on the grid (not routed
-				# THROUGH it - actually touching it), it gets TWO parallel
-				# behaviors instead of the normal per-step staggered firing:
-				#   - the bank silently charges in the background (doesn't
-				#     fire on its own); the FIRST time it fills, the mount
-				#     becomes "primed" and normal auto-fire switches on and
-				#     stays on from then on
-				#   - independently, pressing the assigned trigger key (1/2/3
-				#     - reusing the existing terapacket manual-fire system)
-				#     releases whatever the bank has built up as one massive
-				#     combined blast, then the bank resets and starts
-				#     charging again for the next one
-				# This is what turns "silent for 100 seconds, then one huge
-				# automatic blast" into "warms up once, then behaves like a
-				# normal weapon with an on-demand nuke button."
+				# Accumulator split-fire model (Natalia's locked design):
+				# whenever accumulators feed this mount - routed THROUGH the
+				# circuit (packet.acc_*_mult) or sitting adjacent (bank) -
+				# the mount gets TWO fully independent weapons:
+				#   - NORMAL entry: the un-boosted packet. Mouse-fired,
+				#     behaves almost as if no accumulator existed (small
+				#     quality tax) - EXCEPT that while the big shot is still
+				#     charging, the accumulator siphons HALF the payload.
+				#     Once the big shot sits full, the siphon stops and
+				#     normal shots return to full strength.
+				#   - BANK entry: the big charged shot. Charges passively,
+				#     fired ONLY by pressing its 1/2/3 key - one press, one
+				#     big hit. Clicking never touches it.
 				var bank_charge = 0.0
 				var bank_amplify = 0.0
+				var bank_quality = 1.0
 				if tile.tile_type == "Weapon Mount" and tile.grid_position:
 					var bank = _get_adjacent_accumulator_bonus(comp.hex_grid, tile.grid_position)
 					bank_charge = bank.charge
 					bank_amplify = bank.amplify
+					bank_quality = bank.quality
 
-				if bank_charge > 0.0:
+				# Detect routed-through accumulators via the recorded mults
+				var probe = tile.pending_packets[0].packet
+				for i in range(1, tile.pending_packets.size()):
+					if tile.pending_packets[i].packet.acc_damage_mult > probe.acc_damage_mult:
+						probe = tile.pending_packets[i].packet
+				var has_routed_acc = probe.acc_damage_mult > 1.001
+
+				if bank_charge > 0.0 or has_routed_acc:
 					var combined = tile.pending_packets[0].packet.copy()
 					for i in range(1, tile.pending_packets.size()):
 						combined.merge(tile.pending_packets[i].packet)
+					# Adjacent (bank) accumulators tax normal fire the same
+					# way routed-through ones do - worst neighbor wins.
+					combined.accumulator_quality = min(combined.accumulator_quality, bank_quality)
+
+					# Bank entry: the big charged shot. Boosts from routed
+					# accumulators (acc_damage_mult) and adjacent bank
+					# accumulators (bank_amplify) combine; charge time is the
+					# base cost scaled by acc_charge_mult plus the adjacency
+					# bank's own charge. Fired ONLY by pressing its 1/2/3 key
+					# (_fire_charged); AI auto-releases on full
+					# (_tick_weapon_charges). The mouse never fires this.
+					var enhanced = combined.copy()
+					enhanced.amplify(combined.acc_damage_mult * (1.0 + bank_amplify))
+					enhanced.charge_required = combined.charge_required * combined.acc_charge_mult + bank_charge
+					enhanced.trigger_key = combined.trigger_key if combined.trigger_key != "None" else "1"
 
 					# Normal-fire entry: the base (unamplified) packet, at
 					# whatever charge_required routing naturally gave it.
-					# Gated behind tile.bank_primed in _shoot() - silent
-					# until the bank has fully charged once.
+					# While the bank below is still charging, _shoot() halves
+					# this entry's payload (the accumulator is siphoning);
+					# bank_required is stashed here so _shoot can tell.
 					precalculated_weapons.append({
 						"mount": tile,
 						"packet": combined.copy(),
 						"step": 0,
 						"slot_type": comp.slot_type,
-						"bank_mode": "normal"
+						"bank_mode": "normal",
+						"bank_required": enhanced.charge_required
 					})
 
-					# Bank entry: the amplified packet, charges toward
-					# bank_charge in tile.bank_current_charge (separate
-					# counter from normal fire's), fires ONLY via trigger
-					# key - see _fire_terapackets().
-					var enhanced = combined.copy()
-					enhanced.amplify(1.0 + bank_amplify)
-					enhanced.charge_required = bank_charge
-					enhanced.trigger_key = combined.trigger_key if combined.trigger_key != "None" else "1"
 					precalculated_weapons.append({
 						"mount": tile,
 						"packet": enhanced,
@@ -818,6 +1002,12 @@ func _recalculate_grid():
 				if filter_rarity >= 0:
 					# Most permissive combination if multiple magnets disagree
 					min_loot_attract_rarity = filter_rarity if min_loot_attract_rarity < 0 else min(min_loot_attract_rarity, filter_rarity)
+
+			# Mythic Magnet in Repel mode / Mythic Jumpjet in Blink mode
+			if tile.tile_type == "Magnet" and tile.rarity == HexTile.Rarity.MYTHIC and tile.get("repel_mode") == true:
+				magnet_repel_mode = true
+			if tile.tile_type == "Jumpjet" and tile.rarity == HexTile.Rarity.MYTHIC and int(tile.get("mythic_mode")) == 1:
+				jumpjet_blink_mode = true
 				
 			if tile.tile_type == "Shield Generator" and tile.has_method("get_shield_energy"):
 				has_shield_generator = true
@@ -885,8 +1075,39 @@ func _recalculate_grid():
 	shield_hp = min(shield_hp, max_shield_hp)
 	if not has_shield_generator:
 		shield_hp = 0.0
-		
+
+	# Heat profile of this circuit (see the heat block near _update_heat):
+	# generation proportional to total armed charge_required; ICE share
+	# actively cools (2x weight, so ~50% ice storage fully solves heat);
+	# LIGHTNING share drives the hot-arcing volatility.
+	heat_rate = 0.0
+	var _syn_totals: Dictionary = {}
+	var _syn_sum: float = 0.0
+	for data in precalculated_weapons:
+		heat_rate += data.packet.charge_required * 0.03
+		for k in data.packet.synergies:
+			_syn_totals[k] = _syn_totals.get(k, 0.0) + data.packet.synergies[k]
+			_syn_sum += data.packet.synergies[k]
+	heat_ice_frac = (_syn_totals.get(EnergyPacket.SynergyType.ICE, 0.0) / _syn_sum) if _syn_sum > 0.0 else 0.0
+	heat_ltg_frac = (_syn_totals.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) / _syn_sum) if _syn_sum > 0.0 else 0.0
+	heat_rate *= (1.0 - 2.0 * heat_ice_frac)
+
+	# Enemies deploy mostly pre-primed (70-100% charged): a fresh squad
+	# shouldn't spend its opening seconds unable to shoot, and the player
+	# shouldn't get a free alpha-strike window on every spawn. Once only -
+	# mid-fight grid recalcs (damage, jamming) must NOT re-fill charges.
+	if not is_player and not _spawn_primed:
+		_spawn_primed = true
+		for data in precalculated_weapons:
+			var frac = randf_range(0.7, 1.0)
+			if data.get("bank_mode", "") == "bank":
+				data.mount.bank_current_charge = data.packet.charge_required * frac
+			else:
+				data.mount.current_charge = data.packet.charge_required * frac
+
 	is_grid_dirty = false
+
+var _spawn_primed: bool = false
 
 # Sums get_bank_charge()/get_bank_amplify() from every Accumulator tile
 # directly hex-adjacent to `coord` within `grid` - see AccumulatorTile.gd
@@ -894,6 +1115,7 @@ func _recalculate_grid():
 func _get_adjacent_accumulator_bonus(grid: HexGridComponent, coord: HexCoord) -> Dictionary:
 	var total_charge = 0.0
 	var total_amplify = 0.0
+	var worst_quality = 1.0
 	for d in range(6):
 		var n = coord.neighbor(d)
 		if grid.has_tile(n):
@@ -901,7 +1123,9 @@ func _get_adjacent_accumulator_bonus(grid: HexGridComponent, coord: HexCoord) ->
 			if neighbor_tile.tile_type == "Accumulator" and neighbor_tile.has_method("get_bank_charge"):
 				total_charge += neighbor_tile.get_bank_charge()
 				total_amplify += neighbor_tile.get_bank_amplify()
-	return {"charge": total_charge, "amplify": total_amplify}
+				if neighbor_tile.has_method("get_quality_factor"):
+					worst_quality = min(worst_quality, neighbor_tile.get_quality_factor())
+	return {"charge": total_charge, "amplify": total_amplify, "quality": worst_quality}
 
 func _collect_transfers(comp) -> Dictionary:
 	var result = {}
@@ -1051,11 +1275,9 @@ func _execute_ai_tactics(delta):
 				var tangent = Vector2(-dir.y, dir.x) * rotational_direction
 				velocity = tangent * current_move_speed * (speed_modifier * 0.5)
 			
-		# AI combat shooting
+		# AI combat shooting (out of range = hold charge, same as the player)
 		if dist < engagement_distance + 150.0:
 			_shoot(target.global_position, true, true, delta)
-		else:
-			_shoot_release()
 var elemental_resistances: Dictionary = {}
 
 # Shared shield-mitigation step used by both apply_damage() and
@@ -1105,6 +1327,11 @@ func apply_damage(amount: float, element: String = "RAW"):
 	if elemental_resistances.has(element):
 		amount *= elemental_resistances[element]
 
+	# PIERCE "rent" status: torn armor takes +20% from everything while
+	# the rend lasts (applied to damage only, never to heals).
+	if amount > 0 and status_effects.has("rent"):
+		amount *= 1.2
+
 	if not is_player:
 		var main = get_tree().current_scene
 		# SquadDirector lives under Main.world (the pixel-viewport game
@@ -1116,6 +1343,10 @@ func apply_damage(amount: float, element: String = "RAW"):
 	if amount > 0:
 		time_since_last_hit = 0.0
 		_break_cloak()
+		# Remember what element is currently hurting us - if this hit kills
+		# us, die() reports it to the director as the kill method
+		# (feeds pierce-overuse counter-pressure, see SquadDirector).
+		last_damage_element = element
 
 	amount = _apply_shield_mitigation(amount, element)
 	# NOTE: this used to be `if amount <= 0: return`, which was correct for
@@ -1187,11 +1418,31 @@ func update_status_effects(delta: float):
 	for effect in status_effects:
 		status_effects[effect] -= delta
 
-		# Handle active effects
+		# Handle active effects - full elemental status suite (group 3).
+		# Movement effects multiply onto current_move_speed (which was just
+		# reset to base above), damage effects tick per second.
 		if effect == "frozen":
 			current_move_speed = base_move_speed * 0.4 # 60% slow
 		elif effect == "burning":
 			apply_damage(5.0 * delta) # 5 damage per second
+		elif effect == "poisoned":
+			apply_damage(4.0 * delta)
+			current_move_speed *= 0.8
+		elif effect == "bleeding":
+			apply_damage(6.0 * delta)
+		elif effect == "paralyzed":
+			current_move_speed = 0.0 # LIGHTNING lockup
+		elif effect == "immobilized":
+			current_move_speed = 0.0 # heavy VAMPIRIC pin
+		elif effect == "staggered":
+			current_move_speed *= 0.5
+		elif effect == "concussed":
+			current_move_speed *= 0.1
+		elif effect == "vortexed":
+			# Dragged toward the impact point stored by the projectile
+			pull_towards(vortex_drag_point, delta, 500.0)
+		# ("rent" has no per-frame effect - it's consumed as a +20% damage
+		# amplifier inside apply_damage.)
 
 		# Check if expired
 		if status_effects[effect] <= 0:
@@ -1243,10 +1494,77 @@ func _update_cloak(delta: float):
 	var target_alpha = 0.3 if is_cloaked else 1.0
 	# Was 8.0 - converged in under half a second, way too snappy for a
 	# "cloak" to read as anything more than a quick flicker. This is a
-	# genuinely slow fade now (~2-2.5s to fully settle). Note: this is
-	# still just the alpha transition - the "big distorted circle" visual
-	# from the original cloak request is a separate, not-yet-built piece.
+	# genuinely slow fade now (~2-2.5s to fully settle).
 	modulate.a = lerp(modulate.a, target_alpha, 1.2 * delta)
+
+	# The "big distorted circle" visual: a heat-haze shimmer bubble around
+	# the cloaked mech (screen-UV displacement shader). Fades in/out with
+	# the cloak. Doubles as the ambusher counterplay tell - a player who
+	# learns the shimmer can spot an incoming cloaked ambusher.
+	_update_cloak_distortion(delta)
+
+const CLOAK_DISTORTION_RADIUS = 80.0
+const CLOAK_SHADER_CODE = """
+shader_type canvas_item;
+uniform sampler2D screen_tex : hint_screen_texture, filter_nearest;
+uniform float strength : hint_range(0.0, 1.0) = 0.0;
+
+void fragment() {
+	vec2 centered = UV - vec2(0.5);
+	float dist = length(centered) * 2.0;
+	// 1.0 at the middle, 0 at the rim - the bubble has a soft edge
+	float mask = smoothstep(1.0, 0.55, dist);
+	// Wobbling ripple rings drifting through the bubble
+	float ripple = sin(dist * 22.0 - TIME * 4.0) + sin(centered.x * 18.0 + TIME * 2.3);
+	vec2 dir = dist > 0.001 ? centered / dist : vec2(0.0);
+	vec2 offset = dir * ripple * 0.012 * strength * mask;
+	vec4 scene = texture(screen_tex, SCREEN_UV + offset);
+	// Slight cool tint so the bubble reads even over flat terrain
+	scene.rgb = mix(scene.rgb, scene.rgb * vec3(0.92, 0.97, 1.05), mask * strength);
+	COLOR = vec4(scene.rgb, mask * min(1.0, strength * 3.0));
+}"""
+
+var _cloak_distortion: ColorRect = null
+var _cloak_distortion_strength: float = 0.0
+
+func _ensure_cloak_distortion():
+	if _cloak_distortion and is_instance_valid(_cloak_distortion):
+		return
+	if not get_parent():
+		return
+	_cloak_distortion = ColorRect.new()
+	_cloak_distortion.size = Vector2.ONE * CLOAK_DISTORTION_RADIUS * 2.0
+	_cloak_distortion.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sh = Shader.new()
+	sh.code = CLOAK_SHADER_CODE
+	var mat = ShaderMaterial.new()
+	mat.shader = sh
+	_cloak_distortion.material = mat
+	# Sibling of the mech, NOT a child: children inherit modulate, so a
+	# child bubble would fade out with the cloaking mech - i.e. disappear
+	# exactly when it's supposed to be the only visible tell. As a sibling
+	# it keeps full opacity and just follows the mech's position.
+	get_parent().add_child(_cloak_distortion)
+	tree_exiting.connect(func():
+		if _cloak_distortion and is_instance_valid(_cloak_distortion):
+			_cloak_distortion.queue_free()
+	)
+
+func _update_cloak_distortion(delta: float):
+	var target = 1.0 if is_cloaked else 0.0
+	_cloak_distortion_strength = lerp(_cloak_distortion_strength, target, 1.2 * delta)
+
+	if _cloak_distortion_strength < 0.02:
+		if _cloak_distortion and is_instance_valid(_cloak_distortion):
+			_cloak_distortion.visible = false
+		return
+
+	_ensure_cloak_distortion()
+	if not _cloak_distortion:
+		return
+	_cloak_distortion.visible = true
+	_cloak_distortion.global_position = global_position - _cloak_distortion.size / 2.0
+	_cloak_distortion.material.set_shader_parameter("strength", _cloak_distortion_strength)
 
 func _break_cloak():
 	if not is_cloaked:
@@ -1347,12 +1665,63 @@ func _emit_heal_pulse():
 		if get_parent():
 			get_parent().add_child(v)
 
+# Drained-husk terrain from VAMPIRIC kills. Globally capped so a vampiric
+# build can't pave the whole map - oldest husk crumbles when the cap hits.
+func _spawn_corpse_obstacle():
+	var existing = get_tree().get_nodes_in_group("corpse_obstacle")
+	if existing.size() >= 12 and is_instance_valid(existing[0]):
+		existing[0].queue_free()
+
+	var husk = StaticBody2D.new()
+	husk.add_to_group("corpse_obstacle")
+	husk.collision_layer = 1 # world obstacle: blocks movement and shots
+	husk.collision_mask = 0
+
+	var shape = CollisionShape2D.new()
+	var circle = CircleShape2D.new()
+	circle.radius = 14.0
+	shape.shape = circle
+	husk.add_child(shape)
+
+	var poly = Polygon2D.new()
+	poly.polygon = PackedVector2Array([
+		Vector2(-14, -6), Vector2(-4, -12), Vector2(10, -8),
+		Vector2(14, 4), Vector2(6, 12), Vector2(-10, 10)
+	])
+	poly.color = Color(0.32, 0.28, 0.33) # drained grey-violet
+	husk.add_child(poly)
+
+	var timer = Timer.new()
+	timer.wait_time = 10.0
+	timer.one_shot = true
+	timer.autostart = true
+	timer.timeout.connect(husk.queue_free)
+	husk.add_child(timer)
+
+	husk.global_position = global_position
+	# Deferred: die() runs mid-physics, and adding a StaticBody during a
+	# physics flush is exactly the kind of thing Godot errors about.
+	get_parent().call_deferred("add_child", husk)
+
 func die():
 	if is_dead or is_queued_for_deletion():
 		return
 	is_dead = true
 
-		
+	# Report the killing element to the director (kill-method telemetry for
+	# pierce-overuse counter-pressure). Approximation: we don't track the
+	# damage SOURCE, so AI friendly-fire kills also count - acceptable noise
+	# since the overwhelming majority of enemy deaths are player kills.
+	if not is_player:
+		var main_scene = get_tree().current_scene
+		if main_scene and "world" in main_scene and main_scene.world and main_scene.world.has_node("SquadDirector"):
+			main_scene.world.get_node("SquadDirector").log_player_kill(last_damage_element)
+
+	# VAMPIRIC kills leave a drained husk that blocks movement and shots
+	# for a while - terrain you make out of your enemies (group 3 spec).
+	if not is_player and last_damage_element == "VAMPIRIC" and get_parent():
+		_spawn_corpse_obstacle()
+
 	# LootManager is an autoload singleton (see project.godot) - use it directly
 	# instead of instantiating a throwaway copy (was also why the 25th-wave
 	# guaranteed-legendary-drop check always failed: a fresh instance's
@@ -1410,6 +1779,11 @@ func build_loadout_for_role(role_name: String):
 			add_tile.call("res://scripts/tiles/AmplifierTile.gd", HexTile.Rarity.UNCOMMON)
 		"scout":
 			pass # Uses basic conduits if they were available, fallback empty solver handles it
+		"commander":
+			# Weapons are secondary for a Commander - the Command Suite
+			# backpack is the payload. Feed the solver defensive parts.
+			add_tile.call("res://scripts/tiles/ShieldTile.gd", HexTile.Rarity.RARE)
+			add_tile.call("res://scripts/tiles/AccumulatorTile.gd", HexTile.Rarity.RARE)
 
 	# Give the solver something to actually work with: an Infuser it can
 	# configure toward the spawn profile's counter-element/Pierce priority.

@@ -4,6 +4,15 @@ extends HexTile
 @export var target_synergy: EnergyPacket.SynergyType = EnergyPacket.SynergyType.FIRE
 @export var efficiency: float = 1.2
 
+# MYTHIC ability: "Inverted" catalyst acts as a FILTER instead of a
+# converter - voids every energy type EXCEPT the chosen element, protecting
+# downstream components. Garage popup toggle; ignored below Mythic.
+@export var inverted: bool = false
+
+func toggle_inverted():
+	if rarity == Rarity.MYTHIC:
+		inverted = not inverted
+
 func _init():
 	tile_type = "Catalyst"
 	category = TileCategory.CONVERTER
@@ -13,7 +22,17 @@ func cycle_synergy():
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0: return [packet]
-	
+
+	if inverted and rarity == Rarity.MYTHIC:
+		# Filter mode: keep only the chosen element, void the rest outright
+		# (no conversion, no efficiency gain - purity has a price).
+		var kept = packet.synergies.get(target_synergy, 0.0)
+		packet.synergies.clear()
+		packet.magnitude = 0.0
+		if kept > 0.0:
+			packet.add_synergy(target_synergy, kept)
+		return [packet]
+
 	var total_consumed = 0.0
 	for syn in packet.synergies.keys():
 		total_consumed += packet.synergies[syn]

@@ -23,6 +23,16 @@ var times_deployed: int = 0
 # Cumulative fitness score (used for averaging)
 var total_fitness: float = 0.0
 
+# --- War Room graph data -------------------------------------------------
+# Which template this one was mutated/derived from ("" for hand-authored or
+# fully random templates). The parent may since have been culled - keep the
+# name anyway so the family tree can show ghost ancestors.
+@export var parent_name: String = ""
+# Per-deployment fitness scores, newest last, capped so a long campaign
+# doesn't grow saves unboundedly. Drives the War Room efficacy graph.
+const FITNESS_HISTORY_CAP = 60
+var fitness_history: Array = []
+
 func _init(_name: String = "Unnamed", _roles: Dictionary = {}):
 	template_name = _name
 	required_roles = _roles
@@ -38,7 +48,10 @@ func get_average_fitness() -> float:
 func update_fitness(fitness_score: float):
 	times_deployed += 1
 	total_fitness += fitness_score
-	
+	fitness_history.append(fitness_score)
+	if fitness_history.size() > FITNESS_HISTORY_CAP:
+		fitness_history.pop_front()
+
 	# Simple Reinforcement Learning step:
 	# Blend current weight with the new fitness score.
 	# We use a learning rate (e.g. 0.2) so it adapts over time.
@@ -60,7 +73,9 @@ func to_dict() -> Dictionary:
 		"base_spawn_weight": base_spawn_weight,
 		"times_deployed": times_deployed,
 		"total_fitness": total_fitness,
-		"is_experimental": is_experimental
+		"is_experimental": is_experimental,
+		"parent_name": parent_name,
+		"fitness_history": fitness_history,
 	}
 
 func from_dict(data: Dictionary):
@@ -71,4 +86,6 @@ func from_dict(data: Dictionary):
 	if data.has("times_deployed"): times_deployed = int(data["times_deployed"])
 	if data.has("total_fitness"): total_fitness = float(data["total_fitness"])
 	if data.has("is_experimental"): is_experimental = bool(data["is_experimental"])
+	if data.has("parent_name"): parent_name = str(data["parent_name"])
+	if data.has("fitness_history"): fitness_history = data["fitness_history"].duplicate() if data["fitness_history"] is Array else []
 

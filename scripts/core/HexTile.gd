@@ -120,8 +120,28 @@ func get_muzzle_position(mech) -> Vector2:
 
 	return mech.global_position
 
-func _fire_combined_projectile(mech, packet: EnergyPacket, step: int):
+func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0):
 	if not _ProjectileClass: return
+
+	# MYTHIC Weapon Mount firing patterns: split the volley into a shotgun
+	# spread or a 360-degree radial burst by recursively firing scaled-down
+	# child packets. _pattern_child guards recursion; step-staggered shots
+	# keep their normal behavior (patterns only apply to instant volleys).
+	if not _pattern_child and step == 0 and "mythic_pattern" in self and rarity == Rarity.MYTHIC:
+		var pattern = int(get("mythic_pattern"))
+		if pattern == 1: # Shotgun: 5 pellets, 40% payload each, +/-24 deg
+			for i in range(5):
+				var pellet = packet.copy()
+				pellet.amplify(0.4)
+				_fire_combined_projectile(mech, pellet, 0, true, deg_to_rad(-24.0 + 12.0 * i))
+			return
+		elif pattern == 2: # Radial burst: 8 shots, 50% payload, full circle
+			for i in range(8):
+				var shard = packet.copy()
+				shard.amplify(0.5)
+				_fire_combined_projectile(mech, shard, 0, true, TAU * float(i) / 8.0)
+			return
+		# pattern 3 (Beam) falls through - single projectile, tuned below.
 
 	var proj = _ProjectileClass.new()
 	var base_damage = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
@@ -138,6 +158,13 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int):
 	if "stat_modifiers" in mech:
 		proj.stat_modifiers = mech.stat_modifiers.duplicate()
 	proj.set("weapon_rarity", rarity)
+	if "aoe_bonus" in proj:
+		proj.aoe_bonus = packet.aoe_bonus
+	# Beam pattern: concentrated - faster, piercing, modest damage bonus
+	if not _pattern_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC and int(get("mythic_pattern")) == 3:
+		proj.damage *= 1.2
+		proj.base_speed *= 2.5
+		proj.pierce_count = max(proj.pierce_count, 4)
 	proj.global_position = get_muzzle_position(mech)
 
 	var aim_pos = mech.get("last_aim_position") if "last_aim_position" in mech else mech.global_position + Vector2(0, -100)
@@ -169,7 +196,7 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int):
 	elif diff == 4: angle_offset = deg_to_rad(-35)
 	elif diff == 3: angle_offset = deg_to_rad(180)
 
-	proj.direction = base_direction.rotated(angle_offset)
+	proj.direction = base_direction.rotated(angle_offset + _extra_angle)
 
 	if step > 0:
 		var delay = (step * 0.05) # 50ms per step

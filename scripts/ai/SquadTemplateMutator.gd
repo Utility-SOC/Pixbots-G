@@ -11,8 +11,20 @@ extends RefCounted
 #                             itself via a merge-linkup in combat
 # All three come back flagged is_experimental so SquadDirector can track and
 # cull them if they don't pull their weight (see SquadDirector.gd).
+#
+# Generated templates get Stargate-style designations (WarRoomNames.gd,
+# e.g. "P3X-774") instead of the old "Sniper Team Mk.412 Mk.887 Mk.203"
+# chains, which grew unboundedly as mutants mutated and collided easily.
 
-const ALL_ROLES = ["sniper", "brawler", "flamethrower", "ambusher", "scout", "jammer", "support"]
+# Explicit preload rather than relying on the global class_name cache -
+# a freshly created class_name file isn't visible to already-cached scripts
+# until the editor rescans, and an unresolved identifier here would take
+# SquadDirector (which preloads this script) down with it: no director,
+# no spawns at all. Same defensive pattern as SquadDirector's SolverProfile
+# preload.
+const WarRoomNames = preload("res://scripts/ai/WarRoomNames.gd")
+
+const ALL_ROLES = ["sniper", "brawler", "flamethrower", "ambusher", "scout", "jammer", "support", "commander"]
 
 static func mutate(parent: SquadTemplate) -> SquadTemplate:
 	var roles: Dictionary = parent.required_roles.duplicate()
@@ -43,12 +55,42 @@ static func mutate(parent: SquadTemplate) -> SquadTemplate:
 			var new_role = ALL_ROLES[randi() % ALL_ROLES.size()]
 			roles[new_role] = roles.get(new_role, 0) + 1
 
-	var mutant = SquadTemplate.new(parent.template_name + " Mk." + str(100 + randi() % 900), roles)
+	var mutant = SquadTemplate.new(WarRoomNames.designation(), roles)
+	mutant.parent_name = parent.template_name # lineage for the War Room family tree
 	mutant.has_shields = parent.has_shields if randf() < 0.7 else not parent.has_shields
 	mutant.base_spawn_weight = 60.0 # experimental templates start modest, not at the 100 baseline
 	mutant.spawn_weight = 60.0
 	mutant.is_experimental = true
 	return mutant
+
+# Sexual reproduction for squad doctrine (FEATURE_ROADMAP.md group 4):
+# child takes each role's count from either parent at random (occasionally
+# the average), shields from either parent. The fitter parent anchors the
+# lineage in the War Room family tree.
+static func crossover(a: SquadTemplate, b: SquadTemplate) -> SquadTemplate:
+	var all_keys: Dictionary = {}
+	for k in a.required_roles: all_keys[k] = true
+	for k in b.required_roles: all_keys[k] = true
+
+	var roles: Dictionary = {}
+	for k in all_keys:
+		var ca = int(a.required_roles.get(k, 0))
+		var cb = int(b.required_roles.get(k, 0))
+		var count = ca if randf() < 0.5 else cb
+		if randf() < 0.2:
+			count = int(round((ca + cb) / 2.0))
+		if count > 0:
+			roles[k] = min(4, count)
+	if roles.is_empty():
+		roles[ALL_ROLES[randi() % ALL_ROLES.size()]] = 1
+
+	var child = SquadTemplate.new(WarRoomNames.designation(), roles)
+	child.parent_name = a.template_name if a.get_average_fitness() >= b.get_average_fitness() else b.template_name
+	child.has_shields = a.has_shields if randf() < 0.5 else b.has_shields
+	child.base_spawn_weight = 65.0 # slightly above mutants - both parents earned their spot
+	child.spawn_weight = 65.0
+	child.is_experimental = true
+	return child
 
 static func random_template() -> SquadTemplate:
 	var roles: Dictionary = {}
@@ -57,7 +99,7 @@ static func random_template() -> SquadTemplate:
 		var r = ALL_ROLES[randi() % ALL_ROLES.size()]
 		roles[r] = roles.get(r, 0) + 1 + (randi() % 2)
 
-	var template = SquadTemplate.new("Experimental " + str(1000 + randi() % 9000), roles)
+	var template = SquadTemplate.new(WarRoomNames.designation(), roles)
 	template.has_shields = randf() < 0.3
 	template.base_spawn_weight = 60.0
 	template.spawn_weight = 60.0
@@ -78,7 +120,9 @@ static func from_squad_composition(squad: Squad, name_hint: String = "Fused") ->
 	if roles.is_empty():
 		return null
 
-	var template = SquadTemplate.new(name_hint + " " + str(100 + randi() % 900), roles)
+	var template = SquadTemplate.new(name_hint + " " + WarRoomNames.designation(), roles)
+	if squad.template:
+		template.parent_name = squad.template.template_name # surviving squad's template is the fused lineage parent
 	template.has_shields = squad.template.has_shields if squad.template else false
 	template.base_spawn_weight = 70.0 # already proved something in combat, start a bit above baseline experimental
 	template.spawn_weight = 70.0

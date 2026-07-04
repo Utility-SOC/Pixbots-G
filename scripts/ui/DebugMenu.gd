@@ -5,104 +5,76 @@ const CoreTile = preload("res://scripts/tiles/CoreTile.gd")
 var panel: PanelContainer
 var is_open: bool = false
 var squad_type_dropdown: OptionButton
+var opt_reactor: OptionButton
+
+# Small helpers so tab construction below stays readable - every debug tool
+# is one _btn() line instead of four lines of Button boilerplate.
+func _btn(parent: Control, text: String, cb: Callable) -> Button:
+	var b = Button.new()
+	b.text = text
+	b.pressed.connect(cb)
+	parent.add_child(b)
+	return b
+
+func _tab(tabs: TabContainer, title: String) -> VBoxContainer:
+	var vbox = VBoxContainer.new()
+	vbox.name = title
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.add_child(vbox)
+	return vbox
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 100 # Always on top
 
 	panel = PanelContainer.new()
-	panel.custom_minimum_size = Vector2(320, 500)
+	panel.custom_minimum_size = Vector2(360, 0) # height sizes to tallest tab
 	panel.position = Vector2(20, 20)
 	panel.hide()
 	add_child(panel)
 
-	# The button list was already long enough to overflow a fixed-size
-	# panel before this session's additions - wrapping in a ScrollContainer
-	# instead of just growing the panel further (which would eventually run
-	# off-screen anyway) so everything stays reachable regardless of how
-	# many debug tools get added over time.
-	var scroll = ScrollContainer.new()
-	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
-	scroll.custom_minimum_size = Vector2(320, 500)
-	panel.add_child(scroll)
-
-	var vbox = VBoxContainer.new()
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(vbox)
+	# Was one giant scrolling VBox - long enough that half the tools lived
+	# below the fold and the scrollbar fought the map-button grid. A
+	# TabContainer keeps every tool one click away with no scrolling, and
+	# new debug tools just go on whichever tab fits (or a new tab) instead
+	# of making the scroll longer.
+	var outer = VBoxContainer.new()
+	panel.add_child(outer)
 
 	var title = Label.new()
-	title.text = "--- DEBUG MENU ---"
+	title.text = "--- DEBUG MENU (` to close) ---"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(title)
+	outer.add_child(title)
 
-	var btn_spawn = Button.new()
-	btn_spawn.text = "Spawn Enemy"
-	btn_spawn.pressed.connect(_on_spawn_enemy)
-	vbox.add_child(btn_spawn)
+	var tabs = TabContainer.new()
+	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(tabs)
 
-	var btn_spawn_mass = Button.new()
-	btn_spawn_mass.text = "Spawn Army (50)"
-	btn_spawn_mass.pressed.connect(func():
+	# --- Tab: Spawn -------------------------------------------------------
+	var tab_spawn = _tab(tabs, "Spawn")
+	_btn(tab_spawn, "Spawn Enemy", _on_spawn_enemy)
+	_btn(tab_spawn, "Spawn Army (50)", func():
 		for i in range(50): _on_spawn_enemy()
 	)
-	vbox.add_child(btn_spawn_mass)
 
 	var squad_spawn_label = Label.new()
 	squad_spawn_label.text = "-- Spawn Squad Type --"
 	squad_spawn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(squad_spawn_label)
+	tab_spawn.add_child(squad_spawn_label)
 
 	squad_type_dropdown = OptionButton.new()
 	squad_type_dropdown.custom_minimum_size = Vector2(0, 32)
-	vbox.add_child(squad_type_dropdown)
+	tab_spawn.add_child(squad_type_dropdown)
+	_btn(tab_spawn, "Spawn Selected Squad", _on_spawn_squad_type)
+	_btn(tab_spawn, "Force Legendary Drop", _on_force_loot)
 
-	var btn_spawn_squad = Button.new()
-	btn_spawn_squad.text = "Spawn Selected Squad"
-	btn_spawn_squad.pressed.connect(_on_spawn_squad_type)
-	vbox.add_child(btn_spawn_squad)
-
-	var btn_loot = Button.new()
-	btn_loot.text = "Force Legendary Drop"
-	btn_loot.pressed.connect(_on_force_loot)
-	vbox.add_child(btn_loot)
-	
-	var btn_heal = Button.new()
-	btn_heal.text = "Heal Player"
-	btn_heal.pressed.connect(_on_heal_player)
-	vbox.add_child(btn_heal)
-	
-	var btn_time = Button.new()
-	btn_time.text = "Toggle Slomo (0.2x)"
-	btn_time.pressed.connect(func():
-		Engine.time_scale = 0.2 if Engine.time_scale == 1.0 else 1.0
-	)
-	vbox.add_child(btn_time)
-	
-	var btn_restore = Button.new()
-	btn_restore.text = "Restore Lost Components (2 Sets)"
-	btn_restore.pressed.connect(_on_restore_components)
-	vbox.add_child(btn_restore)
-	
-	var btn_god_inv = Button.new()
-	btn_god_inv.text = "Give GOD Inventory (50x All Legendary)"
-	btn_god_inv.pressed.connect(_on_give_god_inventory)
-	vbox.add_child(btn_god_inv)
-	
-	var btn_mythic_inv = Button.new()
-	btn_mythic_inv.text = "Give MYTHIC Inventory (50x All Mythic)"
-	btn_mythic_inv.pressed.connect(func(): _on_give_god_inventory(true))
-	vbox.add_child(btn_mythic_inv)
-	
-	var btn_mythic_comp = Button.new()
-	btn_mythic_comp.text = "Give Mythic Components to Inventory (1 Set)"
-	btn_mythic_comp.pressed.connect(_on_give_mythic_components)
-	vbox.add_child(btn_mythic_comp)
-
-
-	
-	var btn_shield = Button.new()
-	btn_shield.text = "Give Mythic Shield Backpack"
-	btn_shield.pressed.connect(func():
+	# --- Tab: Player --------------------------------------------------------
+	var tab_player = _tab(tabs, "Player")
+	_btn(tab_player, "Heal Player", _on_heal_player)
+	_btn(tab_player, "Restore Lost Components (2 Sets)", _on_restore_components)
+	_btn(tab_player, "Upgrade Core to Legendary", _on_upgrade_core)
+	_btn(tab_player, "Upgrade All Body Parts to Legendary", _on_upgrade_body_parts)
+	_btn(tab_player, "Give Mythic Shield Backpack", func():
 		var main = get_tree().current_scene
 		if main and main.get("player") != null:
 			var pack = load("res://scripts/core/ComponentEquipment.gd").create_shield_backpack()
@@ -112,43 +84,61 @@ func _ready():
 					main.garage_ui._refresh_component_ui()
 			print("[Debug] Equipped Mythic Shield Backpack!")
 	)
-	vbox.add_child(btn_shield)
-	
-	var btn_garage = Button.new()
-	btn_garage.text = "Teleport to Garage"
-	btn_garage.pressed.connect(func():
+
+	opt_reactor = OptionButton.new()
+	opt_reactor.add_item("Reactor: KINETIC", EnergyPacket.SynergyType.KINETIC)
+	opt_reactor.add_item("Reactor: FIRE", EnergyPacket.SynergyType.FIRE)
+	opt_reactor.add_item("Reactor: ICE", EnergyPacket.SynergyType.ICE)
+	opt_reactor.add_item("Reactor: LIGHTNING", EnergyPacket.SynergyType.LIGHTNING)
+	opt_reactor.add_item("Reactor: VORTEX", EnergyPacket.SynergyType.VORTEX)
+	opt_reactor.add_item("Reactor: POISON", EnergyPacket.SynergyType.POISON)
+	opt_reactor.add_item("Reactor: EXPLOSION", EnergyPacket.SynergyType.EXPLOSION)
+	opt_reactor.add_item("Reactor: PIERCE", EnergyPacket.SynergyType.PIERCE)
+	opt_reactor.add_item("Reactor: VAMPIRIC", EnergyPacket.SynergyType.VAMPIRIC)
+	opt_reactor.item_selected.connect(_on_reactor_changed)
+	tab_player.add_child(opt_reactor)
+
+	_btn(tab_player, "Teleport to Garage", func():
 		_toggle_menu()
 		var main = get_tree().current_scene
 		if main and main.has_method("_open_garage"):
 			main._open_garage()
 	)
-	vbox.add_child(btn_garage)
-	
+
+	# --- Tab: Inventory ------------------------------------------------------
+	var tab_inv = _tab(tabs, "Inventory")
+	_btn(tab_inv, "Give GOD Inventory (50x All Legendary)", _on_give_god_inventory)
+	_btn(tab_inv, "Give MYTHIC Inventory (50x All Mythic)", func(): _on_give_god_inventory(true))
+	_btn(tab_inv, "Give Mythic Components (1 Set)", _on_give_mythic_components)
+
+	# --- Tab: World ---------------------------------------------------------
+	var tab_world = _tab(tabs, "World")
+
 	var spawn_as_label = Label.new()
 	spawn_as_label.text = "-- Spawn Map As --"
 	spawn_as_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(spawn_as_label)
-	
+	tab_world.add_child(spawn_as_label)
+
 	var map_grid = GridContainer.new()
 	map_grid.columns = 3
-	vbox.add_child(map_grid)
-	
-	var map_types = ["Normal", "Arena", "Open Field", "Desert", "Forest", "Tundra", "Volcano", "Dungeon", "Water"]
-	var map_colors = [Color(0.4, 0.8, 0.4), Color(0.15, 0.1, 0.2), Color(0.4, 0.8, 0.4), Color(0.9, 0.8, 0.5), Color(0.1, 0.5, 0.2), Color(0.8, 0.9, 0.9), Color(0.3, 0.1, 0.1), Color(0.15, 0.1, 0.2), Color(0.2, 0.4, 0.9)]
-	
+	tab_world.add_child(map_grid)
+
+	var map_types = ["Normal", "Arena", "Open Field", "Desert", "Forest", "Tundra", "Volcano", "Dungeon", "Water", "Tabletop"]
+	var map_colors = [Color(0.4, 0.8, 0.4), Color(0.15, 0.1, 0.2), Color(0.4, 0.8, 0.4), Color(0.9, 0.8, 0.5), Color(0.1, 0.5, 0.2), Color(0.8, 0.9, 0.9), Color(0.3, 0.1, 0.1), Color(0.15, 0.1, 0.2), Color(0.2, 0.4, 0.9), Color(0.85, 0.7, 0.45)]
+
 	for i in range(map_types.size()):
 		var map_type = map_types[i]
 		var color = map_colors[i]
-		
+
 		var btn = Button.new()
 		btn.custom_minimum_size = Vector2(80, 80)
-		
+
 		var rect = ColorRect.new()
 		rect.color = color
 		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		btn.add_child(rect)
-		
+
 		var lbl = Label.new()
 		lbl.text = map_type
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -159,7 +149,7 @@ func _ready():
 		lbl.add_theme_color_override("font_outline_color", Color.BLACK)
 		lbl.add_theme_constant_override("outline_size", 2)
 		btn.add_child(lbl)
-		
+
 		btn.pressed.connect(func():
 			_toggle_menu()
 			var main = get_tree().current_scene
@@ -171,32 +161,18 @@ func _ready():
 				map._generate_map()
 				map._draw_map_to_texture()
 				map._build_navigation()
+				# Map sizes can differ wildly (Tabletop is 64x32 vs the
+				# 400x250 default) - drop the player onto the new map's
+				# center so they're never stranded outside its walls.
+				if main.get("player") != null:
+					var center = Vector2(map.width * map.tile_size / 2.0, map.height * map.tile_size / 2.0)
+					main.player.global_position = map.get_valid_spawn_position(center)
 		)
 		map_grid.add_child(btn)
-	
-	var btn_legendary_core = Button.new()
-	btn_legendary_core.text = "Upgrade Core to Legendary"
-	btn_legendary_core.pressed.connect(_on_upgrade_core)
-	vbox.add_child(btn_legendary_core)
-	
-	var btn_legendary_body = Button.new()
-	btn_legendary_body.text = "Upgrade All Body Parts to Legendary"
-	btn_legendary_body.pressed.connect(_on_upgrade_body_parts)
-	vbox.add_child(btn_legendary_body)
-	
-	
-	var opt_reactor = OptionButton.new()
-	opt_reactor.add_item("Reactor: KINETIC", EnergyPacket.SynergyType.KINETIC)
-	opt_reactor.add_item("Reactor: FIRE", EnergyPacket.SynergyType.FIRE)
-	opt_reactor.add_item("Reactor: ICE", EnergyPacket.SynergyType.ICE)
-	opt_reactor.add_item("Reactor: LIGHTNING", EnergyPacket.SynergyType.LIGHTNING)
-	opt_reactor.add_item("Reactor: VORTEX", EnergyPacket.SynergyType.VORTEX)
-	opt_reactor.add_item("Reactor: POISON", EnergyPacket.SynergyType.POISON)
-	opt_reactor.add_item("Reactor: EXPLOSION", EnergyPacket.SynergyType.EXPLOSION)
-	opt_reactor.add_item("Reactor: PIERCE", EnergyPacket.SynergyType.PIERCE)
-	opt_reactor.add_item("Reactor: VAMPIRIC", EnergyPacket.SynergyType.VAMPIRIC)
-	opt_reactor.item_selected.connect(_on_reactor_changed)
-	vbox.add_child(opt_reactor)
+
+	_btn(tab_world, "Toggle Slomo (0.2x)", func():
+		Engine.time_scale = 0.2 if Engine.time_scale == 1.0 else 1.0
+	)
 
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -378,13 +354,9 @@ func _on_reactor_changed(index: int):
 		if grid:
 			var core = grid.get_tile(0, 0)
 			if core and core.has_method("set_face_output"):
-				# Get the Item ID from the OptionButton which we mapped to SynergyType
-				var opt_reactor = null
-				# Find the option button
-				for child in panel.get_child(0).get_children():
-					if child is OptionButton:
-						opt_reactor = child
-						break
+				# opt_reactor is now a stored member (the old code re-found it
+				# by scanning panel children, which broke the moment the panel
+				# hierarchy changed - as it just did with the tab layout).
 				var syn_id = opt_reactor.get_item_id(index)
 				for i in range(6):
 					core.set_face_output(i, syn_id)

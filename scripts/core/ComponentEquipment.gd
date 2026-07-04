@@ -20,6 +20,36 @@ var infusion_level: int = 0
 var infusion_xp: int = 0
 var stat_modifiers: Dictionary = {}
 
+# Black Market drawback: tile types that can never be installed on this
+# component (enforced in GarageMenu._drop_tile). Empty for normal gear.
+var forbidden_tile_types: Array = []
+
+# --- Manual-hex upgrades (feature 5) ---------------------------------------
+# Tiering a part up grants a budget of new hexes that the OWNER places by
+# hand in the Garage, dictating the component's shape entirely (GarageMenu
+# "Upgrade Part" button -> GarageGridRenderer expansion-click mode).
+
+# Returns the number of expansion hexes granted, 0 if already Mythic.
+func upgrade_rarity() -> int:
+	if rarity >= HexTile.Rarity.MYTHIC:
+		return 0
+	rarity += 1
+	return 3 + rarity # Uncommon grants 4 ... Mythic grants 7
+
+# Add one player-chosen hex to the shape. Must be new and edge-adjacent to
+# the existing shape (no floating islands).
+func add_expansion_hex(h: HexCoord) -> bool:
+	for existing in valid_hexes:
+		if existing.q == h.q and existing.r == h.r:
+			return false
+	for existing in valid_hexes:
+		for d in range(6):
+			var n = HexCoord.new(existing.q, existing.r).neighbor(d)
+			if n.q == h.q and n.r == h.r:
+				valid_hexes.append(HexCoord.new(h.q, h.r))
+				return true
+	return false
+
 func _init(p_slot: HexTile.BodySlot = HexTile.BodySlot.TORSO, p_rarity: HexTile.Rarity = HexTile.Rarity.COMMON):
 	slot_type = p_slot
 	rarity = p_rarity
@@ -51,14 +81,19 @@ func _setup_fixed_sinks():
 
 func generate_shape():
 	valid_hexes.clear()
-	
-	var base_count = 0
-	match rarity:
-		HexTile.Rarity.COMMON: base_count = 10
-		HexTile.Rarity.UNCOMMON: base_count = 18
-		HexTile.Rarity.RARE: base_count = 28
-		HexTile.Rarity.LEGENDARY: base_count = 48
-		
+
+	# Hex budget by rarity, with a sixth "beyond Mythic" entry because
+	# TORSOS read one tier above their printed rarity (design ruling: a
+	# Common torso must have room to power every limb, so every torso is
+	# one rarity step more generous with hexes). Also fixes a latent bug:
+	# MYTHIC wasn't in the old match at all and fell through with
+	# base_count = 0 - a one-hex Mythic torso.
+	var hex_budget = [10, 18, 28, 48, 72, 100]
+	var budget_tier = clamp(rarity, 0, 4)
+	if slot_type == HexTile.BodySlot.TORSO:
+		budget_tier += 1
+	var base_count = hex_budget[budget_tier]
+
 	match slot_type:
 		HexTile.BodySlot.HEAD:
 			# Head expands upward, vertical zig-zag. Squat and wide.
@@ -172,13 +207,14 @@ func generate_shape():
 
 func generate_procedural_shape():
 	valid_hexes.clear()
-	var base_count = 0
-	match rarity:
-		HexTile.Rarity.COMMON: base_count = 10
-		HexTile.Rarity.UNCOMMON: base_count = 18
-		HexTile.Rarity.RARE: base_count = 28
-		HexTile.Rarity.LEGENDARY: base_count = 48
-		HexTile.Rarity.MYTHIC: base_count = 48
+	# Same budget ladder + torso bonus as generate_shape() - procedural
+	# (enemy/boss/salvage/Black Market) parts follow the same rules, and
+	# Mythic now gets a real 72 instead of Legendary's hand-me-down 48.
+	var hex_budget = [10, 18, 28, 48, 72, 100]
+	var budget_tier = clamp(rarity, 0, 4)
+	if slot_type == HexTile.BodySlot.TORSO:
+		budget_tier += 1
+	var base_count = hex_budget[budget_tier]
 
 	var start = HexCoord.new(0, 0)
 	valid_hexes.append(start)
@@ -741,6 +777,54 @@ static func create_support_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 		jammer.rarity = p_rarity
 		jammer.body_slot = HexTile.BodySlot.BACKPACK
 		pack.hex_grid.add_tile(HexCoord.new(-1, 0), jammer)
+
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+
+	return pack
+
+# Commander kit (FEATURE_ROADMAP.md group 4): standard support bots are
+# capped at 2 special support modules (see create_support_backpack above);
+# a Commander stacks up to FIVE - heal, jammer, shield generator, cloak,
+# and a second heal beacon at Legendary+. One of these on the field is what
+# makes a squad feel like it has a spine.
+static func create_command_backpack(p_rarity: int = HexTile.Rarity.RARE):
+	var script = load("res://scripts/core/ComponentEquipment.gd")
+	p_rarity = max(p_rarity, HexTile.Rarity.RARE) # command kits don't come cheap
+	var pack = script.new(HexTile.BodySlot.BACKPACK, p_rarity)
+	pack.component_name = "Command Suite"
+	pack.role_variant = "commander"
+	pack.generate_shape()
+
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+
+	# Module loadout: [script_path, coord]. Order matters - the first four
+	# always install; the fifth (second heal beacon) is Legendary+ only.
+	var modules = [
+		["res://scripts/tiles/HealBeaconTile.gd", HexCoord.new(1, 0)],
+		["res://scripts/tiles/JammerModuleTile.gd", HexCoord.new(-1, 0)],
+		["res://scripts/tiles/ShieldGeneratorTile.gd", HexCoord.new(1, -1)],
+		["res://scripts/tiles/CloakTile.gd", HexCoord.new(-1, 1)],
+	]
+	if p_rarity >= HexTile.Rarity.LEGENDARY:
+		modules.append(["res://scripts/tiles/HealBeaconTile.gd", HexCoord.new(2, -1)])
+
+	for m in modules:
+		var tile = load(m[0]).new()
+		tile.rarity = p_rarity
+		tile.body_slot = HexTile.BodySlot.BACKPACK
+		pack.hex_grid.add_tile(m[1], tile)
 
 	var max_r = 0
 	for h in pack.valid_hexes:

@@ -7,6 +7,7 @@ var tile_size: int = 32
 
 var noise: FastNoiseLite
 var moisture_noise: FastNoiseLite
+var obstacle_noise: FastNoiseLite
 
 var terrain: Array = []
 var obstacles: Dictionary = {}
@@ -33,6 +34,14 @@ func _ready():
 	moisture_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
 	moisture_noise.fractal_octaves = 4
 	moisture_noise.frequency = 0.04
+
+	# Drives obstacle TENDRILS: obstacles cluster along the thin winding
+	# zero-bands of this noise (hedgerows, ridge lines, ruin streets)
+	# instead of uniform random scatter you can't walk through.
+	obstacle_noise = FastNoiseLite.new()
+	obstacle_noise.seed = randi()
+	obstacle_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	obstacle_noise.frequency = 0.035
 	
 	_generate_map()
 	_draw_map_to_texture()
@@ -42,16 +51,33 @@ func _ready():
 		ProceduralMusic.set_biome(map_type)
 
 func _generate_map():
+	# Tabletop: a 4x8ft plywood sheet with blue firring-strip walls.
+	# CANONICAL SCALE (also governs section 6 melee/mass): a mech sprite
+	# reads ~100px tall = a ~5.5" pixbot, so 1 inch = ~18px. The 96"x48"
+	# sheet is therefore ~1750x875px = ~55x27 tiles, rounded to 64x32 for
+	# clean chunking. Dimensions must be (re)set here, not just at _ready,
+	# because the debug menu regenerates different map types on this same
+	# node - switching away from Tabletop must restore the full size.
+	if map_type == "Tabletop":
+		width = 64
+		height = 32
+	else:
+		width = 400
+		height = 250
+
 	var map_valid = false
 	var required_size = width * height * 0.3 # 30% of map
 	
 	while not map_valid:
 		terrain.clear()
 		obstacles.clear()
+		ruin_specs.clear()
 		
 		# Generate a new seed on each retry
 		noise.seed = randi()
 		moisture_noise.seed = randi()
+		if obstacle_noise:
+			obstacle_noise.seed = randi()
 		
 		var arena_center = Vector2(width / 2.0, height / 2.0)
 		var rx = 100.0 # 200 tiles wide
@@ -85,6 +111,10 @@ func _generate_map():
 					biome = BiomeType.DUNGEON
 				elif map_type == "Water":
 					biome = BiomeType.WATER
+				elif map_type == "Tabletop":
+					# Plywood reads as desert-tan; the blue outer walls are
+					# already the "firring strips tacked to the edges".
+					biome = BiomeType.DESERT
 				else:
 					var elev = noise.get_noise_2d(x, y)
 					var moist = moisture_noise.get_noise_2d(x, y)
@@ -92,11 +122,17 @@ func _generate_map():
 					
 				row.append(biome)
 				
-				if map_type not in ["Arena", "Open Field"] and _should_spawn_obstacle(biome, randf()):
+				if map_type not in ["Arena", "Open Field", "Tabletop"] and _should_spawn_obstacle(biome, randf(), x, y):
 					if not _is_near_existing_mech(x, y):
 						obstacles[Vector2i(x, y)] = _get_obstacle_name(biome)
 			terrain.append(row)
 			
+		# Tabletop terrain kits: gothic-ruin buildings scattered like a
+		# real game-shop table setup (see the reference photo in design
+		# notes - grey plastic ruins on a flocked mat).
+		if map_type == "Tabletop":
+			_place_tabletop_ruins()
+
 		main_continent_tiles = _analyze_connectivity()
 		if map_type != "Normal" or main_continent_tiles.size() >= required_size:
 			map_valid = true
@@ -149,15 +185,66 @@ func _get_biome(elevation: float, moisture: float) -> BiomeType:
 	if moisture > 0.3: return BiomeType.FOREST
 	return BiomeType.GRASSLAND
 
-func _should_spawn_obstacle(biome: BiomeType, roll: float) -> bool:
+# Multi-tile ruined-building footprints for the Tabletop map. Tiles are
+# marked "RuinPart" in `obstacles` (so the minimap, spawn anchors, and nav
+# all treat them as solid terrain) and one destructible RuinObstacle node
+# per building is spawned in _build_collisions_and_obstacles.
+var ruin_specs: Array = []
+
+func _place_tabletop_ruins():
+	ruin_specs.clear()
+	var target_count = 7 + randi() % 3
+	var attempts = 0
+	while ruin_specs.size() < target_count and attempts < 200:
+		attempts += 1
+		var w = 2 + randi() % 4 # 2-5 tiles wide
+		var h = 2 + randi() % 2 # 2-3 tiles deep
+		var ox = 3 + randi() % max(1, width - w - 6)
+		var oy = 3 + randi() % max(1, height - h - 6)
+
+		# Keep the table's center clear for the player's starting scrum
+		if abs(ox + w / 2.0 - width / 2.0) < 5.0 and abs(oy + h / 2.0 - height / 2.0) < 4.0:
+			continue
+
+		# Reject overlaps, with a one-tile buffer between kits
+		var area_clear = true
+		for y in range(oy - 1, oy + h + 1):
+			for x in range(ox - 1, ox + w + 1):
+				if obstacles.has(Vector2i(x, y)):
+					area_clear = false
+					break
+			if not area_clear:
+				break
+		if not area_clear:
+			continue
+
+		for y in range(oy, oy + h):
+			for x in range(ox, ox + w):
+				obstacles[Vector2i(x, y)] = "RuinPart"
+		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h})
+
+# Tendril-clustered obstacles (design ruling): instead of uniform random
+# scatter dense enough to wall off movement, obstacles concentrate along
+# the thin winding zero-bands of obstacle_noise - reading as hedgerows,
+# tree lines, and rubble streets with big open lanes between them. A tiny
+# lone-obstacle chance outside the tendrils keeps maps from feeling
+# manicured.
+func _should_spawn_obstacle(biome: BiomeType, roll: float, x: int = 0, y: int = 0) -> bool:
+	if biome == BiomeType.WATER:
+		return false
+
+	var in_tendril = abs(obstacle_noise.get_noise_2d(x, y)) < 0.08 if obstacle_noise else false
+
+	if not in_tendril:
+		return roll < 0.004 # rare lone tree/boulder
+
 	match biome:
-		BiomeType.FOREST: return roll < 0.15
-		BiomeType.DESERT: return roll < 0.05
-		BiomeType.TUNDRA: return roll < 0.08
-		BiomeType.VOLCANO: return roll < 0.1
-		BiomeType.DUNGEON: return roll < 0.2
-		BiomeType.WATER: return false
-	return roll < 0.02 # Grassland
+		BiomeType.FOREST: return roll < 0.55
+		BiomeType.DESERT: return roll < 0.25
+		BiomeType.TUNDRA: return roll < 0.30
+		BiomeType.VOLCANO: return roll < 0.35
+		BiomeType.DUNGEON: return roll < 0.50
+	return roll < 0.15 # Grassland
 
 func _get_obstacle_name(biome: BiomeType) -> String:
 	match biome:
@@ -202,6 +289,15 @@ func get_biome_at_world_pos(pos: Vector2) -> int:
 const CHUNK_TILES = 50 # 50x50 tiles = 1600x1600px per chunk @ tile_size 32
 
 func _draw_map_to_texture():
+	# CRITICAL for regeneration: every child of MapGenerator is generated
+	# output (chunk sprites, collision bodies, trees, ruins). The old code
+	# never cleared them, so each debug-menu map swap STACKED a whole new
+	# map's sprites and physics bodies on top of the old ones - invisible
+	# while all maps were the same size, glaring once Tabletop (64x32)
+	# painted its little sheet in the corner of the stale 400x250 map.
+	for child in get_children():
+		child.queue_free()
+
 	var wall_thickness = 20
 	var blue_color = Color(0.1, 0.4, 0.9) # Nice blue wall
 
@@ -246,7 +342,9 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 			_paint_textured_tile(img, local_x, local_y, biome)
 
 			var pos = Vector2i(tx, ty)
-			if obstacles.has(pos) and obstacles[pos] != "Tree":
+			# Trees and RuinParts have real scene nodes drawing them - only
+			# flat obstacle types get the painted grey square.
+			if obstacles.has(pos) and obstacles[pos] != "Tree" and obstacles[pos] != "RuinPart":
 				var obs_rect = Rect2i(local_x + 8, local_y + 8, tile_size - 16, tile_size - 16)
 				img.fill_rect(obs_rect, Color(0.2, 0.2, 0.2))
 
@@ -318,11 +416,15 @@ func _build_collisions_and_obstacles():
 			var pos = Vector2i(x, y)
 			if obstacles.has(pos):
 				var obs_name = obstacles[pos]
-				if obs_name == "Tree":
+				if obs_name == "Tree" or obs_name == "RuinPart":
+					# Node-based obstacles bring their own collision
+					# (TreeObstacle / RuinObstacle) - exclude them from the
+					# merged flat-collision run.
 					if obstacle_start_x != -1:
 						_create_merged_collision(obstacle_start_x, y, x - obstacle_start_x, 1)
 						obstacle_start_x = -1
-					_spawn_tree(Vector2(x * tile_size, y * tile_size))
+					if obs_name == "Tree":
+						_spawn_tree(Vector2(x * tile_size, y * tile_size))
 				else:
 					if obstacle_start_x == -1:
 						obstacle_start_x = x
@@ -337,6 +439,16 @@ func _build_collisions_and_obstacles():
 			_create_merged_collision(dungeon_start_x, y, width - dungeon_start_x, 1)
 		if obstacle_start_x != -1:
 			_create_merged_collision(obstacle_start_x, y, width - obstacle_start_x, 1)
+
+	# One destructible terrain-kit node per placed ruin (Tabletop map)
+	for spec in ruin_specs:
+		var ruin = load("res://scripts/core/RuinObstacle.gd").new()
+		ruin.size_tiles = Vector2i(spec.w, spec.h)
+		ruin.origin_tile = Vector2i(spec.x, spec.y)
+		ruin.footprint = Vector2(spec.w * tile_size, spec.h * tile_size)
+		ruin.map_ref = self
+		ruin.global_position = Vector2(spec.x * tile_size, spec.y * tile_size) + ruin.footprint / 2.0
+		add_child(ruin)
 
 func _create_wall_collision(pos: Vector2, size: Vector2):
 	var body = StaticBody2D.new()
@@ -387,6 +499,11 @@ func _create_merged_collision(start_x: int, y: int, length: int, layer: int):
 	add_child(body)
 
 func _get_biome_color(biome: BiomeType) -> Color:
+	# Tabletop's ground reads as a painted + flocked wargaming mat (rust
+	# red, like the reference table) rather than raw desert sand. Handled
+	# here so the minimap bake picks up the mat color for free.
+	if map_type == "Tabletop" and biome == BiomeType.DESERT:
+		return Color(0.52, 0.24, 0.16)
 	match biome:
 		BiomeType.GRASSLAND: return Color(0.4, 0.8, 0.4)
 		BiomeType.WATER: return Color(0.2, 0.4, 0.9)
@@ -417,6 +534,15 @@ func _paint_textured_tile(img: Image, local_x: int, local_y: int, biome: BiomeTy
 			img.fill_rect(Rect2i(local_x + bx * GROUND_PIXEL_SIZE, local_y + by * GROUND_PIXEL_SIZE, GROUND_PIXEL_SIZE, GROUND_PIXEL_SIZE), color)
 
 func _get_textured_pixel_color(base: Color, biome: BiomeType) -> Color:
+	# Flock texture for the Tabletop mat: mottled rust with darker worn
+	# patches, grey-brown scatter (static grass / basing grit), and the
+	# occasional bright fleck where the flock's thin and paint shows.
+	if map_type == "Tabletop":
+		var flock_roll = randf()
+		if flock_roll < 0.14: return base.darkened(0.15 + randf() * 0.2)
+		elif flock_roll < 0.22: return Color(0.42, 0.33, 0.26).lerp(base, 0.4) # grit
+		elif flock_roll < 0.27: return base.lightened(0.12 + randf() * 0.1)
+		return base.darkened(randf() * 0.06)
 	match biome:
 		BiomeType.GRASSLAND:
 			# Darker flecks read as little grass tufts, occasional lighter

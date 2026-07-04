@@ -3,10 +3,36 @@ extends Node
 const SAVE_DIR = "user://saves/"
 var save_to_load: String = ""
 
+# --- Difficulty (lives here because SaveManager is a global autoload) ------
+# 0 Casual, 1 Normal, 2 Hard, 3 "Why would you do this to yourself?"
+# The top tier keeps enemies NEAR-PEERS with the player's actual build
+# power at all times - see SquadDirector's near-peer scaling.
+const DIFFICULTY_NAMES = ["Casual", "Normal", "Hard", "Why would you do this to yourself?"]
+# Per-wave HP growth base (old flat value was 1.10 for everyone)
+const DIFFICULTY_HP_GROWTH = [1.08, 1.14, 1.20, 1.25]
+# Wave enemy-count multiplier
+const DIFFICULTY_COUNT_MULT = [0.7, 1.0, 1.3, 1.6]
+
+var difficulty: int = 1
+
+func set_difficulty(d: int):
+	difficulty = clamp(d, 0, 3)
+	# Same res://settings.cfg the existing settings code uses. (Known
+	# limitation inherited from that pattern: res:// is read-only in
+	# exported builds - migrate all settings to user:// together later.)
+	var config = ConfigFile.new()
+	config.load("res://settings.cfg") # keep existing sections if present
+	config.set_value("Game", "Difficulty", difficulty)
+	config.save("res://settings.cfg")
+
 func _ready():
 	var dir = DirAccess.open("user://")
 	if not dir.dir_exists("saves"):
 		dir.make_dir("saves")
+
+	var config = ConfigFile.new()
+	if config.load("res://settings.cfg") == OK:
+		difficulty = clamp(int(config.get_value("Game", "Difficulty", 1)), 0, 3)
 
 func save_game(save_name: String, mech: Node, inventory: Array):
 	var data = {
@@ -25,6 +51,8 @@ func save_game(save_name: String, mech: Node, inventory: Array):
 
 	if main and "player_scrap" in main:
 		data["scrap"] = main.player_scrap
+	if main and "player_modifier_chips" in main:
+		data["modifier_chips"] = main.player_modifier_chips
 
 	# Serialize Components
 	for slot in mech.components.keys():
@@ -65,6 +93,8 @@ func load_game(save_name: String) -> Dictionary:
 	
 	if json.has("scrap"):
 		result["scrap"] = json["scrap"]
+	if json.has("modifier_chips"):
+		result["modifier_chips"] = json["modifier_chips"]
 
 	
 	var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
@@ -98,9 +128,15 @@ func _serialize_component(comp) -> Dictionary:
 		"infusion_level": comp.get("infusion_level") if comp.get("infusion_level") != null else 0,
 		"infusion_xp": comp.get("infusion_xp") if comp.get("infusion_xp") != null else 0,
 		"stat_modifiers": comp.get("stat_modifiers") if comp.get("stat_modifiers") != null else {},
+		"forbidden_tile_types": comp.get("forbidden_tile_types") if comp.get("forbidden_tile_types") != null else [],
 		"tiles": [],
-		"fixed_sinks": []
+		"fixed_sinks": [],
+		"valid_hexes": []
 	}
+	# The shape itself must persist: manual-hex upgrades and Black Market
+	# oversized parts have shapes generate_shape() can't reproduce.
+	for h in comp.valid_hexes:
+		comp_data["valid_hexes"].append({"q": h.q, "r": h.r})
 	for h in comp.fixed_sinks:
 		comp_data["fixed_sinks"].append({"q": h.q, "r": h.r})
 	for h in comp.hex_grid.grid.keys():
@@ -117,8 +153,17 @@ func _deserialize_component(cdata: Dictionary):
 	if cdata.has("infusion_level"): comp.set("infusion_level", cdata["infusion_level"])
 	if cdata.has("infusion_xp"): comp.set("infusion_xp", cdata["infusion_xp"])
 	if cdata.has("stat_modifiers"): comp.set("stat_modifiers", cdata["stat_modifiers"])
+	if cdata.has("forbidden_tile_types"): comp.set("forbidden_tile_types", cdata["forbidden_tile_types"])
 	comp.generate_shape()
-	
+
+	# Restore the exact saved shape over the generated default - required
+	# for manual-hex upgrades and Black Market oversized parts to survive
+	# a save/load round trip. Old saves without the key keep the default.
+	if cdata.has("valid_hexes") and cdata["valid_hexes"] is Array and cdata["valid_hexes"].size() > 0:
+		comp.valid_hexes.clear()
+		for hdata in cdata["valid_hexes"]:
+			comp.valid_hexes.append(HexCoord.new(int(hdata["q"]), int(hdata["r"])))
+
 	if cdata.has("tiles"):
 		for tdata in cdata["tiles"]:
 			var tile = _deserialize_tile(tdata)
@@ -179,7 +224,13 @@ func _serialize_tile(tile) -> Dictionary:
 	elif tile.tile_type == "Component Link" or tile.tile_type == "Actuator" or tile.tile_type == "Torso Return" or tile.tile_type == "Backpack Link":
 		data["target_slot"] = tile.get("target_slot")
 		data["is_fixed"] = tile.get("is_fixed")
-	
+
+	# Mythic ability state - generic sweep so every current and future
+	# mythic toggle persists without this list needing per-type branches.
+	for prop in ["mythic_pattern", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key"]:
+		if prop in tile:
+			data[prop] = tile.get(prop)
+
 	return data
 
 func _deserialize_tile(data: Dictionary):
@@ -220,7 +271,12 @@ func _deserialize_tile(data: Dictionary):
 			tile.face_outputs[int(k)] = int(fo[k])
 	elif "rotation_steps" in tile:
 		tile.rotation_steps = int(data.get("rotation_steps", 1))
-		
+
+	# Mythic ability state (see _serialize_tile's generic sweep)
+	for prop in ["mythic_pattern", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key"]:
+		if data.has(prop) and prop in tile:
+			tile.set(prop, data[prop])
+
 	return tile
 
 func get_save_files() -> Array[String]:
@@ -272,3 +328,45 @@ func load_loadout(slot_index: int, mech: Node, inventory: Array) -> bool:
 	mech.components = new_comps
 	mech.is_grid_dirty = true
 	return true
+
+# --- Per-component loadout slots (FEATURE_ROADMAP.md group 1) --------------
+# Full-build loadouts (above) snapshot the entire mech; these snapshot ONE
+# component - its shape, rarity, and complete tile wiring - so a favorite
+# arm or torso circuit can be reused across otherwise different builds.
+# Files are keyed by body-slot type AND slot index, so a saved Left Arm can
+# never be loaded onto a Torso.
+
+func save_component_loadout(slot_index: int, comp) -> bool:
+	if not comp:
+		return false
+	var data = {
+		"version": 1,
+		"slot_type": comp.slot_type,
+		"component": _serialize_component(comp),
+	}
+	var path = SAVE_DIR + "comp_loadout_" + str(comp.slot_type) + "_" + str(slot_index) + ".json"
+	var file = FileAccess.open(path, FileAccess.WRITE)
+	if not file:
+		return false
+	file.store_string(JSON.stringify(data, "\t"))
+	file.close()
+	return true
+
+# Returns a fresh ComponentEquipment, or null if the slot is empty / wrong type.
+func load_component_loadout(slot_index: int, slot_type: int):
+	var path = SAVE_DIR + "comp_loadout_" + str(slot_type) + "_" + str(slot_index) + ".json"
+	if not FileAccess.file_exists(path):
+		return null
+	var file = FileAccess.open(path, FileAccess.READ)
+	if not file:
+		return null
+	var json = JSON.parse_string(file.get_as_text())
+	file.close()
+	if not json or typeof(json) != TYPE_DICTIONARY or not json.has("component"):
+		return null
+	if int(json.get("slot_type", -1)) != slot_type:
+		return null
+	return _deserialize_component(json["component"])
+
+func has_component_loadout(slot_index: int, slot_type: int) -> bool:
+	return FileAccess.file_exists(SAVE_DIR + "comp_loadout_" + str(slot_type) + "_" + str(slot_index) + ".json")

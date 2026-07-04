@@ -16,6 +16,9 @@ var player: Mech
 var player_inventory: Array = []
 var player_component_inventory: Array = []
 var player_scrap: int = 0
+# Extracted stat modifiers waiting to be infused into a part (feature 5).
+# Each entry: {"stat": String, "value": float}. Managed by GarageMenu.
+var player_modifier_chips: Array = []
 
 
 var hud_canvas: CanvasLayer
@@ -74,6 +77,13 @@ func _ready():
 	_setup_player()
 
 	_setup_hud()
+
+	# War Room (TAB) - the window into the AI director's learning loop.
+	# Minimap (U) - drag to move, wheel to zoom, corner grip to resize.
+	# NOTE: DebugMenu is NOT added here - it's already an autoload in
+	# project.godot (adding it here too created a stacked double menu).
+	add_child(load("res://scripts/ui/WarRoomMenu.gd").new())
+	add_child(load("res://scripts/ui/MinimapOverlay.gd").new())
 
 	# Assume Sandbox mode defaults for now if not set by MainMenu
 	_start_intermission()
@@ -256,6 +266,8 @@ func _setup_player():
 			player_component_inventory = load_data["component_inventory"]
 		if load_data.has("scrap"):
 			player_scrap = load_data["scrap"]
+		if load_data.has("modifier_chips"):
+			player_modifier_chips = load_data["modifier_chips"]
 	else:
 
 		_initialize_starter_inventory()
@@ -385,6 +397,17 @@ func _start_wave():
 		t_support.spawn_weight = 70.0
 		director.register_template(t_support)
 
+		var t_command = load("res://scripts/ai/SquadTemplate.gd").new("Command Escort", {"commander": 1, "brawler": 2, "sniper": 1})
+		t_command.has_shields = true
+		t_command.spawn_weight = 55.0 # rare-ish: a Commander on the field should feel like an event
+		director.register_template(t_command)
+
+		# Restore learned weights/fitness onto the defaults just registered,
+		# plus any evolved compositions and solver profiles from previous
+		# sessions. Must run AFTER the defaults exist so the merge-by-name
+		# updates them in place instead of duplicating them.
+		director.load_learned_state()
+
 	# Periodically let the director try out a new experimental squad
 	# composition (mutation or fresh random template). Not every wave, so
 	# each trial gets a few waves to actually accumulate deployments before
@@ -403,47 +426,118 @@ func _start_wave():
 	elif current_wave > 0 and current_wave % 5 == 0:
 		_spawn_boss(director, false)
 
-	var target_enemy_count = min(80, 5 + int((current_wave - 1) / 4) * 20)
-	
+	# Difficulty scales how MANY as well as how strong (SquadDirector
+	# handles per-bot strength; near-peer stat scaling lives there too).
+	var count_mult = SaveManager.DIFFICULTY_COUNT_MULT[SaveManager.difficulty]
+	var target_enemy_count = min(80, int((5 + int((current_wave - 1) / 4) * 20) * count_mult))
+
+	# Staggered deployment (fire-and-forget async) - see _spawn_wave_async.
+	_spawn_wave_async(director, target_enemy_count)
+
+# True while a wave is still trickling in - guards _on_enemy_died from
+# declaring a premature wave-clear when the player kills the first squads
+# before the rest have deployed.
+var _spawning_wave: bool = false
+var _wave_spawned_any: bool = false
+
+# Spawning a full wave used to happen synchronously: up to ~16 squads x 5
+# mechs, each running the grid solver AND baking six pixel-art parts, all
+# in one frame - the "game freezes when a wave spawns" hitch. Now ONE
+# squad deploys per beat, spreading that cost across frames. It also reads
+# better: squads arrive at the table edges in sequence, like minis being
+# set down one handful at a time.
+func _spawn_wave_async(director, target_enemy_count: int) -> void:
+	_spawning_wave = true
 	var safety_break = 0
 	while active_enemies < target_enemy_count and safety_break < 50:
 		safety_break += 1
-		# Spawn the squad
-		var squad = director.spawn_squad()
-		if not squad: 
+		if not is_instance_valid(director) or not is_instance_valid(player) or not is_inside_tree():
 			break
-			
-		# Place them at a random spawn point away from player
-		var offset = Vector2(randf_range(500, 1500), randf_range(500, 1500))
-		if randf() > 0.5: offset.x *= -1
-		if randf() > 0.5: offset.y *= -1
-		var center_spawn = player.global_position + offset
-		
-		# Clamp to roughly within map bounds
-		center_spawn.x = clamp(center_spawn.x, 100, map.width * map.tile_size - 100)
-		center_spawn.y = clamp(center_spawn.y, 100, map.height * map.tile_size - 100)
-		
+
+		var squad = director.spawn_squad()
+		if not squad:
+			break
+
+		# Squads enter from the table's edges or from behind large
+		# obstacles - not from a fixed ring around the player.
+		var center_spawn = _pick_spawn_anchor()
+		var inset = 96.0
+		var map_w = map.width * map.tile_size
+		var map_h = map.height * map.tile_size
+
 		for mech in squad.members:
 			var raw_pos = center_spawn + Vector2(randf_range(-200, 200), randf_range(-200, 200))
+			# Hard-clamp inside the walls BEFORE the valid-position search:
+			# get_valid_spawn_position returns its input unchanged when it
+			# can't find a clear tile, which let edge-anchored spawns with
+			# unlucky offsets end up outside the map entirely.
+			raw_pos.x = clamp(raw_pos.x, inset, map_w - inset)
+			raw_pos.y = clamp(raw_pos.y, inset, map_h - inset)
 			mech.global_position = map.get_valid_spawn_position(raw_pos)
 			mech.target = player
 			mech.died.connect(_on_enemy_died)
 			mech.collision_layer = 4 # Enemies are Layer 3 (bit 2)
 			mech.collision_mask = 1 | 2 | 8 # Hit env, water, player
 			active_enemies += 1
-			
+			_wave_spawned_any = true
+
+		# One squad per beat - this is the anti-freeze.
+		await get_tree().create_timer(0.12).timeout
+
+	_spawning_wave = false
+
+	# Player killed the whole trickle before deployment finished: that IS
+	# a wave clear, not a spawn failure.
+	if active_enemies <= 0 and safety_break > 0 and _wave_spawned_any:
+		_wave_spawned_any = false
+		_on_wave_cleared()
+		return
+	_wave_spawned_any = false
+
 	if active_enemies <= 0:
 		# Fallback if assembly fails entirely
 		active_enemies = 3
-		var wave_multiplier = pow(1.10, max(0, current_wave - 1))
+		var wave_multiplier = pow(SaveManager.DIFFICULTY_HP_GROWTH[SaveManager.difficulty], max(0, current_wave - 1))
 		for i in range(3):
 			var m = load("res://scripts/entities/Mech.gd").new()
 			m.max_hp = 100.0 * wave_multiplier
 			m.hp = m.max_hp
-			m.global_position = map.get_valid_spawn_position(Vector2(1600 + i*50, 1600))
+			m.global_position = map.get_valid_spawn_position(Vector2(1600 + i * 50, 1600))
 			m.died.connect(_on_enemy_died)
 			m.target = player
 			world.add_child(m)
+
+# Spawn anchor selection: candidates are points just inside the four
+# walls plus points beside big obstacles (cover). Prefers anchors a
+# comfortable distance from the player; if everything is close (small
+# Tabletop maps), takes the farthest available rather than giving up.
+func _pick_spawn_anchor() -> Vector2:
+	var map_w = map.width * map.tile_size
+	var map_h = map.height * map.tile_size
+	var inset = 120.0
+	var candidates: Array = []
+
+	for i in range(4):
+		match randi() % 4:
+			0: candidates.append(Vector2(randf_range(inset, map_w - inset), inset))
+			1: candidates.append(Vector2(randf_range(inset, map_w - inset), map_h - inset))
+			2: candidates.append(Vector2(inset, randf_range(inset, map_h - inset)))
+			3: candidates.append(Vector2(map_w - inset, randf_range(inset, map_h - inset)))
+
+	if map.obstacles.size() > 0:
+		var obstacle_keys = map.obstacles.keys()
+		for i in range(3):
+			var k = obstacle_keys[randi() % obstacle_keys.size()]
+			candidates.append(Vector2(k.x * map.tile_size, k.y * map.tile_size) + Vector2(randf_range(-64, 64), randf_range(-64, 64)))
+
+	var comfortable: Array = candidates.filter(func(c): return c.distance_to(player.global_position) > 700.0)
+	if comfortable.size() > 0:
+		return comfortable[randi() % comfortable.size()]
+	var best = candidates[0]
+	for c in candidates:
+		if c.distance_to(player.global_position) > best.distance_to(player.global_position):
+			best = c
+	return best
 
 func _spawn_boss(director, is_mega: bool):
 	var boss = director._spawn_bot_for_role("brawler")
@@ -511,7 +605,9 @@ func _on_boss_died(boss):
 
 func _on_enemy_died():
 	active_enemies -= 1
-	if active_enemies == 0:
+	# Not while the wave is still trickling in - killing the first squads
+	# before the rest deploy must not count as clearing the wave.
+	if active_enemies == 0 and not _spawning_wave:
 		_on_wave_cleared()
 
 var last_garage_wave: int = 1
@@ -568,13 +664,21 @@ func _open_garage():
 func _close_garage():
 	print("Deploying from Garage...")
 	get_tree().paused = false
-	
+
 	garage_timer = 90.0
 	_update_hud()
-		
+
 	last_garage_wave = current_wave
-	
+
 	if player != null:
+		# Anything could have changed in there - tile placement, routing,
+		# synergy cycling, Mythic toggles, part swaps. The mech's
+		# precalculated weapons are stale until _recalculate_grid runs, and
+		# individual garage edit paths historically forgot to set this flag
+		# (the "projectiles don't change until restart" bug). One
+		# unconditional flag on deploy covers every edit path, present and
+		# future.
+		player.is_grid_dirty = true
 		SaveManager.save_game("autosave", player, player_inventory)
 		
 	if garage_ui:

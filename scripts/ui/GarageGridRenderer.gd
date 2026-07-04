@@ -105,6 +105,14 @@ func _gui_input(event: InputEvent):
 				if hovered_hex and hex_grid and hex_grid.has_tile(hovered_hex):
 					var tile = hex_grid.get_tile(hovered_hex)
 					tile_clicked.emit(tile)
+				elif _expansion_pending() and hovered_hex and active_component:
+					# Manual-hex upgrade placement: clicking an empty cell
+					# adjacent to the shape spends one pending expansion hex.
+					if active_component.add_expansion_hex(hovered_hex):
+						menu_parent.pending_expansion_hexes -= 1
+						if menu_parent.has_method("_show_scrap_float"):
+							menu_parent._show_scrap_float("%d hexes left to place" % menu_parent.pending_expansion_hexes, Color(0.3, 0.9, 1.0))
+						queue_redraw()
 				else:
 					is_panning = true
 					pan_start_pos = event.position
@@ -141,9 +149,37 @@ func _gui_input(event: InputEvent):
 					if hovered_hex and hex_grid and hex_grid.has_tile(hovered_hex):
 						tooltip_requested.emit(hex_grid.get_tile(hovered_hex), get_global_mouse_position())
 
+func _expansion_pending() -> bool:
+	return menu_parent != null and menu_parent.get("pending_expansion_hexes") != null and menu_parent.pending_expansion_hexes > 0
+
+# Candidate cells for a pending manual-hex upgrade: empty neighbors of the
+# current shape. Drawn as pulsing cyan outlines so placement is obvious.
+func _draw_expansion_candidates():
+	if not _expansion_pending() or not active_component:
+		return
+	var seen := {}
+	var pulse = 0.5 + 0.5 * sin(time_elapsed * 5.0)
+	for h in active_component.valid_hexes:
+		for d in range(6):
+			var n = HexCoord.new(h.q, h.r).neighbor(d)
+			var key = str(n.q) + "_" + str(n.r)
+			if seen.has(key):
+				continue
+			seen[key] = true
+			var occupied = false
+			for vh in active_component.valid_hexes:
+				if vh.q == n.q and vh.r == n.r:
+					occupied = true
+					break
+			if not occupied:
+				_draw_hex_outline(n, Color(0.3, 0.9, 1.0, 0.35 + 0.4 * pulse), 2.0)
+
 func _zoom(factor: float, mouse_pos: Vector2):
 	var old_zoom = zoom
-	zoom = clamp(zoom * factor, 0.5, 3.0)
+	# Min was 0.5 - far too tight now that torsos run a tier bigger and
+	# manual-hex upgrades / Black Market parts grow shapes well past the
+	# old defaults. 0.12 fits even a maxed-out Mythic torso on screen.
+	zoom = clamp(zoom * factor, 0.12, 3.0)
 	var real_factor = zoom / old_zoom
 	camera_offset = mouse_pos + (camera_offset - mouse_pos) * real_factor
 	queue_redraw()
@@ -177,6 +213,9 @@ func _draw():
 	for tile in tiles:
 		_draw_tile(tile)
 		
+	# 2.5 Manual-hex upgrade: highlight where new hexes may be placed
+	_draw_expansion_candidates()
+
 	# 3. Draw hover highlight
 	if hovered_hex and hovered_hex in valid_coords:
 		_draw_hex_filled(hovered_hex, COLOR_HOVER)

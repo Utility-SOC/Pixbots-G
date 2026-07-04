@@ -49,7 +49,30 @@ func _setup_ui():
 	var spacer = Control.new()
 	spacer.custom_minimum_size = Vector2(0, 30)
 	vbox.add_child(spacer)
-	
+
+	# Difficulty picker - persists via SaveManager/settings.cfg. The top
+	# option keeps enemies near-peer with your build power, always.
+	var diff_row = HBoxContainer.new()
+	diff_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(diff_row)
+
+	var diff_lbl = Label.new()
+	diff_lbl.text = "Difficulty:  "
+	diff_row.add_child(diff_lbl)
+
+	var diff_opt = OptionButton.new()
+	for name_idx in range(SaveManager.DIFFICULTY_NAMES.size()):
+		diff_opt.add_item(SaveManager.DIFFICULTY_NAMES[name_idx], name_idx)
+	diff_opt.selected = SaveManager.difficulty
+	diff_opt.item_selected.connect(func(idx):
+		SaveManager.set_difficulty(idx)
+	)
+	diff_row.add_child(diff_opt)
+
+	var spacer_diff = Control.new()
+	spacer_diff.custom_minimum_size = Vector2(0, 14)
+	vbox.add_child(spacer_diff)
+
 	# Continue Game
 	var saves = SaveManager.get_save_files()
 	if saves.size() > 0:

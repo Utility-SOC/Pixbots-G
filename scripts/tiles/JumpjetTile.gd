@@ -3,6 +3,17 @@ extends HexTile
 
 @export var speed_boost_mult: float = 1.5
 
+# MYTHIC ability: locomotion mode. 0 = standard jump/sprint boost,
+# 1 = Blink (instant short-range teleport toward the cursor with a
+# cooldown - see Mech._handle_player_input). Hover is deferred until outer
+# walls and interior obstacles live on separate collision layers; otherwise
+# hovering drifts you straight out of the map.
+@export_enum("Jump", "Blink") var mythic_mode: int = 0
+
+func cycle_mythic_mode():
+	if rarity == Rarity.MYTHIC:
+		mythic_mode = (mythic_mode + 1) % 2
+
 func _init():
 	tile_type = "Jumpjet"
 	category = TileCategory.OUTPUT

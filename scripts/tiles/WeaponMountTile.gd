@@ -3,10 +3,18 @@ extends HexTile
 
 @export var damage_multiplier: float = 1.0
 
+# MYTHIC ability: alternate firing patterns (see HexTile._fire_combined_projectile).
+# 0 = normal, 1 = shotgun spread (5 pellets, 40% each), 2 = 360-degree
+# radial burst (8 shots, 50% each), 3 = concentrated beam (faster, piercing).
+@export_enum("Normal", "Shotgun", "Radial Burst", "Beam") var mythic_pattern: int = 0
+
+func cycle_mythic_pattern():
+	mythic_pattern = (mythic_pattern + 1) % 4
+
 var pending_packets: Array = [] # Stores dictionary: { "packet": packet, "step": step }
 var current_charge: float = 0.0 # Used by Mech to track accumulator charging
 
-# Capacitor-bank state (see Mech._recalculate_grid/_shoot/_fire_terapackets)
+# Capacitor-bank state (see Mech._recalculate_grid/_shoot/_tick_weapon_charges)
 # for a mount with Accumulators adjacent to it. Tracked separately from
 # current_charge above so the bank can keep charging in the background
 # without competing with/resetting normal fire's own charge cycle.

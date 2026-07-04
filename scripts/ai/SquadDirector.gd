@@ -3,6 +3,7 @@ extends Node
 
 const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
 const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
+const WarRoomNames = preload("res://scripts/ai/WarRoomNames.gd")
 
 # --- AI squad evolution tuning ---
 # How many "on trial" experimental templates can exist at once. Without a
@@ -35,6 +36,91 @@ var templates: Array[SquadTemplate] = []
 var active_squads: Array[Squad] = []
 var wild_bots: Array[Node] = []
 
+# --- Learned-state persistence -------------------------------------------
+# SquadProfileManager was fully written but never instantiated anywhere,
+# which meant every template weight, fitness record, and evolved
+# composition reset on every game restart. The director now owns one:
+# learned state loads after Main registers the default templates (see
+# load_learned_state, called from Main._start_wave) and saves after every
+# squad defeat - the same moment fitness/culling/graduation happen, so
+# what's on disk is always the post-evaluation state.
+const LEARNED_STATE_NAME = "learned_state"
+var profile_manager: SquadProfileManager = null
+
+func _ready():
+	profile_manager = SquadProfileManager.new()
+	profile_manager.name = "ProfileManager"
+	add_child(profile_manager)
+
+# Merge templates by template_name and solver profiles by profile_name:
+# known entries get their learned stats restored in place, unknown ones
+# (evolved/graduated compositions from past sessions, or an imported
+# friend's profile) get registered fresh. Shared by disk-load and
+# clipboard-import so both behave identically.
+func _merge_learned(loaded_templates: Array, loaded_profiles: Array):
+	for lt in loaded_templates:
+		var existing: SquadTemplate = null
+		for t in templates:
+			if t.template_name == lt.template_name:
+				existing = t
+				break
+		if existing:
+			existing.from_dict(lt.to_dict())
+		else:
+			register_template(lt)
+
+	for lp in loaded_profiles:
+		var existing_p: SolverProfile = null
+		for p in solver_profiles:
+			if p.profile_name == lp.profile_name:
+				existing_p = p
+				break
+		if existing_p:
+			existing_p.from_dict(lp.to_dict())
+		else:
+			solver_profiles.append(lp)
+
+func load_learned_state():
+	if not profile_manager:
+		return
+
+	# 1. Moddable baseline pack from res://config/default_squads.json (or a
+	# user override in user://ai_profiles/) - merged before learned state so
+	# saved learning applied on top wins. This is what makes the config
+	# folder a real modding surface (see MODDING.md).
+	if profile_manager.has_profile("default_squads"):
+		_merge_learned(
+			profile_manager.load_profile("default_squads"),
+			profile_manager.load_solver_profiles("default_squads")
+		)
+
+	# 2. Learned state from previous sessions.
+	if not profile_manager.has_profile(LEARNED_STATE_NAME):
+		return # first boot - nothing learned yet
+	var loaded_templates = profile_manager.load_profile(LEARNED_STATE_NAME)
+	var loaded_profiles = profile_manager.load_solver_profiles(LEARNED_STATE_NAME)
+	_merge_learned(loaded_templates, loaded_profiles)
+	print("[DIRECTOR] Learned AI state restored: ", loaded_templates.size(), " templates, ", loaded_profiles.size(), " solver profiles")
+
+func save_learned_state():
+	if profile_manager:
+		profile_manager.save_profile(LEARNED_STATE_NAME, templates, solver_profiles)
+
+func export_learned_state_to_clipboard():
+	if profile_manager:
+		profile_manager.export_to_clipboard(templates, solver_profiles)
+
+func import_learned_state_from_clipboard() -> bool:
+	if not profile_manager:
+		return false
+	var data = profile_manager.import_from_clipboard()
+	if data.is_empty():
+		return false
+	_merge_learned(data.get("templates", []), data.get("solver_profiles", []))
+	save_learned_state()
+	print("[DIRECTOR] Imported AI profile from clipboard.")
+	return true
+
 func register_wild_bot(bot: Node):
 	if not wild_bots.has(bot):
 		wild_bots.append(bot)
@@ -62,17 +148,48 @@ func _count_experimental() -> int:
 # under MAX_EXPERIMENTAL_TEMPLATES. Call this periodically (Main.gd calls it
 # every few waves) rather than on every squad spawn, so trials aren't
 # constantly getting reset before they've proven anything.
+# Fitness-weighted parent selection for mutation/breeding - templates that
+# keep proving themselves in combat get picked as parents more often, which
+# is what makes the "borrow from successful past buildouts" loop real.
+func _pick_fitness_weighted_parent(candidates: Array) -> SquadTemplate:
+	var total = 0.0
+	for t in candidates:
+		total += max(10.0, t.get_average_fitness())
+	var roll = randf() * total
+	var acc = 0.0
+	for t in candidates:
+		acc += max(10.0, t.get_average_fitness())
+		if roll <= acc:
+			return t
+	return candidates[0]
+
 func maybe_introduce_experimental_template():
 	if templates.is_empty() or _count_experimental() >= MAX_EXPERIMENTAL_TEMPLATES:
 		return
 
+	var candidates = templates.filter(func(t): return not t.is_experimental)
+	if candidates.is_empty():
+		candidates = templates
+
+	# Three sources of fresh doctrine: mutate one proven parent (40%),
+	# crossbreed two proven parents (30%, needs 2+ candidates), or a fully
+	# random composition for genetic diversity (30%).
 	var new_template: SquadTemplate = null
-	if randf() < 0.5:
-		var candidates = templates.filter(func(t): return not t.is_experimental)
-		if candidates.is_empty():
-			candidates = templates
-		var parent = candidates[randi() % candidates.size()]
-		new_template = SquadTemplateMutator.mutate(parent)
+	var roll = randf()
+	if roll < 0.4:
+		new_template = SquadTemplateMutator.mutate(_pick_fitness_weighted_parent(candidates))
+	elif roll < 0.7 and candidates.size() >= 2:
+		var parent_a = _pick_fitness_weighted_parent(candidates)
+		var parent_b = parent_a
+		for i in range(8): # draw until we get a different second parent (bounded)
+			parent_b = _pick_fitness_weighted_parent(candidates)
+			if parent_b != parent_a:
+				break
+		if parent_a == parent_b:
+			new_template = SquadTemplateMutator.mutate(parent_a)
+		else:
+			new_template = SquadTemplateMutator.crossover(parent_a, parent_b)
+			print("[DIRECTOR] Crossbred '", parent_a.template_name, "' x '", parent_b.template_name, "'")
 	else:
 		new_template = SquadTemplateMutator.random_template()
 
@@ -231,6 +348,57 @@ func log_player_damage(amount: float, element: String):
 	player_element_usage[element] += amount
 	total_damage_taken += amount
 
+# --- Kill-method telemetry + over-reliance counter-pressure ----------------
+# Damage telemetry (above) tracks what the player SPRAYS; this tracks what
+# actually FINISHES enemies. Over-reliance on ANY synergy (RAW excepted -
+# it's the baseline tool, not a crutch) gets answered on two fronts:
+#   1. jammer/commander-bearing squads get sustained up-weighting
+#   2. newly spawned Jammer Modules switch to SYNERGY-jam mode aimed at
+#      the offending element (see _spawn_bot_for_role's ready callback)
+# Pressure is gentle and continuous per kill, so diversifying lets the
+# weights relax naturally through normal fitness learning. (The Piercing
+# Jammer execute-exemption arrives with the melee pillar; this telemetry
+# will already have history by then.)
+const KILL_OVERUSE_SHARE = 0.5
+const KILL_OVERUSE_MIN_KILLS = 15
+
+var player_kill_methods: Dictionary = {}
+var total_player_kills: int = 0
+var counter_jam_synergy: int = -1 # -1 = no over-reliance detected right now
+var _counter_announced_element: String = ""
+
+func log_player_kill(element: String):
+	player_kill_methods[element] = player_kill_methods.get(element, 0) + 1
+	total_player_kills += 1
+	_apply_kill_method_counter_pressure()
+
+func _apply_kill_method_counter_pressure():
+	if total_player_kills < KILL_OVERUSE_MIN_KILLS:
+		return
+
+	var top_element := ""
+	var top_share := 0.0
+	for element in player_kill_methods:
+		if element == "RAW":
+			continue
+		var share = float(player_kill_methods[element]) / float(total_player_kills)
+		if share > top_share:
+			top_share = share
+			top_element = element
+
+	if top_element == "" or top_share < KILL_OVERUSE_SHARE:
+		counter_jam_synergy = -1
+		_counter_announced_element = ""
+		return
+
+	counter_jam_synergy = _element_string_to_synergy(top_element)
+	for t in templates:
+		if t.required_roles.has("jammer") or t.required_roles.has("commander"):
+			t.spawn_weight = min(250.0, t.spawn_weight * 1.06)
+	if _counter_announced_element != top_element:
+		_counter_announced_element = top_element
+		print("[DIRECTOR] Player %s-execution share %.0f%% - jammer counter-doctrine now targeting %s." % [top_element, top_share * 100.0, top_element])
+
 # Same counter pairing already used for shield bonus damage in
 # Mech._apply_shield_mitigation (FIRE<->ICE, POISON<->VAMPIRIC,
 # KINETIC<->LIGHTNING, VORTEX->KINETIC) - reused here rather than inventing
@@ -326,13 +494,36 @@ func _count_experimental_profiles() -> int:
 func maybe_introduce_experimental_profile():
 	if _count_experimental_profiles() >= MAX_EXPERIMENTAL_PROFILES:
 		return
-	var parent = solver_profiles[randi() % solver_profiles.size()] if not solver_profiles.is_empty() else build_reactive_profile()
-	var mutant = _mutate_profile(parent)
+	var mutant: SolverProfile = null
+	# 30% crossbreed when two profiles exist to breed from
+	if solver_profiles.size() >= 2 and randf() < 0.3:
+		var a = solver_profiles[randi() % solver_profiles.size()]
+		var b = a
+		for i in range(8):
+			b = solver_profiles[randi() % solver_profiles.size()]
+			if b != a:
+				break
+		mutant = _crossover_profiles(a, b) if a != b else _mutate_profile(a)
+	else:
+		var parent = solver_profiles[randi() % solver_profiles.size()] if not solver_profiles.is_empty() else build_reactive_profile()
+		mutant = _mutate_profile(parent)
 	solver_profiles.append(mutant)
 	print("[DIRECTOR] New experimental solver profile on trial: '", mutant.profile_name, "' favored=", mutant.favored_synergy, " pierce=", "%.2f" % mutant.pierce_priority)
 
+# Loadout-doctrine breeding: averaged priorities with a little noise,
+# favored element from the fitter parent - same shape as squad crossover.
+func _crossover_profiles(a: SolverProfile, b: SolverProfile) -> SolverProfile:
+	var fitter = a if a.get_average_fitness() >= b.get_average_fitness() else b
+	var child = SolverProfile.new(WarRoomNames.designation(), fitter.favored_synergy)
+	child.pierce_priority = clamp((a.pierce_priority + b.pierce_priority) / 2.0 + randf_range(-0.05, 0.05), 0.0, 1.0)
+	child.amplify_priority = clamp((a.amplify_priority + b.amplify_priority) / 2.0 + randf_range(-0.05, 0.05), 0.1, 2.0)
+	child.is_experimental = true
+	child.base_spawn_weight = 65.0
+	child.spawn_weight = 65.0
+	return child
+
 func _mutate_profile(parent: SolverProfile) -> SolverProfile:
-	var mutant = SolverProfile.new(parent.profile_name + " Mk." + str(100 + randi() % 900), parent.favored_synergy)
+	var mutant = SolverProfile.new(WarRoomNames.designation(), parent.favored_synergy)
 	mutant.pierce_priority = clamp(parent.pierce_priority + randf_range(-0.3, 0.3), 0.0, 1.0)
 	mutant.amplify_priority = clamp(parent.amplify_priority + randf_range(-0.3, 0.3), 0.1, 2.0)
 	if randf() < 0.3:
@@ -410,6 +601,14 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 		for comp in bot.components.values():
 			for coord in comp.hex_grid.grid.keys():
 				var tile = comp.hex_grid.grid[coord]
+				# Over-reliance counter (see _apply_kill_method_counter_pressure):
+				# aim any jammer module at the synergy the player leans on
+				# for kills, switching it to SYNERGY-jam mode.
+				if counter_jam_synergy >= 0 and tile.tile_type == "Jammer Module":
+					if "jam_mode" in tile:
+						tile.jam_mode = 1
+					if "target_synergy" in tile:
+						tile.target_synergy = counter_jam_synergy
 				if tile.tile_type == "Microcore":
 					# If this core feeds a weapon, set it to the counter_element
 					# If it feeds a shield, set it to the player_favored_element
@@ -436,9 +635,26 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	# game world, see Main.gd's _setup_pixel_viewport()). current_scene
 	# still correctly resolves to Main regardless of how deep world nesting
 	# goes, so it's the more robust reference here.
+	var difficulty = SaveManager.difficulty
 	var main = get_tree().current_scene
 	if main and "current_wave" in main:
-		wave_multiplier = pow(1.10, max(0, main.current_wave - 1))
+		# Difficulty-driven growth (was a flat 1.10 for everyone)
+		var growth = SaveManager.DIFFICULTY_HP_GROWTH[difficulty]
+		wave_multiplier = pow(growth, max(0, main.current_wave - 1))
+
+	# "Why would you do this to yourself?": enemies are near-peers with the
+	# player's ACTUAL build power, always - clown-shoes full-Mythic builds
+	# included. Also applies stat pressure on Hard, at a gentler exponent.
+	if difficulty >= 2:
+		var peer_exp = 0.85 if difficulty >= 3 else 0.5
+		wave_multiplier *= max(1.0, pow(_estimate_player_power() / NEAR_PEER_BASELINE, peer_exp))
+
+	# Gear parity: on Hard the bots' component rarity creeps up with waves;
+	# on near-peer they simply build from the player's dominant tier.
+	if difficulty == 2 and main and "current_wave" in main:
+		bot.base_rarity = max(bot.base_rarity, min(HexTile.Rarity.RARE, int(main.current_wave / 8)))
+	elif difficulty >= 3:
+		bot.base_rarity = max(bot.base_rarity, _player_dominant_rarity())
 		
 	var base_hp = 100.0
 	match role:
@@ -472,16 +688,66 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			base_hp = 130.0 # Squishier than a brawler - it's meant to hang back
 			bot.base_speed = 110.0
 			bot.engagement_distance = 500.0
+		"commander":
+			# The squad's spine: slow, tough, deep backline, and its Command
+			# Suite backpack stacks up to 5 support modules (heal/jammer/
+			# shield/cloak - see ComponentEquipment.create_command_backpack).
+			base_hp = 350.0
+			bot.base_speed = 70.0
+			bot.engagement_distance = 600.0
 
 	bot.max_hp = base_hp * wave_multiplier
 	bot.hp = bot.max_hp
-	
-	if has_shields:
+
+	# Near-peer bots always deploy shielded - the player at that tier
+	# certainly is, and "near peers, always" means matching the basics.
+	if has_shields or role == "commander" or difficulty >= 3:
 		bot.max_shield_hp = (base_hp * 0.5) * wave_multiplier
 		bot.shield_hp = bot.max_shield_hp
 		
 	add_child(bot)
 	return bot
+
+# --- Near-peer scaling (difficulty 3, partial on 2) -------------------------
+# A single scalar estimate of the player's build power: equipped tile
+# values on the same rarity ladder scrap uses, plus tile levels, frame
+# rarity, and infusion. Deliberately coarse - it only needs to move in the
+# same direction the player's power does.
+const NEAR_PEER_BASELINE = 700.0 # rough score of a fresh starter build
+const RARITY_POWER_VALUES = [10.0, 25.0, 75.0, 250.0, 1000.0]
+
+func _estimate_player_power() -> float:
+	var players = get_tree().get_nodes_in_group("player")
+	if players.is_empty():
+		return NEAR_PEER_BASELINE
+	var p = players[0]
+	if not "components" in p:
+		return NEAR_PEER_BASELINE
+	var score = 0.0
+	for comp in p.components.values():
+		score += 20.0 * (1 + comp.rarity) # the frame itself
+		score += comp.infusion_level * 50.0
+		for tile in comp.hex_grid.get_all_tiles():
+			score += RARITY_POWER_VALUES[clamp(tile.rarity, 0, 4)] * (1.0 + 0.1 * (tile.level - 1))
+	return max(score, 1.0)
+
+# The player's median equipped tile rarity - what tier they're "really"
+# playing at, robust against one lucky Mythic in a sea of Commons.
+func _player_dominant_rarity() -> int:
+	var players = get_tree().get_nodes_in_group("player")
+	if players.is_empty():
+		return 0
+	var p = players[0]
+	if not "components" in p:
+		return 0
+	var rarities: Array = []
+	for comp in p.components.values():
+		for tile in comp.hex_grid.get_all_tiles():
+			rarities.append(tile.rarity)
+	if rarities.is_empty():
+		return 0
+	rarities.sort()
+	return int(rarities[rarities.size() / 2])
 
 func spawn_squad() -> Squad:
 	return attempt_squad_assembly()
@@ -499,21 +765,27 @@ func _on_squad_defeated(squad: Squad, fitness_score: float):
 		_evaluate_experimental_profile(p)
 
 	var t = squad.template
-	if not t:
-		return
-	t.update_fitness(fitness_score)
-	# Using Godot's print for headless testing feedback
-	print("[DIRECTOR] Squad Defeated! Template: '", t.template_name, "'")
-	print("           Fitness: ", "%.1f" % fitness_score, " | New Weight: ", "%.1f" % t.spawn_weight)
+	if t:
+		t.update_fitness(fitness_score)
+		# Using Godot's print for headless testing feedback
+		print("[DIRECTOR] Squad Defeated! Template: '", t.template_name, "'")
+		print("           Fitness: ", "%.1f" % fitness_score, " | New Weight: ", "%.1f" % t.spawn_weight)
 
-	# Cull/graduate experimental templates once they've had a fair trial.
-	# This is what keeps mutation + merge-derived templates from piling up
-	# forever - underperformers get removed, standouts become permanent.
-	if t.is_experimental and t.times_deployed >= MIN_TRIALS_BEFORE_CULL:
-		var avg = t.get_average_fitness()
-		if avg < CULL_FITNESS_THRESHOLD:
-			templates.erase(t)
-			print("[DIRECTOR] Experimental template '", t.template_name, "' culled (avg fitness %.1f < %.1f)" % [avg, CULL_FITNESS_THRESHOLD])
-		elif avg >= GRADUATE_FITNESS_THRESHOLD:
-			t.is_experimental = false
-			print("[DIRECTOR] Experimental template '", t.template_name, "' graduated to permanent rotation! (avg fitness %.1f)" % avg)
+		# Cull/graduate experimental templates once they've had a fair trial.
+		# This is what keeps mutation + merge-derived templates from piling up
+		# forever - underperformers get removed, standouts become permanent.
+		if t.is_experimental and t.times_deployed >= MIN_TRIALS_BEFORE_CULL:
+			var avg = t.get_average_fitness()
+			if avg < CULL_FITNESS_THRESHOLD:
+				templates.erase(t)
+				print("[DIRECTOR] Experimental template '", t.template_name, "' culled (avg fitness %.1f < %.1f)" % [avg, CULL_FITNESS_THRESHOLD])
+			elif avg >= GRADUATE_FITNESS_THRESHOLD:
+				t.is_experimental = false
+				print("[DIRECTOR] Experimental template '", t.template_name, "' graduated to permanent rotation! (avg fitness %.1f)" % avg)
+
+	# Persist post-evaluation state (weights, fitness, culls, graduations,
+	# profile credit) - this is what makes the evolutionary system actually
+	# accumulate across sessions instead of relearning from scratch. Runs
+	# even when squad.template is null, because the solver-profile credit
+	# above still changed state.
+	save_learned_state()

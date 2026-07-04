@@ -150,12 +150,14 @@ func _finalize_particles():
 	var particles = CPUParticles2D.new()
 	particles.emission_shape = CPUParticles2D.EMISSION_SHAPE_POINTS
 	particles.emission_points = PackedVector2Array(_particle_points)
-	particles.amount = clamp(_particle_points.size() / 2, 8, 40)
-	particles.lifetime = 1.0
+	# Sparse and cell-sized: a few motes at the bake's pixel scale read as
+	# an energy aura; dozens of sub-cell dots read as static noise.
+	particles.amount = clamp(_particle_points.size() / 3, 4, 12)
+	particles.lifetime = 1.2
 	particles.gravity = Vector2(0, -10)
-	particles.scale_amount_min = 1.0
-	particles.scale_amount_max = 2.5
-	particles.color = _particle_color
+	particles.scale_amount_min = MechPartRenderer.CELL_SIZE
+	particles.scale_amount_max = MechPartRenderer.CELL_SIZE
+	particles.color = Color(_particle_color, 0.75)
 	add_child(particles)
 	_shared_particles = particles
 
@@ -434,7 +436,13 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 	part_renderer.name = part_name + "_Draw"
 	container.add_child(part_renderer)
 
-	# Complex Edges for RARE and LEGENDARY
+	# Complex Edges for RARE and LEGENDARY.
+	# Only notch edges long enough for a notch to read as a deliberate
+	# armor cut at the bake's CELL_SIZE (3px cells): a notch on a short edge
+	# rasterizes as a lone flickery corner pixel, and with every edge
+	# notched the whole silhouette dissolved into zigzag noise - the
+	# "fugly legendary" look. Depth is exactly one cell so the cut lands on
+	# the pixel grid instead of half-covering cells.
 	if rarity >= HexTile.Rarity.RARE and pts.size() >= 3:
 		var new_pts = PackedVector2Array()
 		var center = Vector2.ZERO
@@ -444,14 +452,10 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 			var p1 = pts[i]
 			var p2 = pts[(i+1)%pts.size()]
 			new_pts.append(p1)
-			# Add a small notch in the middle of each edge - capped to a
-			# fraction of the edge's own length so short edges (small/thin
-			# chassis) don't get notched past themselves into a
-			# self-intersecting shape.
-			var mid = (p1 + p2) / 2.0
-			var to_center = (center - mid).normalized()
-			var notch_depth = min(3.0, p1.distance_to(p2) * 0.3)
-			new_pts.append(mid + to_center * notch_depth)
+			if p1.distance_to(p2) >= MechPartRenderer.CELL_SIZE * 4.0:
+				var mid = (p1 + p2) / 2.0
+				var to_center = (center - mid).normalized()
+				new_pts.append(mid + to_center * MechPartRenderer.CELL_SIZE)
 		pts = new_pts
 
 	# 1. Energy Sub-layer (Glow/Bleed)
@@ -459,9 +463,12 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 
 	# Particles for high rarity components now just contribute emission
 	# points to ONE shared system built after all parts are drawn.
-	if rarity >= HexTile.Rarity.UNCOMMON:
-		for p in pts:
-			_particle_points.append(p + offset)
+	# RARE+ only, and only every third vertex - one point per vertex of a
+	# notched polygon carpeted the whole sprite in drifting dots, which read
+	# as red noise speckles rather than an energy aura.
+	if rarity >= HexTile.Rarity.RARE:
+		for i in range(0, pts.size(), 3):
+			_particle_points.append(pts[i] + offset)
 
 	# 2. Armor Super-layer (Directional Shaded Metal)
 	var base_armor_color = Color(0.3, 0.35, 0.38) # Slate metal grey
@@ -472,14 +479,15 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 	var shrunk_pts = _shrink_polygon(pts, 3.0)
 	part_renderer.add_fill(shrunk_pts, base_armor_color)
 
-	# Greebling (Extra armor plates) for UNCOMMON+
+	# Greebling (Extra armor plate) for UNCOMMON+. Was two extra plates
+	# (lightened at 6px, darkened at 9px) - at 3px cells that's concentric
+	# one-cell rings of alternating brightness, which reads as banded mush,
+	# not layered armor. One subtle inner plate is enough at this resolution.
 	if rarity >= HexTile.Rarity.UNCOMMON:
-		part_renderer.add_fill(_shrink_polygon(pts, 6.0), base_armor_color.lightened(0.15))
+		part_renderer.add_fill(_shrink_polygon(pts, 6.0), base_armor_color.lightened(0.12))
 
-		if rarity >= HexTile.Rarity.RARE:
-			part_renderer.add_fill(_shrink_polygon(pts, 9.0), base_armor_color.darkened(0.1))
-
-	# Energy Lines for RARE+
+	# Energy Lines for RARE+ - a single one-cell ring of bright energy color
+	# is the one accent that DOES read clearly at this scale, so it stays.
 	if rarity >= HexTile.Rarity.RARE:
 		var center_poly = _shrink_polygon(pts, 12.0)
 		if center_poly.size() > 0:
@@ -487,28 +495,12 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 			loop_pts.append(center_poly[0]) # close loop
 			part_renderer.add_loop(loop_pts, energy_color.lightened(0.4), 1.5)
 
-	# 3. Highlight / Shadow lines (Faux 3D bevel)
-	for i in range(shrunk_pts.size()):
-		var p1 = shrunk_pts[i]
-		var p2 = shrunk_pts[(i + 1) % shrunk_pts.size()]
-		# Skip very short edges
-		if p1.distance_to(p2) < 2.0: continue
-
-		var edge_normal = (p2 - p1).orthogonal().normalized()
-
-		# If normal points up/left, it's a highlight. Down/right is shadow.
-		var light_dir = Vector2(-0.5, -0.8).normalized()
-		var dot = edge_normal.dot(light_dir)
-
-		var line_color: Color
-		if dot > 0.2:
-			line_color = Color(0.6, 0.65, 0.7) # Highlight
-		elif dot < -0.2:
-			line_color = Color(0.1, 0.15, 0.18) # Shadow
-		else:
-			line_color = Color(0.2, 0.25, 0.28) # Mid-tone
-
-		part_renderer.add_line(p1, p2, line_color, 2.0)
+	# NOTE: the old per-edge highlight/shadow "faux 3D bevel" lines are gone.
+	# MechPartRenderer's own header says it: at this few pixels the bevel
+	# treatment "just looks like noise", and _add_outline() already provides
+	# the silhouette read. Three grey line tones criss-crossing a notched
+	# polygon at 2px width on a 3px grid was the single biggest contributor
+	# to the speckled look on RARE/LEGENDARY parts.
 
 	part_renderer.finish()
 

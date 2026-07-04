@@ -11,13 +11,33 @@ func _init():
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	var mult = _get_power_multiplier()
-	
-	packet.charge_required *= (charge_multiplier / mult) # Higher rarity = less charge time needed for same boost
-	packet.amplify(damage_boost * mult)
+
+	# The through-flowing packet is NOT modified (design: clicking fires
+	# the weapon "almost as if there were no accumulator"). Instead the
+	# accumulator records its boost multipliers on the packet, and the
+	# mount collection in Mech._recalculate_grid builds a SEPARATE big
+	# charged shot from them - fired exclusively by this tile's 1/2/3 key.
+	packet.acc_charge_mult *= (charge_multiplier / mult) # higher rarity = less extra charge time for the same boost
+	packet.acc_damage_mult *= (damage_boost * mult)
 	if trigger_key != "None":
 		packet.set("trigger_key", trigger_key)
-	
+	# The "almost": normal mouse fire pays a small quality tax
+	packet.accumulator_quality = min(packet.accumulator_quality, get_quality_factor())
+
 	return [packet]
+
+# Convenience tax on NORMAL (mouse) fire through this accumulator: 1.0 is
+# no penalty. Better rarity/level = smoother discharge circuitry = smaller
+# tax. Manual key-dumps (hold 1/2/3 + fire) bypass it entirely - see
+# Mech._shoot.
+func get_quality_factor() -> float:
+	var base = 0.85
+	match rarity:
+		Rarity.UNCOMMON: base = 0.88
+		Rarity.RARE: base = 0.91
+		Rarity.LEGENDARY: base = 0.95
+		Rarity.MYTHIC: base = 1.0
+	return min(1.0, base + (level - 1) * 0.005)
 
 func _get_power_multiplier() -> float:
 	var mult = 1.0

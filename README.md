@@ -160,3 +160,9 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 - **Pacifist AI Subroutines Patched:** Enemy AI will now properly route their Weapon Mounts and actively fire on the player.
 - **Component Infusion Added:** Players can now destroy components to grant XP to other components, levelling them up and granting stat modifiers.
 - **Component Swapping Added:** Players can now swap components on their Mech in the Garage.
+- **AI War Room & Persistent Learning:** The AI Director now saves its learned strategies between sessions! You can view its evolving squads and lineage in the new War Room UI (press `TAB`), and even export/import profiles to swap trained AI with friends.
+- **Modding Support (Phase 1):** You can now define and load custom baseline squad packs via `config/default_squads.json`. See `MODDING.md` for full documentation!
+- **Minimap Added:** A new minimap overlay helps you track terrain and enemy squad movements.
+- **Environmental & Tactical Additions:** Destructible Ruin Obstacles have been added. Furthermore, jumpjets now automatically activate and sustain when traversing water hazards!
+- **Visual Improvements:** The cloaking effect has been redesigned with a new distortion-circle shader, and lightning strikes now use an instant stylized polyline effect.
+- **Roadmap & Docs:** `FEATURE_ROADMAP.md` has been added with all upcoming design decisions (including the scrap economy and lightweight heat system).

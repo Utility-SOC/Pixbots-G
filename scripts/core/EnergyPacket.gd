@@ -26,6 +26,21 @@ var position: HexCoord = null
 var direction: int = 0
 var is_active: bool = true
 var trigger_key: String = "None"
+# 1.0 = no penalty. Set below 1.0 by AccumulatorTile.process_energy():
+# normal (mouse) fire of an accumulator-fed weapon pays this small
+# convenience tax, which shrinks as accumulator rarity/level rises.
+# Manual key-dumps (hold 1/2/3 + fire) always deliver full value.
+var accumulator_quality: float = 1.0
+# Pumped by Mythic Amplifiers in AoE-focus mode: each point grows the
+# projectile's visual scale and explosion radius (see Projectile.gd).
+var aoe_bonus: float = 0.0
+# Accumulated by AccumulatorTile.process_energy WITHOUT modifying the
+# packet itself: the through-flowing packet stays "as if there were no
+# accumulator" (that's the mouse-fired shot), and these multipliers are
+# used at mount collection to build the SEPARATE big charged shot that
+# fires only via its 1/2/3 key. See Mech._recalculate_grid.
+var acc_charge_mult: float = 1.0
+var acc_damage_mult: float = 1.0
 var traversal_steps: int = 0
 var charge_required: float = 1.0 :
 	set(val):
@@ -94,6 +109,10 @@ func split(ratio: float) -> EnergyPacket:
 	var new_packet = EnergyPacket.new(magnitude * ratio, position)
 	new_packet.direction = direction
 	new_packet.charge_required = charge_required
+	new_packet.accumulator_quality = accumulator_quality
+	new_packet.aoe_bonus = aoe_bonus
+	new_packet.acc_charge_mult = acc_charge_mult
+	new_packet.acc_damage_mult = acc_damage_mult
 	new_packet.synergies.clear()
 	for k in synergies:
 		new_packet.synergies[k] = synergies[k] * ratio
@@ -113,10 +132,20 @@ func copy() -> EnergyPacket:
 	new_packet.synergies = synergies.duplicate()
 	new_packet.traversal_steps = traversal_steps
 	new_packet.charge_required = charge_required
+	new_packet.accumulator_quality = accumulator_quality
+	new_packet.aoe_bonus = aoe_bonus
+	new_packet.acc_charge_mult = acc_charge_mult
+	new_packet.acc_damage_mult = acc_damage_mult
 	return new_packet
 
 func merge(other: EnergyPacket):
 	magnitude += other.magnitude
+	# Merged streams pay the worse of the two convenience taxes
+	accumulator_quality = min(accumulator_quality, other.accumulator_quality)
+	aoe_bonus = max(aoe_bonus, other.aoe_bonus)
+	# Strongest accumulator stack on any merged path defines the big shot
+	acc_charge_mult = max(acc_charge_mult, other.acc_charge_mult)
+	acc_damage_mult = max(acc_damage_mult, other.acc_damage_mult)
 	for k in other.synergies:
 		synergies[k] = synergies.get(k, 0.0) + other.synergies[k]
 

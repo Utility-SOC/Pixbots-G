@@ -55,33 +55,49 @@ In Pixbots-G, if two energy paths merge at a Weapon Mount, they only combine the
 
 *Warning: If you split a packet into two parallel paths using Legendary tiles, their Sync Deviations might desync the packets, causing them to arrive at the weapon mount at different times, firing two weak shots instead of merging into one massive shot!*
 
-### Exhaustive Tile Glossary
+### Exhaustive Tile Glossary & Rarity Scaling
 
 **Power Generation & Storage**
-- **Core Tile**: The primary power source. Generates RAW energy packets. *Mythic Toggle*: Native Element (Core outputs a specific element instead of RAW).
-- **Microcore Tile**: A secondary, localized generator with fewer output faces.
+- **Core Tile**: The primary power source. Generates RAW energy packets. 
+  - *Mythic Toggle*: Native Element (Core outputs a specific element instead of RAW).
+- **Microcore Tile**: A secondary, localized generator with fewer output faces. 
+  - *Common/Uncommon*: 2 faces (50-75 output).
+  - *Rare*: 3 faces (120 output). 
+  - *Legendary*: 4 faces (200 output). 
+  - *Mythic*: 6 faces (320 output).
 - **Accumulator Tile**: Stores excess energy. Discharges when primary draw exceeds generation. *Combat Mechanics*: Accumulators passively charge. You can left-click for standard fire (with a quality tax) or hold 1/2/3 to pre-prime and dump the full stored value in a massive volley.
 
 **Routing & Modulation**
-- **Splitter Tile**: Receives a packet and duplicates it. *Mythic Feature*: 6-face output and x2 multiplier!
+- **Splitter Tile**: Receives a packet and duplicates it. 
+  - *Common/Uncommon*: Splits into 2 faces.
+  - *Rare*: Splits into 3 faces.
+  - *Legendary*: Splits into 5 faces.
+  - *Mythic*: Splits into all 6 faces + x2 output multiplier!
 - **Directional Conduit Tile**: Forces energy to flow in one specific direction (prevents backflow).
-- **Amplifier Tile**: Modulates the packet, increasing its magnitude. *Overlimit Note*: Amplification has a hard mathematical ceiling of **150,000 magnitude**. If a packet exceeds this ceiling, it is clamped. *Mythic Toggle*: Focus (Condense amplification to a single extreme output).
+- **Amplifier Tile**: Modulates the packet, increasing its magnitude. *Overlimit Note*: Amplification has a hard mathematical ceiling of **150,000 magnitude**. If a packet exceeds this ceiling, it is clamped. 
+  - *Uncommon*: 1.2x. *Rare*: 1.5x. *Legendary*: 3.0x. *Mythic*: 5.0x + Focus Toggle (Condense amplification to a single extreme output).
 - **Filter Tile**: Only allows specific elemental energy to pass through.
-- **Catalyst Tile**: Converts standard energy into elemental energy. *Mythic Toggle*: `cycle_synergy()` (Invert or rotate the output element).
-- **Reflector Tile**: Bounces energy packets back in the direction they came from.
-- **Resonator Tile**: Increases efficiency if multiple packets of the same element pass through consecutively. 
+- **Catalyst Tile**: Converts standard energy into elemental energy. 
+  - *Mythic Toggle*: `cycle_synergy()` (Invert or rotate the output element).
+- **Reflector Tile**: Bounces energy packets back by altering their angle. *The Reflector does not simply reverse the packet; it reflects it at the specific angular rotation steps you have set for it!*
+- **Resonator Tile**: Leaves a "remnant" (15%) of the synergies that pass through it. The *next* packet that passes through absorbs 80% of those remnants. This confers qualities from one synergy to another (e.g. turning Kinetic packets slightly Fire-based)!
+  - *Uncommon*: 1.2x boost. *Rare*: 1.5x. *Legendary*: 3.0x. *Mythic*: 5.0x.
 - **Infuser Tile**: Consumes two different elemental packets to output a combined, higher-tier elemental packet.
-- **Magnet Tile**: Alters the flow of packets based on rules. *Mythic Toggle*: Attract/Repel mode + Rarity Filter!
+- **Magnet Tile**: Alters the flow of packets based on rules. 
+  - *Uncommon*: 1.2x pull. *Rare*: 1.5x. *Legendary*: 2.0x. *Mythic*: 3.0x + Attract/Repel mode + Rarity Filter!
 
 **Utilities & Combat**
-- **Weapon Mount Tile**: Converts incoming packets into offensive projectiles based on the energy's element. *Mythic Feature*: Custom spread patterns.
+- **Weapon Mount Tile**: Converts incoming packets into offensive projectiles based on the energy's element. 
+  - *Mythic Feature*: Cycle through firing configurations: **Normal** (Standard shot), **Shotgun** (5 pellets, 40% dmg each), **Radial Burst** (360-degree burst of 8 shots, 50% dmg each), **Beam** (Concentrated, ultra-fast piercing laser).
 - **Shield Generator Tile**: Converts packets into a defensive barrier that fully absorbs incoming damage while it holds.
+  - *Uncommon*: 1.5x efficiency. *Rare*: 2.5x. *Legendary*: 5.0x. *Mythic*: 10.0x.
 - **Actuator Tile**: Consumes energy to increase base movement speed.
-- **Jumpjet Tile**: Grants aerial evasion/traversal. *Mechanic*: If you traverse water hazards, jumpjets automatically activate and sustain to prevent drowning! *Mythic Toggle*: Blink (Instant teleportation).
+- **Jumpjet Tile**: Grants aerial evasion/traversal. *Mechanic*: If you traverse water hazards, jumpjets automatically activate and sustain to prevent drowning!
+  - *Uncommon*: 1.2x efficiency. *Rare*: 1.5x. *Legendary*: 2.0x. *Mythic*: 3.0x + Blink Toggle (Instant teleportation).
 
 ---
 
-## 4. ELEMENTAL SYNERGIES
+## 4. ELEMENTAL SYNERGIES & ROCK-PAPER-SCISSORS
 
 When specialized energy packets reach a Weapon Mount, they trigger unique subroutines. Projectiles blend physical properties (speed, scale, lifetime, trails, and color) proportionally based on the synergy ratios in the packet.
 
@@ -95,6 +111,17 @@ When specialized energy packets reach a Weapon Mount, they trigger unique subrou
 - **VORTEX**: Generates a localized gravity well, pulling nearby units out of formation.
 - **PIERCE**: Has a percentage chance to instantly execute ("cut in half") non-boss targets.
 - **EXPLOSION**: Standard AoE blast damage on impact.
+
+### Elemental Rock-Paper-Scissors (Shield Counters)
+Different elements deal double damage (2.0x) against specific elemental shields:
+- **FIRE** melts **ICE** Shields.
+- **ICE** extinguishes **FIRE** Shields.
+- **POISON** corrupts **VAMPIRIC** Shields.
+- **VAMPIRIC** drains **POISON** Shields.
+- **KINETIC** shatters **LIGHTNING** Shields.
+- **LIGHTNING** surges through **KINETIC** Shields.
+- **VORTEX** crushes **KINETIC** Shields.
+- *Note*: **LIGHTNING** is inherently volatile and deals a flat 1.5x bonus damage against ALL shields!
 
 ---
 

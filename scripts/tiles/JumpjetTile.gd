@@ -18,11 +18,14 @@ func _init():
 	tile_type = "Jumpjet"
 	category = TileCategory.OUTPUT
 
+func get_weight() -> float:
+	return 7.0 # propulsion hardware - heavy, ironic given what it does
+
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []
-	
+
 	packet.is_active = false
-	
+
 	if grid and grid.get_parent():
 		var mech = grid.get_parent()
 		if mech and "slot_type" in mech:

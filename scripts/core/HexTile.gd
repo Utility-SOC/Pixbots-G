@@ -10,8 +10,15 @@ enum Rarity {
 }
 
 enum BodySlot {
-	NONE, TORSO, ARM_L, ARM_R, LEG_L, LEG_R, HEAD, BACKPACK
+	NONE, TORSO, ARM_L, ARM_R, LEG_L, LEG_R, HEAD, BACKPACK, DRONE
 }
+# DRONE is deliberately NOT a slot that ever appears in a Mech's own
+# `components` dict - it's the slot_type of the small standalone
+# ComponentEquipment owned by a DroneBayTile (see DroneBayTile.gd), which
+# gets equipped onto the Drone's OWN separate Mech-like node (Drone.gd) when
+# it's spawned into the world. Keeping it out of the main mech's
+# `components`/_recalculate_grid() loop is what lets the drone's weapon fire
+# from the drone's own flying position instead of the main mech's.
 
 @export var tile_type: String = "Base"
 @export var category: TileCategory = TileCategory.CONDUIT
@@ -45,6 +52,13 @@ var disable_timer: float = 0.0
 var times_disabled: int = 0
 var time_since_last_hit: float = 0.0
 
+# Set by Mech._roll_component_disable() for a catastrophic ("grave enough")
+# hit instead of the normal timed disable/reboot cycle below - the tile stays
+# fully offline with no self-recovery until a Garage repair clears it
+# (see GarageMenu._on_repair_all). Distinct from the ordinary is_disabled
+# timer so a routine knockout doesn't accidentally become permanent.
+var power_lost: bool = false
+
 func take_damage(amount: float):
 	hp -= amount
 	time_since_last_hit = 0.0
@@ -55,11 +69,36 @@ func take_damage(amount: float):
 		times_disabled += 1
 		hp = 0
 
+# Relative disable-roll risk by component type - see Mech._roll_component_disable
+# for how this is used. Splitters are the juiciest target (routing hub, losing
+# one collapses a lot of downstream packet flow), Reflector/Resonator/Amplifier
+# are valuable-but-secondary, everything else is comparatively low priority.
+func get_disable_risk() -> float:
+	match tile_type:
+		"Splitter":
+			return 1.0
+		"Reflector", "Resonator", "Amplifier":
+			return 0.55
+		_:
+			return 0.2
+
+# Mass contribution for the melee/ramming physics pillar (see Mech._recalculate_grid
+# for where these get summed into total_mass, and update_status_effects for the
+# resulting movement-speed penalty/bonus). Base default covers any tile type
+# that doesn't override this below; subclasses override with a value that's
+# rationally in line with what the part actually is - power sources and
+# propulsion/actuator hardware are heavy, routing/link tiles are nearly weightless.
+func get_weight() -> float:
+	return 3.0
+
 func process_durability(delta: float):
 	time_since_last_hit += delta
 	if time_since_last_hit >= 5.0 and times_disabled > 0 and not is_disabled:
 		times_disabled = 0
-	
+
+	if power_lost:
+		return # Only a Garage repair brings this back - see take_damage/power_lost above
+
 	if is_disabled:
 		disable_timer -= delta
 		if disable_timer <= 0:
@@ -155,6 +194,8 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	proj.damage = base_damage
 	proj.is_crit = is_crit
 	proj.synergies = packet.synergies.duplicate()
+	if "proc_synergies" in proj:
+		proj.proc_synergies = packet.proc_synergies.duplicate()
 	if "stat_modifiers" in mech:
 		proj.stat_modifiers = mech.stat_modifiers.duplicate()
 	proj.set("weapon_rarity", rarity)

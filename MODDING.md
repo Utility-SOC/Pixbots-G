@@ -24,7 +24,7 @@ keys are optional — old files with only `templates` still load.
 ```json
 {
 	"profile_name": "my_mod_pack",
-	"version": "1.1",
+	"version": "1.3",
 	"templates": [
 		{
 			"template_name": "P3X-774",
@@ -55,7 +55,7 @@ keys are optional — old files with only `templates` still load.
 ### Template fields
 
 - `template_name` — display name (the game generates Stargate-style designations like `P3X-774` for evolved squads; mods can use any string).
-- `required_roles` — role name → count. Valid roles: `sniper`, `brawler`, `flamethrower`, `ambusher`, `scout`, `jammer`, `support` (see `SquadTemplateMutator.ALL_ROLES`).
+- `required_roles` — role name → count. Valid roles: `sniper`, `brawler`, `flamethrower`, `ambusher`, `scout`, `jammer`, `support`, `commander` (see `SquadTemplateMutator.ALL_ROLES`; the game also spawns special roles like `diver` internally).
 - `spawn_weight` / `base_spawn_weight` — weighted-random selection weight; 100 is baseline. Weight learns toward `base_spawn_weight * fitness/100`, clamped 10–1000.
 - `times_deployed` / `total_fitness` — learning history; ship 0 for fresh templates.
 - `is_experimental` — `true` puts the template on trial: it gets culled if average fitness < 60 after 3 deployments, and graduates to permanent at ≥ 110.
@@ -66,6 +66,45 @@ keys are optional — old files with only `templates` still load.
 - `favored_synergy` — index into `EnergyPacket.SynergyType`: 0 RAW, 1 FIRE, 2 ICE, 3 LIGHTNING, 4 VORTEX, 5 POISON, 6 EXPLOSION, 7 KINETIC, 8 PIERCE, 9 VAMPIRIC. Use `-1` for no preference.
 - `pierce_priority` / `amplify_priority` — relative weights when the auto-equip solver chooses between Pierce-flavored and Amplify-flavored placements. Only the ratio matters.
 - Remaining fields mirror the template learning fields.
+
+### Boss profiles (format v1.2+)
+
+A third optional key, `boss_profiles`, carries evolvable boss kits:
+
+```json
+	"boss_profiles": [
+		{
+			"profile_name": "R4K-201",
+			"base_role": "brawler",
+			"ability_pool": ["shockwave", "blink_strike"],
+			"enrage_style": "berserker",
+			"position_style": "aggressive",
+			"hp_mult": 1.0,
+			"is_experimental": false,
+			"spawn_weight": 100.0,
+			"base_spawn_weight": 100.0,
+			"parent_name": "",
+			"times_used": 0,
+			"total_fitness": 0.0,
+			"fitness_history": []
+		}
+	]
+```
+
+Valid abilities: `shockwave`, `railgun`, `blink_strike`, `fire_pool`,
+`jam_burst`, `rally`. Enrage styles: `berserker`, `juggernaut`, `vampiric`,
+`unstable`. Position styles: `aggressive`, `kiter`, `circler`. Base roles:
+`brawler`, `sniper`, `ambusher`, `flamethrower`, `jammer`, `commander`.
+(See `BossProfile.gd` for the authoritative lists.)
+
+### Telemetry (format v1.3, learned_state only)
+
+`learned_state.json` also carries a `"telemetry"` dict (the director's
+observed player element usage and kill methods) so the counter-doctrine
+remembers you between sessions. It is intentionally **excluded from
+clipboard export/import** — sharing your combat history would poison a
+friend's director with the wrong player's habits. Delete the key (or the
+whole file) to reset the AI's memory of your playstyle.
 
 ## Learned state & sharing
 

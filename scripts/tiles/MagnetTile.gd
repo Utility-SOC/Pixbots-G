@@ -10,8 +10,10 @@ var current_magnetic_power: float = 0.0
 @export var min_attract_rarity: int = -1
 
 # MYTHIC ability: flip the field. Attract (default) pulls loot inward as
-# usual; Repel turns the magnet into a kinetic field that shoves nearby
-# enemies away from the mech (see Mech's magnet block).
+# usual; Repel turns the field into a projectile REFLECTOR - enemy shots
+# entering the radius flip ownership and fly back out hunting enemies
+# (see the magnet block in Mech._physics_process). Loot attraction keeps
+# working in both modes.
 @export var repel_mode: bool = false
 
 func toggle_repel_mode():
@@ -30,6 +32,9 @@ func _init():
 	tile_type = "Magnet"
 	category = TileCategory.OUTPUT
 	base_color = Color(0.6, 0.2, 0.8) # Purple
+
+func get_weight() -> float:
+	return 5.0 # substantial electromagnet hardware
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	var p = packet.copy()

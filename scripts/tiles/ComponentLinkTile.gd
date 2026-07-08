@@ -34,6 +34,9 @@ func _init(p_target: HexTile.BodySlot = HexTile.BodySlot.NONE, p_is_fixed: bool 
 
 var active_faces: Array[int] = [0] # Default exit face
 
+func get_weight() -> float:
+	return 1.0 # just a connector/sink, basically weightless
+
 func get_max_faces() -> int:
 	return 3
 

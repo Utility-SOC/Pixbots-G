@@ -3,6 +3,16 @@ extends Node
 const SAVE_DIR = "user://saves/"
 var save_to_load: String = ""
 
+# Per-save tutorial-seen bit (Natalia asked for this instead of the tutorial
+# only tracking completion via the old global user://tutorial_completed.flag
+# file, which didn't distinguish between save slots). Runtime state here,
+# same pattern as save_to_load: written into every save_game() payload,
+# restored by load_game(), and reset on New Game. TutorialManager.gd is the
+# reader/writer; the legacy flag file is still honored as a fallback so
+# players who already dismissed the tutorial under the old system don't see
+# it replay.
+var tutorial_completed: bool = false
+
 # --- Difficulty (lives here because SaveManager is a global autoload) ------
 # 0 Casual, 1 Normal, 2 Hard, 3 "Why would you do this to yourself?"
 # The top tier keeps enemies NEAR-PEERS with the player's actual build
@@ -15,32 +25,57 @@ const DIFFICULTY_COUNT_MULT = [0.7, 1.0, 1.3, 1.6]
 
 var difficulty: int = 1
 
+# Settings live at user:// (writable in exported builds - res:// is
+# READ-ONLY once exported, so the old res://settings.cfg writes silently
+# failed for players). SETTINGS_PATH is the single source of truth;
+# SettingsMenu and MainMenu read the same constant. A one-time migration
+# in _ready() carries any old res:// settings forward.
+const SETTINGS_PATH = "user://settings.cfg"
+const LEGACY_SETTINGS_PATH = "res://settings.cfg"
+
 func set_difficulty(d: int):
 	difficulty = clamp(d, 0, 3)
-	# Same res://settings.cfg the existing settings code uses. (Known
-	# limitation inherited from that pattern: res:// is read-only in
-	# exported builds - migrate all settings to user:// together later.)
 	var config = ConfigFile.new()
-	config.load("res://settings.cfg") # keep existing sections if present
+	config.load(SETTINGS_PATH) # keep existing sections if present
 	config.set_value("Game", "Difficulty", difficulty)
-	config.save("res://settings.cfg")
+	config.save(SETTINGS_PATH)
 
 func _ready():
 	var dir = DirAccess.open("user://")
 	if not dir.dir_exists("saves"):
 		dir.make_dir("saves")
 
+	# One-time settings migration: res:// (legacy, read-only when exported)
+	# -> user:// (writable everywhere).
+	if not FileAccess.file_exists(SETTINGS_PATH) and FileAccess.file_exists(LEGACY_SETTINGS_PATH):
+		var legacy = ConfigFile.new()
+		if legacy.load(LEGACY_SETTINGS_PATH) == OK:
+			legacy.save(SETTINGS_PATH)
+
 	var config = ConfigFile.new()
-	if config.load("res://settings.cfg") == OK:
+	if config.load(SETTINGS_PATH) == OK:
 		difficulty = clamp(int(config.get_value("Game", "Difficulty", 1)), 0, 3)
+
+# SAVE FORMAT VERSION LOG (bump on any schema change; loaders are
+# has()-guarded so old saves keep working, this is for humans + future
+# migration code):
+#   2 - original component/inventory/scrap format
+#   3 - adds: valid_hexes + forbidden_tile_types per component, modifier
+#       chips, mythic tile ability props (pattern/mode/focus/inverted/
+#       repel/min_attract_rarity/trigger_key)
+#   4 - persists tile power_lost, closing the "quit and reload to heal
+#       fried tiles for free" loophole (permanence ruling: combat damage
+#       disables tiles; only a Garage repair brings them back)
+const SAVE_FORMAT_VERSION = 4
 
 func save_game(save_name: String, mech: Node, inventory: Array):
 	var data = {
-		"version": 2,
+		"version": SAVE_FORMAT_VERSION,
 		"components": {},
 		"inventory": [],
 		"component_inventory": [],
-		"scrap": 0
+		"scrap": 0,
+		"tutorial_completed": tutorial_completed
 	}
 
 	# NOTE: was mech.get_parent() - that broke when the player mech moved
@@ -83,14 +118,20 @@ func load_game(save_name: String) -> Dictionary:
 	
 	if not json or typeof(json) != TYPE_DICTIONARY:
 		return {}
-		
+
 	var result = {
 		"components": {},
 		"inventory": [],
 		"component_inventory": [],
 		"scrap": 0
 	}
-	
+
+	# Restore the per-save tutorial-seen bit onto the singleton directly -
+	# see the field's own comment above. Older saves without the key just
+	# leave whatever's already there (governed by the legacy flag file).
+	if json.has("tutorial_completed"):
+		tutorial_completed = bool(json["tutorial_completed"])
+
 	if json.has("scrap"):
 		result["scrap"] = json["scrap"]
 	if json.has("modifier_chips"):
@@ -224,10 +265,19 @@ func _serialize_tile(tile) -> Dictionary:
 	elif tile.tile_type == "Component Link" or tile.tile_type == "Actuator" or tile.tile_type == "Torso Return" or tile.tile_type == "Backpack Link":
 		data["target_slot"] = tile.get("target_slot")
 		data["is_fixed"] = tile.get("is_fixed")
+	elif tile.tile_type == "Drone Bay":
+		# The Drone Bay is the one tile that owns a whole nested
+		# ComponentEquipment (the drone's own hex-grid loadout) rather than a
+		# few flat fields - recurse through the same component serializer
+		# used for top-level body-slot components so a player-customized
+		# drone loadout survives a save/load round trip instead of silently
+		# resetting to its default weapon mount.
+		if tile.drone_loadout:
+			data["drone_loadout"] = _serialize_component(tile.drone_loadout)
 
 	# Mythic ability state - generic sweep so every current and future
 	# mythic toggle persists without this list needing per-type branches.
-	for prop in ["mythic_pattern", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key"]:
+	for prop in ["mythic_pattern", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost"]:
 		if prop in tile:
 			data[prop] = tile.get(prop)
 
@@ -272,8 +322,11 @@ func _deserialize_tile(data: Dictionary):
 	elif "rotation_steps" in tile:
 		tile.rotation_steps = int(data.get("rotation_steps", 1))
 
+	if tile.tile_type == "Drone Bay" and data.has("drone_loadout"):
+		tile.drone_loadout = _deserialize_component(data["drone_loadout"])
+
 	# Mythic ability state (see _serialize_tile's generic sweep)
-	for prop in ["mythic_pattern", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key"]:
+	for prop in ["mythic_pattern", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost"]:
 		if data.has(prop) and prop in tile:
 			tile.set(prop, data[prop])
 
@@ -294,7 +347,7 @@ func get_save_files() -> Array[String]:
 
 func save_loadout(slot_index: int, mech: Node):
 	var data = {
-		"version": 2,
+		"version": SAVE_FORMAT_VERSION,
 		"components": {}
 	}
 	for slot in mech.components.keys():

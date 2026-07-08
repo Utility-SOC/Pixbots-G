@@ -19,11 +19,16 @@ var current_charge: float = 0.0 # Used by Mech to track accumulator charging
 # current_charge above so the bank can keep charging in the background
 # without competing with/resetting normal fire's own charge cycle.
 var bank_current_charge: float = 0.0
-var bank_primed: bool = false # true once the bank has reached full charge at least once - unlocks normal auto-fire
+# (bank_primed removed: it was written but never read - a vestige of the
+# pre-siphon "silent until first fill" gate, superseded by the half-power
+# siphon model. It was never serialized, so nothing breaks.)
 
 func _init():
 	tile_type = "Weapon Mount"
 	category = TileCategory.OUTPUT
+
+func get_weight() -> float:
+	return 6.0 # a gun mount has real heft
 
 func clear_pending():
 	pending_packets.clear()

@@ -2,6 +2,119 @@
 
 Notes compiled after a full read-through of the codebase (data structures, performance, AI, rendering, loot, and progression systems), plus the fixes and new systems added alongside this document (map chunking, mech renderer rewrite, ambusher cloak, scout/support jammer modules and heal beacons, AI squad mutation/culling, procedural component shapes). These are suggestions, not commitments - grouped by area, roughly in order of expected impact.
 
+---
+
+# SECOND REVIEW (July 2026) - post-expansion code health pass
+
+State of the codebase at review time: ~20k lines (up ~60%), with major new
+systems since the first review: evolving BossProfile kits (abilities/enrage/
+positioning), Rival Challenges, Drones + Drone Bay, Piercing Jammers with
+execute-immunity auras, shield Deflector overflow, mass/ramming groundwork,
+oil slick hazards, flow-field pathing, tutorial system, death reports.
+General health is GOOD - hot loops are being throttled (magnet 10Hz, minimap
+12Hz, homing scans), formulas are being generalized (rival power scoring
+reuses the player yardstick), and regressions from the big feature push have
+been getting fixed at the root. The items below are what's left, grouped and
+roughly ordered by impact within each group.
+
+## A. Requested but still outstanding
+
+1. **Mythic Magnet "Repel" still shoves enemies; the requested behavior is
+   projectile REFLECTION with ownership flip** (enemy shot enters field ->
+   `fired_by_player = true`, `collision_mask = 4|1`, direction reversed,
+   `source_mech` reassigned so lifesteal/damage credit works). Needs
+   projectiles registered in a group ("projectile") to find them cheaply -
+   they currently aren't in any group.
+2. **Early-game enemy projectile monoculture.** The reactive SolverProfile
+   is the only loadout voice until mutations accumulate, so wave 1-10 bots
+   mostly fire the same element. Cheap fix: in `_spawn_bot_for_role`, ~35%
+   chance to clone the profile with a random `favored_synergy` (per-bot
+   jitter); role loadouts already add some variety, this finishes it.
+3. **Heat has zero player-facing UI.** The whole system (generation, siphon
+   venting, ice cooling, lightning arcing, overheat knockouts) is invisible
+   until the OVERHEAT float text. Minimum: a slim HUD heat bar; ideal: also
+   a per-circuit heat rate readout in the Garage stats panel.
+
+## B. Bugs / correctness risks
+
+4. **`settings.cfg` lives at `res://`** (SettingsMenu, MainMenu, SaveManager
+   difficulty). Writable in the editor, READ-ONLY in exported builds -
+   difficulty + control scheme will silently fail to persist for players.
+   Migrate all settings IO to `user://settings.cfg` in one pass (with a
+   one-time res:// -> user:// migration read).
+5. **`bank_primed` is written but never read** - vestige of the pre-siphon
+   gate model; its old comment claimed it "unlocks normal auto-fire," which
+   is no longer true (comment fixed this pass, flagged for removal).
+6. **Near-peer power estimate ignores `stat_modifiers`.** Chip-stacked
+   builds (+50% per stat) read as weaker than they are to WWYDTTY scaling -
+   exactly the clown-shoes build the mode exists for. Fold modifier sums
+   into `_estimate_mech_power`.
+7. **Director telemetry isn't persisted.** Template weights/fitness survive
+   restarts via learned_state.json, but `player_element_usage` and
+   `player_kill_methods` reset - so the counter-doctrine has amnesia while
+   squad evolution remembers. Inconsistent memory; persist both dicts in
+   the same file.
+8. **Save `"version": 2` has survived multiple schema changes** (valid_hexes,
+   chips, mythic props, forbidden types...). All handled by has()-guards, so
+   nothing is broken, but bump the version on schema change and keep a tiny
+   migrations comment block, or the first real breaking change will hurt.
+
+## C. Performance
+
+9. **AI LOD is still the biggest unclaimed win** (carried over from the
+   first review, more urgent now): 80 near-peer mechs + boss ability logic
+   all full-tick regardless of distance/visibility. A distance-tiered tick
+   divider for `_execute_ai_tactics` (full rate near, 1/4 rate far) is the
+   cheapest large frame-time lever left.
+10. **Finish the group-scan consolidation**: 33 `get_nodes_in_group` sites;
+    several hot ones are now throttled, but a per-frame cached snapshot
+    (tiny EntityCache autoload: enemies/loot arrays refreshed once per
+    frame) would eliminate the remaining redundant tree walks.
+11. **MechPartRenderer bake caching**: every spawned mech re-rasterizes ~6
+    part images; near-peer waves bake 80 near-identical sprite sets. Cache
+    baked textures keyed by (shape points hash, rarity, color, accent) -
+    stacks multiplicatively with the trickle spawner on wave-start cost.
+
+## D. Structure / spaghetti
+
+12. **Mech.gd is now a 3,190-line god-class** (91 funcs: player input, AI
+    tactics, boss kit, statuses, heat, magnet, cloak, ramming, drone base).
+    Mechanical split into child nodes/refcounted helpers - BossBrain,
+    StatusEffectRunner, PlayerController - no behavior change, huge
+    readability/merge-conflict win. Do it BEFORE the melee pillar lands on
+    top of it.
+13. **Rarity math is scattered**: 8 copies of `_get_power_multiplier` across
+    tiles, plus separate rarity ladders in GarageMenu (scrap), SquadDirector
+    (power values), LootManager (drops), upgrade costs. One `RarityMath`
+    static class; the 8 tile copies are pure deletion.
+14. **Element name/id conversion exists in 5+ places** (SquadDirector match,
+    SYNERGY_NAMES tables in WarRoomMenu + GarageMenu, Projectile's
+    dominant_str match, Mech's shield id mapping). Add static
+    `EnergyPacket.element_name(id)` / `element_id(name)` beside the color
+    helpers and delete the local copies.
+15. **Comment debt**: several comments still describe removed systems (the
+    old dump-modifier keys, pre-siphon gating). Worth a sweep whenever a
+    file is touched anyway.
+
+## E. Systems that should be connected but aren't
+
+16. **Difficulty x map size**: enemy count formula doesn't know the Tabletop
+    is 1/50th the area of the default map - same 80-cap mosh pit. Scale
+    `target_enemy_count` by a map-area ratio.
+17. **War Room lacks a "YOUR MECH" card**: the director already computes
+    your power score, dominant rarity, and kill-method profile - showing
+    the player the same numbers the AI uses to hunt them is both UX gold
+    and free (all data exists).
+18. **Tutorial coverage vs new systems**: tutorial.json predates hold-key
+    dumps, heat, chips, the Black Market, and difficulty selection - verify
+    steps exist for each or add them.
+19. **MODDING.md drift**: no mention of the `boss_profiles` key (format
+    v1.2), the commander role, or the Tabletop map type. Quick refresh.
+20. **FEATURE_ROADMAP.md status block is far behind reality** - rivals,
+    drones, boss evolution, shield modes, Piercing Jammers, oil slicks, and
+    mass/ramming groundwork have all landed since it was written. Refresh
+    it so it stays a truthful map of the project.
+
 ## Progression & pacing
 
 The README already flags that formal progression is "under construction," so this is timely rather than a criticism.

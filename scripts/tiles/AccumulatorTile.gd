@@ -9,6 +9,9 @@ func _init():
 	tile_type = "Accumulator"
 	category = TileCategory.STORAGE
 
+func get_weight() -> float:
+	return 7.0 # a capacitor bank storing this much charge is heavy
+
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	var mult = _get_power_multiplier()
 

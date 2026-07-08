@@ -3,6 +3,15 @@ const MapGenerator = preload("res://scripts/core/MapGenerator.gd")
 const Mech = preload("res://scripts/entities/Mech.gd")
 
 const WeaponMountTile = preload("res://scripts/tiles/WeaponMountTile.gd")
+const DroneBayTile = preload("res://scripts/tiles/DroneBayTile.gd")
+
+# Companion Drone (see Drone.gd/DroneBayTile.gd): spawned alongside the
+# player on deploy if a Drone Bay is installed in their Backpack, destroyed
+# and respawned after a cooldown if it dies mid-run - "destructible,
+# respawns" per Natalia's design choice.
+var drone_node: Node2D = null
+var _drone_respawn_timer: float = 0.0
+const DRONE_RESPAWN_DELAY = 8.0
 
 var current_mode: String = "sandbox"
 var current_wave: int = 1
@@ -84,9 +93,24 @@ func _ready():
 	# project.godot (adding it here too created a stacked double menu).
 	add_child(load("res://scripts/ui/WarRoomMenu.gd").new())
 	add_child(load("res://scripts/ui/MinimapOverlay.gd").new())
+	# First-run onboarding (tutorial.json) - dormant after the player
+	# completes or skips it once (user://tutorial_completed.flag).
+	add_child(load("res://scripts/ui/TutorialManager.gd").new())
+	# Centralized Esc-to-pause handling that works whether or not the tree
+	# is currently paused (Garage/death) - see GlobalPauseHandler.gd's own
+	# comment for why this replaced the old Main._unhandled_input +
+	# GarageMenu._input dual-handler approach.
+	add_child(load("res://scripts/ui/GlobalPauseHandler.gd").new())
 
-	# Assume Sandbox mode defaults for now if not set by MainMenu
-	_start_intermission()
+	# Per Natalia: every game start (new game or loaded save) should land in
+	# the Garage first, not straight into combat - the player deploys
+	# explicitly via "Deploy to Battlefield ->". _close_garage() already
+	# handles kicking off the first wave's countdown on that initial
+	# deploy (its "if active_enemies <= 0: _show_countdown()" - active_enemies
+	# is still 0 at this point since nothing has spawned yet), so nothing
+	# else needs to change for wave 1 to start correctly once the player
+	# actually deploys.
+	_open_garage()
 
 func _setup_pixel_viewport():
 	# A Control anchored PRESET_FULL_RECT under a bare Node2D (Main) doesn't
@@ -198,6 +222,46 @@ func _process(delta: float):
 	elif extraction_indicator:
 		extraction_indicator.visible = false
 
+	if _drone_respawn_timer > 0.0:
+		_drone_respawn_timer -= delta
+		if _drone_respawn_timer <= 0.0:
+			_spawn_drone_if_needed()
+
+# Spawns the companion Drone alongside the player if they have a Drone Bay
+# installed in their Backpack and don't already have a live one - called on
+# every deploy (_close_garage) and again after the respawn cooldown elapses
+# following a mid-combat drone death (see _on_drone_died).
+func _spawn_drone_if_needed():
+	if is_instance_valid(drone_node):
+		return
+	if not player or not player.components.has(HexTile.BodySlot.BACKPACK):
+		return
+	var backpack = player.components[HexTile.BodySlot.BACKPACK]
+	var drone_bay = DroneBayTile.find_in_backpack(backpack)
+	if not drone_bay:
+		return
+
+	var drone = load("res://scripts/entities/Drone.gd").new()
+	drone.setup(player, drone_bay.get_or_build_loadout(), drone_bay.rarity)
+	drone.global_position = player.global_position + Vector2(60, -40)
+	drone.drone_died.connect(_on_drone_died)
+	world.add_child(drone)
+	drone_node = drone
+
+func _on_drone_died(_rarity: int):
+	drone_node = null
+	_drone_respawn_timer = DRONE_RESPAWN_DELAY
+
+# Garage state is a hard reset point for the drone same as everything else
+# about the run (see _open_garage's full-heal) - simpler and more robust than
+# trying to keep a live drone node correctly paused/hidden through the
+# Garage UI. A fresh one spawns right back on deploy (_close_garage).
+func _despawn_drone():
+	if is_instance_valid(drone_node):
+		drone_node.queue_free()
+	drone_node = null
+	_drone_respawn_timer = 0.0
+
 func _spawn_extraction_marker():
 	var marker_class = load("res://scripts/entities/ExtractionMarker.gd")
 	if marker_class:
@@ -214,12 +278,9 @@ func _spawn_extraction_marker():
 		world.add_child(extraction_marker)
 
 
-func _unhandled_input(event):
-	if event.is_action_pressed("ui_cancel"):
-		if not get_tree().paused:
-			get_tree().paused = true
-			var pause_menu = load("res://scripts/ui/PauseMenu.gd").new()
-			add_child(pause_menu)
+# Esc/ui_cancel handling moved to GlobalPauseHandler.gd (added in _ready())
+# - it needs to work whether or not the tree is paused, which this
+# function couldn't do since Main itself isn't PROCESS_MODE_ALWAYS.
 
 func _load_campaign():
 	var file = FileAccess.open("res://campaign.json", FileAccess.READ)
@@ -231,7 +292,11 @@ func _load_campaign():
 
 func _setup_environment():
 	map = MapGenerator.new()
-	map.map_type = "Open Field"
+	# Per-run map rotation (design ruling). Tabletop is weighted double -
+	# it's the game's eventual identity; long-term every biome here becomes
+	# a themed tabletop mat (grass mat, tundra mat...) rather than "terrain".
+	var map_rotation = ["Tabletop", "Tabletop", "Normal", "Open Field", "Forest", "Desert", "Tundra", "Volcano", "Dungeon", "Water"]
+	map.map_type = map_rotation[randi() % map_rotation.size()]
 	map.name = "GameMap"
 	world.add_child(map)
 
@@ -402,6 +467,21 @@ func _start_wave():
 		t_command.spawn_weight = 55.0 # rare-ish: a Commander on the field should feel like an event
 		director.register_template(t_command)
 
+		# Piercing Jammer's whole value is the execute-immunity aura it
+		# throws over its escort - pair it with roles a pierce-execute
+		# player would normally love shredding (brawler/ambusher, both
+		# squishy-ish melee-range targets) so the counterplay is legible.
+		var t_pierce_escort = load("res://scripts/ai/SquadTemplate.gd").new("Pierce Escort", {"piercing_jammer": 1, "brawler": 1, "ambusher": 1})
+		t_pierce_escort.spawn_weight = 45.0 # baseline rare-ish; SquadDirector up-weights hard once PIERCE-execution share is detected
+		director.register_template(t_pierce_escort)
+
+		# Divers flank through water other roles have to route around -
+		# paired with a scout for the same "hit-and-fade" playstyle rather
+		# than a tanky escort, since the whole point is terrain, not brawn.
+		var t_recon_amphib = load("res://scripts/ai/SquadTemplate.gd").new("Amphibious Recon", {"diver": 2, "scout": 1})
+		t_recon_amphib.spawn_weight = 60.0
+		director.register_template(t_recon_amphib)
+
 		# Restore learned weights/fitness onto the defaults just registered,
 		# plus any evolved compositions and solver profiles from previous
 		# sessions. Must run AFTER the defaults exist so the merge-by-name
@@ -416,12 +496,21 @@ func _start_wave():
 		director.maybe_introduce_experimental_template()
 	if current_wave % 4 == 0:
 		director.maybe_introduce_experimental_profile()
+	if current_wave % 5 == 0:
+		director.maybe_introduce_experimental_boss_profile()
 
 	active_enemies = 0
 	
 	# Megaboss Wave Check (Every 25 waves)
 	if current_wave > 0 and current_wave % 25 == 0:
 		_spawn_boss(director, true)
+	# Rival Challenge (every 10 waves) - takes priority over the regular
+	# boss cadence on any wave where both would fire (e.g. wave 10, 20; not
+	# 25/50 - megaboss wins those). See FEATURE_ROADMAP.md's Story section:
+	# a specialized match built to within Natalia's locked +/-15% of the
+	# player's own current build power, rather than an archetype boss.
+	elif current_wave > 0 and current_wave % 10 == 0:
+		_spawn_rival(director)
 	# Boss Wave Check (Every 5 waves)
 	elif current_wave > 0 and current_wave % 5 == 0:
 		_spawn_boss(director, false)
@@ -429,7 +518,13 @@ func _start_wave():
 	# Difficulty scales how MANY as well as how strong (SquadDirector
 	# handles per-bot strength; near-peer stat scaling lives there too).
 	var count_mult = SaveManager.DIFFICULTY_COUNT_MULT[SaveManager.difficulty]
-	var target_enemy_count = min(80, int((5 + int((current_wave - 1) / 4) * 20) * count_mult))
+	# Map-area density scaling: the Tabletop (64x32) is ~1/50th the default
+	# map's area - the same 80-cap there is a mosh pit, not a battle. sqrt
+	# keeps small maps busy-but-breathable (Tabletop lands around x0.23).
+	var area_ratio = float(map.width * map.height) / float(400 * 250)
+	var density_mult = clamp(sqrt(area_ratio), 0.15, 1.0)
+	var target_enemy_count = min(80, int((5 + int((current_wave - 1) / 4) * 20) * count_mult * density_mult))
+	target_enemy_count = max(3, target_enemy_count)
 
 	# Staggered deployment (fire-and-forget async) - see _spawn_wave_async.
 	_spawn_wave_async(director, target_enemy_count)
@@ -539,26 +634,51 @@ func _pick_spawn_anchor() -> Vector2:
 			best = c
 	return best
 
+# Bosses used to be a scaled-up Brawler, no exceptions, then a flat const
+# array of 6 hand-picked archetypes. Now they're spawned from a BossProfile
+# pulled off SquadDirector's evolving, fitness-weighted pool (see
+# SquadDirector._register_default_boss_profiles/get_active_boss_profile) -
+# the same 6 starting kits, but mutation grows real variety over time
+# (different enrage styles, ability combos, even different underlying
+# roles), same as squad templates and solver profiles already do.
+#
+# hp_mult exists because the underlying roles' base_hp varies wildly
+# (60-350) for balance reasons that have nothing to do with "is this a
+# boss" - it roughly levels every archetype back to a comparable HP band
+# (regular ~750, mega ~3750) so difficulty stays comparable across profiles
+# while still leaving each one a bit squishier or tankier to match its
+# flavor. First-pass numbers, not measured against real playtesting.
 func _spawn_boss(director, is_mega: bool):
-	var boss = director._spawn_bot_for_role("brawler")
+	var profile = director.get_active_boss_profile()
+	var boss = director._spawn_bot_for_role(profile.base_role)
+	boss.boss_profile = profile
+	var hp_mult = profile.hp_mult
 	if is_mega:
 		boss.scale = Vector2(3.0, 3.0)
-		boss.max_hp *= 25.0
+		boss.max_hp *= 25.0 * hp_mult
 		boss.is_boss = true
 		boss.set_meta("boss_drop", "mega")
 	else:
 		boss.scale = Vector2(2.0, 2.0)
-		boss.max_hp *= 5.0
+		boss.max_hp *= 5.0 * hp_mult
 		boss.is_boss = true
-		var backpacks = ["shield", "jetpack", "missile"]
+		var backpacks = ["shield", "jetpack", "missile", "drone"]
 		boss.set_meta("boss_drop", backpacks.pick_random())
-		
+
+	# is_boss/boss_profile are set above, AFTER _spawn_bot_for_role's
+	# add_child already triggered _ready() and built the visual once with
+	# is_boss still false - so the boss-only silhouette accents (spike-crown,
+	# cloak-fin, satellite dish, etc. - see MechRenderer.gd) never showed up
+	# without an explicit rebuild here.
+	if boss.has_method("refresh_boss_visuals"):
+		boss.refresh_boss_visuals()
+
 	boss.hp = boss.max_hp
 	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
 	if randf() > 0.5: offset.x *= -1
 	if randf() > 0.5: offset.y *= -1
 	var center_spawn = player.global_position + offset
-	
+
 	boss.global_position = map.get_valid_spawn_position(center_spawn)
 	boss.target = player
 	boss.died.connect(_on_boss_died.bind(boss))
@@ -567,6 +687,15 @@ func _spawn_boss(director, is_mega: bool):
 	active_enemies += 1
 
 func _on_boss_died(boss):
+	# Feed the fight's outcome back into the boss profile's fitness (same
+	# reinforcement loop as squad templates/solver profiles) BEFORE the
+	# fixed loot-drop handling below, since that part is unrelated and
+	# shouldn't be gated on the profile existing.
+	if "boss_profile" in boss and boss.boss_profile and boss.has_method("get_boss_fitness"):
+		var director = world.get_node_or_null("SquadDirector") if world else null
+		if director:
+			director._on_boss_defeated(boss.boss_profile, boss.get_boss_fitness())
+
 	var drop_type = boss.get_meta("boss_drop", "shield")
 	var drop_pack = null
 	
@@ -594,13 +723,82 @@ func _on_boss_died(boss):
 			drop_pack = load("res://scripts/core/ComponentEquipment.gd").create_jetpack_backpack()
 		elif drop_type == "missile":
 			drop_pack = load("res://scripts/core/ComponentEquipment.gd").create_missile_backpack()
-			
+		elif drop_type == "drone":
+			drop_pack = load("res://scripts/core/ComponentEquipment.gd").create_drone_backpack(HexTile.Rarity.RARE)
+
 		if drop_pack:
 			var pickup = load("res://scripts/entities/LootPickup.gd").new()
 			pickup.equipment_data = drop_pack
 			pickup.global_position = boss.global_position
 			world.add_child(pickup)
 		
+	_on_enemy_died()
+
+# --- Rival Challenges (FEATURE_ROADMAP.md Story section) --------------------
+# "Sometimes another player challenges you - a specialized match where the
+# enemy mech is built to counter your play to date, directly or within
+# +/-15% of directly." Locked cadence/tolerance per Natalia: every 10 waves,
+# +/-15% of the player's own estimated power (SquadDirector._estimate_mech_power,
+# the same yardstick the near-peer difficulty scaling already uses).
+const RIVAL_NAMES = [
+	"Voltage", "Shrapnel", "Glitch", "Ironclad", "Wraith", "Circuit",
+	"Payload", "Static", "Ratchet", "Nova", "Ember", "Kestrel"
+]
+
+func _spawn_rival(director):
+	var rival_rarity = director._player_dominant_rarity()
+	# "brawler" is the most generic/balanced baseline stat block to build a
+	# player-equivalent opponent from - a Rival is meant to read as "another
+	# kid's mech," not a themed archetype like Sniper/Ambusher/Jammer.
+	var rival = director._spawn_bot_for_role("brawler", true, rival_rarity)
+	rival.set_meta("is_rival", true)
+	var rival_name = RIVAL_NAMES.pick_random()
+	rival.set_meta("rival_name", rival_name)
+
+	# Equivalent-budget constraint: score the rival's freshly-built loadout
+	# against the player's own, then scale HP and outgoing damage (via the
+	# existing generic stat_modifiers.dmg_mult, already read unconditionally
+	# by Projectile.gd) so the rival's effective power lands within the
+	# locked +/-15% band - regardless of how the discrete tile/rarity roll
+	# happened to come out on its own.
+	var player_power = director._estimate_mech_power(player)
+	var rival_power = director._estimate_mech_power(rival)
+	var target_power = player_power * randf_range(0.85, 1.15)
+	var power_mult = clamp(target_power / max(1.0, rival_power), 0.4, 3.0)
+
+	rival.max_hp *= power_mult
+	rival.hp = rival.max_hp
+	if rival.max_shield_hp > 0:
+		rival.max_shield_hp *= power_mult
+		rival.shield_hp = rival.max_shield_hp
+	rival.stat_modifiers["dmg_mult"] = rival.stat_modifiers.get("dmg_mult", 1.0) * power_mult
+
+	rival.scale = Vector2(1.3, 1.3)
+	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
+	if randf() > 0.5: offset.x *= -1
+	if randf() > 0.5: offset.y *= -1
+	var center_spawn = player.global_position + offset
+	rival.global_position = map.get_valid_spawn_position(center_spawn)
+	rival.target = player
+	rival.died.connect(_on_rival_defeated.bind(rival))
+	rival.collision_layer = 4
+	rival.collision_mask = 1 | 2 | 8
+	active_enemies += 1
+
+	if rival.has_method("_show_floating_text"):
+		rival._show_floating_text("RIVAL: " + rival_name, Color(1.0, 0.85, 0.2))
+
+func _on_rival_defeated(rival):
+	# Guaranteed decent-quality drop (matches the "earn merchandise" story
+	# beat) - a component built at the same rarity the rival itself fought
+	# at, so beating a Rival always feels worth the fight regardless of RNG.
+	var rarity = rival.get("base_rarity") if "base_rarity" in rival else HexTile.Rarity.RARE
+	var drop = load("res://scripts/core/ComponentEquipment.gd").create_starter_backpack("brawler", max(rarity, HexTile.Rarity.RARE))
+	if drop:
+		var pickup = load("res://scripts/entities/LootPickup.gd").new()
+		pickup.equipment_data = drop
+		pickup.global_position = rival.global_position
+		world.add_child(pickup)
 	_on_enemy_died()
 
 func _on_enemy_died():
@@ -614,10 +812,16 @@ var last_garage_wave: int = 1
 
 func _on_player_died():
 	print("!!! GAME OVER - MAGNIFICENT EXPLOSION !!!")
+	_despawn_drone()
 	player.visible = false
 	player.set_process(false)
 	player.set_physics_process(false)
-	
+
+	# Snapshot the death report now, while player.recent_damage_log is still
+	# populated - see Mech.gd's field comment. Per Natalia's request:
+	# "what squad got me, what elements they used".
+	_show_death_report(player.recent_damage_log)
+
 	var explosion = load("res://scripts/visuals/DeathExplosion.gd").new()
 	explosion.global_position = player.global_position
 	world.add_child(explosion)
@@ -639,6 +843,82 @@ func _on_player_died():
 	add_child(timer)
 	timer.start()
 
+# "How did I die" breakdown (Natalia's playtest request) - aggregates
+# Mech.recent_damage_log (last DEATH_LOG_LOOKBACK_SEC of damage taken) by
+# attacker label and by element, then shows a small non-blocking panel over
+# the death explosion. Doesn't block anything - it just auto-frees after a
+# few seconds (or whenever the player backs out via the Garage/menu).
+func _show_death_report(log: Array):
+	if log.is_empty():
+		return
+
+	var by_label: Dictionary = {}
+	var by_element: Dictionary = {}
+	for entry in log:
+		var l = str(entry.get("label", "Environment"))
+		var e = str(entry.get("element", "RAW"))
+		var amt = float(entry.get("amount", 0.0))
+		by_label[l] = by_label.get(l, 0.0) + amt
+		by_element[e] = by_element.get(e, 0.0) + amt
+
+	var labels_sorted = by_label.keys()
+	labels_sorted.sort_custom(func(a, b): return by_label[a] > by_label[b])
+	var elements_sorted = by_element.keys()
+	elements_sorted.sort_custom(func(a, b): return by_element[a] > by_element[b])
+
+	var canvas = CanvasLayer.new()
+	canvas.layer = 120
+	canvas.process_mode = Node.PROCESS_MODE_ALWAYS
+
+	var panel = PanelContainer.new()
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.02, 0.02, 0.92)
+	style.border_color = Color(1.0, 0.35, 0.3)
+	style.set_border_width_all(2)
+	style.content_margin_left = 18
+	style.content_margin_right = 18
+	style.content_margin_top = 14
+	style.content_margin_bottom = 14
+	panel.add_theme_stylebox_override("panel", style)
+	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	panel.custom_minimum_size = Vector2(460, 0)
+	panel.position += Vector2(-230, 40)
+	canvas.add_child(panel)
+
+	var vbox = VBoxContainer.new()
+	panel.add_child(vbox)
+
+	var title = Label.new()
+	title.text = "DESTROYED"
+	title.add_theme_font_size_override("font_size", 22)
+	title.modulate = Color(1.0, 0.45, 0.4)
+	vbox.add_child(title)
+
+	var squad_parts: Array = []
+	for l in labels_sorted:
+		squad_parts.append("%s (%d)" % [l, int(round(by_label[l]))])
+	var squad_line = Label.new()
+	squad_line.text = "Hit by: " + ", ".join(squad_parts)
+	squad_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	squad_line.custom_minimum_size = Vector2(428, 0)
+	vbox.add_child(squad_line)
+
+	var elem_line = Label.new()
+	elem_line.text = "Elements: " + ", ".join(elements_sorted)
+	elem_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	elem_line.custom_minimum_size = Vector2(428, 0)
+	elem_line.modulate = Color(0.85, 0.85, 0.9)
+	vbox.add_child(elem_line)
+
+	add_child(canvas)
+
+	var fade_timer = Timer.new()
+	fade_timer.wait_time = 7.0
+	fade_timer.one_shot = true
+	fade_timer.timeout.connect(canvas.queue_free)
+	canvas.add_child(fade_timer)
+	fade_timer.start()
+
 func _on_wave_cleared():
 	print("--- WAVE CLEARED ---")
 	current_wave += 1
@@ -647,7 +927,8 @@ func _on_wave_cleared():
 func _open_garage():
 	print("Opening Garage Menu...")
 	get_tree().paused = true
-	
+	_despawn_drone()
+
 	# Full heal on entering garage
 	player.hp = player.max_hp
 	player.visible = true
@@ -679,8 +960,21 @@ func _close_garage():
 		# unconditional flag on deploy covers every edit path, present and
 		# future.
 		player.is_grid_dirty = true
+		# Recalculate NOW rather than leaving it lazy - _shoot() only ever
+		# ran _recalculate_grid() on-demand the first time is_grid_dirty was
+		# true, which meant the (non-trivial: iterates every tile across
+		# every component, then runs the full packet simulation) recalc
+		# happened synchronously in the middle of the player's first shot
+		# after every deploy, not just the first shot of a session. Natalia:
+		# "the first time I shoot after a few seconds of not shooting it
+		# freezes the game... a brief freeze, .25-.5 seconds." Doing it here
+		# instead moves that cost to the deploy transition (already a scene
+		# change moment) instead of interrupting live combat input.
+		if player.has_method("_recalculate_grid"):
+			player._recalculate_grid()
 		SaveManager.save_game("autosave", player, player_inventory)
-		
+		_spawn_drone_if_needed()
+
 	if garage_ui:
 		garage_ui.queue_free()
 		garage_ui = null

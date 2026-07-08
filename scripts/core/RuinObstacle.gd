@@ -20,7 +20,10 @@ var _visual_seed: int = 0
 func _ready():
 	collision_layer = 1 # blocks movement, projectiles, and line of fire
 	collision_mask = 0
-	max_hp = 60.0 * size_tiles.x * size_tiles.y
+	# 150/tile (was 60) - Natalia wanted ruins to read as genuinely tough
+	# terrain, not something that melts in a couple of hits like a Tree
+	# (30 HP flat). A small 2x2 kit now sits at 600 HP, a big 5x3 at 2250.
+	max_hp = 150.0 * size_tiles.x * size_tiles.y
 	hp = max_hp
 	_visual_seed = randi()
 	z_index = 5
@@ -74,13 +77,19 @@ func apply_damage(amount: float, element: String = "RAW"):
 		return
 
 	# Collapse: free the footprint markers so the minimap, spawn anchors,
-	# and future placement forget the building. (Known limitation: the
-	# nav grid keeps the stale blocker until the map regenerates - AI
-	# paths around the crater. Formalized nav updates come with group 6.)
+	# and future placement forget the building. Also clears the matching
+	# astar_grid solid points and forces a flow-field rebuild next tick -
+	# without this the shared flow field (MapGenerator._rebuild_flow_field)
+	# kept permanently routing mechs around the now-walkable rubble.
 	if map_ref and "obstacles" in map_ref:
 		for y in range(size_tiles.y):
 			for x in range(size_tiles.x):
-				map_ref.obstacles.erase(Vector2i(origin_tile.x + x, origin_tile.y + y))
+				var cell = Vector2i(origin_tile.x + x, origin_tile.y + y)
+				map_ref.obstacles.erase(cell)
+				if "astar_grid" in map_ref and map_ref.astar_grid:
+					map_ref.astar_grid.set_point_solid(cell, false)
+		if map_ref.has_method("_rebuild_flow_field") and "_flow_field_target_cell" in map_ref:
+			map_ref._flow_field_timer = 0.0
 
 	var debris = CPUParticles2D.new()
 	debris.one_shot = true

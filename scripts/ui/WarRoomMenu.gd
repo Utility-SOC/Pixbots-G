@@ -11,6 +11,10 @@ extends CanvasLayer
 #     ghost nodes so successful lines still show their full history.
 #   Doctrines    - complete template + solver-profile lists, clipboard
 #     export/import of the AI's learned state.
+#   Bosses       - every BossProfile (the 6 hand-authored originals plus any
+#     experimental mutations on trial), click a row to drill into its full
+#     kit: ability pool, enrage/position style, hp multiplier, lineage, and
+#     an efficacy sparkline just like the Threat Board's squad graphs.
 
 var root_panel: PanelContainer
 var is_open: bool = false
@@ -18,7 +22,13 @@ var tabs: TabContainer
 var threat_vbox: VBoxContainer
 var tree_view: DendrogramView
 var doctrine_vbox: VBoxContainer
+var boss_vbox: VBoxContainer
 var status_label: Label
+
+# profile_name -> bool, remembers which boss rows are expanded across a
+# _refresh() (e.g. the periodic reopen) so drilling into a boss doesn't
+# collapse the instant anything else changes.
+var _boss_expanded: Dictionary = {}
 
 const SYNERGY_NAMES = ["RAW", "FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON", "EXPLOSION", "KINETIC", "PIERCE", "VAMPIRIC"]
 
@@ -87,6 +97,14 @@ func _ready():
 	doctrine_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	doc_scroll.add_child(doctrine_vbox)
 
+	# --- Tab: Bosses ------------------------------------------------------------
+	var boss_scroll = ScrollContainer.new()
+	boss_scroll.name = "Bosses"
+	tabs.add_child(boss_scroll)
+	boss_vbox = VBoxContainer.new()
+	boss_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	boss_scroll.add_child(boss_vbox)
+
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_TAB:
@@ -141,6 +159,7 @@ func _refresh():
 
 	_clear(threat_vbox)
 	_clear(doctrine_vbox)
+	_clear(boss_vbox)
 
 	if not director:
 		_lbl(threat_vbox, "No combat data yet - the Director deploys with the first wave.", COL_DIM)
@@ -150,6 +169,7 @@ func _refresh():
 	_build_threat_board(director)
 	tree_view.set_templates(director.templates)
 	_build_doctrines(director)
+	_build_bosses(director)
 
 # --- Threat Board ------------------------------------------------------------
 
@@ -279,6 +299,120 @@ func _build_doctrines(director):
 	)
 	share_bar.add_child(btn_import)
 	status_label = _lbl(doctrine_vbox, "", COL_DIM, 11)
+
+# --- Bosses ------------------------------------------------------------------
+# Readable labels for BossProfile's raw ability/style id strings.
+const ABILITY_LABELS = {
+	"shockwave": "Shockwave (AoE knockback burst)",
+	"railgun": "Railgun (locked piercing beam)",
+	"blink_strike": "Blink Strike (teleport + free ambush shot)",
+	"fire_pool": "Fire Pool (DoT hazard zone)",
+	"jam_burst": "Jam Burst (vision blackout)",
+	"rally": "Rally (self-heal + shield + speed burst)",
+}
+const ENRAGE_LABELS = {
+	"berserker": "Berserker (fire rate + speed)",
+	"juggernaut": "Juggernaut (tighter engagement, tankier push)",
+	"vampiric": "Vampiric (heals on enrage, leans aggressive)",
+	"unstable": "Unstable (erratic, biggest swings)",
+}
+const POSITION_LABELS = {
+	"aggressive": "Aggressive (closes distance, no kiting)",
+	"kiter": "Kiter (holds range, smart multi-angle retreat)",
+	"circler": "Circler (orbits at range)",
+}
+
+func _build_bosses(director):
+	_lbl(boss_vbox, "BOSS PROFILES - evolving kits, not just a scaled-up grunt", COL_SECTION, 16)
+	_lbl(boss_vbox, "Click a boss to drill into its full kit and efficacy history. TRIAL profiles are experimental mutations still proving themselves.", COL_DIM, 11)
+
+	if not ("boss_profiles" in director) or director.boss_profiles.is_empty():
+		_lbl(boss_vbox, "\nNo boss profiles registered yet.", COL_DIM)
+		return
+
+	var sorted_bosses: Array = director.boss_profiles.duplicate()
+	sorted_bosses.sort_custom(func(a, b): return a.spawn_weight > b.spawn_weight)
+
+	for bp in sorted_bosses:
+		_build_boss_row(bp)
+
+func _build_boss_row(bp):
+	var card = PanelContainer.new()
+	var card_style = StyleBoxFlat.new()
+	card_style.bg_color = Color(0.11, 0.12, 0.16)
+	card_style.content_margin_left = 10
+	card_style.content_margin_right = 10
+	card_style.content_margin_top = 6
+	card_style.content_margin_bottom = 6
+	card.add_theme_stylebox_override("panel", card_style)
+	boss_vbox.add_child(card)
+
+	var card_vbox = VBoxContainer.new()
+	card.add_child(card_vbox)
+
+	var avg = bp.get_average_fitness()
+	var status = "TRIAL" if bp.is_experimental else "CORE"
+	var header_btn = Button.new()
+	header_btn.flat = true
+	header_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var expanded = _boss_expanded.get(bp.profile_name, false)
+	var arrow = "v " if expanded else "> "
+	header_btn.text = "%s%s  [%s]  (%s)  avg %s  |  weight %.0f  |  used %d" % [
+		arrow, bp.profile_name, status, bp.base_role.capitalize(),
+		("%.0f" % avg) if bp.times_used > 0 else "-", bp.spawn_weight, bp.times_used
+	]
+	header_btn.add_theme_color_override("font_color", COL_TRIAL if bp.is_experimental else COL_TITLE)
+	card_vbox.add_child(header_btn)
+
+	var detail = VBoxContainer.new()
+	detail.visible = expanded
+	card_vbox.add_child(detail)
+
+	header_btn.pressed.connect(func():
+		var now_expanded = not detail.visible
+		detail.visible = now_expanded
+		_boss_expanded[bp.profile_name] = now_expanded
+		header_btn.text = ("v " if now_expanded else "> ") + header_btn.text.substr(2)
+	)
+
+	# Always populate (not just when starting expanded) - the row's detail
+	# panel is built once here and just toggles visibility afterward, rather
+	# than trying to lazily build it on first expand.
+	_populate_boss_detail(detail, bp, avg)
+
+func _populate_boss_detail(detail: VBoxContainer, bp, avg: float):
+	_lbl(detail, "hp multiplier: %.2fx" % bp.hp_mult, COL_CORE, 12)
+	_lbl(detail, "enrage style: " + ENRAGE_LABELS.get(bp.enrage_style, bp.enrage_style), COL_CORE, 12)
+	_lbl(detail, "position style: " + POSITION_LABELS.get(bp.position_style, bp.position_style), COL_CORE, 12)
+
+	_lbl(detail, "ability pool:", COL_CORE, 12)
+	if bp.ability_pool.is_empty():
+		_lbl(detail, "   (none)", COL_DIM, 11)
+	for a in bp.ability_pool:
+		_lbl(detail, "   - " + ABILITY_LABELS.get(a, str(a)), COL_DIM, 11)
+	if bp.ability_pool.size() >= 2:
+		_lbl(detail, "   chains at enrage stage 2+ (below 20% HP)", COL_TRIAL, 11)
+
+	if bp.parent_name != "":
+		_lbl(detail, "lineage: mutated from " + bp.parent_name, COL_GHOST, 11)
+	else:
+		_lbl(detail, "lineage: original archetype", COL_GHOST, 11)
+
+	var stats_row = HBoxContainer.new()
+	detail.add_child(stats_row)
+	var stats_info = VBoxContainer.new()
+	stats_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stats_row.add_child(stats_info)
+	_lbl(stats_info, "deployments: %d" % bp.times_used, COL_CORE, 12)
+	_lbl(stats_info, "avg fitness: %s" % (("%.0f" % avg) if bp.times_used > 0 else "-"), _fitness_color(avg, bp.times_used), 12)
+	_lbl(stats_info, "spawn weight: %.0f (base %.0f)" % [bp.spawn_weight, bp.base_spawn_weight], COL_DIM, 12)
+
+	var spark = Sparkline.new()
+	spark.data = bp.fitness_history.duplicate()
+	spark.custom_minimum_size = Vector2(260, 64)
+	stats_row.add_child(spark)
+
+	_lbl(detail, "", COL_DIM, 4) # small gap before the next card
 
 # =============================================================================
 # Efficacy sparkline: per-deployment fitness, dashed baseline at 100.

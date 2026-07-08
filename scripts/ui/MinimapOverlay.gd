@@ -8,10 +8,20 @@ extends CanvasLayer
 #
 # The biome background is baked from MapGenerator.terrain at 1px per tile
 # (400x250 = tiny), rebaked periodically so debug-menu map swaps show up.
-# Entity dots redraw every frame while visible: player (white), enemies
-# (red), loot (gold), extraction marker (green, pulsing).
+# Entity dots redraw at a throttled 12Hz while visible (see REDRAW_HZ
+# below) - full 60Hz precision is imperceptible at minimap scale: player
+# (white), enemies (red), loot (gold), extraction marker (green, pulsing).
 
 var view: MinimapView
+
+# Entity dots (player/enemies/loot/extraction marker) don't need 60Hz
+# precision to read well on a 220x150 panel - a dot drifting a few px
+# between repaints is imperceptible. Redrawing every single frame was pure
+# waste (plus a redundant get_nodes_in_group("loot"/"enemy") scan per
+# frame, on top of whatever else in the game already walks those groups).
+# 12Hz keeps it visually smooth while cutting that cost by ~80%.
+const REDRAW_HZ = 12.0
+var _redraw_timer: float = 0.0
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -29,9 +39,14 @@ func _input(event):
 			view.visible = not view.visible
 			if view.visible:
 				view.bake_map()
+				view.queue_redraw() # repaint immediately on open, don't wait for the throttle
 
-func _process(_delta):
-	if view.visible:
+func _process(delta):
+	if not view.visible:
+		return
+	_redraw_timer -= delta
+	if _redraw_timer <= 0.0:
+		_redraw_timer = 1.0 / REDRAW_HZ
 		view.queue_redraw()
 
 class MinimapView:
@@ -167,6 +182,7 @@ class MinimapView:
 		elif event is InputEventMouseMotion:
 			if _resizing:
 				size = clamp(size + event.relative, MIN_SIZE, MAX_SIZE)
+				queue_redraw() # keep the border/backdrop snappy despite the throttled passive redraw
 				accept_event()
 			elif _dragging:
 				position += event.relative

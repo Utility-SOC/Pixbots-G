@@ -6,6 +6,12 @@ var timer: float = 0.0
 var damage_per_sec: float = 10.0
 var synergies: Dictionary = {}
 
+# Optional - set by Mech._do_fire_pool (Incinerator boss ability) so the
+# per-tick damage this zone deals gets credited to the spawning mech's
+# dealt_damage signal (and therefore its boss fitness tracking). Null for
+# the player's own jumpjet residue, which doesn't need this.
+var source_mech: Node = null
+
 var visual: Polygon2D
 var particles: CPUParticles2D
 
@@ -74,7 +80,9 @@ func _physics_process(delta: float):
 			
 			var dmg = damage_per_sec * delta
 			body.apply_damage(dmg, element)
-			
+			if source_mech and is_instance_valid(source_mech) and source_mech.has_signal("dealt_damage"):
+				source_mech.dealt_damage.emit(dmg)
+
 			if body.has_method("apply_status"):
 				if synergies.has(EnergyPacket.SynergyType.FIRE):
 					body.apply_status("burning", 2.0)

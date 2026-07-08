@@ -6,6 +6,7 @@ var panel: PanelContainer
 var is_open: bool = false
 var squad_type_dropdown: OptionButton
 var opt_reactor: OptionButton
+var force_ruins_check: CheckBox
 
 # Small helpers so tab construction below stays readable - every debug tool
 # is one _btn() line instead of four lines of Button boilerplate.
@@ -84,6 +85,16 @@ func _ready():
 					main.garage_ui._refresh_component_ui()
 			print("[Debug] Equipped Mythic Shield Backpack!")
 	)
+	_btn(tab_player, "Give Mythic Drone Bay Backpack", func():
+		var main = get_tree().current_scene
+		if main and main.get("player") != null:
+			var pack = load("res://scripts/core/ComponentEquipment.gd").create_drone_backpack(HexTile.Rarity.MYTHIC)
+			main.player.equip_component(pack)
+			if main.get("garage_ui") != null:
+				if main.garage_ui.has_method("_refresh_component_ui"):
+					main.garage_ui._refresh_component_ui()
+			print("[Debug] Equipped Mythic Drone Bay Backpack! Deploy to see the Drone tab and spawn the companion.")
+	)
 
 	opt_reactor = OptionButton.new()
 	opt_reactor.add_item("Reactor: KINETIC", EnergyPacket.SynergyType.KINETIC)
@@ -118,6 +129,13 @@ func _ready():
 	spawn_as_label.text = "-- Spawn Map As --"
 	spawn_as_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tab_world.add_child(spawn_as_label)
+
+	# Ruins were Tabletop-only originally; this lets any map type below
+	# generate them too. Read at press-time by each map button below, so
+	# toggling it doesn't require reopening the menu.
+	force_ruins_check = CheckBox.new()
+	force_ruins_check.text = "Force Ruins (any map type)"
+	tab_world.add_child(force_ruins_check)
 
 	var map_grid = GridContainer.new()
 	map_grid.columns = 3
@@ -158,6 +176,7 @@ func _ready():
 			var map = main.world.get_node_or_null("GameMap") if (main and "world" in main and main.world) else null
 			if map:
 				map.map_type = map_type
+				map.force_ruins = force_ruins_check.button_pressed
 				map._generate_map()
 				map._draw_map_to_texture()
 				map._build_navigation()

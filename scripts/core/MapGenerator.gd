@@ -46,21 +46,138 @@ func _ready():
 	_generate_map()
 	_draw_map_to_texture()
 	_build_navigation()
-	
+
 	if get_tree().root.has_node("ProceduralMusic"):
 		ProceduralMusic.set_biome(map_type)
 
+# -----------------------------------------------------------------------------
+# SHARED FLOW FIELD - replaces N independent per-enemy AStarGrid2D searches
+# -----------------------------------------------------------------------------
+# Previously every enemy Mech ran its own full astar_grid.get_id_path() call
+# every ~0.5-0.7s, independently, against the same destination (the player) -
+# up to 80 concurrent full-grid searches on a 400x250 tile map per refresh
+# window. That's the real algorithmic cost (an actual complexity-class
+# problem), not just something to call less often via off-screen LOD.
+#
+# This computes ONE bounded BFS "integration field" around the player instead,
+# refreshed on a timer, and every mech just looks up its own cell's
+# precomputed direction - O(1) per mech per frame instead of O(graph) per
+# mech per refresh. The field only covers a moving window around the player
+# (not the whole map) since only mechs actually near the fight need routing
+# detail; anything further out gets a straight-line heading toward the
+# target from get_flow_direction() below and will pick up the real field
+# once it gets close enough to matter.
+#
+# Deliberately unweighted 8-directional BFS rather than true weighted
+# Dijkstra (which would match astar_grid's diagonal-cost handling exactly) -
+# the accuracy difference is irrelevant for "which way should I step" AI
+# steering and BFS is meaningfully cheaper to run every refresh tick.
+const FLOW_FIELD_RADIUS = 28 # grid cells (~896 world units at tile_size 32)
+const FLOW_FIELD_REFRESH = 0.4
+const FLOW_FIELD_RECENTER_CELLS = 6.0 # target moving this many cells forces an early refresh
+
+const _FLOW_NEIGHBOR_OFFSETS = [
+	Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
+	Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1),
+]
+
+var flow_field: Dictionary = {} # Vector2i grid coord -> Vector2 step direction
+var _flow_field_timer: float = 0.0
+var _flow_field_target_cell: Vector2i = Vector2i(-999999, -999999)
+
+func _process(delta: float):
+	_flow_field_timer -= delta
+
+	var players = get_tree().get_nodes_in_group("player")
+	if players.is_empty():
+		return
+
+	var target_cell = Vector2i(
+		clamp(int(floor(players[0].global_position.x / tile_size)), 0, width - 1),
+		clamp(int(floor(players[0].global_position.y / tile_size)), 0, height - 1)
+	)
+
+	var moved_far = Vector2(target_cell - _flow_field_target_cell).length() > FLOW_FIELD_RECENTER_CELLS
+	if _flow_field_timer > 0.0 and not moved_far:
+		return
+
+	_flow_field_timer = FLOW_FIELD_REFRESH
+	_rebuild_flow_field(target_cell)
+
+func _rebuild_flow_field(target_cell: Vector2i):
+	_flow_field_target_cell = target_cell
+	flow_field.clear()
+
+	if astar_grid.is_point_solid(target_cell):
+		return # target somehow inside a solid cell - leave the field empty, mechs fall back to a straight line
+
+	var min_x = max(0, target_cell.x - FLOW_FIELD_RADIUS)
+	var max_x = min(width - 1, target_cell.x + FLOW_FIELD_RADIUS)
+	var min_y = max(0, target_cell.y - FLOW_FIELD_RADIUS)
+	var max_y = min(height - 1, target_cell.y + FLOW_FIELD_RADIUS)
+
+	# Pass 1: BFS distance from the target, bounded to the window above.
+	var dist: Dictionary = {target_cell: 0}
+	var queue: Array = [target_cell]
+	var head = 0
+	while head < queue.size():
+		var cur: Vector2i = queue[head]
+		head += 1
+		var cur_dist = dist[cur]
+		for off in _FLOW_NEIGHBOR_OFFSETS:
+			var n = cur + off
+			if n.x < min_x or n.x > max_x or n.y < min_y or n.y > max_y:
+				continue
+			if dist.has(n) or astar_grid.is_point_solid(n):
+				continue
+			dist[n] = cur_dist + 1
+			queue.append(n)
+
+	# Pass 2: direction extraction - each cell steps toward whichever
+	# neighbor has the lowest distance value (done in a second pass since a
+	# cell's best neighbor may not have been visited yet during pass 1).
+	for cell in dist.keys():
+		if cell == target_cell:
+			flow_field[cell] = Vector2.ZERO
+			continue
+		var best_dist = dist[cell]
+		var best_dir = Vector2i.ZERO
+		for off in _FLOW_NEIGHBOR_OFFSETS:
+			var n = cell + off
+			if dist.has(n) and dist[n] < best_dist:
+				best_dist = dist[n]
+				best_dir = off
+		if best_dir != Vector2i.ZERO:
+			flow_field[cell] = Vector2(best_dir.x, best_dir.y).normalized()
+
+# Called by Mech._execute_ai_tactics instead of running its own A* search.
+# Returns a normalized world-space direction toward fallback_target_pos -
+# from the shared field if world_pos's cell has one, otherwise a straight
+# line (mech is outside the field's current bounded window).
+func get_flow_direction(world_pos: Vector2, fallback_target_pos: Vector2) -> Vector2:
+	var cell = Vector2i(
+		clamp(int(floor(world_pos.x / tile_size)), 0, width - 1),
+		clamp(int(floor(world_pos.y / tile_size)), 0, height - 1)
+	)
+	if flow_field.has(cell):
+		var dir: Vector2 = flow_field[cell]
+		if dir != Vector2.ZERO:
+			return dir
+	return world_pos.direction_to(fallback_target_pos)
+
 func _generate_map():
-	# Tabletop: a 4x8ft plywood sheet with blue firring-strip walls.
-	# CANONICAL SCALE (also governs section 6 melee/mass): a mech sprite
-	# reads ~100px tall = a ~5.5" pixbot, so 1 inch = ~18px. The 96"x48"
-	# sheet is therefore ~1750x875px = ~55x27 tiles, rounded to 64x32 for
-	# clean chunking. Dimensions must be (re)set here, not just at _ready,
-	# because the debug menu regenerates different map types on this same
-	# node - switching away from Tabletop must restore the full size.
+	# Tabletop: a 4x8ft table with blue firring-strip walls.
+	# CANONICAL SCALE, REVISED (design ruling - also governs section 6
+	# melee/mass): pixbots are 20mm miniatures, not 4-7" toys. A ~100px
+	# mech sprite = 20mm, so 1mm = 5px and 1 inch = 127px. The 96"x48"
+	# table is therefore ~12192x6096px = ~381x190 tiles - rounded to
+	# 384x192. The arena is now nearly the size of the classic maps, which
+	# matches the game's pace. Dimensions must be (re)set here, not just at
+	# _ready, because the debug menu regenerates different map types on
+	# this same node - switching sizes must restore correctly both ways.
 	if map_type == "Tabletop":
-		width = 64
-		height = 32
+		width = 384
+		height = 192
 	else:
 		width = 400
 		height = 250
@@ -129,8 +246,9 @@ func _generate_map():
 			
 		# Tabletop terrain kits: gothic-ruin buildings scattered like a
 		# real game-shop table setup (see the reference photo in design
-		# notes - grey plastic ruins on a flocked mat).
-		if map_type == "Tabletop":
+		# notes - grey plastic ruins on a flocked mat). Also available on
+		# any other map type via force_ruins (debug menu toggle).
+		if map_type == "Tabletop" or force_ruins:
 			_place_tabletop_ruins()
 
 		main_continent_tiles = _analyze_connectivity()
@@ -185,32 +303,64 @@ func _get_biome(elevation: float, moisture: float) -> BiomeType:
 	if moisture > 0.3: return BiomeType.FOREST
 	return BiomeType.GRASSLAND
 
-# Multi-tile ruined-building footprints for the Tabletop map. Tiles are
-# marked "RuinPart" in `obstacles` (so the minimap, spawn anchors, and nav
-# all treat them as solid terrain) and one destructible RuinObstacle node
-# per building is spawned in _build_collisions_and_obstacles.
+# Multi-tile ruined-building footprints. Originally Tabletop-only; now
+# usable on any map_type (see `force_ruins`, set by the debug menu) since
+# Natalia wanted ruins available everywhere, not just the tabletop preset.
+# Tiles are marked "RuinPart" in `obstacles` (so the minimap, spawn anchors,
+# and nav all treat them as solid terrain) and one destructible RuinObstacle
+# node per building is spawned in _build_collisions_and_obstacles.
 var ruin_specs: Array = []
+var force_ruins: bool = false # debug-menu override to spawn ruins on non-Tabletop maps
+
+# Minimum distance (in tiles) a ruin footprint's NEAREST EDGE must keep from
+# the map's spawn center (player always spawns at exact map center - see
+# Main.gd:247). Deliberately larger than the 1-tile radius
+# _has_spawn_clearance() requires for a plain mech spawn, since ruins are
+# multi-tile and get_valid_spawn_position() will happily wedge the player
+# right up against whatever's nearest if the center itself is blocked.
+const RUIN_CENTER_CLEARANCE_TILES = 6.0
 
 func _place_tabletop_ruins():
 	ruin_specs.clear()
-	var target_count = 7 + randi() % 3
+	# Base density is tuned for the 64x32 Tabletop preset (2048 tiles). On
+	# bigger maps (Normal/biome maps are 400x250 = 100,000 tiles) scale the
+	# count up by the linear (sqrt-of-area) ratio so ruins read as a
+	# battlefield feature rather than 8 lonely buildings lost in a huge
+	# field - capped so generation can't run away on extreme map sizes.
+	var density_scale = sqrt(float(width * height) / 2048.0)
+	var target_count = min(80, int((7 + randi() % 3) * density_scale))
 	var attempts = 0
-	while ruin_specs.size() < target_count and attempts < 200:
+	var max_attempts = max(200, target_count * 30)
+	var center = Vector2(width / 2.0, height / 2.0)
+	while ruin_specs.size() < target_count and attempts < max_attempts:
 		attempts += 1
 		var w = 2 + randi() % 4 # 2-5 tiles wide
 		var h = 2 + randi() % 2 # 2-3 tiles deep
 		var ox = 3 + randi() % max(1, width - w - 6)
 		var oy = 3 + randi() % max(1, height - h - 6)
 
-		# Keep the table's center clear for the player's starting scrum
-		if abs(ox + w / 2.0 - width / 2.0) < 5.0 and abs(oy + h / 2.0 - height / 2.0) < 4.0:
+		# Keep the map's spawn center clear for the player's starting scrum.
+		# Uses the closest point ON THE FOOTPRINT RECT to the center, not
+		# just the footprint's own center coordinate - the old center-point
+		# check could pass while the building's actual near edge sat right
+		# next to the spawn point, since it never accounted for footprint
+		# size when measuring distance.
+		var closest_x = clamp(center.x, ox, ox + w - 1)
+		var closest_y = clamp(center.y, oy, oy + h - 1)
+		if Vector2(closest_x, closest_y).distance_to(center) < RUIN_CENTER_CLEARANCE_TILES:
 			continue
 
-		# Reject overlaps, with a one-tile buffer between kits
+		# Reject overlaps (other ruins, tendril obstacles, water), with a
+		# two-tile buffer between kits - wide enough that a mech's collision
+		# box (bigger than one tile) can't straddle two adjacent buildings
+		# or get pinned in a one-tile gap between them.
 		var area_clear = true
-		for y in range(oy - 1, oy + h + 1):
-			for x in range(ox - 1, ox + w + 1):
-				if obstacles.has(Vector2i(x, y)):
+		for y in range(oy - 2, oy + h + 2):
+			for x in range(ox - 2, ox + w + 2):
+				if x < 0 or x >= width or y < 0 or y >= height:
+					area_clear = false
+					break
+				if obstacles.has(Vector2i(x, y)) or terrain[y][x] == BiomeType.WATER:
 					area_clear = false
 					break
 			if not area_clear:
@@ -440,7 +590,9 @@ func _build_collisions_and_obstacles():
 		if obstacle_start_x != -1:
 			_create_merged_collision(obstacle_start_x, y, width - obstacle_start_x, 1)
 
-	# One destructible terrain-kit node per placed ruin (Tabletop map)
+	# One destructible terrain-kit node per placed ruin (Tabletop, or any
+	# other map type with force_ruins on - ruin_specs is simply empty
+	# otherwise, so this loop is a no-op on maps without ruins).
 	for spec in ruin_specs:
 		var ruin = load("res://scripts/core/RuinObstacle.gd").new()
 		ruin.size_tiles = Vector2i(spec.w, spec.h)
@@ -449,6 +601,33 @@ func _build_collisions_and_obstacles():
 		ruin.map_ref = self
 		ruin.global_position = Vector2(spec.x * tile_size, spec.y * tile_size) + ruin.footprint / 2.0
 		add_child(ruin)
+
+	_scatter_oil_slicks()
+
+# Sparse, walkable environmental hazard - dark puddles scattered on
+# DESERT/VOLCANO ground (oil-field/wasteland flavor) that do nothing until a
+# FIRE-synergy hit lands nearby, then burn for a few seconds (see
+# OilSlickHazard.gd). Deliberately excludes solid-obstacle tiles (nothing to
+# ignite would ever be visible/reachable there) and water tiles (a puddle on
+# water reads as a bug, not a feature). Rare enough to feel like a set-piece
+# rather than a shotgunned biome decal.
+const OIL_SLICK_CHANCE = 0.006
+func _scatter_oil_slicks():
+	if map_type in ["Arena", "Open Field"]:
+		return
+	for y in range(height):
+		for x in range(width):
+			var biome = terrain[y][x]
+			if biome != BiomeType.DESERT and biome != BiomeType.VOLCANO:
+				continue
+			var pos = Vector2i(x, y)
+			if obstacles.has(pos):
+				continue
+			if randf() < OIL_SLICK_CHANCE:
+				var slick = load("res://scripts/hazards/OilSlickHazard.gd").new()
+				slick.global_position = Vector2(x * tile_size + tile_size / 2.0, y * tile_size + tile_size / 2.0)
+				slick.radius = tile_size * (0.9 + randf() * 0.5)
+				add_child(slick)
 
 func _create_wall_collision(pos: Vector2, size: Vector2):
 	var body = StaticBody2D.new()

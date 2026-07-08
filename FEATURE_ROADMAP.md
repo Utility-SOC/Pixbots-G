@@ -17,7 +17,10 @@ Master document combining the two feature reviews (original 7-feature list + 11 
 | Jumpjets + water | If a mech has jumpjets and **spawns on (or is on) water, jumpjets immediately turn on and stay on** — no drowning while jumpjet energy holds. |
 | Miner Gun Builder content | `mod_guide_text.txt` deleted (scraped blog content from another game — inspiration only, not to be shipped). |
 | Modding | Phased; synergies stay a fixed enum with moddable *parameters* (see Modding section). |
-| Canonical tabletop scale | **1 inch = ~18px** (a ~100px mech sprite = a ~5.5" pixbot). A 4x8ft plywood sheet = ~55x27 tiles; the "Tabletop" map type ships at 64x32. This scale governs section 6 melee/mass tuning (ram distances, cleave arcs, lunge lengths) and the feature-2 terrain-bit sizing. Blue outer walls = the firring strips. |
+| Canonical tabletop scale (REVISED) | **Pixbots are 20mm miniatures.** A ~100px mech sprite = 20mm, so **1mm = 5px, 1 inch = 127px**. A 4x8ft table = ~381x190 tiles; the "Tabletop" map type ships at **384x192** - nearly classic-map size, matching the game's pace. Governs section 6 melee/mass tuning and feature-2 terrain sizing. Blue outer walls = the firring strips. (Supersedes the old 4-7"/18px estimate.) |
+| Tile destruction permanence | **RULED + SHIPPED: no permanent destruction.** Combat damage soft-disables tiles (auto-reboot) or, on grave hits, fries them (`power_lost`) - fried tiles stay dead until repaired in the Garage for scrap. power_lost now persists in saves (no quit-reload healing). |
+| Map rotation | **Tabletop is in the per-run rotation now (double-weighted).** Long-term, EVERY map becomes a themed tabletop mat - biomes are mat prints, not "real terrain". |
+| Tutorial voice | **Evan**, owner of the local game shop. PixBots Corp sponsors trainer/tournament tables at shops to grow the game; it caught on like wildfire - every kid has a pixbot or two. The player's was a birthday gift; they're learning on Evan's trainer. Claude drafts, Natalia edits. |
 
 ---
 
@@ -122,6 +125,21 @@ Phased, cheapest-real-value first. Do NOT attempt fully moddable synergies.
 ---
 
 ## Combined Build Order
+
+**UPDATE (July 2026 second review):** large chunks of groups 6-8 have now
+ALSO landed: evolving Boss kits (abilities/enrage/positioning via
+BossProfile), Rival Challenges (story feature), Drones + Drone Bay,
+Piercing Jammers with execute-immunity auras (the §4/§6 exemption made
+real), shield Deflector overflow, mass/weight + ramming groundwork, oil
+slick hazards, water divers, flow-field pathing, destructible ruins wired
+into nav, tutorial system, and death reports. Fixed in the second-review
+pass: Mythic Magnet Repel now REFLECTS projectiles (ownership flip),
+per-bot element jitter (no more early-wave monoculture), settings moved to
+user:// (persist in exported builds), director telemetry persisted
+(counter-doctrine remembers between sessions), chips counted in near-peer
+power, map-area enemy-density scaling, save-format version log. Remaining
+majors: melee actuators proper, heat UI, Mech.gd split, AI LOD - see
+GAME_IMPROVEMENT_SUGGESTIONS.md second review for the full list.
 
 **Status: groups 1-5 SHIPPED ✔, plus original Feature 5 phase 2 SHIPPED ✔**
 (manual-hex component upgrades, modifier chip extraction/stacking-infusion,

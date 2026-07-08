@@ -17,6 +17,9 @@ func _init():
 	tile_type = "Catalyst"
 	category = TileCategory.CONVERTER
 
+func get_weight() -> float:
+	return 4.0 # a moderately complex processor
+
 func cycle_synergy():
 	target_synergy = (target_synergy + 1) % 10
 

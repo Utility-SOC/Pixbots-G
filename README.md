@@ -139,13 +139,16 @@ The AI fields specialized bots tailored to counter you:
 - **SUPPORT**: Carries Heal Beacons and defensive auras to protect the squad.
 - **JAMMER**: Specialized electronic-warfare mechs that disable your elemental synergies.
 - **COMMANDER**: A high-tier leader unit that can carry up to 5 support modules to buff an entire squad!
-- **BOSS**: A massive, 5x-scaled mech with extreme health pools and unique drop tables.
+- **BOSS**: A massive, 5x-scaled mech with extreme health pools and unique drop tables. Boss kits (abilities, enrage styles, and positioning) now mutate and evolve based on combat fitness!
+- **DIVER**: An amphibious scout-analogue that flanks quickly through water hazards.
+- **DRONES**: Small automated units deployed from Drone Bays.
 
 ### The Squad Director & Persistent Learning
 The AI merges wild bots into squads and actively mutates its templates based on fitness (combat success).
-- **Persistent Evolution**: The AI Director **saves its learned strategies** to disk between sessions! If it learns that Snipers beat you today, it will spawn Snipers tomorrow. 
-- **Reactive Resistance Profiling**: The Director tracks your elemental damage output. If you over-rely on FIRE, it will deploy Fire-resistant mechs and FIRE-Jammer modules.
+- **Persistent Evolution**: The AI Director **saves its learned strategies** and your **combat telemetry** to disk between sessions! If it learns that Snipers beat you today, it will spawn Snipers tomorrow. 
+- **Reactive Resistance Profiling**: The Director tracks your elemental damage output across runs. If you over-rely on FIRE, it will continuously deploy Fire-resistant mechs and FIRE-Jammer modules.
 - **Execute Counterplay**: If you over-rely on Piercing instant-kills, the Director logs your "kill methods" and will dynamically deploy **Piercing Jammers**. Units inside a Piercing Jammer's aura (along with Bosses and Commanders) are immune to executes!
+- **Frontier Searching**: AI squads now share search memory, actively mapping out unexplored map cells rather than redundantly sweeping the same ground.
 
 ### The War Room Interface
 Press **`TAB`** in-game to access the War Room. 
@@ -201,6 +204,11 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 
 ## 8. RECENT SYSTEM UPDATES (CHANGELOG)
 
+- **Evolving Boss Kits:** Boss encounters are no longer static! Boss abilities, enrage styles, and positioning logic now mutate and evolve over time via `BossProfile.gd` based on fitness, similar to solver profiles.
+- **Counter-Doctrine Memory:** The Squad Director's telemetry (tracking player element usage and kill methods) now persists across sessions, allowing the AI to remember your playstyle and deploy specialized counters (like Piercing Jammers) continuously.
+- **New Units & Hazards:** Added amphibious Diver enemies, Drones and Drone Bays, destructible Ruin Obstacles wired into navigation, and Oil Slick hazards. Groundwork for mass/weight physics and ramming has also landed.
+- **Gameplay & Mechanics Expansion:** Introduced Shield Deflector overflow, flow-field pathing for smoother movement, and Mythic Magnet Repel now reflects projectiles (flipping ownership) rather than just shoving enemies. Added a ~35% random element jitter to early wave enemy spawns to prevent monocultures.
+- **UI & UX Polish:** Added a full interactive Tutorial system (with "Evan"), Death Reports, Component Diagram View, and properly migrated settings to `user://` so configurations persist in exported builds.
 - **Performance Overhaul:** Significantly improved the Big O complexity of Weapon Mount projectile spawning. Packets are now cleanly merged by traversal step, preventing infinite frame-freezes on Amped grids.
 - **Peripheral Auto-Equip:** The Auto-Equip solver now properly hooks into external energy feeds from the Torso, allowing it to seamlessly snake pipes across Arms, Legs, and Heads!
 - **Squat Head Geometry:** Fixed the procedural generation for the Head component so it builds vertically and wide, rather than leaning at an acute angle.

@@ -1,8 +1,17 @@
 extends CanvasLayer
 
+# Set by GlobalPauseHandler.gd (whichever node opened this - see its own
+# comment) when the Garage was already open at the time Esc was pressed.
+# The Garage keeps get_tree().paused = true the whole time it's up, so
+# "Resume" here must NOT unpause - that would let gameplay run behind the
+# still-open Garage screen. It should just close the Pause overlay and drop
+# the player back into the Garage exactly as they left it.
+var opened_from_garage: bool = false
+
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS # Keep running while tree is paused
-	
+	add_to_group("pause_menu") # lets GlobalPauseHandler avoid stacking a second one
+
 	var panel = Panel.new()
 	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	panel.modulate = Color(1, 1, 1, 0.8) # Semi-transparent background
@@ -58,7 +67,8 @@ func _input(event):
 			_on_resume()
 
 func _on_resume():
-	get_tree().paused = false
+	if not opened_from_garage:
+		get_tree().paused = false
 	queue_free()
 
 func _on_save():

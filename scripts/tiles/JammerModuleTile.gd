@@ -15,14 +15,28 @@ enum JamMode { VISION, SYNERGY }
 @export var jam_mode: JamMode = JamMode.VISION
 @export var target_synergy: int = EnergyPacket.SynergyType.RAW
 
-func _init():
+# Optional forced_synergy: when >= 0, this tile is being deliberately built to
+# counter whatever synergy the player's been over-relying on (see
+# SquadDirector.counter_jam_synergy / Mech._get_reactive_jam_synergy and
+# ComponentEquipment.create_dual_utility_backpack/create_support_backpack).
+# Forces SYNERGY mode instead of the usual random VISION/SYNERGY coin flip,
+# since a deliberately-aimed jammer that then rolls VISION mode would just
+# waste the reactive targeting.
+func _init(forced_synergy: int = -1):
 	super._init("Jammer Module", HexTile.TileCategory.OUTPUT)
 	base_color = Color(0.15, 0.15, 0.22)
-	jam_mode = JamMode.VISION if randf() < 0.5 else JamMode.SYNERGY
-	# Skip RAW (index 0) as a jam target - jamming "no element" is a no-op.
-	target_synergy = 1 + (randi() % (EnergyPacket.SynergyType.size() - 1))
+	if forced_synergy >= 0:
+		jam_mode = JamMode.SYNERGY
+		target_synergy = forced_synergy
+	else:
+		jam_mode = JamMode.VISION if randf() < 0.5 else JamMode.SYNERGY
+		# Skip RAW (index 0) as a jam target - jamming "no element" is a no-op.
+		target_synergy = 1 + (randi() % (EnergyPacket.SynergyType.size() - 1))
 
 var stored_energy: float = 0.0
+
+func get_weight() -> float:
+	return 4.0 # a pulse-jammer emitter, moderate hardware
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []

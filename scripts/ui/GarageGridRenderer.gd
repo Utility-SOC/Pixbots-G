@@ -30,6 +30,16 @@ var simulation_step: int = 0
 var tooltip_label: Label
 var stats_label: Label
 
+# Redraw throttle: this Control used to call queue_redraw() unconditionally
+# every _process() frame (60Hz) even when nothing on screen had changed -
+# same wasted-repaint pattern MinimapOverlay had before its own throttle.
+# 30Hz (vs minimap's 12Hz) keeps the weapon-mount throb / expansion pulse /
+# energy-packet flight (which finishes in ~0.5s, so needs more samples than
+# the minimap's slow entity dots) reading smoothly while still cutting the
+# redraw rate in half.
+const REDRAW_HZ = 30.0
+var _redraw_timer: float = 0.0
+
 # Colors
 const COLOR_BG = Color(0.1, 0.1, 0.15)
 const COLOR_GRID = Color(0.2, 0.2, 0.25)
@@ -68,7 +78,10 @@ func _process(delta):
 			if progress < 1.0:
 				progress += 2.0 * delta # _simulate_step takes 0.5s, so 2.0x makes it finish right on time
 				pkt.set_meta("anim_progress", min(progress, 1.0))
-	queue_redraw()
+	_redraw_timer -= delta
+	if _redraw_timer <= 0.0:
+		_redraw_timer = 1.0 / REDRAW_HZ
+		queue_redraw()
 
 func _gui_input(event: InputEvent):
 	if event is InputEventMouseMotion:

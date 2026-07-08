@@ -8,6 +8,7 @@ const SplitterTile = preload("res://scripts/tiles/SplitterTile.gd")
 const AmplifierTile = preload("res://scripts/tiles/AmplifierTile.gd")
 const CatalystTile = preload("res://scripts/tiles/CatalystTile.gd")
 const GarageGridRenderer = preload("res://scripts/ui/GarageGridRenderer.gd")
+const ComponentDiagramView = preload("res://scripts/ui/ComponentDiagramView.gd")
 
 var inventory_panel: PanelContainer
 var grid_panel: PanelContainer
@@ -18,10 +19,68 @@ var tooltip_label: Label
 var component_tabs: TabBar
 var warning_label: Label
 var scrap_label: Label
+# Spare FULL components (arm/leg/torso/head/backpack assemblies) - a
+# completely separate pool from the hex-tile inventory list below, and
+# previously not shown anywhere in the Garage at all. Swap Component,
+# Upgrade Part, and Extract Modifier all consume from THIS pool, not from
+# tiles - per Natalia, that was invisible enough to look like those
+# features were just broken ("I can only upgrade the torso... swap doesn't
+# work even if I own another of them"). This visualizes the pool two ways:
+# a zoomable slot diagram (component_diagram) showing what's equipped where,
+# and a sortable, draggable spare-parts tray (component_inventory_list) you
+# drag straight onto a diagram slot to equip/swap - no more digging through
+# tabs to find the one that happens to have a compatible spare.
+var component_inventory_list: HFlowContainer
+var component_diagram: ComponentDiagramView = null
+var tile_panel: VBoxContainer
+# Components mode splits across THREE regions rather than one panel (see
+# _set_inventory_view): component_diagram_panel (label + the big mech-loadout
+# diagram) becomes the PRIMARY view in grid_panel's spot; side_grid_container
+# gets a shrunk live hex-grid preview of whichever part is selected; and
+# component_spare_panel (sort dropdown + the actual draggable spare-parts
+# cards) lives in the sidebar space freed up by shrinking side_grid_container.
+# Previously all of this was one "component_panel" stacked in the sidebar,
+# which is why Natalia couldn't find her purchased parts - the tray was
+# real, just squeezed/scrolled out of view under the diagram every time.
+var component_diagram_panel: VBoxContainer
+var component_spare_panel: VBoxContainer
+var tile_sort: OptionButton
+var component_sort: OptionButton
+var side_grid_container: PanelContainer
+
+# Manual drag state for spare-component cards, mirroring the existing
+# dragged_tile/drag_preview pattern below (hex tiles) rather than introducing
+# Godot's separate built-in Control drag-drop protocol for just this one case.
+var dragged_component = null
+var component_drag_preview: PanelContainer = null
+var _component_drag_label: Label = null
 
 
 var active_component: ComponentEquipment
 var mech_components: Dictionary = {}
+
+# Shared Mythic inventory-button shimmer material: built once and reused
+# across every button/refresh instead of a fresh Shader+ShaderMaterial per
+# button per _refresh_inventory_ui() call (which fires on every keystroke,
+# scrap change, and upgrade - was allocating and recompiling a shader dozens
+# of times a minute for no reason, since the shader has no per-instance
+# uniforms and is perfectly safe to share).
+static var _mythic_shimmer_mat: ShaderMaterial = null
+
+static func _get_mythic_shimmer_mat() -> ShaderMaterial:
+	if _mythic_shimmer_mat == null:
+		var shader = Shader.new()
+		shader.code = """
+		shader_type canvas_item;
+		void fragment() {
+			float wave = sin(TIME * 1.5 - UV.x * 5.0 - UV.y * 5.0);
+			float shine = smoothstep(0.9, 1.0, wave) * 0.3;
+			COLOR = COLOR + vec4(0.3, 0.9, 0.9, 0.0) * shine;
+		}
+		"""
+		_mythic_shimmer_mat = ShaderMaterial.new()
+		_mythic_shimmer_mat.shader = shader
+	return _mythic_shimmer_mat
 
 var dragged_tile: HexTile = null
 var drag_preview: Polygon2D = null
@@ -46,6 +105,7 @@ var is_simulating: bool = false
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("garage_menu") # lets TutorialManager know the Garage is open
 	_setup_ui()
 	
 	# Hook up the player's components if they exist
@@ -66,13 +126,31 @@ func _populate_component_tabs():
 	component_tabs.clear_tabs()
 	if mech_components.is_empty():
 		return
-		
+
 	for slot in mech_components.keys():
 		var comp = mech_components[slot]
 		component_tabs.add_tab(comp.component_name)
 		component_tabs.set_tab_metadata(component_tabs.get_tab_count() - 1, slot)
-		
+
+	# Drone tab: only shown once a Drone Bay tile is actually installed
+	# somewhere in the equipped Backpack's hex grid (see DroneBayTile.gd).
+	# Its loadout is NOT one of mech_components' own entries (deliberately -
+	# see HexTile.BodySlot.DRONE's comment), so it's appended here with a
+	# DRONE sentinel tab metadata that _on_tab_changed special-cases instead
+	# of indexing straight into mech_components like every other tab.
+	if _find_drone_bay_tile():
+		component_tabs.add_tab("Drone")
+		component_tabs.set_tab_metadata(component_tabs.get_tab_count() - 1, HexTile.BodySlot.DRONE)
+
 	_on_tab_changed(0)
+
+# Returns the equipped Backpack's Drone Bay tile (if any), or null if there's
+# no Backpack equipped or it doesn't have one installed.
+func _find_drone_bay_tile():
+	if not mech_components.has(HexTile.BodySlot.BACKPACK):
+		return null
+	var DroneBayTileClass = load("res://scripts/tiles/DroneBayTile.gd")
+	return DroneBayTileClass.find_in_backpack(mech_components[HexTile.BodySlot.BACKPACK])
 
 func _refresh_component_ui():
 	# If player was loaded or components changed, update the reference and tabs
@@ -80,6 +158,76 @@ func _refresh_component_ui():
 		mech_components = get_parent().player.components
 	_populate_component_tabs()
 	_update_chip_label()
+	if component_diagram:
+		component_diagram.refresh(mech_components)
+
+# Switches between "Tiles" (edit one component's hex grid, full-size, in the
+# main area - the original/default layout) and "Components" (equip/swap whole
+# parts across the mech), which now spans three regions instead of one panel:
+#   - grid_panel (main area): component_diagram_panel - the big mech-loadout
+#     diagram, the PRIMARY view in this mode.
+#   - side_grid_container (sidebar, top): a shrunk live hex-grid preview of
+#     whichever part is currently selected - via a diagram slot click
+#     (_on_diagram_slot_pressed) or a tab (_on_tab_changed), both unchanged.
+#   - component_spare_panel (sidebar, bottom): the actual draggable
+#     spare-parts cards, in the space freed up by shrinking the preview above
+#     it. This used to be stacked under the diagram and regularly got
+#     squeezed/scrolled out of view - splitting it into its own guaranteed
+#     sidebar slot means it's never competing with the diagram for room.
+# Reparenting (not just toggling .visible) is what actually moves a Control
+# between regions in Godot.
+func _set_inventory_view(mode: String):
+	if tile_panel:
+		tile_panel.visible = (mode == "tiles")
+
+	if mode == "components":
+		if component_diagram_panel and component_diagram_panel.get_parent() != grid_panel:
+			component_diagram_panel.get_parent().remove_child(component_diagram_panel)
+			grid_panel.add_child(component_diagram_panel)
+			component_diagram_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			component_diagram_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		if grid_renderer and side_grid_container and grid_renderer.get_parent() != side_grid_container:
+			grid_renderer.get_parent().remove_child(grid_renderer)
+			side_grid_container.add_child(grid_renderer)
+		if component_spare_panel and side_grid_container and component_spare_panel.get_parent() != side_grid_container.get_parent():
+			component_spare_panel.get_parent().remove_child(component_spare_panel)
+			side_grid_container.get_parent().add_child(component_spare_panel)
+			# Keep it directly under side_grid_container in the sidebar's
+			# child order rather than wherever add_child happened to append it.
+			side_grid_container.get_parent().move_child(component_spare_panel, side_grid_container.get_index() + 1)
+		if component_diagram_panel:
+			component_diagram_panel.visible = true
+		if side_grid_container:
+			side_grid_container.visible = true
+		if component_spare_panel:
+			component_spare_panel.visible = true
+	else:
+		var sidebar = tile_panel.get_parent() if tile_panel else null
+		if component_diagram_panel and sidebar and component_diagram_panel.get_parent() != sidebar:
+			component_diagram_panel.get_parent().remove_child(component_diagram_panel)
+			sidebar.add_child(component_diagram_panel)
+		if component_spare_panel and sidebar and component_spare_panel.get_parent() != sidebar:
+			component_spare_panel.get_parent().remove_child(component_spare_panel)
+			sidebar.add_child(component_spare_panel)
+		if component_diagram_panel:
+			component_diagram_panel.visible = false
+		if component_spare_panel:
+			component_spare_panel.visible = false
+		if grid_renderer and grid_renderer.get_parent() != grid_panel:
+			grid_renderer.get_parent().remove_child(grid_renderer)
+			grid_panel.add_child(grid_renderer)
+		if side_grid_container:
+			side_grid_container.visible = false
+
+# Clicking a slot callout on the diagram jumps the grid editor to that
+# component's tab - lets you go straight from "here's what's equipped in the
+# Right Arm" to editing its hex grid without hunting through the tab strip.
+func _on_diagram_slot_pressed(slot_type):
+	for i in range(component_tabs.get_tab_count()):
+		if component_tabs.get_tab_metadata(i) == slot_type:
+			component_tabs.current_tab = i
+			_on_tab_changed(i)
+			return
 
 func _on_tab_changed(index: int):
 	if index < 0 or index >= component_tabs.get_tab_count():
@@ -87,13 +235,24 @@ func _on_tab_changed(index: int):
 		
 	var slot = component_tabs.get_tab_metadata(index)
 	if slot == null: return
-	
-	active_component = mech_components[slot]
+
+	if slot == HexTile.BodySlot.DRONE:
+		var drone_bay = _find_drone_bay_tile()
+		if not drone_bay:
+			return
+		active_component = drone_bay.get_or_build_loadout()
+	else:
+		active_component = mech_components[slot]
+
 	grid_renderer.setup(active_component.hex_grid, self)
 	grid_renderer.active_component = active_component
-	
-	# Ensure Torso always has a Core
-	if slot == HexTile.BodySlot.TORSO:
+
+	# Ensure any TORSO-slot component always has a Core - this covers both
+	# the real Torso tab AND the Drone tab (a Drone's own body is registered
+	# as slot_type TORSO too - see ComponentEquipment.create_starter_drone -
+	# so it gets the same auto-Core guarantee rather than sitting there empty
+	# until the drone actually gets spawned/equipped for the first time).
+	if active_component.slot_type == HexTile.BodySlot.TORSO:
 		var has_core = false
 		var h0 = HexCoord.new(0, 0)
 		if active_component.hex_grid.has_tile(h0):
@@ -103,7 +262,7 @@ func _on_tab_changed(index: int):
 			else:
 				var removed = active_component.hex_grid.remove_tile(h0)
 				inventory.append(removed)
-		
+
 		if not has_core:
 			var core_tile = load("res://scripts/tiles/CoreTile.gd").new()
 			core_tile.body_slot = HexTile.BodySlot.TORSO
@@ -188,9 +347,15 @@ func _setup_ui():
 	infuse_btn.text = "Infuse (Destroy part)"
 	infuse_btn.pressed.connect(_on_infuse_component_pressed)
 	action_vbox.add_child(infuse_btn)
+
+	var codex_btn = Button.new()
+	codex_btn.text = "Synergy Codex"
+	codex_btn.pressed.connect(_on_codex_pressed)
+	action_vbox.add_child(codex_btn)
 	
 	grid_panel = PanelContainer.new()
 	grid_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	grid_panel.add_to_group("tutorial:grid_panel") # onboarding spotlight anchor - see TutorialManager.gd
 	left_vbox.add_child(grid_panel)
 	
 	grid_renderer = GarageGridRenderer.new()
@@ -217,6 +382,7 @@ func _setup_ui():
 	sim_button.name = "SimButton"
 	sim_button.text = "Simulate Energy Flow"
 	sim_button.custom_minimum_size = Vector2(200, 50)
+	sim_button.add_to_group("tutorial:sim_button") # onboarding spotlight anchor - see TutorialManager.gd
 	sim_button.pressed.connect(_on_simulate_pressed)
 	bottom_bar.add_child(sim_button)
 	
@@ -349,7 +515,7 @@ func _setup_ui():
 
 	var repair_btn = Button.new()
 	repair_btn.text = "Repair All"
-	repair_btn.tooltip_text = "1 scrap per 2 missing HP, +25 per knocked-out tile"
+	repair_btn.tooltip_text = "1 scrap per 2 missing HP, +25 per knocked-out tile, +100 per destroyed tile"
 	repair_btn.pressed.connect(_on_repair_all)
 	scrap_sink_bar.add_child(repair_btn)
 
@@ -400,6 +566,7 @@ func _setup_ui():
 	# Right Side: Inventory & Stats
 	inventory_panel = PanelContainer.new()
 	inventory_panel.custom_minimum_size = Vector2(300, 0)
+	inventory_panel.add_to_group("tutorial:inventory_panel") # onboarding spotlight anchor - see TutorialManager.gd
 	hsplit.add_child(inventory_panel)
 	
 	var right_vbox = VBoxContainer.new()
@@ -408,25 +575,55 @@ func _setup_ui():
 	stats_label = Label.new()
 	stats_label.text = "=== COMPONENT INFO ===\nGrid: Mech Core\nPower: 0\n\n=== SIMULATION ===\nStep: 0\nActive Packets: 0\nTotal Energy: 0"
 	right_vbox.add_child(stats_label)
-	
+
 	var sep = HSeparator.new()
 	right_vbox.add_child(sep)
-	
-	var inv_label = Label.new()
-	inv_label.text = "INVENTORY (R-click: scrap | M-click: upgrade)"
-	inv_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	right_vbox.add_child(inv_label)
-	
+
 	scrap_label = Label.new()
 	scrap_label.text = "Scrap: 0"
 	scrap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	scrap_label.modulate = Color(1.0, 0.8, 0.2)
 	right_vbox.add_child(scrap_label)
 
+	# Tiles / Components switch - a ButtonGroup makes the two toggle buttons
+	# mutually exclusive automatically (no manual un-press bookkeeping).
+	var view_switch_hbox = HBoxContainer.new()
+	right_vbox.add_child(view_switch_hbox)
+
+	var view_group = ButtonGroup.new()
+
+	var tiles_tab_btn = Button.new()
+	tiles_tab_btn.text = "Tiles"
+	tiles_tab_btn.toggle_mode = true
+	tiles_tab_btn.button_pressed = true
+	tiles_tab_btn.button_group = view_group
+	tiles_tab_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tiles_tab_btn.pressed.connect(func(): _set_inventory_view("tiles"))
+	view_switch_hbox.add_child(tiles_tab_btn)
+
+	var components_tab_btn = Button.new()
+	components_tab_btn.text = "Components"
+	components_tab_btn.toggle_mode = true
+	components_tab_btn.button_group = view_group
+	components_tab_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	components_tab_btn.pressed.connect(func(): _set_inventory_view("components"))
+	view_switch_hbox.add_child(components_tab_btn)
+
+	# --- Tiles panel ---------------------------------------------------------
+	tile_panel = VBoxContainer.new()
+	tile_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right_vbox.add_child(tile_panel)
+
+	var inv_label = Label.new()
+	inv_label.text = "INVENTORY (R-click: scrap | M-click: upgrade)"
+	inv_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	inv_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tile_panel.add_child(inv_label)
+
 	var mass_sell_hbox = HBoxContainer.new()
 	mass_sell_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	right_vbox.add_child(mass_sell_hbox)
-	
+	tile_panel.add_child(mass_sell_hbox)
+
 	var sell_c_btn = Button.new()
 	sell_c_btn.text = "Sell Common"
 	sell_c_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -444,16 +641,16 @@ func _setup_ui():
 	sell_r_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sell_r_btn.pressed.connect(_on_sell_all.bind(2))
 	mass_sell_hbox.add_child(sell_r_btn)
-	
+
 	var filter_hbox = HBoxContainer.new()
-	right_vbox.add_child(filter_hbox)
-	
+	tile_panel.add_child(filter_hbox)
+
 	search_input = LineEdit.new()
 	search_input.placeholder_text = "Search..."
 	search_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	search_input.text_changed.connect(func(_text): _refresh_inventory_ui())
 	filter_hbox.add_child(search_input)
-	
+
 	rarity_filter = OptionButton.new()
 	rarity_filter.add_item("All", 99)
 	rarity_filter.add_item("Common", 0)
@@ -462,15 +659,112 @@ func _setup_ui():
 	rarity_filter.add_item("Legendary", 3)
 	rarity_filter.item_selected.connect(func(_index): _refresh_inventory_ui())
 	filter_hbox.add_child(rarity_filter)
-	
+
+	tile_sort = OptionButton.new()
+	tile_sort.add_item("Sort: rarity", 0)
+	tile_sort.add_item("Sort: type", 1)
+	tile_sort.item_selected.connect(func(_index): _refresh_inventory_ui())
+	filter_hbox.add_child(tile_sort)
+
 	var scroll = ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	right_vbox.add_child(scroll)
-	
+	tile_panel.add_child(scroll)
+
 	inv_vbox = VBoxContainer.new()
 	inv_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(inv_vbox)
-	
+
+	# --- Components: mech-loadout diagram (moves to the MAIN area) ------------
+	# In Components mode this is reparented into grid_panel as the primary
+	# view (see _set_inventory_view) - it starts here in the sidebar, hidden,
+	# just so it has a home while in Tiles mode.
+	component_diagram_panel = VBoxContainer.new()
+	component_diagram_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	component_diagram_panel.visible = false
+	right_vbox.add_child(component_diagram_panel)
+
+	var comp_inv_label = Label.new()
+	comp_inv_label.text = "MECH LOADOUT (drag a spare part onto a slot to equip or swap it)"
+	comp_inv_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	comp_inv_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	component_diagram_panel.add_child(comp_inv_label)
+
+	component_diagram = ComponentDiagramView.new()
+	component_diagram.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	component_diagram.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	component_diagram.slot_pressed.connect(_on_diagram_slot_pressed)
+	component_diagram_panel.add_child(component_diagram)
+
+	# Lives in the sidebar, hidden until Components mode reparents
+	# grid_renderer into it (see _set_inventory_view). Half the height it used
+	# to be (Natalia: shrink the hex-grid preview and use the freed space for
+	# the actual inventory list below it) - SIZE_FILL (not expand) so it
+	# stays exactly this tall and doesn't compete with component_spare_panel
+	# for the sidebar's remaining vertical space.
+	side_grid_container = PanelContainer.new()
+	side_grid_container.size_flags_vertical = Control.SIZE_FILL
+	side_grid_container.custom_minimum_size = Vector2(0, 130)
+	side_grid_container.visible = false
+	right_vbox.add_child(side_grid_container)
+
+	# --- Components: spare-parts inventory (moves to the SIDEBAR, below the
+	# shrunk hex preview) --------------------------------------------------
+	# This is the actual draggable tray Natalia bought Black Market parts
+	# into - previously stacked directly under the (much taller) diagram in
+	# this same sidebar column, where it regularly got squeezed to nothing or
+	# scrolled below the fold. Splitting it out into its own guaranteed slot,
+	# below a HALVED hex preview, means it always has real, visible room.
+	component_spare_panel = VBoxContainer.new()
+	component_spare_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	component_spare_panel.visible = false
+	right_vbox.add_child(component_spare_panel)
+
+	var comp_sort_hbox = HBoxContainer.new()
+	component_spare_panel.add_child(comp_sort_hbox)
+
+	var spare_lbl = Label.new()
+	spare_lbl.text = "Spare parts (unequipped - drag onto a slot above)"
+	spare_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	comp_sort_hbox.add_child(spare_lbl)
+
+	component_sort = OptionButton.new()
+	component_sort.add_item("Sort: rarity", 0)
+	component_sort.add_item("Sort: type", 1)
+	component_sort.item_selected.connect(func(_index): _refresh_component_inventory_list())
+	comp_sort_hbox.add_child(component_sort)
+
+	var spare_scroll = ScrollContainer.new()
+	spare_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	component_spare_panel.add_child(spare_scroll)
+
+	component_inventory_list = HFlowContainer.new()
+	component_inventory_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spare_scroll.add_child(component_inventory_list)
+
+	# Drag preview for spare-component cards - separate visual from the hex
+	# drag_preview below since a whole component doesn't read well as a hex.
+	component_drag_preview = PanelContainer.new()
+	component_drag_preview.custom_minimum_size = Vector2(84, 40)
+	component_drag_preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var drag_style = StyleBoxFlat.new()
+	drag_style.bg_color = Color(0.15, 0.15, 0.18, 0.9)
+	drag_style.border_width_left = 2
+	drag_style.border_width_right = 2
+	drag_style.border_width_top = 2
+	drag_style.border_width_bottom = 2
+	drag_style.border_color = Color(1.0, 1.0, 1.0, 0.6)
+	drag_style.corner_radius_top_left = 8
+	drag_style.corner_radius_top_right = 8
+	drag_style.corner_radius_bottom_left = 8
+	drag_style.corner_radius_bottom_right = 8
+	component_drag_preview.add_theme_stylebox_override("panel", drag_style)
+	_component_drag_label = Label.new()
+	_component_drag_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_component_drag_label.add_theme_font_size_override("font_size", 11)
+	component_drag_preview.add_child(_component_drag_label)
+	component_drag_preview.hide()
+	add_child(component_drag_preview)
+
 	# Drag preview setup
 	drag_preview = Polygon2D.new()
 	var pts = PackedVector2Array()
@@ -494,10 +788,176 @@ func _setup_ui():
 	tooltip_label.hide()
 	add_child(tooltip_label)
 
+# Refreshes both views of player_component_inventory (spare full arm/leg/
+# torso/head/backpack assemblies): the diagram's per-slot "what's equipped"
+# labels, and the draggable spare-parts tray below it. Piggybacks on
+# _refresh_inventory_ui()'s call sites (upgrade, swap, extract modifier,
+# black market purchase, dismantle, etc. all already call that) rather than
+# needing its own separate hook everywhere.
+func _refresh_component_inventory_list():
+	if component_diagram:
+		component_diagram.refresh(mech_components)
+
+	if not component_inventory_list:
+		return
+	for c in component_inventory_list.get_children():
+		c.queue_free()
+
+	var main = get_parent()
+	if not main or main.get("player_component_inventory") == null:
+		return
+	var comps = main.player_component_inventory
+
+	# Defensive filter: previously a SINGLE malformed entry (e.g. a leftover
+	# from an older save predating some earlier fix, or any future edge case
+	# that slips a bad object into this array) could take down this entire
+	# function the moment the sort comparator or the card-building loop below
+	# touched its .rarity/.slot_type - which produces a tray with ZERO cards
+	# and no placeholder text at all, even though comps itself (and any
+	# perfectly good entries alongside the bad one, including a purchase that
+	# just landed) was fine. That failure mode is indistinguishable from "my
+	# purchase just didn't show up" from the player's side, which is exactly
+	# what Natalia kept reporting even after two rounds of pure layout fixes.
+	# Filtering up front means one bad apple can never hide everyone else's
+	# entries, and the warning below at least gets it into the log instead of
+	# vanishing silently.
+	var valid_comps = []
+	var dropped = 0
+	for c in comps:
+		if is_instance_valid(c) and c.get("rarity") != null and c.get("slot_type") != null:
+			valid_comps.append(c)
+		else:
+			dropped += 1
+	if dropped > 0:
+		push_warning("GarageMenu: %d malformed player_component_inventory entries hidden from Spare Parts tray" % dropped)
+
+	if valid_comps.is_empty():
+		var empty_lbl = Label.new()
+		if comps.is_empty():
+			empty_lbl.text = "(none yet - boss kills, rare salvage drops, or the Black Market)"
+		else:
+			empty_lbl.text = "(%d entries couldn't be displayed - corrupted data, see log)" % dropped
+		empty_lbl.modulate = Color(0.6, 0.6, 0.6)
+		empty_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		component_inventory_list.add_child(empty_lbl)
+		return
+
+	var sorted_comps = valid_comps.duplicate()
+	var sort_by_type = component_sort != null and component_sort.get_selected_id() == 1
+	if sort_by_type:
+		sorted_comps.sort_custom(func(a, b):
+			if a.slot_type == b.slot_type:
+				return a.rarity > b.rarity
+			return a.slot_type < b.slot_type
+		)
+	else:
+		sorted_comps.sort_custom(func(a, b):
+			if a.rarity == b.rarity:
+				return a.slot_type < b.slot_type
+			return a.rarity > b.rarity
+		)
+
+	var rarity_names = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
+	var rarity_colors = [Color(0.5, 0.5, 0.5), Color(0.2, 0.7, 0.3), Color(0.2, 0.4, 0.8), Color(0.8, 0.5, 0.1), Color(0.1, 0.8, 0.8)]
+	for comp in sorted_comps:
+		var rarity_name = rarity_names[comp.rarity] if comp.rarity < rarity_names.size() else "?"
+		var rarity_color = rarity_colors[comp.rarity] if comp.rarity < rarity_colors.size() else Color.WHITE
+
+		var card = PanelContainer.new()
+		card.custom_minimum_size = Vector2(88, 54)
+		var style = StyleBoxFlat.new()
+		style.bg_color = rarity_color * 0.45
+		style.bg_color.a = 1.0
+		style.border_width_left = 2
+		style.border_width_right = 2
+		style.border_width_top = 2
+		style.border_width_bottom = 2
+		style.border_color = rarity_color
+		style.corner_radius_top_left = 8
+		style.corner_radius_top_right = 8
+		style.corner_radius_bottom_left = 8
+		style.corner_radius_bottom_right = 8
+		card.add_theme_stylebox_override("panel", style)
+		if comp.rarity == 4:
+			card.material = _get_mythic_shimmer_mat()
+
+		var vbox = VBoxContainer.new()
+		card.add_child(vbox)
+
+		var slot_lbl = Label.new()
+		slot_lbl.text = _slot_display_name(comp.slot_type)
+		slot_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		slot_lbl.add_theme_font_size_override("font_size", 11)
+		slot_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		vbox.add_child(slot_lbl)
+
+		var rarity_lbl = Label.new()
+		var rarity_txt = rarity_name
+		if comp.get("infusion_level", 0) > 0:
+			rarity_txt += " Lv%d" % comp.infusion_level
+		rarity_lbl.text = rarity_txt
+		rarity_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rarity_lbl.add_theme_font_size_override("font_size", 10)
+		vbox.add_child(rarity_lbl)
+
+		card.tooltip_text = "%s - drag onto its slot on the diagram above to equip/swap" % comp.component_name
+		card.mouse_filter = Control.MOUSE_FILTER_STOP
+		card.gui_input.connect(_on_component_item_gui_input.bind(comp))
+		component_inventory_list.add_child(card)
+
+# Mirrors _on_inventory_item_gui_input's hex-tile drag-start pattern below,
+# just for spare-component cards instead of tiles.
+func _on_component_item_gui_input(event: InputEvent, comp):
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		dragged_component = comp
+		if _component_drag_label:
+			_component_drag_label.text = "%s\n%s" % [_slot_display_name(comp.slot_type), comp.component_name]
+		component_drag_preview.show()
+		component_drag_preview.global_position = get_viewport().get_mouse_position()
+
+func _drop_component(pos: Vector2):
+	var comp = dragged_component
+	dragged_component = null
+	component_drag_preview.hide()
+	if component_diagram:
+		component_diagram.set_highlight(-1)
+	if not comp:
+		return
+
+	if not component_diagram:
+		return
+	var target_slot = component_diagram.get_slot_at_point(pos)
+	if target_slot == -1:
+		return # dropped outside any slot box - stays in the spare pool, no-op
+
+	if target_slot != comp.slot_type:
+		_show_warning("%s doesn't fit the %s slot" % [comp.component_name, _slot_display_name(target_slot)])
+		return
+
+	var main = get_parent()
+	if not main or main.get("player_component_inventory") == null or main.get("player") == null:
+		return
+
+	main.player_component_inventory.erase(comp)
+
+	var main_player = main.player
+	var old = main_player.components.get(target_slot, null)
+	if old:
+		main_player.remove_child(old)
+		main_player.components.erase(target_slot)
+		main.player_component_inventory.append(old)
+
+	main_player.equip_component(comp)
+	_refresh_component_ui()
+	_refresh_inventory_ui()
+	_show_scrap_float("Equipped %s" % comp.component_name, Color(0.3, 0.9, 1.0))
+
 func _refresh_inventory_ui():
+	_refresh_component_inventory_list()
+
 	for c in inv_vbox.get_children():
 		c.queue_free()
-		
+
 	if scrap_label:
 		var main = get_parent()
 		if main and main.get("player_scrap") != null:
@@ -515,8 +975,27 @@ func _refresh_inventory_ui():
 		if not grouped_inventory.has(key):
 			grouped_inventory[key] = []
 		grouped_inventory[key].append(tile)
-	
-	for key in grouped_inventory.keys():
+
+	var sorted_keys = grouped_inventory.keys()
+	var sort_by_type = tile_sort != null and tile_sort.get_selected_id() == 1
+	if sort_by_type:
+		sorted_keys.sort_custom(func(a, b):
+			var ta = grouped_inventory[a][0]
+			var tb = grouped_inventory[b][0]
+			if ta.tile_type == tb.tile_type:
+				return ta.rarity > tb.rarity
+			return ta.tile_type < tb.tile_type
+		)
+	else:
+		sorted_keys.sort_custom(func(a, b):
+			var ta = grouped_inventory[a][0]
+			var tb = grouped_inventory[b][0]
+			if ta.rarity == tb.rarity:
+				return ta.tile_type < tb.tile_type
+			return ta.rarity > tb.rarity
+		)
+
+	for key in sorted_keys:
 		var stack = grouped_inventory[key]
 		var tile = stack[0]
 		var count = stack.size()
@@ -538,18 +1017,7 @@ func _refresh_inventory_ui():
 		btn.add_theme_stylebox_override("normal", style)
 		
 		if tile.rarity == 4:
-			var shader = Shader.new()
-			shader.code = """
-			shader_type canvas_item;
-			void fragment() {
-				float wave = sin(TIME * 1.5 - UV.x * 5.0 - UV.y * 5.0);
-				float shine = smoothstep(0.9, 1.0, wave) * 0.3;
-				COLOR = COLOR + vec4(0.3, 0.9, 0.9, 0.0) * shine;
-			}
-			"""
-			var mat = ShaderMaterial.new()
-			mat.shader = shader
-			btn.material = mat
+			btn.material = _get_mythic_shimmer_mat()
 		
 		btn.text = tile.tile_type + "\n" + rarity_name + " (x" + str(snapped(mult, 0.01)) + ")"
 		if count > 1:
@@ -559,22 +1027,30 @@ func _refresh_inventory_ui():
 		inv_vbox.add_child(btn)
 
 
+# NOTE: ui_cancel/Esc is NOT handled here anymore - it used to call
+# main._close_garage() directly (silently deploying you to battle), then a
+# later fix tried intercepting it here to open a Pause Menu instead. That
+# still didn't reliably work ("when dead still cannot esc") because it
+# depended on this _input() firing in the right order relative to Main's
+# separate _unhandled_input handler. Esc-to-pause is now centralized in
+# GlobalPauseHandler.gd (an always-processing node added once in
+# Main._ready()), which works regardless of pause state or dispatch order.
+# "Deploy to Battlefield ->" remains the explicit way to actually leave.
 func _input(event):
-	if event.is_action_pressed("ui_cancel"):
-		get_viewport().set_input_as_handled()
-		var main = get_parent()
-		if main and main.has_method("_close_garage"):
-			main._close_garage()
-		else:
-			queue_free()
 
 	if event is InputEventMouseMotion:
 		if dragged_tile:
 			drag_preview.global_position = event.global_position
+		if dragged_component:
+			component_drag_preview.global_position = event.global_position
+			if component_diagram:
+				component_diagram.set_highlight(component_diagram.get_slot_at_point(event.global_position))
 
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if dragged_tile:
 			_drop_tile(event.global_position)
+		if dragged_component:
+			_drop_component(event.global_position)
 
 # Polling (not motion-event-driven) on purpose: if the cursor goes
 # perfectly still, no InputEventMouseMotion fires at all, so a "have you
@@ -693,14 +1169,20 @@ func _on_repair_all():
 	var missing_hp = max(0.0, mech.max_hp - mech.hp)
 	var damaged_tiles = 0
 	var disabled_tiles = 0
+	var destroyed_tiles = 0
 	for comp in mech.components.values():
 		for tile in comp.hex_grid.get_all_tiles():
-			if tile.is_disabled:
+			if "power_lost" in tile and tile.power_lost:
+				destroyed_tiles += 1
+			elif tile.is_disabled:
 				disabled_tiles += 1
 			elif tile.hp < tile.max_hp:
 				damaged_tiles += 1
 
-	var cost = int(ceil(missing_hp / 2.0)) + disabled_tiles * 25
+	# Destroyed (power_lost) tiles - the "grave enough hit" outcome from
+	# Mech._roll_component_disable - cost more than an ordinary knocked-out
+	# tile since they'd otherwise never come back on their own.
+	var cost = int(ceil(missing_hp / 2.0)) + disabled_tiles * 25 + destroyed_tiles * 100
 	if cost <= 0 and damaged_tiles == 0:
 		_show_scrap_float("Nothing to repair", Color(0.7, 0.7, 0.7))
 		return
@@ -717,6 +1199,8 @@ func _on_repair_all():
 			tile.is_disabled = false
 			tile.disable_timer = 0.0
 			tile.times_disabled = 0
+			if "power_lost" in tile:
+				tile.power_lost = false
 	_refresh_inventory_ui() # updates the scrap label
 	_show_scrap_float("Fully repaired  (-" + str(cost) + " scrap)", Color(0.4, 1.0, 0.5))
 
@@ -768,7 +1252,7 @@ func _on_upgrade_part():
 				salvage_idx = i
 				break
 	if salvage_idx < 0:
-		_show_scrap_float("Need a spare same-slot part to sacrifice", Color(0.9, 0.4, 0.3))
+		_show_scrap_float("Need a spare %s to sacrifice" % _slot_display_name(active_component.slot_type), Color(0.9, 0.4, 0.3))
 		return
 
 	main.player_scrap -= cost
@@ -835,6 +1319,25 @@ const MARKET_CYCLE_SECONDS = 600
 const MARKET_FORBIDDABLE = ["Amplifier", "Accumulator", "Splitter", "Catalyst", "Shield Generator"]
 var _market_sold: Dictionary = {}
 
+# Shared human-readable slot names - used by the Black Market listing, the
+# spare-components list, and the Swap Component warning/popup, so a purchased
+# part is identifiable as "Right Arm" everywhere instead of showing up as a
+# raw enum int (which is what "Black Market 3" used to mean - a real bug that
+# made purchased parts basically unrecognizable in the spare-parts list).
+const SLOT_DISPLAY_NAMES = {
+	HexTile.BodySlot.TORSO: "Torso",
+	HexTile.BodySlot.ARM_L: "Left Arm",
+	HexTile.BodySlot.ARM_R: "Right Arm",
+	HexTile.BodySlot.LEG_L: "Left Leg",
+	HexTile.BodySlot.LEG_R: "Right Leg",
+	HexTile.BodySlot.HEAD: "Head",
+	HexTile.BodySlot.BACKPACK: "Backpack",
+	HexTile.BodySlot.DRONE: "Drone",
+}
+
+static func _slot_display_name(slot) -> String:
+	return SLOT_DISPLAY_NAMES.get(slot, "Slot %s" % str(slot))
+
 func _open_black_market():
 	var main = get_parent()
 	if not main or main.get("player_scrap") == null:
@@ -852,16 +1355,21 @@ func _open_black_market():
 	title.modulate = Color(1.0, 0.5, 0.9)
 	vbox.add_child(title)
 
-	var slot_names = {HexTile.BodySlot.TORSO: "Torso", HexTile.BodySlot.ARM_L: "Left Arm", HexTile.BodySlot.ARM_R: "Right Arm", HexTile.BodySlot.LEG_L: "Left Leg", HexTile.BodySlot.LEG_R: "Right Leg", HexTile.BodySlot.HEAD: "Head"}
+	var slot_names = SLOT_DISPLAY_NAMES
 	var rarity_names = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
 	var prices = [0, 0, 1200, 3200, 8000]
+
+	# Market never rolls Backpack - keep that exclusion even though the
+	# shared SLOT_DISPLAY_NAMES dict (used for display everywhere else) does
+	# include it.
+	var market_slots = [HexTile.BodySlot.TORSO, HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R, HexTile.BodySlot.LEG_L, HexTile.BodySlot.LEG_R, HexTile.BodySlot.HEAD]
 
 	for i in range(3):
 		var roll = rng.randf()
 		var rarity = HexTile.Rarity.RARE
 		if roll > 0.85: rarity = HexTile.Rarity.MYTHIC
 		elif roll > 0.5: rarity = HexTile.Rarity.LEGENDARY
-		var slots = slot_names.keys()
+		var slots = market_slots
 		var slot = slots[rng.randi() % slots.size()]
 		var extra_hexes = 4 + rarity
 		var forb_a = MARKET_FORBIDDABLE[rng.randi() % MARKET_FORBIDDABLE.size()]
@@ -877,14 +1385,29 @@ func _open_black_market():
 			offer_btn.text += "  [SOLD]"
 
 		# Capture loop state for the purchase lambda
-		var offer = {"rarity": rarity, "slot": slot, "extra": extra_hexes, "forbidden": [forb_a, forb_b] if forb_a != forb_b else [forb_a], "price": price, "key": sold_key, "seed": cycle * 100 + i}
+		var offer = {"rarity": rarity, "slot": slot, "slot_name": slot_names[slot], "extra": extra_hexes, "forbidden": [forb_a, forb_b] if forb_a != forb_b else [forb_a], "price": price, "key": sold_key, "seed": cycle * 100 + i}
 		offer_btn.pressed.connect(func():
 			if main.player_scrap < offer.price:
 				_show_scrap_float("Need " + str(offer.price) + " scrap", Color(0.9, 0.4, 0.3))
 				return
+			# Build FIRST, spend/mark-sold only after a successful build.
+			# Previously scrap was deducted and _market_sold was flagged
+			# BEFORE _build_market_component() ran - so if that call ever
+			# failed partway through (a bad roll producing something the
+			# procedural generator choked on), the price was already paid and
+			# the offer permanently flagged [SOLD] on every future reopen of
+			# this popup, with nothing ever landing in the spare-parts tray to
+			# show for it. That silent-loss ordering is exactly what could
+			# make "I bought it and it didn't show up" happen even though
+			# nothing else about the purchase flow looked wrong. Now a failed
+			# build costs nothing and leaves the offer purchasable again.
+			var built = _build_market_component(offer)
+			if built == null:
+				_show_scrap_float("Purchase failed - no scrap taken, try again", Color(0.9, 0.4, 0.3))
+				return
 			main.player_scrap -= offer.price
 			_market_sold[offer.key] = true
-			main.player_component_inventory.append(_build_market_component(offer))
+			main.player_component_inventory.append(built)
 			_refresh_inventory_ui()
 			offer_btn.disabled = true
 			offer_btn.text += "  [SOLD]"
@@ -903,7 +1426,12 @@ func _open_black_market():
 
 func _build_market_component(offer: Dictionary):
 	var comp = ComponentEquipment.new(offer.slot, offer.rarity)
-	comp.component_name = "Black Market " + str(offer.slot)
+	# Was "Black Market " + str(offer.slot) - since offer.slot is a raw enum
+	# int, that literally showed up as e.g. "Black Market 3" in the spare-parts
+	# list and Swap Component popup, making a purchased part unrecognizable
+	# (this looked exactly like "the Black Market isn't working" even though
+	# the purchase itself succeeded and was equip-compatible).
+	comp.component_name = "Black Market " + offer.get("slot_name", _slot_display_name(offer.slot))
 	comp.forbidden_tile_types = offer.forbidden.duplicate()
 	comp.generate_procedural_shape()
 
@@ -984,6 +1512,8 @@ func _drop_tile(pos: Vector2):
 				inventory.erase(dragged_tile)
 				_refresh_inventory_ui()
 				grid_renderer.queue_redraw()
+				_tutorial_notify("tile_placed:any")
+				_tutorial_notify("tile_placed:" + dragged_tile.tile_type)
 			else:
 				print("Slot occupied!")
 
@@ -1028,6 +1558,9 @@ func _drop_fill_line():
 	if not placed_first:
 		# Even the origin cell was blocked/invalid - give the tile back
 		inventory.append(dragged_tile)
+	else:
+		_tutorial_notify("tile_placed:any")
+		_tutorial_notify("tile_placed:" + dragged_tile.tile_type)
 
 	_refresh_inventory_ui()
 	grid_renderer.queue_redraw()
@@ -1350,7 +1883,7 @@ func _on_tile_clicked(tile: HexTile):
 			# MYTHIC Magnet: Attract/Repel field flip (joins the rarity
 			# filter above - Mythic gets BOTH, per design ruling).
 			var repel_btn = CheckButton.new()
-			repel_btn.text = "MYTHIC: Repel mode (shove enemies away)"
+			repel_btn.text = "MYTHIC: Repel mode (reflect enemy shots back at them)"
 			repel_btn.button_pressed = tile.get("repel_mode") == true
 			repel_btn.toggled.connect(func(_on):
 				tile.toggle_repel_mode()
@@ -1362,7 +1895,7 @@ func _on_tile_clicked(tile: HexTile):
 		popup.popup_centered(Vector2(280, 120))
 		popup.popup_hide.connect(func(): popup.queue_free())
 
-	elif tile.tile_type == "Weapon Mount" or tile.tile_type == "Jumpjet" or tile.tile_type == "Amplifier":
+	elif tile.tile_type == "Weapon Mount" or tile.tile_type == "Jumpjet" or tile.tile_type == "Amplifier" or tile.tile_type == "Directional Conduit" or tile.tile_type == "Shield Generator" or tile.tile_type == "Actuator":
 		# Mythic-ability popup for tiles that had no click config before.
 		var popup = PopupPanel.new()
 		var vbox = VBoxContainer.new()
@@ -1394,6 +1927,18 @@ func _on_tile_clicked(tile: HexTile):
 					mode_names = ["Balanced", "Pure Damage", "AoE Focus"]
 					prop = "mythic_focus"
 					cycle_method = "cycle_mythic_focus"
+				"Directional Conduit":
+					mode_names = ["Two-Way", "One-Way Valve"]
+					prop = "mythic_mode"
+					cycle_method = "cycle_mythic_mode"
+				"Shield Generator":
+					mode_names = ["Aegis (tank)", "Deflector (overflow eject)"]
+					prop = "mythic_mode"
+					cycle_method = "cycle_mythic_mode"
+				"Actuator":
+					mode_names = ["Velocity", "Ember", "Balanced"]
+					prop = "mythic_mode"
+					cycle_method = "cycle_mythic_mode"
 
 			var mode_btn = Button.new()
 			mode_btn.text = "MYTHIC mode: %s (click to cycle)" % mode_names[int(tile.get(prop)) % mode_names.size()]
@@ -1415,7 +1960,17 @@ func _mark_player_grid_dirty():
 	if main and main.get("player") != null:
 		main.player.is_grid_dirty = true
 
+# Fire-and-forget notification to TutorialManager, if one exists (it may
+# not - only present during the first-run onboarding flow). Kept as a tiny
+# shared helper so every call site is one line instead of a repeated
+# get_first_node_in_group + null-check.
+func _tutorial_notify(event: String):
+	var tm = get_tree().get_first_node_in_group("tutorial_manager")
+	if tm:
+		tm.notify(event)
+
 func _on_simulate_pressed():
+	_tutorial_notify("event:simulate_pressed")
 	if is_simulating:
 		is_simulating = false
 		if sim_button: sim_button.text = "Simulate Energy Flow"
@@ -1636,13 +2191,51 @@ func _simulate_step():
 			is_simulating = false
 			if sim_button: sim_button.text = "Simulate Energy Flow"
 
+# Compact display for the stats panel's numbers. Stays readable at any
+# magnitude: plain integers below 1000, a K/M/B/T suffix ladder up through
+# the trillions (covers every sane in-game build), and true scientific
+# notation beyond that - Natalia's own suggestion, and the only thing that
+# stays legible once a stacked Amplifier/Resonator build (or, previously, the
+# EnergyPacket synergies/magnitude decoupling bug - see EnergyPacket.gd's
+# _sync_synergies_to_magnitude) pushes a number into the 1e15+ range. Built
+# from plain arithmetic + %f/%d rather than relying on "%e" so it doesn't
+# depend on GDScript's sprintf coverage.
+static func _format_magnitude(val: float) -> String:
+	if val == 0:
+		return "0"
+	var sign_str = "-" if val < 0 else ""
+	var abs_val = abs(val)
+	if abs_val < 1000.0:
+		return sign_str + str(int(round(abs_val)))
+	if abs_val >= 1e15:
+		var exponent = int(floor(log(abs_val) / log(10.0)))
+		var mantissa = abs_val / pow(10.0, exponent)
+		# Rounding the mantissa can carry it up to 10.0 (e.g. 9.996 -> "10.00")
+		# which would print as "10.00e5" instead of "1.00e6" - bump the
+		# exponent and rescale when that happens.
+		mantissa = snapped(mantissa, 0.01)
+		if mantissa >= 10.0:
+			mantissa /= 10.0
+			exponent += 1
+		return "%s%se%d" % [sign_str, str(mantissa), exponent]
+	var suffixes = [
+		{"v": 1e12, "s": "T"},
+		{"v": 1e9, "s": "B"},
+		{"v": 1e6, "s": "M"},
+		{"v": 1e3, "s": "K"},
+	]
+	for suf in suffixes:
+		if abs_val >= suf.v:
+			return "%s%s%s" % [sign_str, str(snapped(abs_val / suf.v, 0.01)), suf.s]
+	return sign_str + str(int(round(abs_val)))
+
 func _update_stats():
 	var total_nrg = 0.0
 	for p in grid_renderer.active_packets:
 		total_nrg += p.magnitude
-		
+
 	var grid_size = grid_renderer.hex_grid.get_all_tiles().size() if grid_renderer.hex_grid else 0
-	
+
 	# Aggregate synergies from all Weapon Mounts/Accessory Returns
 	var synergy_totals = {}
 	var total_output = 0.0
@@ -1654,7 +2247,7 @@ func _update_stats():
 					total_output += p.magnitude
 					for k in p.synergies:
 						synergy_totals[k] = synergy_totals.get(k, 0.0) + p.synergies[k]
-						
+
 	var syn_str = ""
 	var SynergyType = EnergyPacket.SynergyType
 	var syn_names = SynergyType.keys()
@@ -1666,22 +2259,14 @@ func _update_stats():
 				if SynergyType[key_name] == k:
 					syn_name = key_name
 					break
-			var val_str = str(int(val))
-			if val >= 1000000:
-				val_str = str(snapped(val / 1000000.0, 0.01)) + "M"
-			syn_str += "%s: %s\n" % [syn_name, val_str]
-			
+			syn_str += "%s: %s\n" % [syn_name, _format_magnitude(val)]
+
 	if syn_str == "":
 		syn_str = "None\n"
-		
-	var nrg_str = str(int(total_nrg))
-	if total_nrg > 1000000000:
-		nrg_str = str(snapped(total_nrg / 1000000000.0, 0.01)) + "B"
-		
-	var out_str = str(int(total_output))
-	if total_output > 1000000000:
-		out_str = str(snapped(total_output / 1000000000.0, 0.01)) + "B"
-		
+
+	var nrg_str = _format_magnitude(total_nrg)
+	var out_str = _format_magnitude(total_output)
+
 	stats_label.text = "=== COMPONENT INFO ===\nTiles Used: %d\n\n=== OUTPUT ===\nTotal Damage: %s\n%s\n=== SIMULATION ===\nStep: %d\nActive Packets: %d\nMoving Energy: %s" % [
 		grid_size,
 		out_str,
@@ -1746,7 +2331,12 @@ func _on_swap_component_pressed():
 			compatible.append({"index": i, "comp": comp})
 			
 	if compatible.is_empty():
-		_show_warning("No compatible components in inventory!")
+		# Naming the slot here matters: Swap/Upgrade/Extract all act on
+		# whichever tab is currently selected (active_component), not on
+		# "any spare part you own" - a spare Right Arm does nothing while
+		# the Torso tab is selected. Calling out the slot by name makes that
+		# tab-scoping visible instead of just looking broken.
+		_show_warning("No compatible %s components in inventory!" % _slot_display_name(active_component.slot_type))
 		return
 		
 	var popup = PopupMenu.new()
@@ -1818,6 +2408,81 @@ func _on_infuse_component_pressed():
 	)
 	add_child(popup)
 	popup.popup_centered(Vector2(300, 400))
+
+# --- Synergy Codex ----------------------------------------------------------
+# Player-facing reference for what the 9 elemental synergies actually do -
+# previously that knowledge only existed scattered across Projectile.gd's
+# per-synergy branches (chain lightning, burning/frozen status, the shield
+# counter-wheel, etc.) with zero in-game explanation. Colors are pulled
+# straight from EnergyPacket.get_color_for_synergy so the codex always
+# matches the actual projectile/tile tinting, and descriptions are a plain-
+# language summary of the real mechanics (not aspirational/simplified).
+const SYNERGY_CODEX_ENTRIES = [
+	{"id": 0, "name": "RAW", "desc": "The baseline element - no special interactions, no counters. Always the fallback when no synergy dominates a shot."},
+	{"id": 1, "name": "FIRE", "desc": "Applies a burning damage-over-time status on hit. Shots run a short lifetime (fast, close-range feel). Deals 2x against Ice shields; takes 2x from Ice shields in return."},
+	{"id": 2, "name": "ICE", "desc": "Applies a frozen/slow status on hit, fighting back against Kinetic-heavy builds' mobility. Deals 2x against Fire shields; takes 2x from Fire shields in return."},
+	{"id": 3, "name": "LIGHTNING", "desc": "Arcs instantly between nearby enemies (chain lightning) instead of traveling as a single bolt. Always deals 1.5x against ANY shield, on top of the normal counter-wheel bonus vs Kinetic shields."},
+	{"id": 4, "name": "VORTEX", "desc": "Pulls in nearby loot and (weakly) enemies/player toward the impact point - a battlefield-control element as much as a damage one. Deals 2x against Kinetic shields."},
+	{"id": 5, "name": "POISON", "desc": "Stacks a damage-over-time poison effect that can stack multiple times. Deals 2x against Vampiric shields; takes 2x from Vampiric shields in return."},
+	{"id": 6, "name": "EXPLOSION", "desc": "Detonates in an area-of-effect blast on impact instead of a single-target hit - radius scales with the synergy's ratio in the shot and any Amplifier AoE bonus."},
+	{"id": 7, "name": "KINETIC", "desc": "High-velocity, knockback-heavy hits - pure mass-behind-the-shot damage. Deals 2x against Lightning shields; takes 2x from Lightning shields in return."},
+	{"id": 8, "name": "PIERCE", "desc": "Ignores a flat share of armor/shield mitigation on every hit, and any PIERCE hit that gets past shields has a small flat chance to instantly execute the target outright - regardless of remaining HP. Bosses, Commanders, and Piercing Jammers (plus anyone standing in a Piercing Jammer's aura) are immune to that execution."},
+	{"id": 9, "name": "VAMPIRIC", "desc": "Heals the attacker for a share of the damage dealt (lifesteal). Deals 2x against Poison shields; takes 2x from Poison shields in return."},
+]
+
+var _codex_popup: PopupPanel = null
+
+func _on_codex_pressed():
+	if not _codex_popup:
+		_codex_popup = _build_codex_popup()
+		add_child(_codex_popup)
+	_codex_popup.popup_centered(Vector2(460, 520))
+
+func _build_codex_popup() -> PopupPanel:
+	var popup = PopupPanel.new()
+	popup.title = "Synergy Codex"
+
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(440, 500)
+	popup.add_child(scroll)
+
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(vbox)
+
+	var header = Label.new()
+	header.text = "How each element behaves - shield bonuses are always mutual (both directions apply)."
+	header.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(header)
+	vbox.add_child(HSeparator.new())
+
+	for entry in SYNERGY_CODEX_ENTRIES:
+		var row = HBoxContainer.new()
+		vbox.add_child(row)
+
+		var swatch = ColorRect.new()
+		swatch.color = EnergyPacket.get_color_for_synergy(entry.id)
+		swatch.custom_minimum_size = Vector2(16, 16)
+		row.add_child(swatch)
+
+		var text_vbox = VBoxContainer.new()
+		text_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(text_vbox)
+
+		var name_label = Label.new()
+		name_label.text = entry.name
+		name_label.add_theme_color_override("font_color", EnergyPacket.get_color_for_synergy(entry.id))
+		text_vbox.add_child(name_label)
+
+		var desc_label = Label.new()
+		desc_label.text = entry.desc
+		desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+		desc_label.custom_minimum_size = Vector2(390, 0)
+		text_vbox.add_child(desc_label)
+
+		vbox.add_child(HSeparator.new())
+
+	return popup
 
 func _show_warning(msg: String):
 	var dialog = AcceptDialog.new()

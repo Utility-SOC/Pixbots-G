@@ -16,6 +16,24 @@ var hex_grid: HexGridComponent
 var fixed_sinks: Array[HexCoord] = []
 var valid_hexes: Array[HexCoord] = [] # Defines the irregular shape of the component
 
+# O(1) membership mirror of valid_hexes, keyed by a packed q/r int. Several
+# hot-ish paths (add_expansion_hex, _try_add_hex during procedural growth,
+# can_place_tile on every drag-drop hover) used to do a linear O(n) scan of
+# valid_hexes to answer "is this hex already part of the shape" - fine for a
+# 10-hex Common part, wasteful for a 100-hex Mythic one queried repeatedly.
+# Kept in sync wherever valid_hexes is mutated; generate_shape() also does a
+# full rebuild at the end as a correctness safety net for its non-membership-
+# checked branches (head/backpack/arm/leg/fallback just append in bulk).
+var _valid_hex_set: Dictionary = {}
+
+static func _hex_key(q: int, r: int) -> int:
+	return (q + 4096) * 8192 + (r + 4096)
+
+func _rebuild_valid_hex_set():
+	_valid_hex_set.clear()
+	for h in valid_hexes:
+		_valid_hex_set[_hex_key(h.q, h.r)] = true
+
 var infusion_level: int = 0
 var infusion_xp: int = 0
 var stat_modifiers: Dictionary = {}
@@ -39,15 +57,17 @@ func upgrade_rarity() -> int:
 # Add one player-chosen hex to the shape. Must be new and edge-adjacent to
 # the existing shape (no floating islands).
 func add_expansion_hex(h: HexCoord) -> bool:
-	for existing in valid_hexes:
-		if existing.q == h.q and existing.r == h.r:
-			return false
-	for existing in valid_hexes:
-		for d in range(6):
-			var n = HexCoord.new(existing.q, existing.r).neighbor(d)
-			if n.q == h.q and n.r == h.r:
-				valid_hexes.append(HexCoord.new(h.q, h.r))
-				return true
+	if _valid_hex_set.has(_hex_key(h.q, h.r)):
+		return false
+	# Adjacency check inverted: instead of scanning every existing hex's
+	# neighbors (O(n*6)) to see if any equals h, check h's own 6 neighbors
+	# against the O(1) membership set (O(6)) - same result, no scan.
+	for d in range(6):
+		var n = h.neighbor(d)
+		if _valid_hex_set.has(_hex_key(n.q, n.r)):
+			valid_hexes.append(HexCoord.new(h.q, h.r))
+			_valid_hex_set[_hex_key(h.q, h.r)] = true
+			return true
 	return false
 
 func _init(p_slot: HexTile.BodySlot = HexTile.BodySlot.TORSO, p_rarity: HexTile.Rarity = HexTile.Rarity.COMMON):
@@ -81,6 +101,7 @@ func _setup_fixed_sinks():
 
 func generate_shape():
 	valid_hexes.clear()
+	_valid_hex_set.clear()
 
 	# Hex budget by rarity, with a sixth "beyond Mythic" entry because
 	# TORSOS read one tier above their printed rarity (design ruling: a
@@ -149,18 +170,14 @@ func generate_shape():
 							# In axial, symmetry across vertical axis (x=0) is: q -> -q-r, r -> r
 							var h_sym = HexCoord.new(-q - r, r)
 							
-							var found_h = false
-							for existing in valid_hexes:
-								if existing.q == h.q and existing.r == h.r: found_h = true
-							if not found_h:
+							if not _valid_hex_set.has(_hex_key(h.q, h.r)):
 								valid_hexes.append(h)
-								
+								_valid_hex_set[_hex_key(h.q, h.r)] = true
+
 							if valid_hexes.size() < base_count:
-								var found_sym = false
-								for existing in valid_hexes:
-									if existing.q == h_sym.q and existing.r == h_sym.r: found_sym = true
-								if not found_sym:
+								if not _valid_hex_set.has(_hex_key(h_sym.q, h_sym.r)):
 									valid_hexes.append(h_sym)
+									_valid_hex_set[_hex_key(h_sym.q, h_sym.r)] = true
 				radius += 1
 				
 		HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R:
@@ -205,8 +222,14 @@ func generate_shape():
 				for r in range(grid_height):
 					valid_hexes.append(HexCoord.new(q, r))
 
+	# The non-TORSO branches above just bulk-append without touching
+	# _valid_hex_set - one full rebuild here keeps it correct for everyone
+	# (cheap: runs once per part generation, not a hot path).
+	_rebuild_valid_hex_set()
+
 func generate_procedural_shape():
 	valid_hexes.clear()
+	_valid_hex_set.clear()
 	# Same budget ladder + torso bonus as generate_shape() - procedural
 	# (enemy/boss/salvage/Black Market) parts follow the same rules, and
 	# Mythic now gets a real 72 instead of Legendary's hand-me-down 48.
@@ -218,6 +241,7 @@ func generate_procedural_shape():
 
 	var start = HexCoord.new(0, 0)
 	valid_hexes.append(start)
+	_valid_hex_set[_hex_key(start.q, start.r)] = true
 
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
@@ -329,19 +353,14 @@ func _grow_primitive(attach: HexCoord, archetype: String, budget: int, rng: Rand
 func _try_add_hex(h: HexCoord) -> bool:
 	if abs(h.q) > 12 or abs(h.r) > 12:
 		return false
-	for existing in valid_hexes:
-		if existing.equals(h):
-			return false
+	if _valid_hex_set.has(_hex_key(h.q, h.r)):
+		return false
 	valid_hexes.append(h)
+	_valid_hex_set[_hex_key(h.q, h.r)] = true
 	return true
 
 func can_place_tile(coord: HexCoord) -> bool:
-	var is_valid = false
-	for h in valid_hexes:
-		if h.q == coord.q and h.r == coord.r:
-			is_valid = true
-			break
-	return is_valid
+	return _valid_hex_set.has(_hex_key(coord.q, coord.r))
 
 func add_infusion_xp(amount: int):
 	infusion_xp += amount
@@ -589,6 +608,70 @@ static func create_starter_backpack(role: String = "", p_rarity: int = HexTile.R
 	
 	return pack
 
+# Standalone body for the Drone companion (see DroneBayTile.gd) - a small,
+# self-powered TORSO-slot component. Registering it as TORSO (rather than
+# inventing a whole parallel "generate energy" path) means equip_component()
+# automatically drops a Core Reactor at (0,0) the moment it's equipped onto
+# the Drone's own Mech-like node (see Drone.gd), so the drone generates its
+# own power completely independent of the main mech's circuit - it keeps
+# fighting even if the main mech's build is unpowered or jammed.
+#
+# generate_shape()'s TORSO branch grows symmetrically outward from (0,0)
+# using the same rarity-indexed hex_budget ladder as the player's own torso,
+# including the same "+1 tier" bump every TORSO-slot component gets there
+# (originally meant to make room for 4 limbs + head + backpack sinks) -
+# harmless here (just a modest bonus: a Common Drone Bay's drone gets an
+# 18-hex grid, an Uncommon's gets 28, etc.) and not worth special-casing
+# away just to shave a few hexes. Rarity still directly drives the grid
+# size either way - exactly Natalia's "rarity of this tile affects the size
+# of the grid the drone has."
+static func create_starter_drone(p_rarity: int = HexTile.Rarity.COMMON) -> ComponentEquipment:
+	var script = load("res://scripts/core/ComponentEquipment.gd")
+	var drone = script.new(HexTile.BodySlot.TORSO, p_rarity)
+	drone.component_name = "Drone"
+	drone.generate_shape()
+
+	drone.fixed_sinks.append(HexCoord.new(0, 0)) # Core Reactor goes here on equip
+
+	# Pre-installed Jumpjet, matching THIS tile's rarity (Natalia: "comes
+	# with installed jumpjets matching the rarity of the hex in the
+	# backpack") - scales the drone's own Mech.jumpjet_rarity/
+	# current_move_speed up with rarity so it can actually keep pace with a
+	# fast player instead of trailing behind.
+	var jet_pos = _first_free_hex(drone, [HexCoord.new(0, 0)])
+	var jumpjet = load("res://scripts/tiles/JumpjetTile.gd").new()
+	jumpjet.rarity = p_rarity
+	jumpjet.body_slot = HexTile.BodySlot.TORSO
+	drone.hex_grid.add_tile(jet_pos, jumpjet)
+	drone.fixed_sinks.append(jet_pos)
+
+	# Starter Weapon Mount so a freshly-looted Drone Bay isn't a dead gun the
+	# moment it's equipped - the player can rearrange/replace it like any
+	# other tile (it's not in fixed_sinks).
+	var mount_pos = _first_free_hex(drone, [HexCoord.new(0, 0), jet_pos])
+	var mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
+	mount.rarity = p_rarity
+	mount.body_slot = HexTile.BodySlot.TORSO
+	drone.hex_grid.add_tile(mount_pos, mount)
+
+	return drone
+
+# Finds the first hex in `comp.valid_hexes` that isn't already occupied and
+# isn't in `avoid` - small helper for create_starter_drone's pre-installed
+# tiles. Falls back to (0, 1) if the shape is somehow too small (shouldn't
+# happen at any real rarity - even Common gets a 10-hex budget).
+static func _first_free_hex(comp: ComponentEquipment, avoid: Array) -> HexCoord:
+	for h in comp.valid_hexes:
+		var taken = comp.hex_grid.has_tile(h)
+		var avoided = false
+		for a in avoid:
+			if a.q == h.q and a.r == h.r:
+				avoided = true
+				break
+		if not taken and not avoided:
+			return h
+	return HexCoord.new(0, 1)
+
 static func create_shield_backpack():
 	var script = load("res://scripts/core/ComponentEquipment.gd")
 	var pack = script.new(HexTile.BodySlot.BACKPACK, HexTile.Rarity.MYTHIC)
@@ -642,6 +725,37 @@ static func create_jetpack_backpack():
 	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
 	pack.fixed_sinks.append(HexCoord.new(0, max_r))
 	
+	return pack
+
+static func create_drone_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
+	var script = load("res://scripts/core/ComponentEquipment.gd")
+	var pack = script.new(HexTile.BodySlot.BACKPACK, p_rarity)
+	pack.component_name = "Drone Bay"
+	pack.generate_shape()
+
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+
+	var drone_bay = load("res://scripts/tiles/DroneBayTile.gd").new()
+	drone_bay.rarity = p_rarity
+	drone_bay.body_slot = HexTile.BodySlot.BACKPACK
+	drone_bay.build_drone_loadout()
+	pack.hex_grid.add_tile(HexCoord.new(1, 0), drone_bay)
+	pack.fixed_sinks.append(HexCoord.new(1, 0))
+
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+
 	return pack
 
 static func create_missile_backpack():
@@ -722,6 +836,10 @@ static func create_cloak_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 
 	return pack
 
+# Single-jammer variant - superseded by create_dual_utility_backpack for
+# scout's roll (see Mech._create_role_backpack), kept as a standalone
+# constructor in case debug/modding code wants a plain single-item jammer
+# backpack without the two-slot roll.
 static func create_jammer_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 	var script = load("res://scripts/core/ComponentEquipment.gd")
 	var pack = script.new(HexTile.BodySlot.BACKPACK, p_rarity)
@@ -752,7 +870,70 @@ static func create_jammer_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 
 	return pack
 
-static func create_support_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
+# "Utility Duo" backpack - two utility tiles instead of one, rolled as one
+# of three combos per Natalia's design: two Jammers, a Jammer + Cloak, or
+# two Heal Beacons ("med packs"). Reactive: when the director has detected
+# the player over-relying on one synergy for kills (forced_synergy >= 0,
+# see SquadDirector.counter_jam_synergy via Mech._get_reactive_jam_synergy),
+# the roll leans hard toward jammer-containing combos and any jammer(s)
+# rolled target that exact synergy - jammers actually show up on the field
+# in response to tactics, not just theoretically possible.
+static func create_dual_utility_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON, forced_synergy: int = -1) -> ComponentEquipment:
+	var script = load("res://scripts/core/ComponentEquipment.gd")
+	var pack = script.new(HexTile.BodySlot.BACKPACK, p_rarity)
+	pack.role_variant = "support"
+	pack.generate_shape()
+
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+
+	var roll = randf()
+	var combo: String
+	if forced_synergy >= 0:
+		combo = "jammer_jammer" if roll < 0.55 else ("jammer_cloak" if roll < 0.9 else "heal_heal")
+	else:
+		combo = "jammer_jammer" if roll < 0.35 else ("jammer_cloak" if roll < 0.7 else "heal_heal")
+
+	var slot_a: HexTile
+	var slot_b: HexTile
+	match combo:
+		"jammer_jammer":
+			slot_a = load("res://scripts/tiles/JammerModuleTile.gd").new(forced_synergy)
+			slot_b = load("res://scripts/tiles/JammerModuleTile.gd").new(forced_synergy)
+			pack.component_name = "Twin Jammer Rig"
+		"jammer_cloak":
+			slot_a = load("res://scripts/tiles/JammerModuleTile.gd").new(forced_synergy)
+			slot_b = load("res://scripts/tiles/CloakTile.gd").new()
+			pack.component_name = "Jammer/Cloak Rig"
+		_:
+			slot_a = load("res://scripts/tiles/HealBeaconTile.gd").new()
+			slot_b = load("res://scripts/tiles/HealBeaconTile.gd").new()
+			pack.component_name = "Twin Med Pack"
+
+	slot_a.rarity = p_rarity
+	slot_a.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(1, 0), slot_a)
+
+	slot_b.rarity = p_rarity
+	slot_b.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(-1, 0), slot_b)
+
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+
+	return pack
+
+static func create_support_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON, forced_synergy: int = -1):
 	var script = load("res://scripts/core/ComponentEquipment.gd")
 	var pack = script.new(HexTile.BodySlot.BACKPACK, p_rarity)
 	pack.component_name = "Support Kit"
@@ -770,13 +951,25 @@ static func create_support_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 	healer.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(1, 0), healer)
 
-	# Higher-rarity support kits have room for a second ability: a jammer
-	# module, giving support bots occasional crowd-control utility too.
+	# Higher-rarity support kits have room for a second ability. Used to be
+	# always a Jammer Module; now it's a genuine roll (Jammer / Cloak /
+	# second Heal Beacon) so support bots show up with real loadout variety
+	# instead of one fixed pairing - and when the director has flagged an
+	# over-relied-on synergy, the roll leans toward Jammer and aims it at
+	# that synergy (see create_dual_utility_backpack's forced_synergy).
 	if p_rarity >= HexTile.Rarity.RARE:
-		var jammer = load("res://scripts/tiles/JammerModuleTile.gd").new()
-		jammer.rarity = p_rarity
-		jammer.body_slot = HexTile.BodySlot.BACKPACK
-		pack.hex_grid.add_tile(HexCoord.new(-1, 0), jammer)
+		var roll = randf()
+		var jammer_chance = 0.7 if forced_synergy >= 0 else 0.45
+		var second: HexTile
+		if roll < jammer_chance:
+			second = load("res://scripts/tiles/JammerModuleTile.gd").new(forced_synergy)
+		elif roll < jammer_chance + 0.3:
+			second = load("res://scripts/tiles/CloakTile.gd").new()
+		else:
+			second = load("res://scripts/tiles/HealBeaconTile.gd").new()
+		second.rarity = p_rarity
+		second.body_slot = HexTile.BodySlot.BACKPACK
+		pack.hex_grid.add_tile(HexCoord.new(-1, 0), second)
 
 	var max_r = 0
 	for h in pack.valid_hexes:

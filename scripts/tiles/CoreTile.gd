@@ -12,6 +12,9 @@ func _init():
 	# Default active faces
 	active_faces.append(0)
 
+func get_weight() -> float:
+	return 8.0 # heaviest tile in the game - it's the reactor
+
 func get_exit_directions(entry_direction: int = 0) -> Array[int]:
 	return active_faces
 

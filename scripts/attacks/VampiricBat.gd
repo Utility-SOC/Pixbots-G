@@ -38,7 +38,7 @@ func _physics_process(delta):
 
 func _on_body_entered(body: Node):
 	if body != shooter and body.has_method("apply_damage"):
-		body.apply_damage(damage)
+		body.apply_damage(damage, "RAW", shooter)
 		_spawn_return_particles()
 	queue_free()
 

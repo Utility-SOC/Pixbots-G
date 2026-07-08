@@ -17,6 +17,9 @@ func _init():
 	tile_type = "Amplifier"
 	category = TileCategory.PROCESSOR
 
+func get_weight() -> float:
+	return 6.0 # heavy - a lot of hardware to boost a packet this much
+
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	var mult = amplification * _get_power_multiplier()
 	if rarity == Rarity.MYTHIC:

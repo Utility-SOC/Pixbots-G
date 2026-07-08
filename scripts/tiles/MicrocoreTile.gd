@@ -5,6 +5,9 @@ func _init():
 	super._init()
 	tile_type = "Microcore"
 
+func get_weight() -> float:
+	return 5.0 # a compact reactor - still a heavy power source, just lighter than the full Core
+
 func get_max_faces() -> int:
 	match rarity:
 		Rarity.COMMON: return 2

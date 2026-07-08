@@ -3,6 +3,7 @@ extends Node
 
 const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
 const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
+const BossProfile = preload("res://scripts/ai/BossProfile.gd")
 const WarRoomNames = preload("res://scripts/ai/WarRoomNames.gd")
 
 # --- AI squad evolution tuning ---
@@ -30,7 +31,17 @@ const MIN_PROFILE_TRIALS_BEFORE_CULL = 3
 const PROFILE_CULL_THRESHOLD = 60.0
 const PROFILE_GRADUATE_THRESHOLD = 110.0
 
+# --- Boss profile evolution tuning (same shape again, applied to boss
+# "kits" - base_role/ability_pool/enrage_style/position_style/hp_mult - so
+# bosses stop being 6 fixed hand-picked archetypes and become a mutating,
+# fitness-selected pool like everything else the director evolves.) ---
+const MAX_EXPERIMENTAL_BOSS_PROFILES = 4
+const MIN_BOSS_PROFILE_TRIALS_BEFORE_CULL = 2 # boss fights are rarer events than squad wipes - don't demand as many trials
+const BOSS_PROFILE_CULL_THRESHOLD = 60.0
+const BOSS_PROFILE_GRADUATE_THRESHOLD = 110.0
+
 var solver_profiles: Array[SolverProfile] = []
+var boss_profiles: Array[BossProfile] = []
 
 var templates: Array[SquadTemplate] = []
 var active_squads: Array[Squad] = []
@@ -51,13 +62,36 @@ func _ready():
 	profile_manager = SquadProfileManager.new()
 	profile_manager.name = "ProfileManager"
 	add_child(profile_manager)
+	_register_default_boss_profiles()
 
-# Merge templates by template_name and solver profiles by profile_name:
-# known entries get their learned stats restored in place, unknown ones
-# (evolved/graduated compositions from past sessions, or an imported
-# friend's profile) get registered fresh. Shared by disk-load and
-# clipboard-import so both behave identically.
-func _merge_learned(loaded_templates: Array, loaded_profiles: Array):
+# The 6 original hand-picked archetypes, now as the PERMANENT (non-
+# experimental) seed of the boss_profiles pool rather than a flat const
+# array Main.gd picked from directly. Mutation/crossover grow the pool from
+# here; these six never get culled (is_experimental stays false) so there's
+# always a stable baseline even if every experiment underperforms.
+func _register_default_boss_profiles():
+	var seeds = [
+		{"name": "Warhulk", "role": "brawler", "ability": "shockwave", "enrage": "juggernaut", "position": "aggressive", "hp_mult": 1.0},
+		{"name": "Longshot", "role": "sniper", "ability": "railgun", "enrage": "berserker", "position": "kiter", "hp_mult": 2.3},
+		{"name": "Specter", "role": "ambusher", "ability": "blink_strike", "enrage": "berserker", "position": "aggressive", "hp_mult": 1.5},
+		{"name": "Incinerator", "role": "flamethrower", "ability": "fire_pool", "enrage": "unstable", "position": "aggressive", "hp_mult": 1.2},
+		{"name": "Warden", "role": "jammer", "ability": "jam_burst", "enrage": "vampiric", "position": "kiter", "hp_mult": 0.55},
+		{"name": "Overlord", "role": "commander", "ability": "rally", "enrage": "vampiric", "position": "circler", "hp_mult": 0.45},
+	]
+	for s in seeds:
+		var bp = BossProfile.new(s.name, s.role)
+		bp.ability_pool = [s.ability]
+		bp.enrage_style = s.enrage
+		bp.position_style = s.position
+		bp.hp_mult = s.hp_mult
+		boss_profiles.append(bp)
+
+# Merge templates by template_name, solver profiles by profile_name, and
+# boss profiles by profile_name: known entries get their learned stats
+# restored in place, unknown ones (evolved/graduated compositions from past
+# sessions, or an imported friend's profile) get registered fresh. Shared
+# by disk-load and clipboard-import so both behave identically.
+func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = []):
 	for lt in loaded_templates:
 		var existing: SquadTemplate = null
 		for t in templates:
@@ -80,6 +114,17 @@ func _merge_learned(loaded_templates: Array, loaded_profiles: Array):
 		else:
 			solver_profiles.append(lp)
 
+	for lbp in loaded_boss_profiles:
+		var existing_bp: BossProfile = null
+		for bp in boss_profiles:
+			if bp.profile_name == lbp.profile_name:
+				existing_bp = bp
+				break
+		if existing_bp:
+			existing_bp.from_dict(lbp.to_dict())
+		else:
+			boss_profiles.append(lbp)
+
 func load_learned_state():
 	if not profile_manager:
 		return
@@ -91,7 +136,8 @@ func load_learned_state():
 	if profile_manager.has_profile("default_squads"):
 		_merge_learned(
 			profile_manager.load_profile("default_squads"),
-			profile_manager.load_solver_profiles("default_squads")
+			profile_manager.load_solver_profiles("default_squads"),
+			profile_manager.load_boss_profiles("default_squads")
 		)
 
 	# 2. Learned state from previous sessions.
@@ -99,16 +145,37 @@ func load_learned_state():
 		return # first boot - nothing learned yet
 	var loaded_templates = profile_manager.load_profile(LEARNED_STATE_NAME)
 	var loaded_profiles = profile_manager.load_solver_profiles(LEARNED_STATE_NAME)
-	_merge_learned(loaded_templates, loaded_profiles)
-	print("[DIRECTOR] Learned AI state restored: ", loaded_templates.size(), " templates, ", loaded_profiles.size(), " solver profiles")
+	var loaded_boss_profiles = profile_manager.load_boss_profiles(LEARNED_STATE_NAME)
+	_merge_learned(loaded_templates, loaded_profiles, loaded_boss_profiles)
+
+	# Telemetry rides in the same file (v1.3): the counter-doctrine now
+	# remembers the player's habits across sessions, same as the
+	# template weights always did. Then re-evaluate immediately so a
+	# known pierce-leaner meets the jam doctrine from wave 1.
+	var telemetry = profile_manager.load_telemetry(LEARNED_STATE_NAME)
+	if not telemetry.is_empty():
+		if telemetry.get("player_element_usage") is Dictionary:
+			player_element_usage = telemetry["player_element_usage"]
+		total_damage_taken = float(telemetry.get("total_damage_taken", 0.0))
+		if telemetry.get("player_kill_methods") is Dictionary:
+			player_kill_methods = telemetry["player_kill_methods"]
+		total_player_kills = int(telemetry.get("total_player_kills", 0))
+		_apply_kill_method_counter_pressure()
+
+	print("[DIRECTOR] Learned AI state restored: ", loaded_templates.size(), " templates, ", loaded_profiles.size(), " solver profiles, ", loaded_boss_profiles.size(), " boss profiles")
 
 func save_learned_state():
 	if profile_manager:
-		profile_manager.save_profile(LEARNED_STATE_NAME, templates, solver_profiles)
+		profile_manager.save_profile(LEARNED_STATE_NAME, templates, solver_profiles, boss_profiles, {
+			"player_element_usage": player_element_usage,
+			"total_damage_taken": total_damage_taken,
+			"player_kill_methods": player_kill_methods,
+			"total_player_kills": total_player_kills,
+		})
 
 func export_learned_state_to_clipboard():
 	if profile_manager:
-		profile_manager.export_to_clipboard(templates, solver_profiles)
+		profile_manager.export_to_clipboard(templates, solver_profiles, boss_profiles)
 
 func import_learned_state_from_clipboard() -> bool:
 	if not profile_manager:
@@ -116,7 +183,7 @@ func import_learned_state_from_clipboard() -> bool:
 	var data = profile_manager.import_from_clipboard()
 	if data.is_empty():
 		return false
-	_merge_learned(data.get("templates", []), data.get("solver_profiles", []))
+	_merge_learned(data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []))
 	save_learned_state()
 	print("[DIRECTOR] Imported AI profile from clipboard.")
 	return true
@@ -288,7 +355,22 @@ func _assemble_squad(selected_template: SquadTemplate) -> Squad:
 			for i in range(roles_needed[role]):
 				var bot = _spawn_bot_for_role(role, selected_template.has_shields)
 				squad.add_member(bot)
-				
+
+	# Every squad gets at least one scout, regardless of what the template
+	# actually called for - per Natalia: scouts run the frontier-exploration
+	# search pattern (see Mech.gd's _execute_scout_search) that pushes the
+	# squad's shared explored-cell memory outward, so a squad with zero
+	# scouts would have nobody actually mapping new ground while everyone
+	# else just re-sweeps the same last-known-position datum.
+	var has_scout = false
+	for m in squad.members:
+		if is_instance_valid(m) and m.get("combat_role") == "scout":
+			has_scout = true
+			break
+	if not has_scout:
+		var scout = _spawn_bot_for_role("scout", selected_template.has_shields)
+		squad.add_member(scout)
+
 	add_child(squad)
 	active_squads.append(squad)
 	squad.squad_defeated.connect(_on_squad_defeated)
@@ -356,9 +438,12 @@ func log_player_damage(amount: float, element: String):
 #   2. newly spawned Jammer Modules switch to SYNERGY-jam mode aimed at
 #      the offending element (see _spawn_bot_for_role's ready callback)
 # Pressure is gentle and continuous per kill, so diversifying lets the
-# weights relax naturally through normal fitness learning. (The Piercing
-# Jammer execute-exemption arrives with the melee pillar; this telemetry
-# will already have history by then.)
+# weights relax naturally through normal fitness learning. PIERCE-execution
+# over-reliance gets a third, targeted front on top of the two above: the
+# "Pierce Escort" template (piercing_jammer + brawler + ambusher, registered
+# in Main.gd) gets up-weighted harder specifically, since PiercingJammerMech's
+# aura (Mech._is_pierce_execution_exempt) is the actual counter to the
+# execute build, not just a generic jammer/commander presence.
 const KILL_OVERUSE_SHARE = 0.5
 const KILL_OVERUSE_MIN_KILLS = 15
 
@@ -395,6 +480,13 @@ func _apply_kill_method_counter_pressure():
 	for t in templates:
 		if t.required_roles.has("jammer") or t.required_roles.has("commander"):
 			t.spawn_weight = min(250.0, t.spawn_weight * 1.06)
+		# PIERCE cut-in-half executions specifically get answered with the
+		# purpose-built counter (Piercing Jammer's execute-immunity aura),
+		# up-weighted harder than the generic jammer bump above - per
+		# FEATURE_ROADMAP.md §4: "over-reliance on the execute build gets
+		# countered automatically" via templates containing this role.
+		if top_element == "PIERCE" and t.required_roles.has("piercing_jammer"):
+			t.spawn_weight = min(300.0, t.spawn_weight * 1.12)
 	if _counter_announced_element != top_element:
 		_counter_announced_element = top_element
 		print("[DIRECTOR] Player %s-execution share %.0f%% - jammer counter-doctrine now targeting %s." % [top_element, top_share * 100.0, top_element])
@@ -546,6 +638,106 @@ func _evaluate_experimental_profile(p: SolverProfile):
 		p.is_experimental = false
 		print("[DIRECTOR] Experimental solver profile '", p.profile_name, "' graduated to permanent rotation! (avg fitness %.1f)" % avg)
 
+# --- Boss profile evolution (same shape as solver-profile evolution above,
+# applied to BossProfile instead) ---
+
+# Fitness-weighted pick among the registered boss profiles (the 6 permanent
+# seeds plus whatever's been mutated in). Unlike get_active_solver_profile,
+# there's no "always-fresh reactive baseline" here - boss_profiles is never
+# empty (see _register_default_boss_profiles), so a plain weighted pick is
+# enough.
+func get_active_boss_profile() -> BossProfile:
+	if boss_profiles.is_empty():
+		return BossProfile.new()
+	var total_weight = 0.0
+	for bp in boss_profiles: total_weight += bp.spawn_weight
+	var roll = randf() * total_weight
+	var acc = 0.0
+	for bp in boss_profiles:
+		acc += bp.spawn_weight
+		if roll <= acc:
+			return bp
+	return boss_profiles[0]
+
+func _count_experimental_boss_profiles() -> int:
+	var n = 0
+	for bp in boss_profiles:
+		if bp.is_experimental:
+			n += 1
+	return n
+
+func maybe_introduce_experimental_boss_profile():
+	if _count_experimental_boss_profiles() >= MAX_EXPERIMENTAL_BOSS_PROFILES or boss_profiles.is_empty():
+		return
+	var parent = boss_profiles[randi() % boss_profiles.size()]
+	var mutant = _mutate_boss_profile(parent)
+	boss_profiles.append(mutant)
+	print("[DIRECTOR] New experimental boss profile on trial: '", mutant.profile_name, "' role=", mutant.base_role, " abilities=", mutant.ability_pool, " enrage=", mutant.enrage_style, " position=", mutant.position_style)
+
+# Nudges ONE facet of the parent per mutation (same "targeted tweak, not a
+# full reroll" philosophy as _mutate_profile) so it's possible to tell which
+# change is responsible for a fitness swing over several generations:
+#   - swap enrage style
+#   - swap position style
+#   - grow/reroll the ability pool (a boss with 2 abilities alternates
+#     between them - this is the actual "more evolution options" lever)
+#   - nudge hp_mult +-15%
+#   - small chance to re-roll the underlying role entirely (changes stats
+#     AND visuals/backpack - the most dramatic mutation, kept rare)
+func _mutate_boss_profile(parent: BossProfile) -> BossProfile:
+	var mutant = BossProfile.new(WarRoomNames.designation(), parent.base_role)
+	mutant.ability_pool = parent.ability_pool.duplicate()
+	mutant.enrage_style = parent.enrage_style
+	mutant.position_style = parent.position_style
+	mutant.hp_mult = parent.hp_mult
+	mutant.is_experimental = true
+	mutant.base_spawn_weight = 60.0
+	mutant.spawn_weight = 60.0
+	mutant.parent_name = parent.profile_name
+
+	var roll = randf()
+	if roll < 0.25:
+		mutant.enrage_style = BossProfile.ALL_ENRAGE_STYLES[randi() % BossProfile.ALL_ENRAGE_STYLES.size()]
+	elif roll < 0.5:
+		mutant.position_style = BossProfile.ALL_POSITION_STYLES[randi() % BossProfile.ALL_POSITION_STYLES.size()]
+	elif roll < 0.8:
+		if mutant.ability_pool.size() < 2 and randf() < 0.6:
+			var addable = BossProfile.ALL_ABILITIES.filter(func(a): return not mutant.ability_pool.has(a))
+			if addable.size() > 0:
+				mutant.ability_pool.append(addable[randi() % addable.size()])
+		elif mutant.ability_pool.size() > 0:
+			var idx = randi() % mutant.ability_pool.size()
+			mutant.ability_pool[idx] = BossProfile.ALL_ABILITIES[randi() % BossProfile.ALL_ABILITIES.size()]
+	else:
+		mutant.hp_mult = clamp(mutant.hp_mult * randf_range(0.85, 1.15), 0.2, 4.0)
+
+	# Rare, dramatic: rebuild on a different role's stat block entirely.
+	if randf() < 0.1:
+		mutant.base_role = BossProfile.ALL_ROLES[randi() % BossProfile.ALL_ROLES.size()]
+
+	return mutant
+
+func _evaluate_experimental_boss_profile(bp: BossProfile):
+	if not bp.is_experimental or bp.times_used < MIN_BOSS_PROFILE_TRIALS_BEFORE_CULL:
+		return
+	var avg = bp.get_average_fitness()
+	if avg < BOSS_PROFILE_CULL_THRESHOLD:
+		boss_profiles.erase(bp)
+		print("[DIRECTOR] Experimental boss profile '", bp.profile_name, "' culled (avg fitness %.1f < %.1f)" % [avg, BOSS_PROFILE_CULL_THRESHOLD])
+	elif avg >= BOSS_PROFILE_GRADUATE_THRESHOLD:
+		bp.is_experimental = false
+		print("[DIRECTOR] Experimental boss profile '", bp.profile_name, "' graduated to permanent rotation! (avg fitness %.1f)" % avg)
+
+# Called from Main._on_boss_died once the boss's own fitness is computed
+# (see Mech.get_boss_fitness) - same trigger shape as _on_squad_defeated.
+func _on_boss_defeated(profile: BossProfile, fitness_score: float):
+	if not profile:
+		return
+	profile.update_fitness(fitness_score)
+	print("[DIRECTOR] Boss Defeated! Profile: '", profile.profile_name, "' | Fitness: ", "%.1f" % fitness_score, " | New Weight: ", "%.1f" % profile.spawn_weight)
+	_evaluate_experimental_boss_profile(profile)
+	save_learned_state()
+
 func _all_roles_filled(roles: Dictionary) -> bool:
 	for count in roles.values():
 		if count > 0:
@@ -556,6 +748,8 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	var bot
 	if role == "jammer":
 		bot = load("res://scripts/entities/JammerMech.gd").new()
+	elif role == "piercing_jammer":
+		bot = load("res://scripts/entities/PiercingJammerMech.gd").new()
 	else:
 		bot = load("res://scripts/entities/Mech.gd").new()
 		
@@ -563,6 +757,17 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	bot.base_rarity = p_rarity
 	if "spawn_profile" in bot:
 		bot.spawn_profile = get_active_solver_profile()
+		# Per-bot element jitter: ~35% of bots clone the profile with a
+		# random favored element. Without this, early waves (before any
+		# experimental profiles exist) are a monoculture of the reactive
+		# baseline - every bot firing the same projectile type.
+		if randf() < 0.35:
+			var jittered = SolverProfile.new(bot.spawn_profile.profile_name + "*", randi() % EnergyPacket.SynergyType.size())
+			jittered.pierce_priority = bot.spawn_profile.pierce_priority
+			jittered.amplify_priority = bot.spawn_profile.amplify_priority
+			bot.spawn_profile = jittered
+	if role == "diver":
+		bot.is_amphibious = true
 
 
 	# Determine player's dominant shield to counter it
@@ -655,6 +860,20 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 		bot.base_rarity = max(bot.base_rarity, min(HexTile.Rarity.RARE, int(main.current_wave / 8)))
 	elif difficulty >= 3:
 		bot.base_rarity = max(bot.base_rarity, _player_dominant_rarity())
+
+	# Mythic seeding, independent of the difficulty-gated gear-parity above
+	# (which on its own never reaches past RARE, or only mirrors the
+	# player's own tier - neither ever introduces a FIRST Mythic on its
+	# own). Per Natalia: as waves climb, the chance any given enemy is
+	# built entirely at Mythic tier should steadily increase, tuned so a
+	# player realistically sees their first Mythic-tier enemy (and, via
+	# LootManager's matching wave-scaled drop chance, an actual Mythic
+	# drop) by around wave/level 30 - not guaranteed, just increasingly
+	# likely as more enemies get rolled against the chance.
+	if main and "current_wave" in main:
+		var mythic_seed_chance = clamp((float(main.current_wave) - 5.0) / 150.0, 0.0, 0.2)
+		if randf() < mythic_seed_chance:
+			bot.base_rarity = HexTile.Rarity.MYTHIC
 		
 	var base_hp = 100.0
 	match role:
@@ -662,6 +881,13 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			base_hp = 300.0 # High HP, moves slow, stays near backline
 			bot.base_speed = 60.0
 			bot.engagement_distance = 600.0
+		"piercing_jammer":
+			# Same backline-support shape as a standard jammer, slightly
+			# tougher (it's the thing execute-focused players will want to
+			# focus down first once they clock what the aura does).
+			base_hp = 340.0
+			bot.base_speed = 55.0
+			bot.engagement_distance = 650.0
 		"sniper":
 			base_hp = 60.0
 			bot.base_speed = 100.0
@@ -675,6 +901,15 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			base_hp = 80.0
 			bot.base_speed = 220.0
 			bot.engagement_distance = 250.0
+		"diver":
+			# Amphibious scout-analogue - genuinely at home over water
+			# (is_amphibious set above, gets a real speed bonus there
+			# instead of merely surviving it - see Mech.update_status_effects).
+			# Squishy like a scout, but leans into flanking through terrain
+			# other roles have to route around entirely.
+			base_hp = 85.0
+			bot.base_speed = 200.0
+			bot.engagement_distance = 260.0
 		"ambusher":
 			base_hp = 90.0
 			bot.base_speed = 180.0
@@ -720,15 +955,29 @@ func _estimate_player_power() -> float:
 	var players = get_tree().get_nodes_in_group("player")
 	if players.is_empty():
 		return NEAR_PEER_BASELINE
-	var p = players[0]
-	if not "components" in p:
+	return _estimate_mech_power(players[0])
+
+# Generalized version of the scoring above - works on ANY mech reference
+# (duck-typed via "components", same as the player-only version used to be),
+# so Rival Challenges (see Main._spawn_rival) can score a freshly-built
+# rival mech against the player using the exact same yardstick, not a
+# parallel/divergent formula that could quietly drift out of sync with it.
+func _estimate_mech_power(mech) -> float:
+	if not mech or not "components" in mech:
 		return NEAR_PEER_BASELINE
 	var score = 0.0
-	for comp in p.components.values():
+	for comp in mech.components.values():
 		score += 20.0 * (1 + comp.rarity) # the frame itself
 		score += comp.infusion_level * 50.0
 		for tile in comp.hex_grid.get_all_tiles():
 			score += RARITY_POWER_VALUES[clamp(tile.rarity, 0, 4)] * (1.0 + 0.1 * (tile.level - 1))
+		# Chip/infusion stat modifiers are real power: a component sitting
+		# at +50% dmg_mult must read stronger to near-peer scaling, or the
+		# exact clown-shoes build WWYDTTY exists for gets underestimated.
+		var mods = comp.get("stat_modifiers")
+		if mods is Dictionary:
+			for k in mods:
+				score += 400.0 * max(0.0, float(mods[k]) - 1.0)
 	return max(score, 1.0)
 
 # The player's median equipped tile rarity - what tier they're "really"

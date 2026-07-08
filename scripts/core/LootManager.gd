@@ -11,8 +11,18 @@ var DROP_RATES = {
 	1: 0.18,  # UNCOMMON
 	2: 0.09,  # RARE
 	3: 0.02,  # LEGENDARY
-	4: 0.005, # MYTHIC
+	4: 0.005, # MYTHIC - baseline; see _get_mythic_drop_rate() for the wave-scaled version actually used
 }
+
+# Per Natalia: Mythic drop odds should steadily climb as waves progress
+# (paired with SquadDirector's matching wave-scaled Mythic-enemy seeding),
+# tuned so a player realistically sees their first Mythic drop by around
+# wave/level 30 - not guaranteed, just increasingly likely as more Mythic-
+# tier enemies get killed. Every other rarity keeps its flat DROP_RATES
+# entry; only Mythic scales, since it's the one rarity meant to feel like
+# genuine progression rather than a fixed background rate.
+func _get_mythic_drop_rate() -> float:
+	return clamp(0.002 * float(current_wave), DROP_RATES[4], 0.08)
 
 # Chance for a NON-boss kill to drop a full procedural component (salvage
 # fodder for the component-upgrade loop). Bosses keep their guaranteed drop.
@@ -44,7 +54,9 @@ func generate_loot_for_mech(mech: Node):
 				pack = comp_script.create_jetpack_backpack()
 			elif drop_type == "missile":
 				pack = comp_script.create_missile_backpack()
-				
+			elif drop_type == "drone":
+				pack = comp_script.create_drone_backpack(HexTile.Rarity.RARE)
+
 		if pack == null:
 			var rarity = HexTile.Rarity.LEGENDARY if is_25th_wave_boss else HexTile.Rarity.RARE
 			pack = _create_procedural_component(rarity, mech, "Boss")
@@ -75,7 +87,7 @@ func generate_loot_for_mech(mech: Node):
 			if randf() <= 0.50:
 				_spawn_loot_drop(mech, tile)
 		else:
-			var chance = DROP_RATES.get(tile.rarity, 0.0)
+			var chance = _get_mythic_drop_rate() if tile.rarity == HexTile.Rarity.MYTHIC else DROP_RATES.get(tile.rarity, 0.0)
 			if randf() <= chance:
 				_spawn_loot_drop(mech, tile)
 

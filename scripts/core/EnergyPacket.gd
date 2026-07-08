@@ -22,6 +22,20 @@ var magnitude: float = 100.0 :
 		magnitude = min(val, MAX_MAGNITUDE)
 var synergies: Dictionary = {}
 
+# Resonator Sync (Mythic Resonator only - see ResonatorTile.gd): a
+# synergy_type -> strength (0..1-ish, same scale as Projectile.gd's `ratios`)
+# map of status-effect PROCS this packet is carrying that did NOT come from
+# its own actual elemental composition. A packet with 100% RAW magnitude can
+# still carry a "FIRE" entry here picked up from a Resonator's crossed sync
+# path, which Projectile.gd applies as the burning status on impact - but
+# contributes nothing to damage, color, or dominant-synergy calculations.
+# Deliberately separate from `synergies` so "confer effects, not energy" -
+# the whole point of Sync - can't accidentally leak into damage math.
+var proc_synergies: Dictionary = {}
+
+func add_proc(synergy_type: int, strength: float):
+	proc_synergies[synergy_type] = max(proc_synergies.get(synergy_type, 0.0), strength)
+
 var position: HexCoord = null
 var direction: int = 0
 var is_active: bool = true
@@ -72,6 +86,7 @@ func add_synergy(synergy_type: int, amount: float):
 	var current = synergies.get(synergy_type, 0.0)
 	synergies[synergy_type] = current + amount
 	magnitude += amount
+	_sync_synergies_to_magnitude()
 
 func has_synergy(synergy_type: int, min_percentage: float = 0.0) -> bool:
 	if magnitude == 0: return false
@@ -100,6 +115,7 @@ func amplify(multiplier: float):
 	magnitude *= multiplier
 	for key in synergies:
 		synergies[key] *= multiplier
+	_sync_synergies_to_magnitude()
 
 func split(ratio: float) -> EnergyPacket:
 	if ratio <= 0.0 or ratio >= 1.0:
@@ -116,11 +132,12 @@ func split(ratio: float) -> EnergyPacket:
 	new_packet.synergies.clear()
 	for k in synergies:
 		new_packet.synergies[k] = synergies[k] * ratio
-		
+	new_packet.proc_synergies = proc_synergies.duplicate()
+
 	magnitude *= (1.0 - ratio)
 	for k in synergies:
 		synergies[k] *= (1.0 - ratio)
-		
+
 	return new_packet
 
 func copy() -> EnergyPacket:
@@ -130,6 +147,7 @@ func copy() -> EnergyPacket:
 	new_packet.is_active = is_active
 	new_packet.trigger_key = trigger_key
 	new_packet.synergies = synergies.duplicate()
+	new_packet.proc_synergies = proc_synergies.duplicate()
 	new_packet.traversal_steps = traversal_steps
 	new_packet.charge_required = charge_required
 	new_packet.accumulator_quality = accumulator_quality
@@ -148,6 +166,36 @@ func merge(other: EnergyPacket):
 	acc_damage_mult = max(acc_damage_mult, other.acc_damage_mult)
 	for k in other.synergies:
 		synergies[k] = synergies.get(k, 0.0) + other.synergies[k]
+	for k in other.proc_synergies:
+		proc_synergies[k] = max(proc_synergies.get(k, 0.0), other.proc_synergies[k])
+	_sync_synergies_to_magnitude()
+
+# `magnitude` has a clamping setter (capped at MAX_MAGNITUDE), but the
+# `synergies` dict is just plain float values with no such cap - add_synergy()
+# and merge() above both add directly into it. On a normal single call that's
+# fine (both grow together), but across the up to 100 routing steps a packet
+# can take in Mech._simulate_grid() - especially in an Amplifier/Resonator
+# feedback loop - repeated adds/merges kept inflating `synergies` even after
+# `magnitude` had long since saturated at its cap, since nothing ever pulled
+# the dict back down to match. The two totally decoupled over enough loop
+# iterations: real damage (which reads `magnitude`) stayed sane, but the
+# Garage's per-element OUTPUT stats (which sum `synergies`) showed absurd
+# ~1e21-scale numbers. Rescales the whole dict proportionally back down
+# whenever it's grown past what `magnitude` actually represents, so the two
+# can never drift apart no matter how many loop iterations feed into this.
+func _sync_synergies_to_magnitude():
+	var total = 0.0
+	for v in synergies.values():
+		total += v
+	if total <= 0.0:
+		return
+	# Small tolerance so ordinary floating-point rounding noise doesn't
+	# trigger a rescale (and the sqrt-of-nothing edge case above already
+	# bails out when there's nothing to rescale).
+	if total > magnitude * 1.0001:
+		var factor = magnitude / total
+		for k in synergies:
+			synergies[k] *= factor
 
 func _to_string() -> String:
 	return "EnergyPacket(mag: " + str(magnitude) + ")"

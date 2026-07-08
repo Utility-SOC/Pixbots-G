@@ -7,12 +7,30 @@ const FireTrail2D = preload("res://scripts/visuals/FireTrail2D.gd")
 
 var base_speed: float = 500.0
 var final_speed: float = 500.0
+
+# --- Range (Natalia: "kinetic should increase range... everything should
+# have basic good range from the outset") -------------------------------
+# BASE_RANGE is a generous floor so no build feels short-ranged by default
+# (FIRE's much shorter time-based lifetime below still gives it its own
+# "short burst" identity independent of this - whichever limit is hit first
+# ends the shot). KINETIC is the one stat that explicitly extends this
+# further, up to double at full ratio - a clean, attributable "more kinetic
+# = more range" lever, on top of (not instead of) the speed boost it
+# already gets in _calculate_stats().
+const BASE_RANGE = 1400.0
+const KINETIC_RANGE_BONUS = 1400.0
+var max_range: float = BASE_RANGE
+var distance_traveled: float = 0.0
+
 var damage: float = 10.0
 var is_crit: bool = false
 var direction: Vector2 = Vector2.ZERO
 var target_direction: Vector2 = Vector2.ZERO
 var synergies: Dictionary = {}
 var weapon_rarity: int = 0
+# Resonator Sync procs carried over from the firing EnergyPacket - see
+# EnergyPacket.proc_synergies and _apply_synergy_status_effects() below.
+var proc_synergies: Dictionary = {}
 
 var ratios: Dictionary = {}
 var total_power: float = 0.0
@@ -32,6 +50,27 @@ var visual_node: Node2D
 var helix_particles: Array = []
 var fired_by_player: bool = true
 var source_mech: Node2D = null
+# Every target _handle_hit() has actually processed (direct hit OR the
+# tunneling-sweep below) - see _handle_hit()'s own guard. Never cleared, so
+# this also means a projectile can't double-dip the same target twice (e.g.
+# if it exits and re-enters the same body's shape) - a reasonable trade-off,
+# and not a real loss since pierce_count exists specifically to hit
+# multiple DIFFERENT targets, not the same one repeatedly.
+var _handled_targets: Dictionary = {}
+# Grace window before an off-screen shot gets culled - see the
+# OFF-SCREEN CULLING block in _ready() for why this isn't instant anymore.
+const OFFSCREEN_GRACE_SEC = 2.0
+var _offscreen_cull_timer: Timer = null
+# Magnitude-driven size multiplier computed in _build_visuals() (its local
+# p_scale) - the actual on-screen shape is scale * visual_scale (self.scale
+# is the ratio-driven s_mod from _calculate_stats, visual_node inherits it
+# and then multiplies its own polys by p_scale on top). The collision
+# hitbox in _ready() used to only apply `scale`, never visual_scale, so a
+# big combined/amplified shot (p_scale up to 8x) could visually look like a
+# huge blast while its real hitbox stayed tiny - "there are a lot of things
+# I should be hitting but am not." Stored here so _ready() can size the
+# CollisionShape2D to match what's actually drawn.
+var visual_scale: float = 1.0
 
 # Lightning zig-zag state - jagged, held-and-snapped offsets rather than a
 # smooth wave, so it actually reads as a bolt (see the LIGHTNING ZIG-ZAG
@@ -40,7 +79,42 @@ var _lightning_segment_index: int = -1
 var _lightning_prev_offset: float = 0.0
 var _lightning_target_offset: float = 0.0
 
+# --- Perf: throttled physics queries -----------------------------------
+# With combat spam (radial/shotgun Mythic patterns, several squads all
+# firing) it's easy to have 100+ live projectiles at once, and every one of
+# these was doing a full PhysicsShapeQueryParameters2D.intersect_shape()
+# EVERY SINGLE PHYSICS TICK - that's the actual cost of "too many
+# projectiles slogs", not the visuals. None of these three need 60Hz
+# precision to look/feel right, so they're throttled to a much cheaper
+# refresh rate instead of being cut - the pretty graphics stay untouched.
+const HOMING_QUERY_INTERVAL = 0.1 # vampiric/homing target re-acquisition
+const VORTEX_QUERY_INTERVAL = 0.05 # nearby-item pull scan
+# Below this much travel in one tick, the projectile's own hitbox plus a
+# typical small enemy's hitbox still overlap at tick-end, so the normal
+# Area2D body_entered/area_entered signals reliably catch the hit on their
+# own - the tunneling sweep only matters for shots fast enough to actually
+# skip clean through a target inside one tick (kinetic/pierce bonuses,
+# lightning's forced 4200+). Was gated at just 4.0px, which meant almost
+# EVERY projectile paid for a sweep query almost every tick regardless of
+# speed.
+const TUNNEL_RISK_MOVE_THRESHOLD = 24.0
+
+var _homing_query_timer: float = 0.0
+var _cached_homing_target: Node2D = null
+var _vortex_query_timer: float = 0.0
+
 func _ready():
+	# Desync throttled queries (Natalia: "freezing is still happening
+	# regularly") - every projectile defaulted these timers to 0.0, so every
+	# projectile fired in the same volley (a shotgun/radial Mythic pattern,
+	# or just several weapons releasing the same tick) ran its first homing/
+	# vortex physics query on the exact same frame, and stayed in lockstep
+	# on every refresh after that - a thundering herd of shape queries
+	# landing together every ~0.05-0.1s instead of spread across frames.
+	# Randomizing the starting value only changes WHEN it first fires.
+	_homing_query_timer = randf() * HOMING_QUERY_INTERVAL
+	_vortex_query_timer = randf() * VORTEX_QUERY_INTERVAL
+
 	# Calculate total power
 	for k in synergies:
 		total_power += synergies[k]
@@ -56,10 +130,27 @@ func _ready():
 	
 	var shape = CollisionShape2D.new()
 	var rect = RectangleShape2D.new()
-	rect.size = Vector2(8, 8) * scale # Scale is set in _calculate_stats
+	# Both factors matter: `scale` (ratio-driven, from _calculate_stats) and
+	# visual_scale (magnitude-driven, from _build_visuals - set just above
+	# this point, so it's already valid here). Missing visual_scale entirely
+	# used to leave the hitbox far smaller than the rendered shape for any
+	# big combined/amplified shot - that was the original "should be hitting
+	# this but I'm not" report.
+	# BUT multiplying the two factors together directly compounds them
+	# (same mistake _calculate_stats's own comment already warns about for
+	# p_scale/s_mod) - visual_scale alone reaches 8x, so a hit rect could
+	# balloon to 250+px on a big charged shot. sqrt() dampens that: still
+	# meaningfully bigger for big shots (sqrt(8) ~= 2.8x) without matching
+	# the full glow/bloom radius, which is deliberately oversized for flair
+	# and was never meant to be 1:1 with the actual hit area.
+	rect.size = Vector2(8, 8) * scale * sqrt(visual_scale)
 	shape.shape = rect
 	add_child(shape)
 	
+	# Registered so systems can find live projectiles cheaply - the Mythic
+	# Magnet's reflection field (Mech's magnet block) is the first consumer.
+	add_to_group("projectile")
+
 	collision_layer = 0
 	if fired_by_player:
 		collision_mask = 4 | 1 # Enemy (Layer 3) + World (Layer 1)
@@ -73,22 +164,45 @@ func _ready():
 	var timer = Timer.new()
 	timer.wait_time = _get_lifetime()
 	timer.one_shot = true
-	timer.timeout.connect(func():
-		if ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) > 0.1:
-			_trigger_explosion()
-		if not is_queued_for_deletion():
-			queue_free()
-	)
+	timer.timeout.connect(_expire)
 	add_child(timer)
 	timer.start()
 	
-	# OFF-SCREEN CULLING FOR PERFORMANCE
+	# OFF-SCREEN CULLING FOR PERFORMANCE - used to queue_free() the instant
+	# the shot left the camera's view, which meant nothing could ever be
+	# shot at past the edge of the screen ("I need to be able to shoot far
+	# enough off screen... right now it just seems like my projectiles die
+	# as soon as they go off screen" - Natalia). Enemies can absolutely be
+	# positioned beyond the current view, so that's a real problem, not
+	# just a wasted perf optimization. Now it's a grace window instead of
+	# an instant kill: a shot that's still off-screen after
+	# OFFSCREEN_GRACE_SEC gets cleaned up (still catches wild missed shots
+	# flying into empty space), but one that's actually travelling toward a
+	# real off-screen target gets real distance to cover, and the grace
+	# timer cancels outright if it comes back on screen before firing.
+	# _get_lifetime() (~4s baseline) is still the hard cap regardless, so
+	# this can't leak projectiles forever even if the grace timer somehow
+	# never fires.
 	var vis_notifier = VisibleOnScreenNotifier2D.new()
 	vis_notifier.rect = Rect2(-10, -10, 20, 20)
 	vis_notifier.screen_exited.connect(func():
-		# Add a tiny delay to ensure trail can finish or it doesn't clip immediately at edge
-		if not is_queued_for_deletion():
-			queue_free()
+		if is_queued_for_deletion() or _offscreen_cull_timer:
+			return
+		_offscreen_cull_timer = Timer.new()
+		_offscreen_cull_timer.wait_time = OFFSCREEN_GRACE_SEC
+		_offscreen_cull_timer.one_shot = true
+		_offscreen_cull_timer.timeout.connect(func():
+			if not is_queued_for_deletion():
+				queue_free()
+		)
+		add_child(_offscreen_cull_timer)
+		_offscreen_cull_timer.start()
+	)
+	vis_notifier.screen_entered.connect(func():
+		if _offscreen_cull_timer:
+			_offscreen_cull_timer.stop()
+			_offscreen_cull_timer.queue_free()
+			_offscreen_cull_timer = null
 	)
 	add_child(vis_notifier)
 
@@ -125,6 +239,16 @@ func _spawn_instant_bolt_flash():
 	tw.tween_property(bolt, "modulate:a", 0.0, 0.18)
 	tw.tween_callback(bolt.queue_free)
 
+# Shared end-of-flight cleanup - called both by the lifetime Timer (time ran
+# out) and by the max_range distance check in _physics_process (traveled far
+# enough). Same outcome either way: detonate if this shot carries EXPLOSION,
+# then clean up.
+func _expire():
+	if ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) > 0.1:
+		_trigger_explosion()
+	if not is_queued_for_deletion():
+		queue_free()
+
 func _get_lifetime() -> float:
 	var base_life = 4.0
 	if ratios.has(EnergyPacket.SynergyType.FIRE):
@@ -151,7 +275,12 @@ func _calculate_stats():
 	spd_mod -= 200.0 * r_ice
 	final_speed = base_speed + spd_mod
 	if final_speed < 50.0: final_speed = 50.0
-	
+
+	# Range: generous baseline (BASE_RANGE) for every shot, plus an explicit
+	# Kinetic bonus on top - see the field comment above for why this is
+	# separate from the speed boost Kinetic already gets.
+	max_range = BASE_RANGE + KINETIC_RANGE_BONUS * r_kin
+
 	# Size/Mass (ratio-driven only - magnitude-driven size lives entirely in
 	# _build_visuals()'s p_scale below. An earlier pass also added a
 	# magnitude factor HERE, which multiplied against p_scale instead of
@@ -255,7 +384,8 @@ func _build_visuals():
 	# Mythic AoE-focused Amplifiers physically grow the projectile
 	p_scale *= (1.0 + 0.5 * aoe_bonus)
 	p_scale = min(p_scale, 8.0)
-	
+	visual_scale = p_scale # so _ready()'s CollisionShape2D can match this
+
 	if dominant == EnergyPacket.SynergyType.KINETIC:
 		# Sharp, aerodynamic shape
 		var poly = Polygon2D.new()
@@ -468,49 +598,36 @@ func _physics_process(delta: float):
 	var r_psn = ratios.get(EnergyPacket.SynergyType.POISON, 0.0)
 	var r_vtx = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
 	var r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
-	
+
+	# KINETIC "The Straightener" (Natalia: "kinetic should also straighten
+	# paths") - dampens how hard OTHER elements bend this shot's actual
+	# flight path off a straight line, on top of the passive aim-correction
+	# steering Kinetic already gets below. Only applies to distortions that
+	# move the real position (Poison's downward arc, Vortex's tangential
+	# swirl) - Lightning's zigzag is purely a cosmetic visual_node offset,
+	# the underlying path is already straight, so there's nothing there for
+	# Kinetic to straighten.
+	var straighten = clamp(1.0 - r_kin, 0.0, 1.0)
+
 	# 1. MASS / INERTIA (ICE & RAW)
 	# Heavy objects resist steering. Pierce ignores friction but doesn't affect mass steering resistance.
 	var steering_resistance = 1.0 + (3.0 * r_ice) # Ice makes it very hard to turn
 	
 	# 2. VAMPIRIC TERMINAL HOMING ("The Hunter")
+	# Re-acquiring the best target only needs to happen a few times a second,
+	# not every single physics tick - the shape query here was the single
+	# biggest per-projectile cost once combat got busy. The cached target's
+	# CURRENT position is still read fresh every tick below (so steering
+	# stays smooth), only the "who's the best target" search is throttled.
 	var active_homing_target = null
 	if is_homing or r_vamp > 0.0:
-		var closest = null
-		var min_dist = 400.0 + (300.0 * r_vamp)
-		if r_ltg > 0.0 and r_vamp > 0.0:
-			min_dist += 500.0 * r_ltg # Lightning + Vampiric massively increases targeting range
-			
-		var query = PhysicsShapeQueryParameters2D.new()
-		var shape = CircleShape2D.new()
-		shape.radius = min_dist
-		query.shape = shape
-		query.transform = global_transform
-		query.collision_mask = 4 if collision_mask & 4 else 8
-		var results = space_state.intersect_shape(query)
-		
-		# If Kinetic + Vampiric, look for FURTHEST target to maximize pierce potential
-		if r_kin > 0.0 and r_vamp > 0.0:
-			var max_dist = 0.0
-			for res in results:
-				var col = res["collider"]
-				if col.has_method("apply_damage"):
-					var d = global_position.distance_to(col.global_position)
-					if d > max_dist:
-						max_dist = d
-						closest = col
-		else:
-			for res in results:
-				var col = res["collider"]
-				if col.has_method("apply_damage"):
-					var d = global_position.distance_to(col.global_position)
-					if d < min_dist:
-						min_dist = d
-						closest = col
-						
-		if closest:
-			active_homing_target = closest
-			target_direction = (closest.global_position - global_position).normalized()
+		_homing_query_timer -= delta
+		if _homing_query_timer <= 0.0 or not is_instance_valid(_cached_homing_target):
+			_homing_query_timer = HOMING_QUERY_INTERVAL
+			_cached_homing_target = _find_homing_target(space_state, r_kin, r_vamp, r_ltg)
+		if is_instance_valid(_cached_homing_target):
+			active_homing_target = _cached_homing_target
+			target_direction = (_cached_homing_target.global_position - global_position).normalized()
 	
 	# 3. KINETIC STEERING ("The Straightener") & VAMPIRIC OVERRIDE
 	var current_speed = final_speed
@@ -541,10 +658,10 @@ func _physics_process(delta: float):
 		
 		current_speed = max(50.0, final_speed - drag_coefficient * time_alive)
 	
-	# 5. POISON GRAVITY LOB ("The Mortar")
+	# 5. POISON GRAVITY LOB ("The Mortar") - dampened by Kinetic's straightening
 	var gravity_velocity = Vector2.ZERO
 	if r_psn > 0.0:
-		gravity_velocity = Vector2(0, 400.0 * r_psn * time_alive) # Accelerates downwards over time
+		gravity_velocity = Vector2(0, 400.0 * r_psn * time_alive * straighten) # Accelerates downwards over time
 	
 	# ORGANIC VELOCITY ACCUMULATION
 	var ortho = Vector2(-direction.y, direction.x)
@@ -554,13 +671,23 @@ func _physics_process(delta: float):
 	# 6. VORTEX SWIRL ("The Swirler")
 	# Applies a strong tangential force that oscillates, moving the projectile itself.
 	if r_vtx > 0.0:
-		var swirl_amplitude = 250.0 * r_vtx
+		var swirl_amplitude = 250.0 * r_vtx * straighten # Kinetic punches through the swirl
 		var swirl_freq = 6.0
 		var swirl_vel = ortho * cos(time_alive * swirl_freq) * swirl_amplitude
 		velocity += swirl_vel
 		
 		if r_vtx > 0.1:
-			_pull_nearby_items(delta)
+			# Throttled to VORTEX_QUERY_INTERVAL instead of every tick (see the
+			# perf comment near the other throttled fields) - accumulates
+			# elapsed time between pulls and passes THAT to _pull_nearby_items
+			# so the total impulse over time still matches, just applied in
+			# slightly chunkier steps instead of smoothly every 1/60s
+			# (imperceptible for a pull effect).
+			_vortex_query_timer += delta
+			if _vortex_query_timer >= VORTEX_QUERY_INTERVAL:
+				var elapsed = _vortex_query_timer
+				_vortex_query_timer = 0.0
+				_pull_nearby_items(elapsed)
 	
 	# 7. LIGHTNING ZIG-ZAG ("The Arc")
 	# Was a smooth sin(t*40)*cos(t*25) beat pattern, which reads as a slow
@@ -583,8 +710,42 @@ func _physics_process(delta: float):
 		visual_offset += ortho * lightning_wave * (26.0 * r_ltg)
 	
 	# APPLY PHYSICS
+	var _prev_global_pos = global_position
 	position += velocity * delta
-	
+
+	# TUNNELING FIX: Area2D has no continuous collision detection - it only
+	# fires body_entered/area_entered if the shape happens to still be
+	# overlapping something at the END of a physics tick. LIGHTNING-dominant
+	# shots force final_speed to at least 4200 px/s (see the INSTANT
+	# LIGHTNING block above), and KINETIC/PIERCE speed bonuses can push
+	# well past 1500 - at 60 physics ticks/sec that's 25-70+ px of travel
+	# PER TICK, easily more than a small enemy's whole hitbox width, so the
+	# shot can cross clean through several targets without ever registering
+	# an overlap. This was the actual "stuff isn't hitting targets" bug -
+	# _spawn_instant_bolt_flash's visual bolt implies the whole beam path
+	# connects instantly, but the real moving hitbox was skipping most of
+	# what it visually crossed. Sweep the segment actually travelled this
+	# tick and manually route anything crossed into the normal hit path.
+	# Only pay for the sweep query when travel this tick is actually fast
+	# enough to risk skipping through a target (see TUNNEL_RISK_MOVE_THRESHOLD
+	# comment up top) - below that, the normal Area2D signals below already
+	# reliably catch the hit for free, and this was previously gated at just
+	# 4.0px, so nearly every projectile at any speed paid for a full physics
+	# shape query every single tick regardless of whether it needed one.
+	var _moved = global_position - _prev_global_pos
+	if _moved.length() > TUNNEL_RISK_MOVE_THRESHOLD:
+		_sweep_for_tunneled_hits(_prev_global_pos, _moved)
+
+	# Range cap (see max_range's field comment) - reuses _moved rather than
+	# computing distance a second way. Whichever runs out first between this
+	# and the time-based lifetime Timer ends the shot; for anything that
+	# isn't FIRE (whose short lifetime is almost always the binding
+	# constraint anyway) this is normally the one that actually matters.
+	distance_traveled += _moved.length()
+	if distance_traveled >= max_range:
+		_expire()
+		return
+
 	# APPLY VISUALS
 	visual_node.position = visual_offset
 	# If poison gravity is dominating, point downwards
@@ -598,6 +759,68 @@ func _physics_process(delta: float):
 		for p in helix_particles:
 			var angle = time_alive * p["speed"] + p["phase"]
 			p["node"].position = Vector2(cos(angle)*p["radius"]*0.5, sin(angle)*p["radius"])
+
+# Approximates the shape actually moved through this tick as a rectangle
+# (segment length x hitbox width) oriented along the direction of travel,
+# and routes anything it overlaps into the normal _handle_hit path - see
+# the call site's comment in _physics_process for why this exists. Sized to
+# match the REAL CollisionShape2D (same formula _ready() uses) so this
+# never claims a hit the actual hitbox wouldn't also make at close range.
+func _sweep_for_tunneled_hits(from_pos: Vector2, moved: Vector2):
+	var space_state = get_world_2d().direct_space_state
+	var query = PhysicsShapeQueryParameters2D.new()
+	var seg_shape = RectangleShape2D.new()
+	var hit_w = 8.0 * scale.x * sqrt(visual_scale)
+	seg_shape.size = Vector2(moved.length(), max(4.0, hit_w))
+	query.shape = seg_shape
+	query.transform = Transform2D(moved.angle(), from_pos + moved * 0.5)
+	query.collision_mask = collision_mask
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+	var results = space_state.intersect_shape(query, 8)
+	for res in results:
+		var col = res["collider"]
+		if col == self or col == source_mech:
+			continue
+		_handle_hit(col)
+
+# Extracted straight out of the old inline block in _physics_process (see
+# the throttling comment at the call site) - same search logic, just now
+# callable on its own schedule instead of every tick.
+func _find_homing_target(space_state, r_kin: float, r_vamp: float, r_ltg: float) -> Node2D:
+	var closest = null
+	var min_dist = 400.0 + (300.0 * r_vamp)
+	if r_ltg > 0.0 and r_vamp > 0.0:
+		min_dist += 500.0 * r_ltg # Lightning + Vampiric massively increases targeting range
+
+	var query = PhysicsShapeQueryParameters2D.new()
+	var shape = CircleShape2D.new()
+	shape.radius = min_dist
+	query.shape = shape
+	query.transform = global_transform
+	query.collision_mask = 4 if collision_mask & 4 else 8
+	var results = space_state.intersect_shape(query)
+
+	# If Kinetic + Vampiric, look for FURTHEST target to maximize pierce potential
+	if r_kin > 0.0 and r_vamp > 0.0:
+		var max_dist = 0.0
+		for res in results:
+			var col = res["collider"]
+			if col.has_method("apply_damage"):
+				var d = global_position.distance_to(col.global_position)
+				if d > max_dist:
+					max_dist = d
+					closest = col
+	else:
+		for res in results:
+			var col = res["collider"]
+			if col.has_method("apply_damage"):
+				var d = global_position.distance_to(col.global_position)
+				if d < min_dist:
+					min_dist = d
+					closest = col
+	return closest
+
 func _pull_nearby_items(delta: float):
 	var space_state = get_world_2d().direct_space_state
 	var query = PhysicsShapeQueryParameters2D.new()
@@ -642,7 +865,15 @@ func _on_area_entered(area: Area2D):
 func _handle_hit(target: Node2D):
 	if not target.has_method("apply_damage"):
 		return
-		
+	# Shared choke point for both the normal signal-based hit (_on_body_entered/
+	# _on_area_entered) and the tunneling sweep in _physics_process below -
+	# without this, a shot whose final resting position still overlaps a
+	# target it already swept-hit this tick would apply damage twice.
+	var target_id = target.get_instance_id()
+	if _handled_targets.has(target_id):
+		return
+	_handled_targets[target_id] = true
+
 	var dominant_str = "RAW"
 	var max_ratio = 0.0
 	for k in ratios:
@@ -660,7 +891,7 @@ func _handle_hit(target: Node2D):
 				EnergyPacket.SynergyType.VAMPIRIC: dominant_str = "VAMPIRIC"
 				
 	# Apply Base Damage
-	target.apply_damage(damage, dominant_str)
+	target.apply_damage(damage, dominant_str, source_mech)
 	
 	# Massive Damage Screen Shake on Hit
 	if fired_by_player and target.is_in_group("enemy") and damage >= 10000000.0:
@@ -689,51 +920,70 @@ func _handle_hit(target: Node2D):
 	# signature mark (FEATURE_ROADMAP.md group 3). Durations and proc
 	# chances scale with the synergy's RATIO, so trace amounts from a
 	# blended packet stay subtle instead of full-strength.
-	if target.has_method("apply_status"):
-		if ratios.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1:
-			target.apply_status("burning", 3.0 * ratios[EnergyPacket.SynergyType.FIRE])
-		if ratios.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1:
-			target.apply_status("frozen", 3.0 * ratios[EnergyPacket.SynergyType.ICE])
+	_apply_synergy_status_effects(target, ratios)
 
-		# LIGHTNING: paralyze chance - a full-stop lockup, brief
-		var rl = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
-		if rl > 0.15 and randf() < 0.35 * rl:
-			target.apply_status("paralyzed", 0.4 + 0.5 * rl)
+	# Resonator Sync (Mythic Resonator - see ResonatorTile._process_sync):
+	# proc_synergies carries statuses this packet PICKED UP from a crossed
+	# sync path, entirely separate from its actual elemental composition.
+	# Reuses the exact same threshold table above so a sync-conferred burn
+	# behaves identically to a real one - just routed through a second,
+	# non-damage-affecting dict instead of `ratios`.
+	if not proc_synergies.is_empty():
+		_apply_synergy_status_effects(target, proc_synergies)
 
-		# POISON: lingering toxin - DoT plus a mild slow
-		var rp = ratios.get(EnergyPacket.SynergyType.POISON, 0.0)
-		if rp > 0.1:
-			target.apply_status("poisoned", 4.0 + 3.0 * rp)
+# Shared by both a shot's real elemental ratios and any Resonator Sync
+# proc_synergies (see above) - `sr` (synergy ratios) is just a synergy_type
+# -> 0..1-ish strength dict either way, and every branch below only ever
+# reads from `sr`, never `ratios` directly, so the two call sites are
+# guaranteed to apply identical effects for identical strengths.
+func _apply_synergy_status_effects(target: Node, sr: Dictionary):
+	if not target.has_method("apply_status"):
+		return
 
-		# KINETIC: stagger + physical shove along the shot's direction
-		var rk = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
-		if rk > 0.2:
-			target.apply_status("staggered", 0.4 + 0.3 * rk)
-			if "external_force" in target:
-				target.external_force += direction * 260.0 * rk
+	if sr.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1:
+		target.apply_status("burning", 3.0 * sr[EnergyPacket.SynergyType.FIRE])
+	if sr.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1:
+		target.apply_status("frozen", 3.0 * sr[EnergyPacket.SynergyType.ICE])
 
-		# PIERCE: rent armor - target takes increased damage for a while
-		if ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0) > 0.15:
-			target.apply_status("rent", 4.0)
+	# LIGHTNING: paralyze chance - a full-stop lockup, brief
+	var rl = sr.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
+	if rl > 0.15 and randf() < 0.35 * rl:
+		target.apply_status("paralyzed", 0.4 + 0.5 * rl)
 
-		# EXPLOSION: concussion chance - near-total slow, very brief
-		var re = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
-		if re > 0.2 and randf() < 0.5 * re:
-			target.apply_status("concussed", 0.35)
+	# POISON: lingering toxin - DoT plus a mild slow
+	var rp = sr.get(EnergyPacket.SynergyType.POISON, 0.0)
+	if rp > 0.1:
+		target.apply_status("poisoned", 4.0 + 3.0 * rp)
 
-		# VORTEX: dragged toward the impact point for a moment
-		var rv = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
-		if rv > 0.15:
-			if "vortex_drag_point" in target:
-				target.vortex_drag_point = global_position
-			target.apply_status("vortexed", 0.4 + 0.6 * rv)
+	# KINETIC: stagger + physical shove along the shot's direction
+	var rk = sr.get(EnergyPacket.SynergyType.KINETIC, 0.0)
+	if rk > 0.2:
+		target.apply_status("staggered", 0.4 + 0.3 * rk)
+		if "external_force" in target:
+			target.external_force += direction * 260.0 * rk
 
-		# VAMPIRIC: bleed; heavy vampiric hits can briefly immobilize
-		var rvm = ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
-		if rvm > 0.1:
-			target.apply_status("bleeding", 3.0 + 2.0 * rvm)
-			if rvm > 0.5 and randf() < 0.3:
-				target.apply_status("immobilized", 0.5)
+	# PIERCE: rent armor - target takes increased damage for a while
+	if sr.get(EnergyPacket.SynergyType.PIERCE, 0.0) > 0.15:
+		target.apply_status("rent", 4.0)
+
+	# EXPLOSION: concussion chance - near-total slow, very brief
+	var re = sr.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
+	if re > 0.2 and randf() < 0.5 * re:
+		target.apply_status("concussed", 0.35)
+
+	# VORTEX: dragged toward the impact point for a moment
+	var rv = sr.get(EnergyPacket.SynergyType.VORTEX, 0.0)
+	if rv > 0.15:
+		if "vortex_drag_point" in target:
+			target.vortex_drag_point = global_position
+		target.apply_status("vortexed", 0.4 + 0.6 * rv)
+
+	# VAMPIRIC: bleed; heavy vampiric hits can briefly immobilize
+	var rvm = sr.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
+	if rvm > 0.1:
+		target.apply_status("bleeding", 3.0 + 2.0 * rvm)
+		if rvm > 0.5 and randf() < 0.3:
+			target.apply_status("immobilized", 0.5)
 		
 	# Lightning Arcing - chains through multiple enemies in sequence (not
 	# just one jump), each hop dealing falloff damage. Hop count and jump
@@ -805,7 +1055,17 @@ func _handle_hit(target: Node2D):
 				var obs = map.get_node_or_null("Obstacles")
 				if obs and target.get_parent() == obs:
 					target.queue_free()
-	
+
+		# Fire + Oil Slick = Ignition. Oil slicks are their own scattered
+		# hazard nodes (OilSlickHazard.gd), not a biome, so this checks the
+		# small "oil_slick" group directly rather than the terrain grid -
+		# only ever a handful of slicks exist on a given map, so the scan
+		# is cheap even done per FIRE hit.
+		if ratios.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1:
+			for slick in get_tree().get_nodes_in_group("oil_slick"):
+				if is_instance_valid(slick) and global_position.distance_to(slick.global_position) <= slick.IGNITE_RADIUS:
+					slick.ignite()
+
 	pierce_count -= 1
 	if pierce_count <= 0:
 		queue_free()

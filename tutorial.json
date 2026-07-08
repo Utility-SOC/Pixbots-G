@@ -1,0 +1,70 @@
+{
+  "steps": [
+    {
+      "id": "welcome",
+      "text": "Hey! You made it. I'm Evan - I run this place. That the birthday PixBot? Solid starter frame. Corp sponsors our trainer table so new pilots can learn without scratching the paint. Hop on, I'll walk you through it. (Next to continue - or Skip, if you're one of those prodigies.)",
+      "anchor": "",
+      "wait_for": "manual"
+    },
+    {
+      "id": "grid_intro",
+      "text": "This is your bot's guts - the hex grid. Core makes energy, tiles route it and flavor it, weapon mounts throw it at the other guy. Every PixBot in this shop runs on that one idea, including mine. Mine's just prettier.",
+      "anchor": "tutorial:grid_panel",
+      "wait_for": "manual",
+      "requires_garage": true
+    },
+    {
+      "id": "place_any_tile",
+      "text": "Grab any tile out of your bin and drop it on a connected cell. Go on, you can't break the trainer. Well. You can, but the Corp pays for those.",
+      "anchor": "tutorial:inventory_panel",
+      "wait_for": "tile_placed:any",
+      "requires_garage": true
+    },
+    {
+      "id": "simulate",
+      "text": "Now hit 'Simulate Energy Flow' and watch the juice actually move through what you built. Honestly the best part of the hobby. I've got regulars who never take their bots off the bench - they just sit here rerouting packets all afternoon.",
+      "anchor": "tutorial:sim_button",
+      "wait_for": "event:simulate_pressed",
+      "requires_garage": true
+    },
+    {
+      "id": "accumulators",
+      "text": "Quick tip before your first match: route power through an Accumulator and it banks a BIG shot on keys 1, 2, or 3. Your regular trigger keeps working - at half strength while the bank fills, full once it's ready. Press the key, watch the fireworks. The kids call it the nuke button. I also call it the nuke button.",
+      "anchor": "",
+      "wait_for": "manual",
+      "requires_garage": true
+    },
+    {
+      "id": "heat",
+      "text": "One more thing - stored energy runs HOT. Firing vents it, and Ice in the circuit keeps everything cool if you build for it. If your bot starts arcing, that's it telling you to shoot something. If you smell ozone, that was not the carpet, and we don't discuss it.",
+      "anchor": "",
+      "wait_for": "manual",
+      "requires_garage": true
+    },
+    {
+      "id": "repairs",
+      "text": "Bots take real hits out there. A bad one can fry a tile dead - it stays dead until you repair it back here, and repairs cost scrap. Sell me your junk tiles anytime, I'm not picky. The scrap economy is half the game, kid.",
+      "anchor": "",
+      "wait_for": "manual",
+      "requires_garage": true
+    },
+    {
+      "id": "the_ai",
+      "text": "Now - about the house bots. The Corp's trainer AI learns. Every match you play, it studies you, breeds new squads, holds a little grudge. Hit TAB anytime to see the War Room - that's its homework on YOU. Know your enemy. It absolutely knows you.",
+      "anchor": "",
+      "wait_for": "manual"
+    },
+    {
+      "id": "table_sense",
+      "text": "U pops the minimap, mouse wheel pulls the camera back so you can see the whole table. Red dots are trouble. Green dot is the way home. You'll figure out the rest by getting shot at, which is the traditional method.",
+      "anchor": "",
+      "wait_for": "manual"
+    },
+    {
+      "id": "done",
+      "text": "That's the whole loop: build, brawl, salvage, rebuild better. Your bot's registered with the Corp now - win matches, earn parts, and maybe someday it's YOUR name on the tournament bracket out front. Door's always open. Now go make some noise.",
+      "anchor": "",
+      "wait_for": "manual"
+    }
+  ]
+}

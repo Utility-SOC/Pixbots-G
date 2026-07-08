@@ -7,7 +7,9 @@ func _ready():
 func _apply_controls_from_settings():
 	var config = ConfigFile.new()
 	var scheme = 0 # 0 = WASD
-	if config.load("res://settings.cfg") == OK:
+	# user:// via SaveManager.SETTINGS_PATH - res:// is read-only in
+	# exported builds (SaveManager._ready migrates old res:// settings).
+	if config.load(SaveManager.SETTINGS_PATH) == OK:
 		scheme = config.get_value("Controls", "Scheme", 0)
 		
 	var mapping = {
@@ -127,6 +129,7 @@ func _create_button(text: String, callable: Callable) -> Button:
 func _on_play_campaign():
 	print("Starting Campaign Mode...")
 	SaveManager.save_to_load = "" # Clear load state for new game
+	SaveManager.tutorial_completed = false # New save should see the tutorial again
 	_launch_game("campaign")
 
 func _on_play_endless():

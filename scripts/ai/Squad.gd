@@ -37,6 +37,31 @@ var flee_penalty: float = 0.0
 const FLEE_GRACE_PERIOD: float = 5.0 # seconds of silence (post-engagement) tolerated before penalizing
 const FLEE_PENALTY_RATE: float = 1.5 # fitness points/sec subtracted beyond the grace period
 
+# --- Shared search memory (Natalia: "everyone in the squad knows where
+# everyone in the squad has looked") --------------------------------------
+# Coarse grid of world-space cells the squad has collectively covered while
+# searching (see Mech.gd's _execute_search/_execute_scout_search) - members
+# mark cells as explored as they move through them, and deprioritize/skip
+# past cells a squadmate already covered recently instead of dutifully
+# re-walking the same ground. Keyed on `time_alive` (already ticked every
+# physics frame below) rather than a wall-clock timestamp, since this only
+# ever needs to compare against other times measured the same way.
+const EXPLORE_CELL_SIZE = 160.0
+const EXPLORE_STALE_AFTER = 25.0 # after this long a cell is fair game to re-search
+var explored_cells: Dictionary = {} # Vector2i cell -> time_alive when last marked
+
+func _explore_cell(world_pos: Vector2) -> Vector2i:
+	return Vector2i(int(floor(world_pos.x / EXPLORE_CELL_SIZE)), int(floor(world_pos.y / EXPLORE_CELL_SIZE)))
+
+func mark_explored(world_pos: Vector2):
+	explored_cells[_explore_cell(world_pos)] = time_alive
+
+func is_recently_explored(world_pos: Vector2) -> bool:
+	var cell = _explore_cell(world_pos)
+	if not explored_cells.has(cell):
+		return false
+	return (time_alive - explored_cells[cell]) < EXPLORE_STALE_AFTER
+
 func setup(_template: SquadTemplate):
 	template = _template
 
@@ -53,6 +78,12 @@ func add_member(mech: Node):
 	members.append(mech)
 	active_members += 1
 	initial_members += 1
+
+	# Back-reference so the mech can broadcast "I see the player" to its
+	# OWN squadmates only (see Mech.gd's _share_sight_with_squad) - never
+	# globally, so other squads don't get that freebie.
+	if "squad" in mech:
+		mech.squad = self
 
 	if "spawn_profile" in mech and mech.spawn_profile != null and not used_profiles.has(mech.spawn_profile):
 		used_profiles.append(mech.spawn_profile)

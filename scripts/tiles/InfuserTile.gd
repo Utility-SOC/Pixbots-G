@@ -7,6 +7,9 @@ var power_infusion: float = 2.0
 func _init():
 	super._init("Elemental Infuser", HexTile.TileCategory.PROCESSOR)
 
+func get_weight() -> float:
+	return 4.0 # moderate - an elemental conversion processor
+
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	# Convert a proportion of the RAW energy to this synergy
 	# This ensures subsequent different infusers are additive (they all pull from RAW)

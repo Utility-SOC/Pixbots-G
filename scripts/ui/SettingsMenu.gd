@@ -2,7 +2,10 @@ class_name SettingsMenu
 extends CanvasLayer
 
 var config = ConfigFile.new()
-var save_path = "res://settings.cfg"
+# user:// - res:// is read-only in exported builds, so settings written
+# there silently failed to persist for players. SaveManager._ready()
+# migrates any legacy res://settings.cfg forward on first boot.
+var save_path = SaveManager.SETTINGS_PATH
 
 var slider_master: HSlider
 var slider_music: HSlider

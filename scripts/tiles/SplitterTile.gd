@@ -12,6 +12,9 @@ func _init():
 	category = TileCategory.ROUTER
 	active_faces = [1, 5]
 
+func get_weight() -> float:
+	return 2.0 # light - just a routing junction
+
 func get_max_faces() -> int:
 	match rarity:
 		Rarity.COMMON: return 2

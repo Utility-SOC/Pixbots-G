@@ -14,32 +14,17 @@ var _particle_points: Array = []
 var _particle_color: Color = Color.WHITE
 var _shared_particles: CPUParticles2D = null
 
+const MechStatusBars = preload("res://scripts/visuals/MechStatusBars.gd")
+
+# Role-based visual scale of the LAST rebuild (0.8 scout ... 1.8 boss) - the
+# status bar layer reads this to push itself high enough to clear the head/
+# antenna silhouette on big-scale mechs instead of using one fixed offset
+# that only worked for the smallest builds. Set at the bottom of
+# _rebuild_visuals().
+var last_render_scale: float = 1.0
+
 func _ready():
 	_rebuild_visuals()
-
-func _process(_delta):
-	queue_redraw()
-
-func _draw():
-	var mech = get_parent()
-	if not mech or not "hp" in mech: return
-
-	var bar_width = 40.0
-	var bar_height = 4.0
-	var y_offset = -40.0
-
-	# Draw background
-	draw_rect(Rect2(-bar_width/2, y_offset, bar_width, bar_height), Color.BLACK)
-
-	# Draw HP
-	var hp_pct = clamp(mech.hp / max(1.0, mech.max_hp), 0.0, 1.0)
-	var hp_color = Color.GREEN if mech.is_player else Color.RED
-	draw_rect(Rect2(-bar_width/2, y_offset, bar_width * hp_pct, bar_height), hp_color)
-
-	# Draw Shield
-	if mech.max_shield_hp > 0:
-		var shld_pct = clamp(mech.shield_hp / max(1.0, mech.max_shield_hp), 0.0, 1.0)
-		draw_rect(Rect2(-bar_width/2, y_offset - bar_height - 1, bar_width * shld_pct, bar_height), Color(0.2, 0.6, 1.0))
 
 # -----------------------------------------------------------------------------
 # ROLE VISUAL PROFILES
@@ -76,10 +61,27 @@ func _get_role_visual_profile(role: String) -> Dictionary:
 			return {"color": Color(0.15, 0.15, 0.18), "scale": 0.85, "accent": "ambusher"}
 		"scout":
 			return {"color": Color(0.5, 0.75, 0.4), "scale": 0.8, "accent": "scout"}
+		"diver":
+			# Amphibious - teal/aquatic palette distinct from the scout's
+			# olive-green, so "this one ignores water" reads at a glance
+			# before the player ever sees it actually cross a lake.
+			return {"color": Color(0.15, 0.5, 0.55), "scale": 0.8, "accent": "diver"}
 		"jammer":
 			return {"color": Color(0.25, 0.15, 0.45), "scale": 1.1, "accent": "jammer"}
+		"piercing_jammer":
+			# Distinct from the standard Warden jammer - a bladed, aggressive
+			# silhouette (dish swapped for a spike array) reading as the
+			# "protects allies from execution" support unit it is, rather
+			# than the vision/synergy-mute Warden it's descended from.
+			return {"color": Color(0.5, 0.1, 0.15), "scale": 1.1, "accent": "piercing_jammer"}
 		"support":
 			return {"color": Color(0.2, 0.7, 0.75), "scale": 1.0, "accent": "support"}
+		"commander":
+			# Was falling through to the generic default before (this role
+			# didn't exist yet when the table above was written) - same gap
+			# scout/jammer/support used to have. Regal purple/gold, and the
+			# tallest baseline scale since Overlord bosses use this role.
+			return {"color": Color(0.35, 0.15, 0.45), "scale": 1.3, "accent": "commander"}
 		"boss":
 			return {"color": Color(0.1, 0.1, 0.1), "scale": 1.8, "accent": "boss"}
 		_:
@@ -96,8 +98,19 @@ func _rebuild_visuals():
 	var mech = get_parent()
 	var role = mech.combat_role if (mech and "combat_role" in mech) else ""
 	var is_hero = mech and "is_player" in mech and mech.is_player
+	var is_boss = mech and "is_boss" in mech and mech.is_boss
 	var profile = _get_role_visual_profile("player" if is_hero else role)
+	if is_boss:
+		# Bosses read as a darker, more armored variant of their base role's
+		# palette. On its own that's a subtle tell, but combined with the
+		# boss-only silhouette accents added in _draw_torso/_draw_head below
+		# (one per role - see the `if is_boss:` blocks there) each of the 6
+		# boss archetypes ends up genuinely distinct from both its own grunt
+		# and from the other 5 bosses, not just a bigger version of one model.
+		profile = profile.duplicate()
+		profile.color = profile.color.darkened(0.15)
 	_particle_color = profile.color.lightened(0.3)
+	last_render_scale = profile.scale
 
 	for slot in components.keys():
 		var comp = components[slot]
@@ -112,7 +125,7 @@ func _rebuild_visuals():
 		rng.seed = hash(comp.component_name) + comp.rarity + v_seed
 
 		if comp.slot_type == HexTile.BodySlot.TORSO:
-			_draw_torso(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent)
+			_draw_torso(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent, is_boss)
 		elif comp.slot_type == HexTile.BodySlot.ARM_L:
 			_draw_arm(null, profile.color, true, rng, rarity_mult, comp.rarity, profile.accent)
 		elif comp.slot_type == HexTile.BodySlot.ARM_R:
@@ -122,14 +135,14 @@ func _rebuild_visuals():
 		elif comp.slot_type == HexTile.BodySlot.LEG_R:
 			_draw_leg(null, profile.color, false, rng, rarity_mult, comp.rarity)
 		elif comp.slot_type == HexTile.BodySlot.HEAD:
-			_draw_head(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent)
+			_draw_head(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent, is_boss)
 
 	# Draw standard parts for any slots that weren't overridden by tiles
 	var rng_def = RandomNumberGenerator.new()
 	rng_def.seed = 12345
 
 	if not drawn_parts.has("Torso"):
-		_draw_torso(null, profile.color, rng_def, profile.scale, 0, profile.accent)
+		_draw_torso(null, profile.color, rng_def, profile.scale, 0, profile.accent, is_boss)
 	if not drawn_parts.has("Arm_true"):
 		_draw_arm(null, profile.color, true, rng_def, profile.scale, 0, profile.accent)
 	if not drawn_parts.has("Arm_false"):
@@ -139,9 +152,20 @@ func _rebuild_visuals():
 	if not drawn_parts.has("Leg_false"):
 		_draw_leg(null, profile.color, false, rng_def, profile.scale, 0)
 	if not drawn_parts.has("Head"):
-		_draw_head(null, profile.color, rng_def, profile.scale, 0, profile.accent)
+		_draw_head(null, profile.color, rng_def, profile.scale, 0, profile.accent, is_boss)
 
 	_finalize_particles()
+
+	# Added LAST so it's the final child in the tree - Godot draws sibling
+	# CanvasItems in child order, so being last means this always renders on
+	# top of every body part regardless of where its shapes fall vertically.
+	# Previously the bars were drawn via this node's OWN _draw(), which (being
+	# the parent) rendered BEFORE any of the part children added above -  the
+	# head/antenna silhouette painted right over it. See MechStatusBars.gd.
+	var bars = MechStatusBars.new()
+	bars.owner_mech = mech
+	bars.owner_renderer = self
+	add_child(bars)
 
 # One shared particle system per mech instead of one per high-rarity part.
 func _finalize_particles():
@@ -165,7 +189,7 @@ func _finalize_particles():
 # SHAPE DEFINITIONS
 # -----------------------------------------------------------------------------
 
-func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = ""):
+func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = "", is_boss: bool = false):
 	var pts = _get_component_polygon(tile, scale_mult)
 	if pts.is_empty():
 		var w = 18.0 * scale_mult
@@ -225,6 +249,51 @@ func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = ""):
 		var s = 4.0 * scale_mult
 		part.renderer.add_line(Vector2(cx - s, cy), Vector2(cx + s, cy), Color(0.9, 0.95, 0.95), 2.5)
 		part.renderer.add_line(Vector2(cx, cy - s), Vector2(cx, cy + s), Color(0.9, 0.95, 0.95), 2.5)
+
+	# Boss-only silhouette accents, one per role, layered on top of the
+	# regular role accent above. Keyed off boss_profile.base_role (always
+	# one of the 6 fixed role strings, even after mutation - see
+	# BossProfile.ALL_ROLES), so a given archetype's model stays recognizable
+	# across its whole evolutionary lineage instead of changing every time it
+	# graduates a mutation. Two of the six (sniper/jammer) are head-mounted
+	# instead - see _draw_head.
+	if is_boss:
+		if accent == "brawler":
+			# Warhulk: aggressive triangular spike-crown jutting off both
+			# pauldrons, on top of the baseline pauldron block everyone gets.
+			for side in [-1.0, 1.0]:
+				var spike_x = 14.0 * side * scale_mult
+				part.renderer.add_fill(PackedVector2Array([
+					Vector2(spike_x - 5 * scale_mult, -16 * scale_mult),
+					Vector2(spike_x + 1 * scale_mult, -28 * scale_mult),
+					Vector2(spike_x + 5 * scale_mult, -16 * scale_mult)
+				]), color.darkened(0.35))
+		elif accent == "flamethrower":
+			# Incinerator: exposed fuel tank on the back feeding the exhaust
+			# ring, with a visible pipe run - reads as "the tank itself is
+			# part of the threat," not just a bigger nozzle.
+			var tank_w = 6.0 * scale_mult
+			var tank_top = 4.0 * scale_mult
+			var tank_h = 12.0 * scale_mult
+			part.renderer.add_fill(PackedVector2Array([
+				Vector2(-tank_w, tank_top), Vector2(tank_w, tank_top),
+				Vector2(tank_w * 0.8, tank_top + tank_h), Vector2(-tank_w * 0.8, tank_top + tank_h)
+			]), Color(0.22, 0.22, 0.24))
+			part.renderer.add_line(Vector2(-tank_w * 0.5, tank_top + tank_h), Vector2(-tank_w * 0.5, tank_top + tank_h + 8.0 * scale_mult), Color(0.85, 0.45, 0.1), 2.0)
+			part.renderer.add_line(Vector2(tank_w * 0.5, tank_top + tank_h), Vector2(tank_w * 0.5, tank_top + tank_h + 8.0 * scale_mult), Color(0.85, 0.45, 0.1), 2.0)
+		elif accent == "commander":
+			# Overlord: a cape/cloak hanging off the back - the "the
+			# important one" tell, distinct from any grunt commander escort.
+			var cape_w = 15.0 * scale_mult
+			var cape_h = 20.0 * scale_mult
+			part.renderer.add_fill(PackedVector2Array([
+				Vector2(-cape_w, -4 * scale_mult), Vector2(cape_w, -4 * scale_mult),
+				Vector2(cape_w * 0.65, cape_h), Vector2(0, cape_h * 1.2), Vector2(-cape_w * 0.65, cape_h)
+			]), color.darkened(0.3))
+			part.renderer.add_fill(PackedVector2Array([
+				Vector2(-cape_w * 0.35, -4 * scale_mult), Vector2(cape_w * 0.35, -4 * scale_mult),
+				Vector2(0, cape_h * 0.5)
+			]), Color(0.85, 0.65, 0.15))
 	part.renderer.finish()
 
 func _draw_arm(tile, color, is_left, rng, scale_mult, rarity, accent: String = ""):
@@ -301,7 +370,7 @@ func _draw_leg(tile, color, is_left, rng, scale_mult, rarity):
 	var part = _render_mechanical_part(pts, color, offset, "Leg_" + str(is_left), body_slot, rarity)
 	part.renderer.finish()
 
-func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = ""):
+func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_boss: bool = false):
 	var offset = Vector2(0, -26.0)
 	var pts = _get_component_polygon(tile, scale_mult)
 	var w = 12.0 * scale_mult
@@ -326,8 +395,14 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = ""):
 		visor_color = Color(0.6, 0.05, 0.05) # single glowing red slit reads as sneaky/predatory
 	elif accent == "jammer":
 		visor_color = Color(0.5, 0.2, 0.9)
+	elif accent == "piercing_jammer":
+		visor_color = Color(0.95, 0.2, 0.15) # hot red slit, reads as "sharp/dangerous" not "sensor dish"
+	elif accent == "diver":
+		visor_color = Color(0.3, 0.9, 0.95) # bright aqua, reads as a diving mask/goggle
 	elif accent == "hero":
 		visor_color = Color(0.3, 0.8, 1.0) # cool cyan "hero visor", not just a tinted mono-eye
+	elif accent == "commander":
+		visor_color = Color(0.9, 0.7, 0.2) # imperial gold, reads as "the one giving orders"
 	var visor = PackedVector2Array([
 		Vector2(-w*0.8, h*0.2), Vector2(w*0.8, h*0.2),
 		Vector2(w*0.6, h*0.6), Vector2(-w*0.6, h*0.6)
@@ -364,6 +439,56 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = ""):
 	if accent == "scout":
 		# Thin whip antenna on top of the V-fin, reinforces "fast recon"
 		part.renderer.add_line(Vector2(0, -h), Vector2(0, -h - 10.0 * (1.0 + rarity * 0.1)), color.lightened(0.4), 1.0)
+
+	# Boss-only silhouette accents for the two archetypes whose tell reads
+	# better on the head than the torso (the brawler/flamethrower/commander
+	# boss accents live in _draw_torso instead). See the comment there for
+	# why this is keyed off role/accent rather than profile_name.
+	if is_boss:
+		if accent == "sniper":
+			# Longshot: a tall targeting mast towering over the silhouette,
+			# reads as a dedicated scope/comms array, not just a bigger head.
+			var mast_h = h * 2.4
+			part.renderer.add_line(Vector2(0, -h * 0.4), Vector2(0, -h * 0.4 - mast_h), color.darkened(0.2), 1.5)
+			part.renderer.add_line(Vector2(-w * 0.4, -h * 0.4 - mast_h * 0.65), Vector2(w * 0.4, -h * 0.4 - mast_h * 0.65), color.darkened(0.2), 1.5)
+		elif accent == "ambusher":
+			# Specter: a trailing cloak-fin behind the head/back - the
+			# "phantom" tell, especially striking in the moment it decloaks.
+			part.renderer.add_fill(PackedVector2Array([
+				Vector2(-w * 0.9, h * 0.3), Vector2(w * 0.9, h * 0.3),
+				Vector2(w * 0.5, h * 2.2), Vector2(0, h * 2.6), Vector2(-w * 0.5, h * 2.2)
+			]), color.darkened(0.4))
+		elif accent == "jammer":
+			# Warden: a satellite-dish array on top of the head
+			var dish_r = w * 0.9
+			var dish = PackedVector2Array()
+			for i in range(10):
+				var a = PI + i * (PI / 9.0)
+				dish.append(Vector2(cos(a), sin(a) * 0.6) * dish_r + Vector2(0, -h - dish_r * 0.3))
+			part.renderer.add_fill(dish, color.lightened(0.25))
+		elif accent == "piercing_jammer":
+			# A ring of small blade-spikes instead of the Warden's dish -
+			# same "thing sticking up off the head" silhouette language, but
+			# reads as bladed/aggressive rather than a sensor array.
+			var spike_count = 5
+			for i in range(spike_count):
+				var a = PI + (i + 0.5) * (PI / float(spike_count))
+				var base_pt = Vector2(cos(a), sin(a) * 0.6) * (w * 0.9) + Vector2(0, -h)
+				var tip_pt = base_pt + Vector2(cos(a), sin(a)) * (h * 0.9)
+				var spike = PackedVector2Array([
+					base_pt + Vector2(-2.0, 0), base_pt + Vector2(2.0, 0), tip_pt
+				])
+				part.renderer.add_fill(spike, color.lightened(0.3))
+		elif accent == "diver":
+			# A single dorsal fin along the back-center of the head, instead
+			# of a dish/spikes - the clearest silhouette shorthand for
+			# "aquatic" available at this pixel scale.
+			var fin_w = w * 0.5
+			var fin_h = h * 1.1
+			var fin = PackedVector2Array([
+				Vector2(-fin_w * 0.5, -h * 0.6), Vector2(fin_w * 0.5, -h * 0.6), Vector2(0, -h * 0.6 - fin_h)
+			])
+			part.renderer.add_fill(fin, color.lightened(0.2))
 	part.renderer.finish()
 
 func _get_component_polygon(comp: Node, scale_mult: float) -> PackedVector2Array:
@@ -509,7 +634,13 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 	area.name = "Hitbox"
 	area.mech = get_parent()
 	area.body_slot = body_slot
-	area.collision_layer = get_parent().collision_layer
+	# Guarded: a real Mech.gd always has collision_layer (it's a
+	# CharacterBody2D), but this renderer can also be driven by a lightweight
+	# preview stub (ComponentDiagramView's PreviewMechContext, a bare Node2D)
+	# that has no such property - reading it unconditionally crashed the
+	# Garage's live component preview the instant it tried to rebuild.
+	var parent_node = get_parent()
+	area.collision_layer = parent_node.collision_layer if parent_node and "collision_layer" in parent_node else 0
 	area.collision_mask = 0 # It just receives hits
 
 	var shape = CollisionPolygon2D.new()

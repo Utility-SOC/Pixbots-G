@@ -19,17 +19,17 @@ roughly ordered by impact within each group.
 
 ## A. Requested but still outstanding
 
-1. **Mythic Magnet "Repel" still shoves enemies; the requested behavior is
+1. ~~**Mythic Magnet "Repel" still shoves enemies; the requested behavior is
    projectile REFLECTION with ownership flip** (enemy shot enters field ->
    `fired_by_player = true`, `collision_mask = 4|1`, direction reversed,
    `source_mech` reassigned so lifesteal/damage credit works). Needs
    projectiles registered in a group ("projectile") to find them cheaply -
-   they currently aren't in any group.
-2. **Early-game enemy projectile monoculture.** The reactive SolverProfile
+   they currently aren't in any group.~~ (Fixed in second review pass)
+2. ~~**Early-game enemy projectile monoculture.** The reactive SolverProfile
    is the only loadout voice until mutations accumulate, so wave 1-10 bots
    mostly fire the same element. Cheap fix: in `_spawn_bot_for_role`, ~35%
    chance to clone the profile with a random `favored_synergy` (per-bot
-   jitter); role loadouts already add some variety, this finishes it.
+   jitter); role loadouts already add some variety, this finishes it.~~ (Fixed in second review pass)
 3. **Heat has zero player-facing UI.** The whole system (generation, siphon
    venting, ice cooling, lightning arcing, overheat knockouts) is invisible
    until the OVERHEAT float text. Minimum: a slim HUD heat bar; ideal: also
@@ -37,27 +37,27 @@ roughly ordered by impact within each group.
 
 ## B. Bugs / correctness risks
 
-4. **`settings.cfg` lives at `res://`** (SettingsMenu, MainMenu, SaveManager
+4. ~~**`settings.cfg` lives at `res://`** (SettingsMenu, MainMenu, SaveManager
    difficulty). Writable in the editor, READ-ONLY in exported builds -
    difficulty + control scheme will silently fail to persist for players.
    Migrate all settings IO to `user://settings.cfg` in one pass (with a
-   one-time res:// -> user:// migration read).
+   one-time res:// -> user:// migration read).~~ (Fixed)
 5. **`bank_primed` is written but never read** - vestige of the pre-siphon
    gate model; its old comment claimed it "unlocks normal auto-fire," which
    is no longer true (comment fixed this pass, flagged for removal).
-6. **Near-peer power estimate ignores `stat_modifiers`.** Chip-stacked
+6. ~~**Near-peer power estimate ignores `stat_modifiers`.** Chip-stacked
    builds (+50% per stat) read as weaker than they are to WWYDTTY scaling -
    exactly the clown-shoes build the mode exists for. Fold modifier sums
-   into `_estimate_mech_power`.
-7. **Director telemetry isn't persisted.** Template weights/fitness survive
+   into `_estimate_mech_power`.~~ (Fixed)
+7. ~~**Director telemetry isn't persisted.** Template weights/fitness survive
    restarts via learned_state.json, but `player_element_usage` and
    `player_kill_methods` reset - so the counter-doctrine has amnesia while
    squad evolution remembers. Inconsistent memory; persist both dicts in
-   the same file.
-8. **Save `"version": 2` has survived multiple schema changes** (valid_hexes,
+   the same file.~~ (Fixed)
+8. ~~**Save `"version": 2` has survived multiple schema changes** (valid_hexes,
    chips, mythic props, forbidden types...). All handled by has()-guards, so
    nothing is broken, but bump the version on schema change and keep a tiny
-   migrations comment block, or the first real breaking change will hurt.
+   migrations comment block, or the first real breaking change will hurt.~~ (Fixed)
 
 ## C. Performance
 
@@ -98,9 +98,9 @@ roughly ordered by impact within each group.
 
 ## E. Systems that should be connected but aren't
 
-16. **Difficulty x map size**: enemy count formula doesn't know the Tabletop
+16. ~~**Difficulty x map size**: enemy count formula doesn't know the Tabletop
     is 1/50th the area of the default map - same 80-cap mosh pit. Scale
-    `target_enemy_count` by a map-area ratio.
+    `target_enemy_count` by a map-area ratio.~~ (Fixed)
 17. **War Room lacks a "YOUR MECH" card**: the director already computes
     your power score, dominant rarity, and kill-method profile - showing
     the player the same numbers the AI uses to hunt them is both UX gold
@@ -110,10 +110,10 @@ roughly ordered by impact within each group.
     steps exist for each or add them.
 19. **MODDING.md drift**: no mention of the `boss_profiles` key (format
     v1.2), the commander role, or the Tabletop map type. Quick refresh.
-20. **FEATURE_ROADMAP.md status block is far behind reality** - rivals,
+20. ~~**FEATURE_ROADMAP.md status block is far behind reality** - rivals,
     drones, boss evolution, shield modes, Piercing Jammers, oil slicks, and
     mass/ramming groundwork have all landed since it was written. Refresh
-    it so it stays a truthful map of the project.
+    it so it stays a truthful map of the project.~~ (Fixed)
 
 ## Progression & pacing
 

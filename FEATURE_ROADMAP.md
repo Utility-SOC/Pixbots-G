@@ -166,3 +166,21 @@ lightning + the full status suite. Remaining: groups 6-8.
 6. **Combat structure:** directional damage (angle mapping + permanence decision), tabletop terrain reskin + destructibles, oil/water hazards, water enemies.
 7. **Tutorial + Story + UX workstream** (see dedicated section above) once the above stabilizes; tooltips/codex may land earlier opportunistically.
 8. **Big pillars last:** melee/mass physics; data-driven tiles (modding phase 2–4); live-packet accumulators only if derived heat proves insufficient.
+
+---
+
+## Rust Architecture Rewrite (Stretch Goals)
+
+As the game scales to support massive battles (hundreds of mechs, massive hex layouts), performance bottlenecks in GDScript will emerge. A hybrid Godot/Rust approach (via `godot-rust` / GDExtension) provides a scalable, incremental path forward.
+
+### Phase 1: Low-Lift / High-Reward (Data & Math)
+- **`AutoEquipSolver` (The AI Grid Builder):** Pure recursive backtracking and BFS. Moving this to Rust is straightforward because it requires zero knowledge of the physics engine or UI. It takes in arrays of tiles and returns optimal coordinates in microseconds, eliminating wave-spawn hitching completely.
+- **`HexGrid` Calculations:** The logic that traces energy packets from the Core to weapons and resolves synergy multipliers (`_recalculate_grid`). Translating this to a pure Rust struct allows instant, lock-free computation of weapon stats whenever a grid changes.
+
+### Phase 2: Medium-Lift (Pathing & State)
+- **`MapGenerator` Flow Fields:** Porting the BFS/Dijkstra flow-field generation. Requires syncing the map's obstacle data across the FFI boundary, but drastically speeds up AI navigation updates.
+- **`SquadDirector` Logic:** The evolutionary algorithm (mutation, fitness scoring, telemetry aggregation) is perfectly suited for Rust, ensuring the meta-progression scales flawlessly without bogging down the main thread.
+
+### Phase 3: High-Lift (Physics & Engine Switch)
+- **`Mech.gd` & Ramming Physics:** Moving the core mech loop into Rust requires constantly passing position, velocity, and `move_and_slide()` data across the C++/Rust boundary.
+- **Full ECS (Bevy Engine):** The nuclear option. If the project outgrows Godot entirely, dropping the Godot UI and rendering pipeline in favor of a pure Rust ECS (Entity Component System) like Bevy. Maximum performance, but requires rebuilding all visual and interface tools from scratch.

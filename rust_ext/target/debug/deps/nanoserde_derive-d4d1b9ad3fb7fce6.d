@@ -1,0 +1,10 @@
+J:\pixel_bots\godot\rust_ext\target\debug\deps\nanoserde_derive-d4d1b9ad3fb7fce6.d: C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\lib.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\shared.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\serde_bin.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\serde_ron.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\serde_json.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\parse.rs
+
+J:\pixel_bots\godot\rust_ext\target\debug\deps\nanoserde_derive-d4d1b9ad3fb7fce6.dll: C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\lib.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\shared.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\serde_bin.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\serde_ron.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\serde_json.rs C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\parse.rs
+
+C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\lib.rs:
+C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\shared.rs:
+C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\serde_bin.rs:
+C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\serde_ron.rs:
+C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\serde_json.rs:
+C:\Users\Utility\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\nanoserde-derive-0.2.1\src\parse.rs:

@@ -102,14 +102,14 @@ In Pixbots-G, if two energy paths merge at a Weapon Mount, they only combine the
 When specialized energy packets reach a Weapon Mount, they trigger unique subroutines. Projectiles blend physical properties (speed, scale, lifetime, trails, and color) proportionally based on the synergy ratios in the packet.
 
 - **RAW**: Baseline energy. Reliable but no special effects.
-- **KINETIC**: Armor-piercing projectile maintaining a straight trajectory.
+- **KINETIC**: Massively extends weapon range and maintains a locked, unwavering straight trajectory.
 - **FIRE**: Ignites the impact zone. Experiences high air resistance.
 - **ICE**: Heavy, crystalline mass that resists steering and slows target movement/processing speeds (Freezing).
 - **POISON**: Corrosive acid that arches in a gravity-affected lob.
 - **LIGHTNING**: Fires an instant stylized polyline that arcs to secondary targets within a localized radius, paralyzing them.
 - **VAMPIRIC**: Actively curves its trajectory to seek and hunt down enemy units ("The Hunter"). Heals the shooter based on damage dealt.
 - **VORTEX**: Generates a localized gravity well, pulling nearby units out of formation.
-- **PIERCE**: Has a percentage chance to instantly execute ("cut in half") non-boss targets.
+- **PIERCE**: High-velocity, armor-piercing rounds with a percentage chance to instantly execute ("cut in half") non-boss targets.
 - **EXPLOSION**: Standard AoE blast damage on impact.
 
 ### Elemental Rock-Paper-Scissors (Shield Counters)
@@ -204,6 +204,9 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 
 ## 8. RECENT SYSTEM UPDATES (CHANGELOG)
 
+- **Rival Challenge System:** Implemented 15 distinct, named "Rival" characters (e.g., Arthur the All-Mythic Rich Kid, Leo & Luna the Stealth Twins). Each rival has a unique `RivalProfile` defining forced/banned components and strict rarity rules for their gimmick decks.
+- **Dynamic Dialogue System:** Added a comprehensive Dialogue Manager (`DialogueManager.gd`) backed by a compiled `dialogue.json` script. Rivals now taunt you with evolving villain monologues (scaling from Round 1 to Mythic) and deliver unique quips upon victory or defeat.
+- **Thermal System Stubbed:** Temporarily stubbed out the thermal accumulation loop in the `AutoEquipSolver` to prevent heat-related pathing bugs while the true heat implementation is pending.
 - **Evolving Boss Kits:** Boss encounters are no longer static! Boss abilities, enrage styles, and positioning logic now mutate and evolve over time via `BossProfile.gd` based on fitness, similar to solver profiles.
 - **Counter-Doctrine Memory:** The Squad Director's telemetry (tracking player element usage and kill methods) now persists across sessions, allowing the AI to remember your playstyle and deploy specialized counters (like Piercing Jammers) continuously.
 - **New Units & Hazards:** Added amphibious Diver enemies, Drones and Drone Bays, destructible Ruin Obstacles wired into navigation, and Oil Slick hazards. Groundwork for mass/weight physics and ramming has also landed.

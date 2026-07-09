@@ -1,0 +1,12 @@
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = "4.2"
+reloadable = true
+
+[libraries]
+windows.debug.x86_64 = "res://rust_ext/target/debug/rust_ext.dll"
+windows.release.x86_64 = "res://rust_ext/target/release/rust_ext.dll"
+linux.debug.x86_64 = "res://rust_ext/target/debug/librust_ext.so"
+linux.release.x86_64 = "res://rust_ext/target/release/librust_ext.so"
+macos.debug = "res://rust_ext/target/debug/librust_ext.dylib"
+macos.release = "res://rust_ext/target/release/librust_ext.dylib"

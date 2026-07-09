@@ -109,6 +109,13 @@ func _ready():
 	is_grid_dirty = true
 	_recalculate_grid()
 
+# NOTE: Drone deliberately never calls Mech._physics_process/_execute_ai_tactics/
+# update_status_effects (this override replaces all of it), so it never
+# lazily constructs boss_brain/status_runner/player_controller (see Mech.gd's
+# composed-object split) - they just stay null, which is inert and matches
+# Drone's pre-existing behavior (it never ticked status effects before
+# either). If drones ever need status-effect ticking, this _physics_process
+# must call update_status_effects() itself.
 func _physics_process(delta: float):
 	current_jammer_debuff = 1.0
 	if is_dead:
@@ -117,7 +124,7 @@ func _physics_process(delta: float):
 		die()
 		return
 
-	_update_heat(delta)
+	#_update_heat(delta) # Thermal system commented out in Mech.gd - see there.
 	_tick_weapon_charges(delta)
 
 	# Lazy trailing orbit around the owner rather than a rigid fixed offset -

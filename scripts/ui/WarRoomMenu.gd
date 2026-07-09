@@ -174,6 +174,15 @@ func _refresh():
 # --- Threat Board ------------------------------------------------------------
 
 func _build_threat_board(director):
+	_lbl(threat_vbox, "YOUR MECH: POWER ESTIMATE", COL_SECTION, 16)
+	var player_power = director._estimate_player_power() if director.has_method("_estimate_player_power") else 700.0
+	var player_rarity = director._player_dominant_rarity() if director.has_method("_player_dominant_rarity") else 0
+	var rarity_names = ["Scrap", "Standard", "Advanced", "Legendary", "Mythic"]
+	var r_name = rarity_names[clamp(player_rarity, 0, 4)]
+	_lbl(threat_vbox, "  Power Score: %.0f" % player_power, COL_TITLE, 14)
+	_lbl(threat_vbox, "  Dominant Tier: %s" % r_name, COL_TITLE, 14)
+	_lbl(threat_vbox, "  (This is the baseline the AI uses to scale 'near-peer' squads against you)\n", COL_DIM, 11)
+
 	_lbl(threat_vbox, "TOP THREATS - most effective squad doctrines against you", COL_SECTION, 16)
 	_lbl(threat_vbox, "Efficacy graphs show per-deployment fitness (dashed line = expected average, 100).", COL_DIM, 11)
 
@@ -218,17 +227,14 @@ func _build_threat_board(director):
 	if director.total_damage_taken <= 0.0:
 		_lbl(threat_vbox, "No damage telemetry logged yet.", COL_DIM, 12)
 	else:
-		var usage: Array = []
-		for element in director.player_element_usage:
-			usage.append([element, director.player_element_usage[element] / director.total_damage_taken])
-		usage.sort_custom(func(a, b): return a[1] > b[1])
-		for u in usage:
-			var el_name = str(u[0])
-			var as_int = int(u[0]) if str(u[0]).is_valid_int() else -1
-			if as_int >= 0 and as_int < SYNERGY_NAMES.size():
-				el_name = SYNERGY_NAMES[as_int]
-			var warn = "   << countered when >40%" if u[1] > 0.4 else ""
-			_lbl(threat_vbox, "  %s: %.0f%%%s" % [el_name, u[1] * 100.0, warn], COL_TRIAL if u[1] > 0.4 else COL_CORE, 12)
+		var bias_graph = BiasGraph.new()
+		bias_graph.player_data = director.player_element_usage.duplicate()
+		bias_graph.bot_data = director.bot_element_usage.duplicate()
+		bias_graph.total_player = director.total_damage_taken
+		bias_graph.total_bot = director.total_bot_damage_dealt
+		bias_graph.synergy_names = SYNERGY_NAMES
+		bias_graph.custom_minimum_size = Vector2(260, 200)
+		threat_vbox.add_child(bias_graph)
 
 	if director.total_player_kills > 0:
 		_lbl(threat_vbox, "\nKILL METHODS (what actually finishes enemies)", COL_SECTION, 13)
@@ -568,3 +574,71 @@ class DendrogramView:
 				label = name + avg_str
 				draw_circle(p, NODE_R, color)
 			draw_string(ThemeDB.fallback_font, p + Vector2(NODE_R + 4.0, 4.0), label, HORIZONTAL_ALIGNMENT_LEFT, COL_W - NODE_R * 2.0 - 8.0, 12, color)
+
+# =============================================================================
+# Bar chart of Player vs Bot element biases.
+class BiasGraph:
+	extends Control
+
+	var player_data: Dictionary = {}
+	var bot_data: Dictionary = {}
+	var total_player: float = 0.0
+	var total_bot: float = 0.0
+	var synergy_names: Array = []
+
+	func _draw():
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.05, 0.06, 0.08), true)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.3, 0.32, 0.38), false, 1.0)
+		
+		if total_player <= 0.0 and total_bot <= 0.0:
+			draw_string(ThemeDB.fallback_font, Vector2(10, 20), "No damage telemetry logged yet.", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.5, 0.55))
+			return
+			
+		var elements = []
+		for e in player_data.keys():
+			if not elements.has(e): elements.append(e)
+		for e in bot_data.keys():
+			if not elements.has(e): elements.append(e)
+			
+		elements.sort_custom(func(a, b): 
+			var a_val = (player_data.get(a, 0.0) / max(1.0, total_player)) + (bot_data.get(a, 0.0) / max(1.0, total_bot))
+			var b_val = (player_data.get(b, 0.0) / max(1.0, total_player)) + (bot_data.get(b, 0.0) / max(1.0, total_bot))
+			return a_val > b_val
+		)
+		
+		var y = 25.0
+		var row_h = 24.0
+		var bar_h = 8.0
+		var max_bar_w = size.x - 160.0
+		if max_bar_w < 50: max_bar_w = 50.0
+		
+		# Draw legend
+		draw_string(ThemeDB.fallback_font, Vector2(size.x - 100, 15), "Player Bias", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.2, 0.8, 1.0))
+		draw_string(ThemeDB.fallback_font, Vector2(size.x - 100, 25), "Bot Bias", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1.0, 0.4, 0.2))
+		
+		for e in elements:
+			if y + row_h > size.y: break
+			var el_name = str(e)
+			var as_int = int(e) if str(e).is_valid_int() else -1
+			if as_int >= 0 and as_int < synergy_names.size():
+				el_name = synergy_names[as_int]
+				
+			var p_share = player_data.get(e, 0.0) / max(1.0, total_player)
+			var b_share = bot_data.get(e, 0.0) / max(1.0, total_bot)
+			
+			if p_share < 0.01 and b_share < 0.01:
+				continue
+				
+			var warn = "!" if p_share > 0.4 else ""
+			var col = Color(1.0, 0.8, 0.3) if p_share > 0.4 else Color(0.8, 0.8, 0.8)
+			draw_string(ThemeDB.fallback_font, Vector2(10, y + 12), el_name + warn, HORIZONTAL_ALIGNMENT_LEFT, 100, 11, col)
+			
+			# Player bar
+			draw_rect(Rect2(110, y, max_bar_w * p_share, bar_h), Color(0.2, 0.8, 1.0))
+			draw_string(ThemeDB.fallback_font, Vector2(115 + max_bar_w * p_share, y + 8), "%.0f%%" % (p_share * 100), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.2, 0.8, 1.0))
+			
+			# Bot bar
+			draw_rect(Rect2(110, y + bar_h + 1, max_bar_w * b_share, bar_h), Color(1.0, 0.4, 0.2))
+			draw_string(ThemeDB.fallback_font, Vector2(115 + max_bar_w * b_share, y + bar_h + 9), "%.0f%%" % (b_share * 100), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1.0, 0.4, 0.2))
+			
+			y += row_h

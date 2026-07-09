@@ -1342,6 +1342,10 @@ func _open_black_market():
 	var main = get_parent()
 	if not main or main.get("player_scrap") == null:
 		return
+	if main.has_method("show_dialogue"):
+		var dm = load("res://scripts/core/DialogueManager.gd").new()
+		dm._ready()
+		main.show_dialogue("Shopkeeper", dm.get_black_market_quip(), Color(1.0, 0.5, 0.9), 6.0)
 	var cycle = int(Time.get_unix_time_from_system()) / MARKET_CYCLE_SECONDS
 	var rng = RandomNumberGenerator.new()
 	rng.seed = cycle
@@ -2425,8 +2429,8 @@ const SYNERGY_CODEX_ENTRIES = [
 	{"id": 4, "name": "VORTEX", "desc": "Pulls in nearby loot and (weakly) enemies/player toward the impact point - a battlefield-control element as much as a damage one. Deals 2x against Kinetic shields."},
 	{"id": 5, "name": "POISON", "desc": "Stacks a damage-over-time poison effect that can stack multiple times. Deals 2x against Vampiric shields; takes 2x from Vampiric shields in return."},
 	{"id": 6, "name": "EXPLOSION", "desc": "Detonates in an area-of-effect blast on impact instead of a single-target hit - radius scales with the synergy's ratio in the shot and any Amplifier AoE bonus."},
-	{"id": 7, "name": "KINETIC", "desc": "High-velocity, knockback-heavy hits - pure mass-behind-the-shot damage. Deals 2x against Lightning shields; takes 2x from Lightning shields in return."},
-	{"id": 8, "name": "PIERCE", "desc": "Ignores a flat share of armor/shield mitigation on every hit, and any PIERCE hit that gets past shields has a small flat chance to instantly execute the target outright - regardless of remaining HP. Bosses, Commanders, and Piercing Jammers (plus anyone standing in a Piercing Jammer's aura) are immune to that execution."},
+	{"id": 7, "name": "KINETIC", "desc": "Massively extends weapon range (triple at full ratio) and keeps a locked, unwavering straight trajectory - plus knockback-heavy hits, pure mass-behind-the-shot damage. Deals 2x against Lightning shields; takes 2x from Lightning shields in return."},
+	{"id": 8, "name": "PIERCE", "desc": "High-velocity, armor-piercing rounds - ignores a flat share of armor/shield mitigation on every hit, and any PIERCE hit that gets past shields has a small flat chance to instantly execute the target outright - regardless of remaining HP. Bosses, Commanders, and Piercing Jammers (plus anyone standing in a Piercing Jammer's aura) are immune to that execution."},
 	{"id": 9, "name": "VAMPIRIC", "desc": "Heals the attacker for a share of the damage dealt (lifesteal). Deals 2x against Poison shields; takes 2x from Poison shields in return."},
 ]
 

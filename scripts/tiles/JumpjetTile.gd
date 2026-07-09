@@ -5,7 +5,7 @@ extends HexTile
 
 # MYTHIC ability: locomotion mode. 0 = standard jump/sprint boost,
 # 1 = Blink (instant short-range teleport toward the cursor with a
-# cooldown - see Mech._handle_player_input). Hover is deferred until outer
+# cooldown - see PlayerController.handle_input). Hover is deferred until outer
 # walls and interior obstacles live on separate collision layers; otherwise
 # hovering drifts you straight out of the map.
 @export_enum("Jump", "Blink") var mythic_mode: int = 0

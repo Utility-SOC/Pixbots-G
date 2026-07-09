@@ -334,8 +334,18 @@ func _place_tabletop_ruins():
 	var center = Vector2(width / 2.0, height / 2.0)
 	while ruin_specs.size() < target_count and attempts < max_attempts:
 		attempts += 1
-		var w = 2 + randi() % 4 # 2-5 tiles wide
-		var h = 2 + randi() % 2 # 2-3 tiles deep
+		# Kit size mix at 20mm scale: mostly small scatter ruins, but ~20%
+		# are big centerpiece kits (the ruined-cathedral pieces from the
+		# reference table photo) - 8-14 tiles wide reads as a real building
+		# a mech fights THROUGH, not just behind.
+		var w: int
+		var h: int
+		if randf() < 0.2:
+			w = 8 + randi() % 7  # 8-14 tiles wide centerpiece
+			h = 5 + randi() % 4  # 5-8 tiles deep
+		else:
+			w = 2 + randi() % 4 # 2-5 tiles wide scatter kit
+			h = 2 + randi() % 2 # 2-3 tiles deep
 		var ox = 3 + randi() % max(1, width - w - 6)
 		var oy = 3 + randi() % max(1, height - h - 6)
 

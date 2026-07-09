@@ -14,11 +14,13 @@ var final_speed: float = 500.0
 # (FIRE's much shorter time-based lifetime below still gives it its own
 # "short burst" identity independent of this - whichever limit is hit first
 # ends the shot). KINETIC is the one stat that explicitly extends this
-# further, up to double at full ratio - a clean, attributable "more kinetic
-# = more range" lever, on top of (not instead of) the speed boost it
-# already gets in _calculate_stats().
+# further, a clean, attributable "more kinetic = more range" lever - KINETIC's
+# whole identity now (range went from "double at full ratio" to triple, and
+# the flat projectile-speed bonus it used to also carry moved to PIERCE
+# instead, see _calculate_stats() - "armor-piercing round" fits a raw
+# velocity bonus better than "range" does).
 const BASE_RANGE = 1400.0
-const KINETIC_RANGE_BONUS = 1400.0
+const KINETIC_RANGE_BONUS = 2800.0
 var max_range: float = BASE_RANGE
 var distance_traveled: float = 0.0
 
@@ -267,10 +269,11 @@ func _calculate_stats():
 	var r_prc = ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)
 	var r_psn = ratios.get(EnergyPacket.SynergyType.POISON, 0.0)
 	
-	# Base Speed
+	# Base Speed - PIERCE is the velocity stat (armor-piercing round flavor);
+	# KINETIC no longer contributes here at all, its whole budget moved to
+	# range below instead (see BASE_RANGE's field comment).
 	var spd_mod = 0.0
-	spd_mod += 800.0 * r_kin
-	spd_mod += 400.0 * r_prc
+	spd_mod += 1200.0 * r_prc
 	spd_mod -= 250.0 * r_psn
 	spd_mod -= 200.0 * r_ice
 	final_speed = base_speed + spd_mod
@@ -278,7 +281,7 @@ func _calculate_stats():
 
 	# Range: generous baseline (BASE_RANGE) for every shot, plus an explicit
 	# Kinetic bonus on top - see the field comment above for why this is
-	# separate from the speed boost Kinetic already gets.
+	# KINETIC's whole identity now.
 	max_range = BASE_RANGE + KINETIC_RANGE_BONUS * r_kin
 
 	# Size/Mass (ratio-driven only - magnitude-driven size lives entirely in
@@ -635,7 +638,9 @@ func _physics_process(delta: float):
 	if active_homing_target != null:
 		var turn_speed = (8.0 * r_vamp) / steering_resistance
 		if r_kin > 0.0:
-			# Kinetic makes it turn slower but move faster (already handled by speed/resistance)
+			# (placeholder - Kinetic no longer has a homing-turn effect here; its
+			# identity is range now, see BASE_RANGE. See the passive-drift branch
+			# below for Kinetic's actual turn-speed contribution.)
 			pass
 		direction = direction.lerp(target_direction, turn_speed * delta).normalized()
 		
@@ -717,7 +722,7 @@ func _physics_process(delta: float):
 	# fires body_entered/area_entered if the shape happens to still be
 	# overlapping something at the END of a physics tick. LIGHTNING-dominant
 	# shots force final_speed to at least 4200 px/s (see the INSTANT
-	# LIGHTNING block above), and KINETIC/PIERCE speed bonuses can push
+	# LIGHTNING block above), and PIERCE's speed bonus can push
 	# well past 1500 - at 60 physics ticks/sec that's 25-70+ px of travel
 	# PER TICK, easily more than a small enemy's whole hitbox width, so the
 	# shot can cross clean through several targets without ever registering

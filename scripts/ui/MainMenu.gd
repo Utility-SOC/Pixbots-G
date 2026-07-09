@@ -85,6 +85,7 @@ func _setup_ui():
 			
 		var btn_continue = _create_button("Continue (" + continue_save + ")", func():
 			SaveManager.save_to_load = continue_save
+			SaveManager.current_game_mode = "campaign"
 			_launch_game("campaign")
 		)
 		btn_continue.modulate = Color(0.8, 1.0, 0.8)
@@ -98,11 +99,31 @@ func _setup_ui():
 	var btn_campaign = _create_button("New Campaign", _on_play_campaign)
 	var btn_endless = _create_button("Endless", _on_play_endless)
 	var btn_sandbox = _create_button("Sandbox", _on_play_sandbox)
-	
+
 	vbox.add_child(btn_campaign)
 	vbox.add_child(btn_endless)
 	vbox.add_child(btn_sandbox)
-	
+
+	var btn_boss_rush = _create_button("Boss Rush", _on_play_boss_rush)
+	vbox.add_child(btn_boss_rush)
+
+	# Tournament arc - scaffold only (Natalia, design pass decision #12).
+	# Nothing actually sets tournament_arc_unlocked true yet - the real
+	# unlock condition is the Level 100 milestone, and that milestone/Round
+	# system doesn't exist yet either. This button just reads the flag so
+	# unlocking it later is a one-line flip in SaveManager, not new UI work.
+	# _on_play_tournament() is a stub for the same reason - the launch target
+	# doesn't exist yet, but the wiring does.
+	var btn_tournament = _create_button("Tournament", _on_play_tournament)
+	btn_tournament.disabled = not SaveManager.tournament_arc_unlocked
+	if not SaveManager.tournament_arc_unlocked:
+		btn_tournament.text = "Tournament (Locked)"
+		btn_tournament.modulate = Color(0.6, 0.6, 0.6)
+		var dm = load("res://scripts/core/DialogueManager.gd").new()
+		dm._ready()
+		btn_tournament.tooltip_text = dm.get_tournament_teaser()
+	vbox.add_child(btn_tournament)
+
 	var spacer2 = Control.new()
 	spacer2.custom_minimum_size = Vector2(0, 20)
 	vbox.add_child(spacer2)
@@ -130,15 +151,28 @@ func _on_play_campaign():
 	print("Starting Campaign Mode...")
 	SaveManager.save_to_load = "" # Clear load state for new game
 	SaveManager.tutorial_completed = false # New save should see the tutorial again
+	SaveManager.tournament_arc_unlocked = false # New save starts locked out too
+	SaveManager.current_game_mode = "campaign"
 	_launch_game("campaign")
 
 func _on_play_endless():
 	print("Starting Endless Mode...")
+	SaveManager.current_game_mode = "endless"
 	_launch_game("endless")
 	
 func _on_play_sandbox():
 	print("Starting Sandbox Mode...")
+	SaveManager.current_game_mode = "sandbox"
 	_launch_game("sandbox")
+
+func _on_play_boss_rush():
+	print("Opening Boss Rush Menu...")
+	var boss_rush = load("res://scripts/ui/BossRushMenu.gd").new()
+	add_child(boss_rush)
+
+func _on_play_tournament():
+	print("Tournament mode not implemented yet.")
+	pass
 
 func _launch_game(mode: String):
 	get_tree().change_scene_to_file("res://main.tscn")

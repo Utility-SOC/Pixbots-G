@@ -36,6 +36,12 @@ var timer_label: Label
 var extraction_marker: Node2D = null
 var extraction_indicator: Polygon2D = null
 var vision_jam_overlay: ColorRect
+var boss_health_bar_bg: ColorRect = null
+var boss_health_bar_fg: ColorRect = null
+var boss_health_label: Label = null
+var dialogue_box: Panel = null
+var dialogue_label: RichTextLabel = null
+var dialogue_timer: float = 0.0
 
 # The actual game world (map/mechs/projectiles/VFX) renders inside a small
 # fixed-resolution SubViewport, then gets scaled up with nearest-neighbor
@@ -181,8 +187,58 @@ func _setup_hud():
 	vision_jam_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	hud_canvas.add_child(vision_jam_overlay)
 
+	# Boss UI
+	var b_width = 400
+	var b_height = 30
+	var b_margin = 16
+	boss_health_bar_bg = ColorRect.new()
+	boss_health_bar_bg.color = Color(0.1, 0.1, 0.1, 0.8)
+	boss_health_bar_bg.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	boss_health_bar_bg.position = Vector2((1280 - b_width) / 2, 720 - b_height - b_margin)
+	boss_health_bar_bg.size = Vector2(b_width, b_height)
+	boss_health_bar_bg.visible = false
+	hud_canvas.add_child(boss_health_bar_bg)
+	
+	boss_health_bar_fg = ColorRect.new()
+	boss_health_bar_fg.color = Color(0.8, 0.1, 0.1, 1.0)
+	boss_health_bar_fg.position = Vector2(2, 2)
+	boss_health_bar_fg.size = Vector2(b_width - 4, b_height - 4)
+	boss_health_bar_bg.add_child(boss_health_bar_fg)
+	
+	boss_health_label = Label.new()
+	boss_health_label.add_theme_font_size_override("font_size", 24)
+	boss_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_health_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	boss_health_bar_bg.add_child(boss_health_label)
+
+	# Dialogue UI
+	dialogue_box = Panel.new()
+	dialogue_box.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	dialogue_box.position = Vector2(1280 / 2 - 400, 100)
+	dialogue_box.size = Vector2(800, 120)
+	dialogue_box.visible = false
+	hud_canvas.add_child(dialogue_box)
+
+	dialogue_label = RichTextLabel.new()
+	dialogue_label.bbcode_enabled = true
+	dialogue_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dialogue_label.offset_left = 16
+	dialogue_label.offset_top = 16
+	dialogue_label.offset_right = -16
+	dialogue_label.offset_bottom = -16
+	dialogue_label.add_theme_font_size_override("normal_font_size", 20)
+	dialogue_label.add_theme_font_size_override("bold_font_size", 22)
+	dialogue_box.add_child(dialogue_label)
+
 	add_child(hud_canvas)
 	_update_hud()
+
+func show_dialogue(speaker: String, text: String, color: Color = Color(1.0, 0.85, 0.2), duration: float = 6.0):
+	if text == "": return
+	dialogue_box.visible = true
+	var hex_color = color.to_html(false)
+	dialogue_label.text = "[b][color=#%s]%s[/color][/b]\n%s" % [hex_color, speaker, text]
+	dialogue_timer = duration
 
 func _on_vision_jammed(duration: float):
 	if not vision_jam_overlay:
@@ -226,6 +282,11 @@ func _process(delta: float):
 		_drone_respawn_timer -= delta
 		if _drone_respawn_timer <= 0.0:
 			_spawn_drone_if_needed()
+	
+	if dialogue_timer > 0:
+		dialogue_timer -= delta
+		if dialogue_timer <= 0:
+			dialogue_box.visible = false
 
 # Spawns the companion Drone alongside the player if they have a Drone Bay
 # installed in their Backpack and don't already have a live one - called on
@@ -415,6 +476,9 @@ func _initialize_starter_inventory():
 		player_inventory.append(jj)
 
 func _start_intermission():
+	var dm = load("res://scripts/core/DialogueManager.gd").new()
+	dm._ready()
+	show_dialogue("Shopkeeper", dm.get_intermission_quip(), Color(0.7, 0.85, 1.0), 5.0)
 	_show_countdown()
 
 func _show_countdown():
@@ -501,14 +565,55 @@ func _start_wave():
 
 	active_enemies = 0
 	
+	# Boss Rush Mode Logic
+	if SaveManager.current_game_mode == "boss_rush":
+		if current_wave <= 15:
+			# Sequence 15 Rivals at Mythic tier
+			var r_name = ""
+			if current_wave - 1 < director.all_rival_profiles.keys().size():
+				r_name = director.all_rival_profiles.keys()[current_wave - 1]
+			else:
+				r_name = director.get_next_rival()
+			if current_wave == 1:
+				# show_dialogue() doesn't queue - it just overwrites the label -
+				# so spawning the rival (which shows its own intro line) in the
+				# same call would clobber this banner before it's ever seen.
+				# Delay the spawn a few seconds so the gauntlet intro actually
+				# gets read first.
+				var dm_intro = load("res://scripts/core/DialogueManager.gd").new()
+				dm_intro._ready()
+				show_dialogue("Shopkeeper", dm_intro.get_boss_rush_intro(), Color(1.0, 0.7, 0.3), 8.0)
+				var intro_timer = Timer.new()
+				intro_timer.wait_time = 3.0
+				intro_timer.one_shot = true
+				intro_timer.timeout.connect(func(): _spawn_rival(director, HexTile.Rarity.MYTHIC, r_name))
+				add_child(intro_timer)
+				intro_timer.start()
+			else:
+				_spawn_rival(director, HexTile.Rarity.MYTHIC, r_name)
+		else:
+			if current_wave == 16:
+				# Same clobbering concern as the intro banner above - _spawn_boss
+				# can show its own "first boss" dialogue in the rare case a Boss
+				# Rush save somehow never triggered it in the campaign proper.
+				var dm_completion = load("res://scripts/core/DialogueManager.gd").new()
+				dm_completion._ready()
+				show_dialogue("Shopkeeper", dm_completion.get_boss_rush_completion(), Color(1.0, 0.7, 0.3), 8.0)
+				var completion_timer = Timer.new()
+				completion_timer.wait_time = 3.0
+				completion_timer.one_shot = true
+				completion_timer.timeout.connect(func(): _spawn_boss(director, true))
+				add_child(completion_timer)
+				completion_timer.start()
+			else:
+				# Endless Mega Bosses
+				_spawn_boss(director, true)
+		return
+
 	# Megaboss Wave Check (Every 25 waves)
 	if current_wave > 0 and current_wave % 25 == 0:
 		_spawn_boss(director, true)
-	# Rival Challenge (every 10 waves) - takes priority over the regular
-	# boss cadence on any wave where both would fire (e.g. wave 10, 20; not
-	# 25/50 - megaboss wins those). See FEATURE_ROADMAP.md's Story section:
-	# a specialized match built to within Natalia's locked +/-15% of the
-	# player's own current build power, rather than an archetype boss.
+	# Rival Challenge (every 10 waves)
 	elif current_wave > 0 and current_wave % 10 == 0:
 		_spawn_rival(director)
 	# Boss Wave Check (Every 5 waves)
@@ -685,6 +790,17 @@ func _spawn_boss(director, is_mega: bool):
 	boss.collision_layer = 4
 	boss.collision_mask = 1 | 2 | 8
 	active_enemies += 1
+	world.add_child(boss)
+
+	# One-time "First boss" dialogue pair (STORY_SCRIPT.md) instead of the
+	# regular rotating boss_defeats line - see first_boss_encountered's own
+	# comment in SaveManager.gd. Tag the boss now so _on_boss_died knows which
+	# defeat line to show without re-checking the (by-then-flipped) flag.
+	boss.set_meta("is_first_boss", not SaveManager.first_boss_encountered)
+	if not SaveManager.first_boss_encountered:
+		var dm = load("res://scripts/core/DialogueManager.gd").new()
+		dm._ready()
+		show_dialogue("Shopkeeper", dm.get_first_boss_intro(), Color(1.0, 0.6, 0.2), 8.0)
 
 func _on_boss_died(boss):
 	# Feed the fight's outcome back into the boss profile's fitness (same
@@ -696,6 +812,15 @@ func _on_boss_died(boss):
 		if director:
 			director._on_boss_defeated(boss.boss_profile, boss.get_boss_fitness())
 
+	var dm = load("res://scripts/core/DialogueManager.gd").new()
+	dm._ready()
+	if boss.get_meta("is_first_boss", false):
+		show_dialogue("Shopkeeper", dm.get_first_boss_defeat(), Color(1.0, 0.6, 0.2), 8.0)
+		SaveManager.first_boss_encountered = true
+		SaveManager.save_game("autosave", player, player_inventory)
+	else:
+		show_dialogue("Shopkeeper", dm.get_boss_defeat(), Color(1.0, 0.6, 0.2), 6.0)
+
 	var drop_type = boss.get_meta("boss_drop", "shield")
 	var drop_pack = null
 	
@@ -705,14 +830,7 @@ func _on_boss_died(boss):
 		pickup.global_position = boss.global_position
 		
 		# Generate a legendary tile
-		var tile_types = [
-			preload("res://scripts/tiles/WeaponMountTile.gd"),
-			preload("res://scripts/tiles/AccumulatorTile.gd"),
-			preload("res://scripts/tiles/ReflectorTile.gd"),
-			preload("res://scripts/tiles/SplitterTile.gd"),
-			preload("res://scripts/tiles/CatalystTile.gd")
-		]
-		var legend_tile = tile_types.pick_random().new()
+		var legend_tile = _generate_random_tile()
 		legend_tile.rarity = HexTile.Rarity.LEGENDARY
 		pickup.item_data = legend_tile
 		world.add_child(pickup)
@@ -732,7 +850,32 @@ func _on_boss_died(boss):
 			pickup.global_position = boss.global_position
 			world.add_child(pickup)
 		
+	# NEW: Guarantee 3-5 scattered tiles for any Boss
+	var drop_rarity = HexTile.Rarity.LEGENDARY if drop_type == "mega" else HexTile.Rarity.RARE
+	_scatter_random_tiles(boss.global_position, randi_range(3, 5), drop_rarity)
+		
 	_on_enemy_died()
+
+func _generate_random_tile() -> Node:
+	var tile_types = [
+		preload("res://scripts/tiles/WeaponMountTile.gd"),
+		preload("res://scripts/tiles/AccumulatorTile.gd"),
+		preload("res://scripts/tiles/ReflectorTile.gd"),
+		preload("res://scripts/tiles/SplitterTile.gd"),
+		preload("res://scripts/tiles/CatalystTile.gd"),
+		preload("res://scripts/tiles/MagnetTile.gd"),
+		preload("res://scripts/tiles/ShieldGeneratorTile.gd")
+	]
+	return tile_types.pick_random().new()
+
+func _scatter_random_tiles(origin: Vector2, count: int, rarity: int):
+	for i in range(count):
+		var tile = _generate_random_tile()
+		tile.rarity = rarity
+		var pickup = load("res://scripts/entities/LootPickup.gd").new()
+		pickup.item_data = tile
+		pickup.global_position = origin + Vector2(randf_range(-50, 50), randf_range(-50, 50))
+		world.call_deferred("add_child", pickup)
 
 # --- Rival Challenges (FEATURE_ROADMAP.md Story section) --------------------
 # "Sometimes another player challenges you - a specialized match where the
@@ -740,65 +883,103 @@ func _on_boss_died(boss):
 # +/-15% of directly." Locked cadence/tolerance per Natalia: every 10 waves,
 # +/-15% of the player's own estimated power (SquadDirector._estimate_mech_power,
 # the same yardstick the near-peer difficulty scaling already uses).
-const RIVAL_NAMES = [
-	"Voltage", "Shrapnel", "Glitch", "Ironclad", "Wraith", "Circuit",
-	"Payload", "Static", "Ratchet", "Nova", "Ember", "Kestrel"
-]
 
-func _spawn_rival(director):
-	var rival_rarity = director._player_dominant_rarity()
-	# "brawler" is the most generic/balanced baseline stat block to build a
-	# player-equivalent opponent from - a Rival is meant to read as "another
-	# kid's mech," not a themed archetype like Sniper/Ambusher/Jammer.
-	var rival = director._spawn_bot_for_role("brawler", true, rival_rarity)
-	rival.set_meta("is_rival", true)
-	var rival_name = RIVAL_NAMES.pick_random()
-	rival.set_meta("rival_name", rival_name)
+func _spawn_rival(director, force_rarity = -1, force_name = ""):
+	var rival_rarity = director._player_dominant_rarity() if force_rarity == -1 else force_rarity
+	
+	var rival_name = force_name
+	if rival_name == "":
+		rival_name = director.get_next_rival()
+		
+	var profile: RivalProfile = null
+	if director.all_rival_profiles.has(rival_name):
+		profile = director.all_rival_profiles[rival_name]
+		
+	if profile:
+		if profile.force_mythic_only:
+			rival_rarity = HexTile.Rarity.MYTHIC
+		elif profile.force_junk_only:
+			rival_rarity = HexTile.Rarity.COMMON
 
-	# Equivalent-budget constraint: score the rival's freshly-built loadout
-	# against the player's own, then scale HP and outgoing damage (via the
-	# existing generic stat_modifiers.dmg_mult, already read unconditionally
-	# by Projectile.gd) so the rival's effective power lands within the
-	# locked +/-15% band - regardless of how the discrete tile/rarity roll
-	# happened to come out on its own.
-	var player_power = director._estimate_mech_power(player)
-	var rival_power = director._estimate_mech_power(rival)
-	var target_power = player_power * randf_range(0.85, 1.15)
-	var power_mult = clamp(target_power / max(1.0, rival_power), 0.4, 3.0)
+	var role = "brawler"
+	var mech_count = 1
+	if profile:
+		role = profile.base_role
+		mech_count = profile.mech_count
+		
+	for i in range(mech_count):
+		var role_to_spawn = role
+		if rival_name == "Leo & Luna":
+			role_to_spawn = "ambusher" if i == 0 else "sniper"
 
-	rival.max_hp *= power_mult
-	rival.hp = rival.max_hp
-	if rival.max_shield_hp > 0:
-		rival.max_shield_hp *= power_mult
-		rival.shield_hp = rival.max_shield_hp
-	rival.stat_modifiers["dmg_mult"] = rival.stat_modifiers.get("dmg_mult", 1.0) * power_mult
+		var rival = director._spawn_bot_for_role(role_to_spawn, true, rival_rarity)
+		rival.set_meta("is_rival", true)
+		rival.set_meta("rival_name", rival_name)
 
-	rival.scale = Vector2(1.3, 1.3)
-	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
-	if randf() > 0.5: offset.x *= -1
-	if randf() > 0.5: offset.y *= -1
-	var center_spawn = player.global_position + offset
-	rival.global_position = map.get_valid_spawn_position(center_spawn)
-	rival.target = player
-	rival.died.connect(_on_rival_defeated.bind(rival))
-	rival.collision_layer = 4
-	rival.collision_mask = 1 | 2 | 8
-	active_enemies += 1
+		# Equivalent-budget constraint
+		var player_power = director._estimate_mech_power(player)
+		var rival_power = director._estimate_mech_power(rival)
+		var target_power = player_power * randf_range(0.85, 1.15)
+		var power_mult = clamp(target_power / max(1.0, rival_power), 0.4, 3.0)
 
-	if rival.has_method("_show_floating_text"):
-		rival._show_floating_text("RIVAL: " + rival_name, Color(1.0, 0.85, 0.2))
+		# If profile overrides HP, multiply
+		if profile:
+			power_mult *= profile.hp_mult
+
+		rival.max_hp *= power_mult
+		rival.hp = rival.max_hp
+		if rival.max_shield_hp > 0:
+			rival.max_shield_hp *= power_mult
+			rival.shield_hp = rival.max_shield_hp
+		rival.stat_modifiers["dmg_mult"] = rival.stat_modifiers.get("dmg_mult", 1.0) * power_mult
+
+		rival.scale = Vector2(1.3, 1.3)
+		var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
+		if randf() > 0.5: offset.x *= -1
+		if randf() > 0.5: offset.y *= -1
+		var center_spawn = player.global_position + offset
+		rival.global_position = map.get_valid_spawn_position(center_spawn)
+		rival.target = player
+		rival.died.connect(_on_rival_defeated.bind(rival))
+		rival.collision_layer = 4
+		rival.collision_mask = 1 | 2 | 8
+		active_enemies += 1
+		world.add_child(rival)
+
+		if i == 0:
+			if rival.has_method("_show_floating_text"):
+				rival._show_floating_text("RIVAL: " + rival_name, Color(1.0, 0.85, 0.2))
+			if profile and profile.dialogue_intro != "":
+				show_dialogue(rival_name, profile.dialogue_intro, Color(1.0, 0.85, 0.2), 8.0)
 
 func _on_rival_defeated(rival):
 	# Guaranteed decent-quality drop (matches the "earn merchandise" story
 	# beat) - a component built at the same rarity the rival itself fought
 	# at, so beating a Rival always feels worth the fight regardless of RNG.
 	var rarity = rival.get("base_rarity") if "base_rarity" in rival else HexTile.Rarity.RARE
+	
+	if rival.has_meta("is_rival") and rival.has_meta("rival_name"):
+		var r_name = rival.get_meta("rival_name")
+		var director = world.get_node_or_null("SquadDirector")
+		if director and director.all_rival_profiles.has(r_name):
+			var prof = director.all_rival_profiles[r_name]
+			var win_text = prof.dialogue_win
+			if win_text == "":
+				var dm = load("res://scripts/core/DialogueManager.gd").new()
+				dm._ready()
+				win_text = dm.get_generic_rival_win()
+			show_dialogue("Shopkeeper", win_text, Color(0.8, 1.0, 0.8), 6.0)
+
 	var drop = load("res://scripts/core/ComponentEquipment.gd").create_starter_backpack("brawler", max(rarity, HexTile.Rarity.RARE))
 	if drop:
 		var pickup = load("res://scripts/entities/LootPickup.gd").new()
 		pickup.equipment_data = drop
 		pickup.global_position = rival.global_position
 		world.add_child(pickup)
+		
+	# NEW: Scatter 3-5 tiles
+	_scatter_random_tiles(rival.global_position, randi_range(3, 5), rarity)
+
 	_on_enemy_died()
 
 func _on_enemy_died():
@@ -825,6 +1006,52 @@ func _on_player_died():
 	var explosion = load("res://scripts/visuals/DeathExplosion.gd").new()
 	explosion.global_position = player.global_position
 	world.add_child(explosion)
+
+	var director = world.get_node_or_null("SquadDirector")
+	var loss_text_shown = false
+	if director:
+		# Check if player died to a rival to show loss text
+		for mech in get_tree().get_nodes_in_group("enemy"):
+			if mech.has_meta("is_rival") and mech.has_meta("rival_name"):
+				director.consecutive_rival_losses += 1
+				director.save_learned_state()
+				
+				if director.consecutive_rival_losses >= 3:
+					SaveManager.tournament_arc_unlocked = false
+					# Was a zero-arg call - save_game(save_name, mech, inventory)
+					# requires all 3, so this threw and silently aborted the
+					# rest of _on_player_died() every time, including the
+					# 3-second "kick back to Garage" timer below. After a 3rd
+					# straight Rival loss the game just hung - no dialogue, no
+					# death report, no return to Garage. Matches Main.gd:1136's
+					# existing autosave call for the same "player, player_inventory"
+					# pattern used everywhere else in this file.
+					SaveManager.save_game("autosave", player, player_inventory)
+					var dm = load("res://scripts/core/DialogueManager.gd").new()
+					dm._ready()
+					show_dialogue("Shopkeeper", dm.get_game_over_3_loss(), Color(1.0, 0.5, 0.5), 10.0)
+					loss_text_shown = true
+				else:
+					var r_name = mech.get_meta("rival_name")
+					if director.all_rival_profiles.has(r_name):
+						var prof = director.all_rival_profiles[r_name]
+						var loss_text = prof.dialogue_loss
+						if loss_text == "":
+							var dm2 = load("res://scripts/core/DialogueManager.gd").new()
+							dm2._ready()
+							loss_text = dm2.get_generic_rival_loss()
+						show_dialogue("Shopkeeper", loss_text, Color(1.0, 0.5, 0.5), 6.0)
+						loss_text_shown = true
+				break
+	
+	if not loss_text_shown:
+		var dm = load("res://scripts/core/DialogueManager.gd").new()
+		dm._ready()
+		var footer = dm.get_death_footer()
+		if footer != "":
+			show_dialogue("Shopkeeper", footer, Color(0.8, 0.8, 0.8), 6.0)
+	
+	call_deferred("_show_death_report", player.recent_damage_log)
 	
 	# Wait 3 seconds, then kick back to garage
 	var timer = Timer.new()
@@ -922,6 +1149,8 @@ func _show_death_report(log: Array):
 func _on_wave_cleared():
 	print("--- WAVE CLEARED ---")
 	current_wave += 1
+	if current_wave > SaveManager.max_wave_reached:
+		SaveManager.max_wave_reached = current_wave
 	_start_intermission()
 
 func _open_garage():

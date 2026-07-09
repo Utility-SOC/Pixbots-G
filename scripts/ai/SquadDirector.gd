@@ -58,11 +58,48 @@ var wild_bots: Array[Node] = []
 const LEARNED_STATE_NAME = "learned_state"
 var profile_manager: SquadProfileManager = null
 
+# --- Rival Round State ---
+var current_round: int = 1
+var rivals_fought_this_round: int = 0
+var active_rival_pool: Array = []
+var consecutive_rival_losses: int = 0
+var all_rival_profiles: Dictionary = {}
+
+func get_next_rival() -> String:
+	if all_rival_profiles.is_empty(): return ""
+	if active_rival_pool.is_empty():
+		current_round += 1
+		rivals_fought_this_round = 0
+		active_rival_pool = all_rival_profiles.keys()
+		
+	# If Arthur is in the pool, restrict him until we've fought 10 rivals this round.
+	var valid_candidates = []
+	for r in active_rival_pool:
+		if r == "Arthur" and (all_rival_profiles.size() - rivals_fought_this_round) > 5 and active_rival_pool.size() > 1:
+			continue
+		valid_candidates.append(r)
+		
+	var chosen = valid_candidates[randi() % valid_candidates.size()]
+	active_rival_pool.erase(chosen)
+	rivals_fought_this_round += 1
+	save_learned_state()
+	return chosen
+
 func _ready():
 	profile_manager = SquadProfileManager.new()
 	profile_manager.name = "ProfileManager"
 	add_child(profile_manager)
 	_register_default_boss_profiles()
+	
+	# Load Rival profiles
+	var dm = load("res://scripts/core/DialogueManager.gd").new()
+	dm._ready()
+	var factory = load("res://scripts/ai/RivalProfilesFactory.gd")
+	if factory:
+		all_rival_profiles = factory.create_profiles(dm.dialogue_data)
+		# Initialize pool if empty
+		if active_rival_pool.is_empty():
+			active_rival_pool = all_rival_profiles.keys()
 
 # The 6 original hand-picked archetypes, now as the PERMANENT (non-
 # experimental) seed of the boss_profiles pool rather than a flat const
@@ -157,10 +194,20 @@ func load_learned_state():
 		if telemetry.get("player_element_usage") is Dictionary:
 			player_element_usage = telemetry["player_element_usage"]
 		total_damage_taken = float(telemetry.get("total_damage_taken", 0.0))
+		if telemetry.get("bot_element_usage") is Dictionary:
+			bot_element_usage = telemetry["bot_element_usage"]
+		total_bot_damage_dealt = float(telemetry.get("total_bot_damage_dealt", 0.0))
 		if telemetry.get("player_kill_methods") is Dictionary:
 			player_kill_methods = telemetry["player_kill_methods"]
 		total_player_kills = int(telemetry.get("total_player_kills", 0))
 		_apply_kill_method_counter_pressure()
+		
+	var round_state = profile_manager.load_telemetry(LEARNED_STATE_NAME + "_rounds")
+	if not round_state.is_empty():
+		current_round = int(round_state.get("current_round", 1))
+		rivals_fought_this_round = int(round_state.get("rivals_fought_this_round", 0))
+		active_rival_pool = round_state.get("active_rival_pool", [])
+		consecutive_rival_losses = int(round_state.get("consecutive_rival_losses", 0))
 
 	print("[DIRECTOR] Learned AI state restored: ", loaded_templates.size(), " templates, ", loaded_profiles.size(), " solver profiles, ", loaded_boss_profiles.size(), " boss profiles")
 
@@ -169,8 +216,16 @@ func save_learned_state():
 		profile_manager.save_profile(LEARNED_STATE_NAME, templates, solver_profiles, boss_profiles, {
 			"player_element_usage": player_element_usage,
 			"total_damage_taken": total_damage_taken,
+			"bot_element_usage": bot_element_usage,
+			"total_bot_damage_dealt": total_bot_damage_dealt,
 			"player_kill_methods": player_kill_methods,
 			"total_player_kills": total_player_kills,
+		})
+		profile_manager.save_telemetry(LEARNED_STATE_NAME + "_rounds", {
+			"current_round": current_round,
+			"rivals_fought_this_round": rivals_fought_this_round,
+			"active_rival_pool": active_rival_pool,
+			"consecutive_rival_losses": consecutive_rival_losses
 		})
 
 func export_learned_state_to_clipboard():
@@ -423,12 +478,20 @@ func _merge_squads(squad_a: Squad, squad_b: Squad):
 
 var player_element_usage: Dictionary = {}
 var total_damage_taken: float = 0.0
+var bot_element_usage: Dictionary = {}
+var total_bot_damage_dealt: float = 0.0
 
 func log_player_damage(amount: float, element: String):
 	if not player_element_usage.has(element):
 		player_element_usage[element] = 0.0
 	player_element_usage[element] += amount
 	total_damage_taken += amount
+
+func log_bot_damage(amount: float, element: String):
+	if not bot_element_usage.has(element):
+		bot_element_usage[element] = 0.0
+	bot_element_usage[element] += amount
+	total_bot_damage_dealt += amount
 
 # --- Kill-method telemetry + over-reliance counter-pressure ----------------
 # Damage telemetry (above) tracks what the player SPRAYS; this tracks what

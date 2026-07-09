@@ -11,6 +11,18 @@ const JumpjetResidue = preload("res://scripts/attacks/JumpjetResidue.gd")
 # global script class cache hasn't been refreshed since the file was added.
 const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 const BossProfile = preload("res://scripts/ai/BossProfile.gd")
+const PlayerController = preload("res://scripts/entities/PlayerController.gd")
+const BossBrain = preload("res://scripts/entities/BossBrain.gd")
+const StatusEffectRunner = preload("res://scripts/entities/StatusEffectRunner.gd")
+
+# Lazily constructed the first time it's needed (is_player branch of
+# _physics_process / is_boss branch of _execute_ai_tactics / first call to
+# update_status_effects) - see PlayerController.gd/BossBrain.gd/
+# StatusEffectRunner.gd's own header comments for why these are composed
+# RefCounted objects, not child Nodes.
+var player_controller: PlayerController = null
+var boss_brain: BossBrain = null
+var status_runner: StatusEffectRunner = null
 
 # Cached lookups for two effectively-singleton nodes (the map and the
 # player) - both are created once at game start and outlive every mech that
@@ -89,7 +101,6 @@ var magnet_repel_mode: bool = false   # Mythic Magnet flipped to Repel
 var jumpjet_blink_mode: bool = false  # Mythic Jumpjet set to Blink
 var actuator_school: int = -1 # Mythic Actuator "school" (-1 = no Mythic actuator equipped); 0=Velocity, 1=Ember, 2=Balanced - see ActuatorTile.gd
 var shield_mythic_mode: int = -1 # Mythic Shield Generator mode (-1 = no Mythic shield equipped); 0=Aegis (tank), 1=Deflector (overflow eject) - see ShieldTile.gd/ShieldGeneratorTile.gd
-var _blink_cooldown: float = 0.0
 var jumpjet_rarity: int = -1
 var jumpjet_energy = null
 var actuator_energy = null
@@ -153,7 +164,6 @@ var last_aim_position: Vector2 = Vector2.ZERO
 var current_jammer_debuff: float = 1.0 # 1.0 is no debuff. 0.1 is 90% power reduction
 
 var jumpjet_trail = null
-var jumpjet_residue_timer: float = 0.0
 var magnet_visual: Line2D = null
 
 # Magnet enemy/loot group scans used to run every single physics frame
@@ -418,8 +428,9 @@ func _physics_process(delta: float):
 		fire_cooldown -= delta
 
 	_tick_weapon_charges(delta)
-	_update_heat(delta)
-		
+	# _update_heat(delta) # Thermal system commented out per Natalia - see the
+	# heat block near HEAT_CAPACITY below for the rest of what's disabled.
+
 	time_since_last_hit += delta
 	if has_shield_generator and max_shield_hp > 0 and time_since_last_hit >= shield_recharge_delay:
 		if shield_hp < max_shield_hp:
@@ -437,7 +448,9 @@ func _physics_process(delta: float):
 	_update_healer(delta)
 
 	if is_player:
-		_handle_player_input(delta)
+		if not player_controller:
+			player_controller = PlayerController.new(self)
+		player_controller.handle_input(delta)
 		velocity += external_force
 		move_and_slide()
 		_process_ramming(delta)
@@ -500,10 +513,25 @@ func _physics_process(delta: float):
 			_renderer.rotate_arms(get_global_mouse_position(), global_position)
 			_renderer.animate_legs(velocity, Time.get_ticks_msec() / 1000.0)
 	else:
-		_execute_ai_tactics(delta)
-		velocity += external_force
-		move_and_slide()
-		_process_ramming(delta)
+		var is_far = false
+		if target and is_instance_valid(target):
+			is_far = global_position.distance_to(target.global_position) > 1400.0
+
+		if is_far:
+			_lod_ai_timer -= delta
+			if _lod_ai_timer <= 0.0:
+				_lod_ai_timer = 0.25 # 4 AI ticks per second when far
+				_execute_ai_tactics(0.25)
+			# move_and_slide runs every frame so they slide properly
+			velocity += external_force
+			move_and_slide()
+			# Skipped: _process_ramming(delta) and visual updates when far
+		else:
+			_execute_ai_tactics(delta)
+			velocity += external_force
+			move_and_slide()
+			_process_ramming(delta)
+			
 		var lerp_weight = 10.0 * delta
 		if lerp_weight > 1.0: lerp_weight = 1.0
 		external_force = external_force.lerp(Vector2.ZERO, lerp_weight)
@@ -515,12 +543,13 @@ func _physics_process(delta: float):
 		if not is_jumping:
 			_check_drowning()
 		
-		if target:
+		if target and not is_far:
 			if _renderer:
 				_renderer.rotate_arms(target.global_position, global_position)
 				_renderer.animate_legs(velocity, Time.get_ticks_msec() / 1000.0)
 
 var external_force: Vector2 = Vector2.ZERO
+var _lod_ai_timer: float = 0.0
 
 # Melee/mass physics pillar: automatic contact damage on a fast enough
 # collision with an opposing mech - no dedicated input, matches Natalia's
@@ -672,9 +701,9 @@ func _check_drowning():
 			for p in jumpjet_trail.get_children():
 				p.emitting = false
 
-# Trail creation, shared between sprint (player input) and water-hover
-# (both player and AI) - was inlined in _handle_player_input, which meant
-# AI mechs could never show a jet trail at all.
+# Trail creation, shared between sprint (PlayerController.handle_input) and
+# water-hover (both player and AI) - was inlined in player input handling,
+# which meant AI mechs could never show a jet trail at all.
 func _ensure_jumpjet_trail():
 	if jumpjet_trail != null:
 		return
@@ -712,7 +741,7 @@ func _has_jumpjets() -> bool:
 
 # Auto-hover over water: light the jet trail so the save reads visually
 # ("why am I not drowning?" - because your jets are visibly firing).
-# Runs after _handle_player_input in the frame, so it wins over the
+# Runs after PlayerController.handle_input in the frame, so it wins over the
 # sprint-off branch while over water; _check_drowning's elif above hands
 # control back to the normal sprint logic once on dry land.
 var _water_hover_active: bool = false
@@ -724,135 +753,6 @@ func _force_jumpjets_on():
 	for p in jumpjet_trail.get_children():
 		if p.color != new_color: p.color = new_color
 		p.emitting = true
-
-func _handle_player_input(delta: float):
-	if jumpjet_energy and jumpjet_energy.magnitude > 0:
-		jumpjet_energy.magnitude *= exp(-2.0 * delta) # Decay energy smoothly
-		if jumpjet_energy.magnitude < 0.1: jumpjet_energy.magnitude = 0.0
-		
-	if actuator_energy and actuator_energy.magnitude > 0:
-		actuator_energy.magnitude *= exp(-2.0 * delta) # Decay energy smoothly
-		if actuator_energy.magnitude < 0.1: actuator_energy.magnitude = 0.0
-
-	# Simple WASD movement
-	var input_dir = Vector2.ZERO
-	input_dir.x = Input.get_axis("ui_left", "ui_right")
-	input_dir.y = Input.get_axis("ui_up", "ui_down")
-	
-	if input_dir.length() > 0:
-		input_dir = input_dir.normalized()
-		
-	# Calculate base walk multiplier from Actuators
-	var actuator_mult = 1.0
-	if actuator_energy and actuator_energy.magnitude > 0:
-		actuator_mult += (actuator_energy.magnitude / 200.0)
-		actuator_mult = min(actuator_mult, 3.5) # User requested max 3.5x for actuator
-
-	# Calculate sprint multiplier from Jumpjets
-	var sprint_mult = 0.0
-	if Input.is_key_pressed(KEY_SHIFT):
-		sprint_mult = 0.5 # Base sprint is +0.5x speed
-		if jumpjet_energy and jumpjet_energy.magnitude > 0:
-			sprint_mult += (jumpjet_energy.magnitude / 200.0)
-			sprint_mult = min(sprint_mult, 2.5) # Up to +2.5x from jumpjets, so jumpjets alone = 3.5x walking speed max
-			
-		if is_player:
-			_ensure_jumpjet_trail()
-
-			var new_color = EnergyPacket.get_color_blend(jumpjet_energy.synergies) if jumpjet_energy else Color.WHITE
-			for p in jumpjet_trail.get_children():
-				if p.color != new_color: p.color = new_color
-				p.emitting = true
-				
-			if jumpjet_energy and jumpjet_energy.magnitude > 0:
-				jumpjet_residue_timer -= delta
-				if jumpjet_residue_timer <= 0.0:
-					jumpjet_residue_timer = 0.15 # Spawn residue periodically
-					var residue = JumpjetResidue.new()
-					residue.global_position = global_position
-					var dmg = max(10.0, jumpjet_energy.magnitude * 0.1)
-					residue.setup(dmg, jumpjet_energy.synergies)
-					get_parent().add_child(residue)
-	else:
-		if jumpjet_trail:
-			for p in jumpjet_trail.get_children():
-				p.emitting = false
-
-	# Combine multipliers and enforce absolute cap
-	var total_mult = actuator_mult + sprint_mult
-	total_mult = min(total_mult, 3.8) # User requested max 3.8x for both combined
-	
-	var actual_move_speed = current_move_speed * total_mult
-	var target_vel = input_dir * actual_move_speed
-	
-	# Scale acceleration much slower to give a feeling of weight
-	var accel = 600.0
-	if jumpjet_rarity >= 0:
-		accel += (jumpjet_rarity * 150.0)
-	
-	if target_vel == Vector2.ZERO:
-		velocity = velocity.move_toward(Vector2.ZERO, accel * delta)
-	else:
-		velocity = velocity.move_toward(target_vel, accel * delta)
-	
-	# JumpJets automatically hover over Water (Mask 2) and some obstacles
-	if jumpjet_rarity >= 0:
-		collision_mask = 1 | 4 | 16 # Only collide with walls/obstacles, Enemy, Loot
-	else:
-		collision_mask = 1 | 2 | 4 | 16 # Collide with water too
-		
-	# Mouse Aiming
-	var mouse_pos = get_global_mouse_position()
-	
-	# Firing logic
-	var is_left_pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-	var is_right_pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
-	
-	# 1/2/3 ARE the fire buttons for the big charged shots (and only those).
-	# Edge-triggered: one press = one big hit, if it's ready. The mouse
-	# never fires these; they never fire from the mouse. See _fire_charged.
-	for key_pair in [[KEY_1, "1"], [KEY_2, "2"], [KEY_3, "3"]]:
-		var held = Input.is_key_pressed(key_pair[0])
-		if held and not _terakey_held.get(key_pair[1], false):
-			_fire_charged(key_pair[1], mouse_pos)
-		_terakey_held[key_pair[1]] = held
-
-	# Mythic Jumpjet Blink: Space teleports toward the cursor, capped range,
-	# landing snapped to valid ground, on a cooldown.
-	if jumpjet_blink_mode:
-		_blink_cooldown -= delta
-		if Input.is_action_just_pressed("ui_select") and _blink_cooldown <= 0.0:
-			_blink_cooldown = 3.0
-			var to_cursor = get_global_mouse_position() - global_position
-			if to_cursor.length() > 4.0:
-				var dest = global_position + to_cursor.normalized() * min(to_cursor.length(), 240.0)
-				var map = _get_map_ref()
-				if map and map.has_method("get_valid_spawn_position"):
-					dest = map.get_valid_spawn_position(dest)
-				_ensure_jumpjet_trail()
-				for p in jumpjet_trail.get_children():
-					p.emitting = true
-				global_position = dest
-	
-	var is_firing = false
-	if is_left_pressed and is_right_pressed and not separate_arm_firing:
-		_shoot(mouse_pos, true, true, delta)
-		is_firing = true
-	elif is_left_pressed:
-		_shoot(mouse_pos, true, true, delta)
-		is_firing = true
-	elif is_right_pressed:
-		if separate_arm_firing:
-			_shoot(mouse_pos, true, false, delta)
-		else:
-			_shoot(mouse_pos, false, false, delta)
-		is_firing = true
-		
-	# NOTE: no release-fire anymore. Under the pre-prime model charge builds
-	# passively, so the old "fire partial charge on mouse release" behavior
-	# turned into constant unprompted spray (charge crossed the 10% floor
-	# while idling and the next mouse-up frame fired it). Releasing the
-	# mouse now does nothing; charge just holds at cap until you shoot.
 
 # Passive background charging - the "pre-prime" model. Every weapon's
 # accumulator charge builds all the time, whether or not anyone is holding
@@ -915,7 +815,7 @@ func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, d
 
 		# Charging happens passively in _tick_weapon_charges(). The mouse
 		# fires ONLY normal entries - the big charged shot belongs to its
-		# 1/2/3 key exclusively (_fire_charged). Two independent weapons
+		# 1/2/3 key exclusively (PlayerController.fire_charged). Two independent weapons
 		# sharing one barrel.
 		if bank_mode == "bank":
 			continue
@@ -951,43 +851,6 @@ func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, d
 	if fired_a_shot and was_cloaked:
 		_break_cloak()
 
-# Last-frame state of the 1/2/3 keys for edge detection (one press = one
-# big shot, see _fire_charged / _handle_player_input).
-var _terakey_held: Dictionary = {}
-
-# Fire the big charged accumulator shot bound to `key`. This is the ONLY
-# player-side release path for bank entries: press once, it fires if fully
-# charged; if it isn't ready yet you get a charge readout instead of a
-# wasted squib. No quality tax here - the big hit always lands full value.
-func _fire_charged(key: String, target_pos: Vector2):
-	last_aim_position = target_pos
-	is_firing_outward = true
-
-	for data in precalculated_weapons:
-		if data.get("bank_mode", "") != "bank":
-			continue
-		if data.packet.trigger_key != key:
-			continue
-		var mount = data.mount
-		var required = data.packet.charge_required
-
-		if mount.bank_current_charge < required:
-			_show_floating_text("Charging %d%%" % int(100.0 * mount.bank_current_charge / max(0.001, required)), Color(0.6, 0.8, 1.0))
-			continue
-
-		var packet_to_fire = data.packet.copy()
-		packet_to_fire.magnitude *= current_jammer_debuff
-		for k in packet_to_fire.synergies:
-			packet_to_fire.synergies[k] *= current_jammer_debuff
-		_apply_synergy_jamming(packet_to_fire)
-		packet_to_fire.magnitude *= _get_ambush_multiplier()
-		if is_cloaked:
-			_break_cloak()
-
-		mount._fire_combined_projectile(self, packet_to_fire, 0)
-		mount.bank_current_charge = 0.0
-		heat = max(0.0, heat - required * 0.6) # big shot = big heat dump
-
 # --- Lightweight heat, v1 (FEATURE_ROADMAP.md group 5, locked spec) --------
 # No live packet simulation: heat is ONE scalar per mech, derived from the
 # static grid sim. Everything is proportional to totals (Natalia's ruling):
@@ -998,75 +861,90 @@ func _fire_charged(key: String, target_pos: Vector2):
 # heavy circuits arc into adjacent tiles when hot; hitting the cap knocks
 # out an Accumulator via the existing disable/reboot machinery.
 const HEAT_CAPACITY = 100.0
+# Natalia: thermal system fully commented out below (_update_heat,
+# _heat_arc_damage, _overheat, and the heat_rate/ice/ltg computation block
+# in _recalculate_grid) rather than just flag-gated - none of those are
+# called from anywhere outside this system, so nothing else breaks. The vars
+# below and the inline venting lines inside the weapon-fire functions
+# elsewhere are left alone: the vars are just inert idle state now (cheap to
+# leave declared, and other code still references `heat` safely), and the
+# venting lines are interlocked with weapon-firing logic in those functions -
+# they're harmless no-ops now that nothing ever raises heat above 0.0.
 var heat: float = 0.0
 var heat_rate: float = 0.0      # computed in _recalculate_grid
 var heat_ice_frac: float = 0.0
 var heat_ltg_frac: float = 0.0
 var _heat_arc_timer: float = 0.0
 
-func _update_heat(delta: float):
-	if precalculated_weapons.is_empty():
-		heat = max(0.0, heat - 10.0 * delta)
-		return
+# These three functions are pure heat machinery - nothing outside this
+# system calls them, so they're safe to fully comment out. The inline
+# venting lines elsewhere (heat = max(0.0, heat - required * 0.6) in the
+# weapon-fire functions) are NOT touched here - they're interlocked with
+# weapon-firing logic in those functions, and are harmless no-ops now that
+# heat never leaves 0.0 with _update_heat() itself never running.
+#func _update_heat(delta: float):
+#	if precalculated_weapons.is_empty():
+#		heat = max(0.0, heat - 10.0 * delta)
+#		return
+#
+#	# Generation minus constant ambient dissipation. heat_rate can already
+#	# be negative (ICE cooling), so heavily iced builds pin to 0 here.
+#	heat = clamp(heat + (heat_rate - 2.0) * delta, 0.0, HEAT_CAPACITY)
+#
+#	# LIGHTNING volatility: above 70% heat, lightning-heavy storage arcs
+#	# into the grid - severity proportional to current heat.
+#	if heat > HEAT_CAPACITY * 0.7 and heat_ltg_frac > 0.3:
+#		_heat_arc_timer -= delta
+#		if _heat_arc_timer <= 0.0:
+#			_heat_arc_timer = 2.0
+#			_heat_arc_damage()
+#
+#	if heat >= HEAT_CAPACITY:
+#		_overheat()
 
-	# Generation minus constant ambient dissipation. heat_rate can already
-	# be negative (ICE cooling), so heavily iced builds pin to 0 here.
-	heat = clamp(heat + (heat_rate - 2.0) * delta, 0.0, HEAT_CAPACITY)
+#func _heat_arc_damage():
+#	# Shock a random tile in a random component - reuses the standard
+#	# take_damage -> disable/reboot pipeline, no new failure states.
+#	var comps = components.values()
+#	if comps.is_empty():
+#		return
+#	var comp = comps[randi() % comps.size()]
+#	var tiles = comp.hex_grid.get_all_tiles()
+#	if tiles.is_empty():
+#		return
+#	var tile = tiles[randi() % tiles.size()]
+#	tile.take_damage(heat * 0.1) # proportional to heat, not flat
+#	if is_player:
+#		_show_floating_text("ARC!", Color(1.0, 1.0, 0.3))
 
-	# LIGHTNING volatility: above 70% heat, lightning-heavy storage arcs
-	# into the grid - severity proportional to current heat.
-	if heat > HEAT_CAPACITY * 0.7 and heat_ltg_frac > 0.3:
-		_heat_arc_timer -= delta
-		if _heat_arc_timer <= 0.0:
-			_heat_arc_timer = 2.0
-			_heat_arc_damage()
-
-	if heat >= HEAT_CAPACITY:
-		_overheat()
-
-func _heat_arc_damage():
-	# Shock a random tile in a random component - reuses the standard
-	# take_damage -> disable/reboot pipeline, no new failure states.
-	var comps = components.values()
-	if comps.is_empty():
-		return
-	var comp = comps[randi() % comps.size()]
-	var tiles = comp.hex_grid.get_all_tiles()
-	if tiles.is_empty():
-		return
-	var tile = tiles[randi() % tiles.size()]
-	tile.take_damage(heat * 0.1) # proportional to heat, not flat
-	if is_player:
-		_show_floating_text("ARC!", Color(1.0, 1.0, 0.3))
-
-func _overheat():
-	# Knock out one Accumulator (the thing storing all that energy) via the
-	# existing disable machinery, shed a big chunk of heat, carry on.
-	for comp in components.values():
-		for tile in comp.hex_grid.get_all_tiles():
-			if tile.tile_type == "Accumulator" and not tile.is_disabled:
-				tile.take_damage(tile.hp + 1.0)
-				heat = HEAT_CAPACITY * 0.55
-				if is_player:
-					_show_floating_text("OVERHEAT!", Color(1.0, 0.35, 0.2))
-				is_grid_dirty = true
-				# Pay the recalculation cost RIGHT NOW instead of leaving
-				# is_grid_dirty lazy for whatever _shoot() call happens to
-				# come next - same class of bug, same fix, as the deploy-time
-				# freeze (see Main._close_garage's comment). An overheat can
-				# happen mid-fight and then the player stops firing for a
-				# while (repositioning, or just noticing they're overheated);
-				# without this, THAT much-later shot is the one that
-				# synchronously eats the recalc - "hesitation when shooting
-				# the first time after not shooting for some interval." Doing
-				# it here instead bundles the cost into a moment that's
-				# already visually busy (the OVERHEAT! text/heat spike),
-				# where a brief hitch is far less jarring.
-				_recalculate_grid()
-				return
-	# No accumulator to sacrifice: vent hard instead (raw/kinetic builds
-	# shouldn't really get here - they generate almost nothing).
-	heat = HEAT_CAPACITY * 0.4
+#func _overheat():
+#	# Knock out one Accumulator (the thing storing all that energy) via the
+#	# existing disable machinery, shed a big chunk of heat, carry on.
+#	for comp in components.values():
+#		for tile in comp.hex_grid.get_all_tiles():
+#			if tile.tile_type == "Accumulator" and not tile.is_disabled:
+#				tile.take_damage(tile.hp + 1.0)
+#				heat = HEAT_CAPACITY * 0.55
+#				if is_player:
+#					_show_floating_text("OVERHEAT!", Color(1.0, 0.35, 0.2))
+#				is_grid_dirty = true
+#				# Pay the recalculation cost RIGHT NOW instead of leaving
+#				# is_grid_dirty lazy for whatever _shoot() call happens to
+#				# come next - same class of bug, same fix, as the deploy-time
+#				# freeze (see Main._close_garage's comment). An overheat can
+#				# happen mid-fight and then the player stops firing for a
+#				# while (repositioning, or just noticing they're overheated);
+#				# without this, THAT much-later shot is the one that
+#				# synchronously eats the recalc - "hesitation when shooting
+#				# the first time after not shooting for some interval." Doing
+#				# it here instead bundles the cost into a moment that's
+#				# already visually busy (the OVERHEAT! text/heat spike),
+#				# where a brief hitch is far less jarring.
+#				_recalculate_grid()
+#				return
+#	# No accumulator to sacrifice: vent hard instead (raw/kinetic builds
+#	# shouldn't really get here - they generate almost nothing).
+#	heat = HEAT_CAPACITY * 0.4
 
 # _shoot_release() is gone. Under the old hold-to-charge model it fired
 # the partial charge when the mouse was released; under the pre-prime model
@@ -1270,7 +1148,7 @@ func _recalculate_grid():
 					# accumulators (bank_amplify) combine; charge time is the
 					# base cost scaled by acc_charge_mult plus the adjacency
 					# bank's own charge. Fired ONLY by pressing its 1/2/3 key
-					# (_fire_charged); AI auto-releases on full
+					# (PlayerController.fire_charged); AI auto-releases on full
 					# (_tick_weapon_charges). The mouse never fires this.
 					var enhanced = combined.copy()
 					enhanced.amplify(combined.acc_damage_mult * (1.0 + bank_amplify))
@@ -1408,21 +1286,22 @@ func _recalculate_grid():
 	if not has_shield_generator:
 		shield_hp = 0.0
 
-	# Heat profile of this circuit (see the heat block near _update_heat):
-	# generation proportional to total armed charge_required; ICE share
-	# actively cools (2x weight, so ~50% ice storage fully solves heat);
-	# LIGHTNING share drives the hot-arcing volatility.
-	heat_rate = 0.0
-	var _syn_totals: Dictionary = {}
-	var _syn_sum: float = 0.0
-	for data in precalculated_weapons:
-		heat_rate += data.packet.charge_required * 0.03
-		for k in data.packet.synergies:
-			_syn_totals[k] = _syn_totals.get(k, 0.0) + data.packet.synergies[k]
-			_syn_sum += data.packet.synergies[k]
-	heat_ice_frac = (_syn_totals.get(EnergyPacket.SynergyType.ICE, 0.0) / _syn_sum) if _syn_sum > 0.0 else 0.0
-	heat_ltg_frac = (_syn_totals.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) / _syn_sum) if _syn_sum > 0.0 else 0.0
-	heat_rate *= (1.0 - 2.0 * heat_ice_frac)
+	# Heat profile of this circuit - commented out along with the rest of the
+	# thermal system (see HEAT_CAPACITY's comment above). Self-contained:
+	# heat_rate/heat_ice_frac/heat_ltg_frac are only ever read by the now-
+	# commented _update_heat(), so nothing else in _recalculate_grid depends
+	# on this block running.
+	#heat_rate = 0.0
+	#var _syn_totals: Dictionary = {}
+	#var _syn_sum: float = 0.0
+	#for data in precalculated_weapons:
+	#	heat_rate += data.packet.charge_required * 0.03
+	#	for k in data.packet.synergies:
+	#		_syn_totals[k] = _syn_totals.get(k, 0.0) + data.packet.synergies[k]
+	#		_syn_sum += data.packet.synergies[k]
+	#heat_ice_frac = (_syn_totals.get(EnergyPacket.SynergyType.ICE, 0.0) / _syn_sum) if _syn_sum > 0.0 else 0.0
+	#heat_ltg_frac = (_syn_totals.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) / _syn_sum) if _syn_sum > 0.0 else 0.0
+	#heat_rate *= (1.0 - 2.0 * heat_ice_frac)
 
 	# Enemies deploy mostly pre-primed (70-100% charged): a fresh squad
 	# shouldn't spend its opening seconds unable to shoot, and the player
@@ -1824,21 +1703,21 @@ func _execute_ai_tactics(delta):
 	# late. A telegraphed ability roots the boss for its windup - returning
 	# early here (with velocity zeroed) is what sells "channeling."
 	if is_boss:
+		if not boss_brain:
+			boss_brain = BossBrain.new(self)
 		if _ai_state_label:
 			_ai_state_label.text = "BOSS"
 			_ai_state_label.modulate = Color(1.0, 0.3, 0.3)
-		_update_boss_enrage()
-		if boss_ability_state != "":
-			_continue_boss_ability(delta)
+		boss_brain.update_enrage()
+		if boss_brain.is_channeling():
+			boss_brain.continue_ability(delta)
 			velocity = Vector2.ZERO
 			return
 		if target and is_instance_valid(target):
-			boss_ability_cooldown -= delta
-			if boss_ability_cooldown <= 0.0:
-				_start_boss_ability()
-				if boss_ability_state != "":
-					velocity = Vector2.ZERO
-					return
+			boss_brain.tick_ability_cooldown_and_maybe_start(delta)
+			if boss_brain.is_channeling():
+				velocity = Vector2.ZERO
+				return
 
 	if target:
 		# Sight/detection gate - bosses are exempt (see the block comment
@@ -1859,13 +1738,13 @@ func _execute_ai_tactics(delta):
 		# that actually has a Cloak Generator equipped (regardless of
 		# archetype/ability_pool) - "liberally use the cloak" per design,
 		# not just the one-shot Specter blink-strike ability.
-		if is_boss and _boss_hit_and_run(delta, dist, dir):
+		if is_boss and boss_brain.try_hit_and_run(delta, dist, dir):
 			return
 
 		# Boss position_style ("kiter"/"circler") takes over movement
 		# entirely when it applies; "aggressive" (and every non-boss mech)
 		# falls through to the shared approach/orbit logic below, unchanged.
-		if is_boss and _boss_reposition(delta, dist, dir):
+		if is_boss and boss_brain.try_reposition(delta, dist, dir):
 			return
 
 		# Movement direction toward the target now comes from the shared
@@ -1953,117 +1832,6 @@ func _compute_separation() -> Vector2:
 	if count > 0:
 		push /= count
 	return push
-
-# Falls back to the pre-profile hardcoded rule (sniper/jammer kite,
-# everything else aggressive) for a profile-less boss, e.g. one spawned
-# directly from the debug menu without going through Main._spawn_boss.
-func _get_position_style() -> String:
-	if boss_profile and boss_profile.position_style != "":
-		return boss_profile.position_style
-	if combat_role == "sniper" or combat_role == "jammer":
-		return "kiter"
-	return "aggressive"
-
-# Returns true if it fully handled movement+shooting this frame (caller
-# skips the shared approach/orbit logic below in that case). "aggressive"
-# (and every non-boss mech) always returns false and falls through to that
-# shared logic, unchanged from before position styles existed.
-func _boss_reposition(delta: float, dist: float, dir: Vector2) -> bool:
-	var style = _get_position_style()
-
-	if style == "kiter" and dist < engagement_distance * 0.6:
-		# Backs off when the player closes to melee range instead of
-		# orbiting in place at whatever (now too close) distance -
-		# otherwise a kiter just stands there tanking hits like a Brawler
-		# once you're in its face.
-		var retreat_dir = _boss_pick_retreat_dir(dir)
-		velocity = retreat_dir * current_move_speed * speed_modifier
-		if dist < engagement_distance + 150.0:
-			_shoot(target.global_position, true, true, delta)
-		return true
-
-	if style == "circler":
-		# Continuously strafes around the target while smoothly correcting
-		# back toward its preferred engagement_distance band, instead of
-		# the binary "approach until in range, then orbit" default - reads
-		# as constantly repositioning rather than beelining in and parking.
-		var radius_error = dist - engagement_distance
-		var tangent = Vector2(-dir.y, dir.x) * rotational_direction
-		var radial = dir * clamp(radius_error / 100.0, -1.0, 1.0)
-		var move_dir = tangent + radial
-		move_dir = move_dir.normalized() if move_dir.length() > 0.01 else tangent
-		velocity = move_dir * current_move_speed * speed_modifier * 0.8
-		if dist < engagement_distance + 150.0:
-			_shoot(target.global_position, true, true, delta)
-		return true
-
-	return false
-
-# Smarter-than-straight-back retreat: samples several candidate angles off
-# directly-away-from-target and raycasts each, picking whichever has the
-# most open space before hitting something - so a kiting boss backs into
-# open ground instead of blindly reversing into whatever's directly behind
-# it (a wall, a corner, another obstacle).
-func _boss_pick_retreat_dir(dir: Vector2) -> Vector2:
-	var space_state = get_world_2d().direct_space_state
-	var candidate_offsets_deg = [0.0, 25.0, -25.0, 50.0, -50.0]
-	var probe_dist = 150.0
-	var best_dir = -dir
-	var best_clearance = -1.0
-	for deg in candidate_offsets_deg:
-		var candidate = (-dir).rotated(deg_to_rad(deg))
-		var query = PhysicsRayQueryParameters2D.create(global_position, global_position + candidate * probe_dist, 1)
-		var result = space_state.intersect_ray(query)
-		var clearance = probe_dist if result.is_empty() else global_position.distance_to(result.position)
-		if clearance > best_clearance:
-			best_clearance = clearance
-			best_dir = candidate
-	return best_dir
-
-# --- Boss Cloak Hit-and-Run ------------------------------------------------
-# Any boss with a Cloak Generator equipped (has_cloak_generator - whichever
-# role rolled it, not just an ambusher-based Specter) cycles advance ->
-# strike -> retreat -> advance instead of the plain per-mech cloak AI's
-# one-shot "stay hidden while closing, reveal once close, then stay
-# revealed" behavior. This is what makes cloak usage read as deliberate
-# hit-and-run rather than a single ambush per fight.
-#
-# It doesn't fight _update_cloak's own is_cloaked bookkeeping - it just
-# controls MOVEMENT so the boss's distance from the player naturally walks
-# through _update_cloak's existing thresholds (wants_cloak = dist >
-# engagement_distance*0.9) at the right times: cloaked while advancing,
-# revealed by firing during the strike (which is what _shoot's
-# _get_ambush_multiplier() check turns into the 2.5x ambush bonus, both for
-# that shot and for anything else landed within the following 0.25s window),
-# then forced back out past the recloak threshold during retreat.
-var _hitrun_phase: String = "advance"
-var _hitrun_timer: float = 0.0
-const HITRUN_STRIKE_DURATION = 0.4
-
-func _boss_hit_and_run(delta: float, dist: float, dir: Vector2) -> bool:
-	if not has_cloak_generator:
-		return false
-	match _hitrun_phase:
-		"advance":
-			velocity = dir * current_move_speed * speed_modifier
-			if dist <= engagement_distance * 0.7:
-				_hitrun_phase = "strike"
-				_hitrun_timer = HITRUN_STRIKE_DURATION
-		"strike":
-			velocity = Vector2.ZERO
-			if dist < engagement_distance + 150.0:
-				_shoot(target.global_position, true, true, delta)
-			_hitrun_timer -= delta
-			if _hitrun_timer <= 0.0:
-				_hitrun_phase = "retreat"
-		"retreat":
-			var retreat_dir = _boss_pick_retreat_dir(dir)
-			velocity = retreat_dir * current_move_speed * speed_modifier
-			if dist > engagement_distance * 1.3:
-				_hitrun_phase = "advance"
-		_:
-			_hitrun_phase = "advance"
-	return true
 
 var elemental_resistances: Dictionary = {}
 
@@ -2228,6 +1996,9 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null):
 
 	if is_player and amount > 0:
 		_log_incoming_damage(amount, element, source)
+		var main = get_tree().current_scene
+		if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
+			main.world.get_node("SquadDirector").log_bot_damage(amount, element)
 
 	# Piercing "cut in half" execution: a low flat chance for any PIERCE hit
 	# that actually gets past shields to instantly finish the target,
@@ -2433,42 +2204,9 @@ func update_status_effects(delta: float):
 	if _brace_timer > 0.0:
 		_brace_timer -= delta
 
-	var effects_to_remove = []
-	for effect in status_effects:
-		status_effects[effect] -= delta
-
-		# Handle active effects - full elemental status suite (group 3).
-		# Movement effects multiply onto current_move_speed (which was just
-		# reset to base above), damage effects tick per second.
-		if effect == "frozen":
-			current_move_speed = base_move_speed * 0.4 # 60% slow
-		elif effect == "burning":
-			apply_damage(5.0 * delta) # 5 damage per second
-		elif effect == "poisoned":
-			apply_damage(4.0 * delta)
-			current_move_speed *= 0.8
-		elif effect == "bleeding":
-			apply_damage(6.0 * delta)
-		elif effect == "paralyzed":
-			current_move_speed = 0.0 # LIGHTNING lockup
-		elif effect == "immobilized":
-			current_move_speed = 0.0 # heavy VAMPIRIC pin
-		elif effect == "staggered":
-			current_move_speed *= 0.5
-		elif effect == "concussed":
-			current_move_speed *= 0.1
-		elif effect == "vortexed":
-			# Dragged toward the impact point stored by the projectile
-			pull_towards(vortex_drag_point, delta, 500.0)
-		# ("rent" has no per-frame effect - it's consumed as a +20% damage
-		# amplifier inside apply_damage.)
-
-		# Check if expired
-		if status_effects[effect] <= 0:
-			effects_to_remove.append(effect)
-
-	for effect in effects_to_remove:
-		status_effects.erase(effect)
+	if not status_runner:
+		status_runner = StatusEffectRunner.new(self)
+	status_runner.tick(delta)
 
 	if is_cloaked:
 		current_move_speed *= 1.25 # Sneaking in fast while unseen
@@ -2733,333 +2471,20 @@ func get_boss_fitness() -> float:
 		survival_score = 0.0 # never engaged at all - no survival credit (anti-hiding, same rule as Squad's)
 	return max(0.0, damage_score + hit_score + survival_score - _boss_flee_penalty)
 
+# BossBrain (a RefCounted, not a Node) can't own the dealt_damage signal
+# itself - its shockwave/railgun ability resolution calls this instead of
+# emitting directly, so the signal still only ever lives on the Mech node.
+func _boss_emit_dealt_damage(amount: float):
+	dealt_damage.emit(amount)
+
 # --- Boss Enrage & Signature Abilities -----------------------------------
-# Every boss gets two things layered on top of its ordinary role AI
-# (movement/shooting are otherwise untouched - see _execute_ai_tactics):
-# enrage phases as HP drops, and cooldown-gated signature ability use.
-# Neither system runs for non-boss mechs (is_boss stays false). Which
-# ENRAGE STYLE and which ABILITIES are available now varies per-boss via
-# boss_profile (see BossProfile.gd / SquadDirector's boss profile
-# evolution) instead of being the same fixed escalation for every boss.
-
-var enrage_stage: int = 0
-const ENRAGE_THRESHOLDS: Array = [0.5, 0.2] # HP fraction that triggers each stage
-
-# Each style hits a different combination of fire_rate/speed_modifier/
-# engagement_distance/self-heal per stage - see _apply_enrage_style. Falls
-# back to "berserker" if boss_profile is null (debug-spawned boss, etc.).
-func _get_enrage_style() -> String:
-	if boss_profile and boss_profile.enrage_style != "":
-		return boss_profile.enrage_style
-	return "berserker"
-
-func _update_boss_enrage():
-	while enrage_stage < ENRAGE_THRESHOLDS.size() and max_hp > 0.0 and hp <= max_hp * ENRAGE_THRESHOLDS[enrage_stage]:
-		enrage_stage += 1
-		_apply_enrage_style(_get_enrage_style())
-		_show_floating_text("ENRAGED", Color(1.0, 0.25, 0.1))
-		var cam = get_tree().get_first_node_in_group("camera")
-		if cam and cam.has_method("shake"):
-			cam.shake(2.0, 0.5)
-		var orig_modulate = modulate
-		var flash_tween = create_tween()
-		flash_tween.tween_property(self, "modulate", Color(1.6, 0.4, 0.3) * orig_modulate, 0.1)
-		flash_tween.tween_property(self, "modulate", orig_modulate, 0.4)
-
-# Four flavors, each leaning on a different stat so "enraged" reads
-# differently depending on the boss instead of every boss getting the
-# identical fire_rate/speed/engage bump:
-#   berserker  - mostly fire rate (shoots much faster, the classic "rage")
-#   juggernaut - mostly speed + engagement range (charges you down harder)
-#   vampiric   - modest all-around bump PLUS an actual heal-back, a real
-#                "second wind" rather than just a stat spike
-#   unstable   - the biggest, most chaotic all-around swing (highest risk
-#                for the player to be near when it procs, but also the
-#                easiest to punish since nothing here is subtle)
-func _apply_enrage_style(style: String):
-	match style:
-		"berserker":
-			fire_rate *= 0.65
-			speed_modifier *= 1.08
-			engagement_distance *= 0.95
-		"juggernaut":
-			fire_rate *= 0.9
-			speed_modifier *= 1.35
-			engagement_distance *= 0.75
-		"vampiric":
-			fire_rate *= 0.85
-			speed_modifier *= 1.1
-			engagement_distance *= 0.9
-			var heal_amt = max_hp * 0.1
-			hp = min(max_hp, hp + heal_amt)
-			if heal_amt >= 1.0:
-				_show_floating_text("+%d" % int(round(heal_amt)), Color(0.3, 1.0, 0.5))
-		"unstable":
-			fire_rate *= randf_range(0.5, 0.85)
-			speed_modifier *= randf_range(1.1, 1.5)
-			engagement_distance *= randf_range(0.7, 1.0)
-		_:
-			fire_rate *= 0.8
-			speed_modifier *= 1.15
-			engagement_distance *= 0.9
-
-const BOSS_ABILITY_COOLDOWN = 6.0
-var boss_ability_cooldown: float = 3.0 # first use isn't instant - gives the player a beat to size the boss up first
-var boss_ability_state: String = "" # "" = idle/ready; otherwise the ability currently winding up ("shockwave"/"railgun")
-var boss_ability_windup: float = 0.0
-var _boss_railgun_aim: Vector2 = Vector2.ZERO
+# Moved to BossBrain.gd (see Mech._execute_ai_tactics for the delegation
+# call sites). _rally_speed_timer/RALLY_SPEED_MULT stay here - BossBrain's
+# _do_rally() only writes into _rally_speed_timer; the countdown-and-apply
+# lives below in update_status_effects, alongside several other systems'
+# per-frame speed modifiers.
 var _rally_speed_timer: float = 0.0
 const RALLY_SPEED_MULT = 1.3
-
-# Role that would have used this ability before boss_profile.ability_pool
-# existed - the fallback for a profile-less boss (e.g. debug-menu spawned)
-# and the seed data _register_default_boss_profiles builds each archetype's
-# starting pool from.
-const ROLE_DEFAULT_ABILITY = {
-	"brawler": "shockwave", "sniper": "railgun", "ambusher": "blink_strike",
-	"flamethrower": "fire_pool", "jammer": "jam_burst", "commander": "rally",
-}
-
-# True while resolving a chained follow-up ability, so _maybe_chain_ability
-# can never trigger a second chain off of a chain (caps it at exactly one
-# extra use per original trigger, however deep enrage_stage gets).
-var _boss_chaining: bool = false
-
-func _get_ability_pool() -> Array:
-	if boss_profile and not boss_profile.ability_pool.is_empty():
-		return boss_profile.ability_pool
-	if ROLE_DEFAULT_ABILITY.has(combat_role):
-		return [ROLE_DEFAULT_ABILITY[combat_role]]
-	return []
-
-# Dispatches by ability key (drawn from boss_profile.ability_pool, which
-# mutation can grow to 2 abilities that alternate - the actual "more
-# evolution options" this replaces the old fixed combat_role match with).
-# Telegraphed abilities (shockwave/railgun) set boss_ability_state and let
-# _continue_boss_ability resolve them next; instant ones (blink/fire pool/
-# jam burst/rally) fire immediately and reset the cooldown themselves.
-func _start_boss_ability():
-	if not target or not is_instance_valid(target):
-		return
-	var pool = _get_ability_pool()
-	if pool.is_empty():
-		boss_ability_cooldown = BOSS_ABILITY_COOLDOWN # no ability available - don't retry every frame
-		return
-	var ability = pool[randi() % pool.size()]
-	match ability:
-		"shockwave":
-			boss_ability_state = "shockwave"
-			boss_ability_windup = 0.6
-			var telegraph = load("res://scripts/visuals/BossTelegraphRing.gd").new()
-			if get_parent():
-				get_parent().add_child(telegraph)
-				telegraph.global_position = global_position
-				telegraph.telegraph(220.0, boss_ability_windup, Color(1.0, 0.4, 0.1, 0.8))
-		"railgun":
-			boss_ability_state = "railgun"
-			boss_ability_windup = 1.2
-			_boss_railgun_aim = target.global_position
-			_spawn_railgun_telegraph(_boss_railgun_aim, boss_ability_windup)
-		"blink_strike":
-			_do_blink_strike()
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
-		"fire_pool":
-			_do_fire_pool()
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
-		"jam_burst":
-			_do_jam_burst()
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
-		"rally":
-			_do_rally()
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
-		_:
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN # unrecognized key - don't retry every frame
-
-	# Instant abilities resolved above (boss_ability_state is still "" for
-	# them) can chain right here; telegraphed ones chain later, from
-	# _continue_boss_ability, once they've actually resolved.
-	if boss_ability_state == "" and not _boss_chaining:
-		_maybe_chain_ability()
-
-# From enrage_stage 2 ("desperate", 20% HP) onward, every ability use is
-# immediately followed by a second one - the fight's climax reads as an
-# actual combo instead of the same single move on repeat. Deliberately a
-# flat property of the stage (not a depletable charge) so it stays a
-# consistent threat for the rest of the fight once a boss gets there.
-func _maybe_chain_ability():
-	if enrage_stage >= 2 and target and is_instance_valid(target):
-		_boss_chaining = true
-		_start_boss_ability()
-		_boss_chaining = false
-
-# Ticks down an in-progress windup and resolves it once it hits zero. The
-# boss is rooted (see _execute_ai_tactics) for the entire duration this is
-# non-empty, which is what sells "channeling" rather than "moving normally
-# while also somehow attacking."
-func _continue_boss_ability(delta):
-	boss_ability_windup -= delta
-	if boss_ability_windup > 0.0:
-		return
-	if boss_ability_state == "shockwave":
-		_resolve_shockwave()
-	elif boss_ability_state == "railgun":
-		_resolve_railgun()
-	boss_ability_state = ""
-	boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
-	if not _boss_chaining:
-		_maybe_chain_ability()
-
-# Warhulk: AoE damage + knockback centered on the boss. Damage/HP scale off
-# the boss's OWN max_hp (which already carries wave/difficulty/hp_mult
-# scaling) so this stays relevant at any wave without separate tuning.
-func _resolve_shockwave():
-	var radius = 220.0
-	var p = _get_player_ref()
-	if p:
-		if global_position.distance_to(p.global_position) <= radius and p.has_method("apply_damage"):
-			var dmg = max_hp * 0.06 * _get_ambush_multiplier()
-			p.apply_damage(dmg, "RAW")
-			dealt_damage.emit(dmg) # ability damage doesn't route through Projectile - credit fitness tracking manually
-			if "external_force" in p:
-				var away = p.global_position - global_position
-				away = away.normalized() if away.length() > 0.01 else Vector2.RIGHT
-				p.external_force += away * 700.0
-	var ring = load("res://scripts/visuals/BossTelegraphRing.gd").new()
-	if get_parent():
-		get_parent().add_child(ring)
-		ring.global_position = global_position
-		ring.burst(20.0, radius, 0.25, Color(1.0, 0.6, 0.2, 1.0))
-	var cam = get_tree().get_first_node_in_group("camera")
-	if cam and cam.has_method("shake"):
-		cam.shake(2.5, 0.3)
-
-# Longshot: a locked firing line shown during the windup (so the player can
-# see it and step off the line) - not a ring, so it gets its own tiny
-# Line2D helper rather than reusing BossTelegraphRing.
-func _spawn_railgun_telegraph(aim_point: Vector2, duration: float):
-	var line = Line2D.new()
-	line.width = 4.0
-	line.default_color = Color(1.0, 0.2, 0.2, 0.0)
-	line.z_index = 50
-	# Points are in the line's own local space (matches the convention in
-	# Projectile._spawn_instant_bolt_flash) - global_position below is what
-	# actually places it in the world, not a baked-in world coordinate.
-	var to_aim = aim_point - global_position
-	var far_local = to_aim.normalized() * 2000.0 if to_aim.length() > 0.01 else Vector2.RIGHT * 2000.0
-	line.points = PackedVector2Array([Vector2.ZERO, far_local])
-	line.global_position = global_position
-	if get_parent():
-		get_parent().add_child(line)
-		var tw = line.create_tween()
-		tw.tween_property(line, "modulate:a", 1.0, duration * 0.6)
-		tw.tween_property(line, "modulate:a", 0.3, duration * 0.4)
-		tw.tween_callback(line.queue_free)
-
-func _resolve_railgun():
-	var dir_locked = global_position.direction_to(_boss_railgun_aim)
-	if dir_locked == Vector2.ZERO:
-		dir_locked = Vector2.RIGHT
-	var p = _get_player_ref()
-	if p:
-		var to_player = p.global_position - global_position
-		var along = to_player.dot(dir_locked)
-		if along > 0.0:
-			var perp = (to_player - dir_locked * along).length()
-			if perp < 40.0 and p.has_method("apply_damage"): # beam width tolerance
-				var dmg = max_hp * 0.1 * _get_ambush_multiplier()
-				p.apply_damage(dmg, "PIERCE")
-				dealt_damage.emit(dmg) # ability damage doesn't route through Projectile - credit fitness tracking manually
-	var beam = Line2D.new()
-	beam.width = 10.0
-	beam.default_color = Color(1.0, 0.9, 0.7, 1.0)
-	beam.z_index = 51
-	beam.points = PackedVector2Array([Vector2.ZERO, dir_locked * 2000.0])
-	beam.global_position = global_position
-	if get_parent():
-		get_parent().add_child(beam)
-		var tw = beam.create_tween()
-		tw.tween_property(beam, "modulate:a", 0.0, 0.25)
-		tw.tween_callback(beam.queue_free)
-	var cam = get_tree().get_first_node_in_group("camera")
-	if cam and cam.has_method("shake"):
-		cam.shake(2.0, 0.25)
-
-# Specter: teleports to a random flank of the target and fires immediately
-# while is_cloaked - _shoot() already applies the ambush bonus (via
-# _get_ambush_multiplier()) to any shot fired while cloaked, so this gets a
-# guaranteed heavy hit for free without needing new damage code. The strike
-# also opens the usual 0.25s post-decloak window, so a fast follow-up shot
-# right after still lands the bonus too.
-func _do_blink_strike():
-	var flank_dir = Vector2.RIGHT.rotated(randf() * TAU)
-	var dest = target.global_position + flank_dir * 130.0
-	# Snap to the nearest clear tile, same helper used for squad spawns -
-	# a raw random offset could otherwise occasionally land the teleport
-	# inside a wall/obstacle with no collision-resolution to bail it out.
-	var map = _get_map_ref()
-	if map:
-		dest = map.get_valid_spawn_position(dest)
-	global_position = dest
-	is_cloaked = true
-	_shoot(target.global_position, true, true, 0.0)
-	_show_floating_text("STRIKE", Color(0.7, 0.6, 1.0))
-	var cam = get_tree().get_first_node_in_group("camera")
-	if cam and cam.has_method("shake"):
-		cam.shake(1.5, 0.2)
-
-# Incinerator: drops a JumpjetResidue hazard zone (the same DoT-zone class
-# the player's own Jumpjet uses) at the player's current position. Reused
-# wholesale rather than writing a new hazard class - it already does
-# exactly this (expanding damage-over-time zone with a fade-out). Its
-# default collision_mask targets Enemies (for the player's own residue), so
-# that's overridden to Player here.
-func _do_fire_pool():
-	if not target or not is_instance_valid(target):
-		return
-	# Same construction order as the player's own jumpjet residue (see
-	# above): global_position + setup() BEFORE add_child, so _ready() bakes
-	# the visual/particle colors correctly from the start instead of
-	# building a default-white zone and recoloring it after.
-	var residue = JumpjetResidue.new()
-	residue.global_position = target.global_position
-	residue.lifetime = 4.0
-	residue.source_mech = self # credits fitness tracking for this DoT zone's ticks (see JumpjetResidue._physics_process)
-	residue.setup(max_hp * 0.015, {EnergyPacket.SynergyType.FIRE: 1.0})
-	if get_parent():
-		get_parent().add_child(residue)
-	residue.collision_mask = 8 # Player - JumpjetResidue defaults to Enemies (4) for the player's own residue
-	_show_floating_text("BURN", Color(1.0, 0.5, 0.1))
-
-# Warden: a big one-shot vision-blackout burst layered on top of the
-# JammerMech's own continuous power-drain aura (see JammerMech.gd) - the
-# passive drain is the constant pressure, this is the periodic spike.
-func _do_jam_burst():
-	var burst_radius = 900.0
-	if target and target.has_method("apply_vision_jam") and global_position.distance_to(target.global_position) <= burst_radius:
-		target.apply_vision_jam(1.5)
-	var visual_class = load("res://scripts/attacks/PulseRingVisual.gd")
-	if visual_class:
-		var v = visual_class.new()
-		v.global_position = global_position
-		v.setup(burst_radius, Color(0.2, 0.5, 1.0, 1.0))
-		if get_parent():
-			get_parent().add_child(v)
-	_show_floating_text("JAM BURST", Color(0.3, 0.6, 1.0))
-
-# Overlord: no summoning (per design constraint) - instead a big self-heal,
-# a full shield refresh, and a temporary speed buff (see the
-# _rally_speed_timer tick in update_status_effects).
-func _do_rally():
-	var heal_amt = max_hp * 0.15
-	hp = min(max_hp, hp + heal_amt)
-	if max_shield_hp > 0.0:
-		shield_hp = max_shield_hp
-	_rally_speed_timer = 4.0
-	if heal_amt >= 1.0:
-		_show_floating_text("+%d RALLY" % int(round(heal_amt)), Color(0.3, 1.0, 0.5))
-	var cam = get_tree().get_first_node_in_group("camera")
-	if cam and cam.has_method("shake"):
-		cam.shake(1.0, 0.3)
 
 # Drained-husk terrain from VAMPIRIC kills. Globally capped so a vampiric
 # build can't pave the whole map - oldest husk crumbles when the cap hits.

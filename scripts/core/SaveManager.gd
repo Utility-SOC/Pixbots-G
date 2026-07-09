@@ -13,6 +13,29 @@ var save_to_load: String = ""
 # it replay.
 var tutorial_completed: bool = false
 
+# Tournament arc scaffold (Natalia, decision #12 on the Narrative/Rival
+# design pass): placeholder plumbing only - nothing sets this true yet, since
+# it's meant to unlock on the Level 100 milestone and the milestone/Round
+# system doesn't exist yet either. Same pattern as tutorial_completed above:
+# a simple per-save singleton flag, written into save_game()'s payload and
+# restored in load_game(). MainMenu.gd reads it to show the Tournament mode
+# button locked or unlocked. When the real milestone system lands, it just
+# needs to set this to true and call save_game() - no other plumbing needed.
+var tournament_arc_unlocked: bool = false
+
+# Whether this save has ever beaten (or even reached) the first boss (wave 5,
+# non-mega). Gates the one-time "First boss" dialogue pair in STORY_SCRIPT.md
+# (get_first_boss_intro()/get_first_boss_defeat()) vs. the regular rotating
+# boss_defeats pool for every subsequent boss. Same per-save singleton-flag
+# pattern as tournament_arc_unlocked above.
+var first_boss_encountered: bool = false
+
+# Tracks the highest wave ever achieved on this save file (used to unlock Boss Rush).
+var max_wave_reached: int = 1
+
+# Runtime flag set by the main menu so Main.gd knows what mode to launch.
+var current_game_mode: String = "normal"
+
 # --- Difficulty (lives here because SaveManager is a global autoload) ------
 # 0 Casual, 1 Normal, 2 Hard, 3 "Why would you do this to yourself?"
 # The top tier keeps enemies NEAR-PEERS with the player's actual build
@@ -75,7 +98,10 @@ func save_game(save_name: String, mech: Node, inventory: Array):
 		"inventory": [],
 		"component_inventory": [],
 		"scrap": 0,
-		"tutorial_completed": tutorial_completed
+		"tutorial_completed": tutorial_completed,
+		"tournament_arc_unlocked": tournament_arc_unlocked,
+		"first_boss_encountered": first_boss_encountered,
+		"max_wave_reached": max_wave_reached
 	}
 
 	# NOTE: was mech.get_parent() - that broke when the player mech moved
@@ -123,7 +149,8 @@ func load_game(save_name: String) -> Dictionary:
 		"components": {},
 		"inventory": [],
 		"component_inventory": [],
-		"scrap": 0
+		"scrap": 0,
+		"max_wave_reached": 1
 	}
 
 	# Restore the per-save tutorial-seen bit onto the singleton directly -
@@ -131,6 +158,29 @@ func load_game(save_name: String) -> Dictionary:
 	# leave whatever's already there (governed by the legacy flag file).
 	if json.has("tutorial_completed"):
 		tutorial_completed = bool(json["tutorial_completed"])
+
+	# See tournament_arc_unlocked's own comment above - older saves without
+	# the key just stay locked, same has()-guarded pattern as everything else
+	# in this loader.
+	if json.has("tournament_arc_unlocked"):
+		tournament_arc_unlocked = bool(json["tournament_arc_unlocked"])
+	else:
+		tournament_arc_unlocked = false
+
+	# See first_boss_encountered's own comment above - older saves without the
+	# key are treated as "not yet encountered" so they still get the one-time
+	# dialogue on their next boss wave, rather than silently skipping it.
+	if json.has("first_boss_encountered"):
+		first_boss_encountered = bool(json["first_boss_encountered"])
+	else:
+		first_boss_encountered = false
+
+	if json.has("max_wave_reached"):
+		max_wave_reached = int(json["max_wave_reached"])
+		result["max_wave_reached"] = max_wave_reached
+	else:
+		max_wave_reached = 1
+		result["max_wave_reached"] = 1
 
 	if json.has("scrap"):
 		result["scrap"] = json["scrap"]

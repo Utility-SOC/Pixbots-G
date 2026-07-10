@@ -1600,6 +1600,17 @@ var _search_legs_done_at_this_len: int = 0
 var _search_heading_idx: int = 0
 var _search_leg_start: Vector2 = Vector2.ZERO
 var _search_leg_target: Vector2 = Vector2.ZERO
+# Stuck detection while searching (see SightAndSearch._execute_search) -
+# search movement is straight-line velocity + move_and_slide, so a leg
+# whose line clips an obstacle pocket leaves the mech grinding a wall until
+# the leg times out. Checked on a short interval; no progress = skip the leg.
+var _search_stuck_timer: float = 0.0
+var _search_progress_pos: Vector2 = Vector2.INF # INF = no baseline sample yet
+# The last_known_player_pos the current pattern was datumed on - redatum
+# triggers on intel DRIFT from this, so frontier hops (which move the datum
+# away from stale intel on purpose) don't get snapped back. INF sorts as
+# "never datumed" so the first search tick always initializes the pattern.
+var _search_intel_pos: Vector2 = Vector2.INF
 
 func _update_player_sight(delta: float):
 	if not sight_and_search:

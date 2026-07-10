@@ -21,6 +21,14 @@ extends RefCounted
 
 var mech: Mech
 
+# Stuck detection cadence for _execute_search: how often progress is
+# sampled, and how far the mech must have actually moved between samples
+# for the current leg to be considered making progress. At 0.85x of ~200+
+# move speed a healthy leg covers 150px+ per interval - 30px means it's
+# grinding an obstacle.
+const SEARCH_STUCK_INTERVAL = 0.9
+const SEARCH_STUCK_MIN_PROGRESS = 30.0
+
 func _init(p_mech: Mech):
 	mech = p_mech
 
@@ -116,11 +124,28 @@ func _execute_search(delta: float):
 		_execute_scout_search(delta)
 		return
 
-	if not mech._search_pattern_initialized or mech._search_datum.distance_to(mech.last_known_player_pos) > mech.SEARCH_REDATUM_DIST:
+	# Redatum on fresh INTEL (a sighting moved last_known meaningfully), not
+	# on datum drift - the frontier escalation in _advance_search_leg moves
+	# the datum away from last_known on purpose, and comparing datum vs
+	# last_known here would snap the pattern straight back to the stale spot.
+	if not mech._search_pattern_initialized or mech._search_intel_pos.distance_to(mech.last_known_player_pos) > mech.SEARCH_REDATUM_DIST:
+		mech._search_intel_pos = mech.last_known_player_pos
 		_start_search_pattern(mech.last_known_player_pos)
 
 	if mech.global_position.distance_to(mech._search_leg_target) < 24.0:
 		_advance_search_leg()
+
+	# Stuck detection: straight-line legs + move_and_slide means an obstacle
+	# pocket (dense Forest/Volcano terrain) can leave a searcher grinding a
+	# wall face indefinitely - the leg target sits behind the rock and the
+	# proximity check above never trips. If we haven't made real progress in
+	# the last interval, abandon the leg instead of pushing the wall.
+	mech._search_stuck_timer -= delta
+	if mech._search_stuck_timer <= 0.0:
+		if mech._search_progress_pos != Vector2.INF and mech.global_position.distance_to(mech._search_progress_pos) < SEARCH_STUCK_MIN_PROGRESS:
+			_advance_search_leg()
+		mech._search_stuck_timer = SEARCH_STUCK_INTERVAL
+		mech._search_progress_pos = mech.global_position
 
 	# Skip legs the squad has already cleared recently rather than
 	# dutifully re-walking ground a squadmate just covered - bounded
@@ -174,9 +199,15 @@ func _next_leg_target() -> Vector2:
 
 # Advances to the next leg of the expanding square: turn 90 degrees, and
 # every 2 legs the leg length grows by one unit (the classic 1,1,2,2,3,3...
-# ES pattern). Past SEARCH_MAX_LEG_UNITS the pattern has grown too large
-# without success - recenter on the same datum and start over small rather
-# than spiraling toward the edge of the map forever.
+# ES pattern). Past SEARCH_MAX_LEG_UNITS the whole pattern completed with
+# no sighting - the player is NOT here. The old behavior recentered on the
+# same datum and paced the exact same (already-searched) square forever,
+# which is the "search AI feels slow/dumb" play report in a nutshell: a
+# squad that lost you at wave start would haunt one patch of map all round.
+# Now the mech escalates: it picks a frontier point (favoring ground its
+# squad hasn't covered recently) as the NEW datum and marches the pattern
+# over there - searchers migrate across the map hunting you down instead of
+# re-sweeping known-empty ground.
 func _advance_search_leg():
 	mech._search_leg_start = mech._search_leg_target
 	mech._search_heading_idx = (mech._search_heading_idx + 1) % 4
@@ -185,7 +216,7 @@ func _advance_search_leg():
 		mech._search_legs_done_at_this_len = 0
 		mech._search_leg_len_units += 1
 	if mech._search_leg_len_units > mech.SEARCH_MAX_LEG_UNITS:
-		_start_search_pattern(mech._search_datum)
+		_start_search_pattern(_pick_frontier_point(ESCALATE_HOP_MIN, ESCALATE_HOP_MAX))
 		return
 	mech._search_leg_target = _next_leg_target()
 
@@ -204,17 +235,26 @@ func _execute_scout_search(delta: float):
 	var search_dir = mech.global_position.direction_to(mech._search_waypoint)
 	mech.velocity = search_dir * mech.current_move_speed * mech.speed_modifier # scouts commit fully - no caution discount
 
+# How far a non-scout hops when its expanding square exhausts (see
+# _advance_search_leg) - most of a completed square's ~880px footprint, so
+# consecutive patterns tile fresh ground with a little overlap.
+const ESCALATE_HOP_MIN = 500.0
+const ESCALATE_HOP_MAX = 900.0
+
 # Cheap frontier-exploration heuristic: sample a ring of candidate points
-# around the scout, favor ones further out, and heavily discount any the
+# around the mech, favor ones further out, and heavily discount any the
 # squad has already covered recently - a bounded-cost stand-in for a full
 # unexplored-region search that still reliably pushes toward genuinely new
-# ground instead of re-treading it.
-func _pick_frontier_point() -> Vector2:
+# ground instead of re-treading it. Scouts use the default (their wander
+# radius); exhausted square-searchers pass an explicit hop range.
+func _pick_frontier_point(min_dist: float = 250.0, max_dist: float = -1.0) -> Vector2:
+	if max_dist < 0.0:
+		max_dist = _effective_search_radius()
 	var best = Vector2.ZERO
 	var best_score = -1.0
 	for i in range(8):
 		var ang = (TAU / 8.0) * i + randf_range(-0.3, 0.3)
-		var dist = randf_range(250.0, _effective_search_radius())
+		var dist = randf_range(min_dist, max_dist)
 		var candidate = mech.global_position + Vector2(cos(ang), sin(ang)) * dist
 		var score = dist
 		if mech.squad and is_instance_valid(mech.squad) and mech.squad.is_recently_explored(candidate):

@@ -2,6 +2,10 @@ use godot::prelude::*;
 use godot::classes::{IRefCounted, RefCounted};
 use std::time::Instant;
 
+// gdext 0.5's Dictionary is generic over key/value type now - VDict is the
+// untyped (Variant/Variant) form matching the old Dictionary-of-anything API.
+type VDict = Dictionary<Variant, Variant>;
+
 // Validates the whole GDExtension pipeline end-to-end (compiles on Windows,
 // loads via .gdextension, callable from GDScript) using the exact same
 // neighbor+distance workload already benchmarked standalone in
@@ -57,7 +61,7 @@ impl HexMathBench {
     // standalone rustc binary) - the real, final number for the
     // GDExtension-call-overhead-included comparison.
     #[func]
-    fn run_benchmark(&self, iterations: i64) -> Dictionary {
+    fn run_benchmark(&self, iterations: i64) -> VDict {
         let start = Instant::now();
         let mut acc: i64 = 0;
         let mut c = HexCoord { q: 0, r: 0 };
@@ -69,7 +73,7 @@ impl HexMathBench {
         let elapsed = start.elapsed();
         let ns_per_op = elapsed.as_secs_f64() * 1_000_000_000.0 / (iterations as f64);
 
-        let mut result = Dictionary::new();
+        let mut result = VDict::new();
         result.set("elapsed_sec", elapsed.as_secs_f64());
         result.set("ns_per_op", ns_per_op);
         result.set("checksum", acc);

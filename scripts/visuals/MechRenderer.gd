@@ -125,17 +125,17 @@ func _rebuild_visuals():
 		rng.seed = hash(comp.component_name) + comp.rarity + v_seed
 
 		if comp.slot_type == HexTile.BodySlot.TORSO:
-			_draw_torso(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent, is_boss)
+			_draw_torso(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent, is_boss, comp)
 		elif comp.slot_type == HexTile.BodySlot.ARM_L:
-			_draw_arm(null, profile.color, true, rng, rarity_mult, comp.rarity, profile.accent)
+			_draw_arm(null, profile.color, true, rng, rarity_mult, comp.rarity, profile.accent, comp)
 		elif comp.slot_type == HexTile.BodySlot.ARM_R:
-			_draw_arm(null, profile.color, false, rng, rarity_mult, comp.rarity, profile.accent)
+			_draw_arm(null, profile.color, false, rng, rarity_mult, comp.rarity, profile.accent, comp)
 		elif comp.slot_type == HexTile.BodySlot.LEG_L:
-			_draw_leg(null, profile.color, true, rng, rarity_mult, comp.rarity)
+			_draw_leg(null, profile.color, true, rng, rarity_mult, comp.rarity, comp)
 		elif comp.slot_type == HexTile.BodySlot.LEG_R:
-			_draw_leg(null, profile.color, false, rng, rarity_mult, comp.rarity)
+			_draw_leg(null, profile.color, false, rng, rarity_mult, comp.rarity, comp)
 		elif comp.slot_type == HexTile.BodySlot.HEAD:
-			_draw_head(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent, is_boss)
+			_draw_head(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent, is_boss, comp)
 
 	# Draw standard parts for any slots that weren't overridden by tiles
 	var rng_def = RandomNumberGenerator.new()
@@ -189,7 +189,7 @@ func _finalize_particles():
 # SHAPE DEFINITIONS
 # -----------------------------------------------------------------------------
 
-func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = "", is_boss: bool = false):
+func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = "", is_boss: bool = false, glow_comp = null):
 	var pts = _get_component_polygon(tile, scale_mult)
 	if pts.is_empty():
 		var w = 18.0 * scale_mult
@@ -294,9 +294,10 @@ func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = "", is_b
 				Vector2(-cape_w * 0.35, -4 * scale_mult), Vector2(cape_w * 0.35, -4 * scale_mult),
 				Vector2(0, cape_h * 0.5)
 			]), Color(0.85, 0.65, 0.15))
+	_draw_conduit_glows(glow_comp, part, rng, scale_mult)
 	part.renderer.finish()
 
-func _draw_arm(tile, color, is_left, rng, scale_mult, rarity, accent: String = ""):
+func _draw_arm(tile, color, is_left, rng, scale_mult, rarity, accent: String = "", glow_comp = null):
 	var sign = -1.0 if is_left else 1.0
 	var offset = Vector2(24.0 * sign, -5.0)
 
@@ -340,12 +341,13 @@ func _draw_arm(tile, color, is_left, rng, scale_mult, rarity, accent: String = "
 			Vector2(-1.5, 24 * (1.0 + rarity * 0.05)), Vector2(1.5, 24 * (1.0 + rarity * 0.05)),
 			Vector2(1.5, 30 * (1.0 + rarity * 0.05)), Vector2(-1.5, 30 * (1.0 + rarity * 0.05))
 		]), Color(1.0, 0.2, 0.2))
+	_draw_conduit_glows(glow_comp, part, rng, scale_mult)
 	part.renderer.finish()
 
 	# Rotate weapons slightly outward
 	part.container.rotation = deg_to_rad(15.0 * sign)
 
-func _draw_leg(tile, color, is_left, rng, scale_mult, rarity):
+func _draw_leg(tile, color, is_left, rng, scale_mult, rarity, glow_comp = null):
 	var sign = -1.0 if is_left else 1.0
 	var offset = Vector2(14.0 * sign, 20.0)
 
@@ -368,9 +370,10 @@ func _draw_leg(tile, color, is_left, rng, scale_mult, rarity):
 	var slot = HexTile.BodySlot.LEG_L if is_left else HexTile.BodySlot.LEG_R
 	var body_slot = tile.body_slot if tile else slot
 	var part = _render_mechanical_part(pts, color, offset, "Leg_" + str(is_left), body_slot, rarity)
+	_draw_conduit_glows(glow_comp, part, rng, scale_mult)
 	part.renderer.finish()
 
-func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_boss: bool = false):
+func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_boss: bool = false, glow_comp = null):
 	var offset = Vector2(0, -26.0)
 	var pts = _get_component_polygon(tile, scale_mult)
 	var w = 12.0 * scale_mult
@@ -489,7 +492,47 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 				Vector2(-fin_w * 0.5, -h * 0.6), Vector2(fin_w * 0.5, -h * 0.6), Vector2(0, -h * 0.6 - fin_h)
 			])
 			part.renderer.add_fill(fin, color.lightened(0.2))
+	_draw_conduit_glows(glow_comp, part, rng, scale_mult)
 	part.renderer.finish()
+
+# "Sloppy is fine" per Natalia - a small SUBSET of a component's Directional
+# Conduit tiles glow the color of whatever synergy actually dominated the
+# packets that last routed through THAT SPECIFIC conduit (see
+# DirectionalConduitTile.last_dominant_synergy's comment) - a build that
+# splits FIRE down one conduit and ICE down another shows two differently-
+# glowing dots. This is a small discoverable detail meant to reward a close
+# look, not a legible routing diagram - positions are NOT mapped to real hex
+# coordinates (the rendered silhouette is a hand-authored blob shape with no
+# 1:1 mapping back to grid cells - see _get_component_polygon), just a small
+# seeded offset within the part's rough footprint. Uses the same seeded rng
+# as the rest of the part so a given mech's glow dots stay stable across
+# rebuilds instead of re-rolling every re-equip.
+func _draw_conduit_glows(comp, part, rng, scale_mult):
+	if not comp or not ("hex_grid" in comp) or not comp.hex_grid:
+		return
+	var conduits = []
+	for t in comp.hex_grid.get_all_tiles():
+		if t.tile_type == "Directional Conduit" and t.last_dominant_synergy >= 0:
+			conduits.append(t)
+	if conduits.is_empty():
+		return
+
+	var max_glows = min(2, conduits.size())
+	var picked: Dictionary = {}
+	var attempts = 0
+	while picked.size() < max_glows and attempts < 12:
+		attempts += 1
+		picked[rng.randi() % conduits.size()] = true
+
+	for idx in picked.keys():
+		var conduit = conduits[idx]
+		var glow_color = EnergyPacket.get_color_for_synergy(conduit.last_dominant_synergy) * 1.4
+		var offset = Vector2(rng.randf_range(-10.0, 10.0), rng.randf_range(-12.0, 12.0)) * scale_mult
+		var glow_pts = PackedVector2Array()
+		for i in range(6):
+			var a = i * (TAU / 6.0)
+			glow_pts.append(offset + Vector2(cos(a), sin(a)) * 3.0 * scale_mult)
+		part.renderer.add_fill(glow_pts, glow_color)
 
 func _get_component_polygon(comp: Node, scale_mult: float) -> PackedVector2Array:
 	if not comp or not "valid_hexes" in comp or comp.valid_hexes.is_empty():

@@ -35,8 +35,12 @@ func _ready():
 		renderer.free()
 
 	var elapsed = (Time.get_ticks_usec() - t0) / 1000000.0
-	print("GDScript: %d part rasterizations in %.4fs (%.2f us/part)" % [
-		iterations, elapsed, elapsed * 1000000.0 / iterations
+	# finish() silently routes to the Rust PartRasterizer when the extension
+	# is loaded - report which backend actually ran, or the number is
+	# meaningless as a comparison.
+	var backend = "Rust (via finish() auto-detect)" if ClassDB.class_exists("PartRasterizer") else "GDScript"
+	print("%s: %d part rasterizations in %.4fs (%.2f us/part)" % [
+		backend, iterations, elapsed, elapsed * 1000000.0 / iterations
 	])
 
 	get_tree().quit()

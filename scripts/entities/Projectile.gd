@@ -4,6 +4,24 @@ extends Area2D
 
 const Trail2D = preload("res://scripts/visuals/Trail2D.gd")
 const FireTrail2D = preload("res://scripts/visuals/FireTrail2D.gd")
+const PulseRingVisual = preload("res://scripts/attacks/PulseRingVisual.gd")
+
+# --- POISON MINE (Natalia: "poison's projectile behavior needs to change so
+# that when combined with other things it makes them into a mine/stationary
+# projectile") ------------------------------------------------------------
+# A packet with enough POISON in it stops behaving like a normal shot: it
+# either sits exactly where it was fired (no KINETIC) or crawls slowly in
+# its fired direction (KINETIC present, speed scales with how much), skips
+# all the other elements' flight distortions (gravity lob, vortex swirl,
+# etc. would look wrong on a stationary blob), and detonates into an AoE
+# themed by whichever OTHER synergy is strongest - on expiry (lifetime runs
+# out) OR on contact with an enemy, whichever comes first. KINETIC and RAW
+# are excluded from theme selection since they're the "is this a missile or
+# a mine" mobility stat and the colorless default, not a detonation flavor.
+const MINE_POISON_THRESHOLD = 0.15
+const MINE_CRAWL_SPEED = 260.0
+var _is_poison_mine: bool = false
+var _mine_detonated: bool = false
 
 var base_speed: float = 500.0
 var final_speed: float = 500.0
@@ -52,6 +70,11 @@ var visual_node: Node2D
 var helix_particles: Array = []
 var fired_by_player: bool = true
 var source_mech: Node2D = null
+# Set true when a Mythic Magnet in Repel mode bounces this shot back at its
+# original owner (see Mech.gd's magnet-repel flip block) - carried through to
+# apply_damage() so Squad._calculate_fitness can score reflection deaths
+# separately from ordinary combat losses (see Mech.gd's took_damage signal).
+var was_reflected: bool = false
 # Every target _handle_hit() has actually processed (direct hit OR the
 # tunneling-sweep below) - see _handle_hit()'s own guard. Never cleared, so
 # this also means a projectile can't double-dip the same target twice (e.g.
@@ -80,6 +103,21 @@ var visual_scale: float = 1.0
 var _lightning_segment_index: int = -1
 var _lightning_prev_offset: float = 0.0
 var _lightning_target_offset: float = 0.0
+
+# Rust GDExtension flight-math (rust_ext/src/projectile_flight.rs) - checked
+# ONCE ever via a static (shared across every live projectile, not
+# per-instance) rather than each of the potentially 100+ live projectiles
+# doing its own ClassDB lookup. Same checked-then-cached pattern as
+# MechPartRenderer.gd's PartRasterizer; falls back to the original GDScript
+# math in _physics_process if the extension isn't compiled/loaded.
+static var _flight_checked: bool = false
+static var _flight_rasterizer = null
+
+static func _ensure_flight_rust():
+	if not _flight_checked:
+		_flight_checked = true
+		if ClassDB.class_exists("ProjectileFlight"):
+			_flight_rasterizer = ClassDB.instantiate("ProjectileFlight")
 
 # --- Perf: throttled physics queries -----------------------------------
 # With combat spam (radial/shotgun Mythic patterns, several squads all
@@ -126,7 +164,14 @@ func _ready():
 	else:
 		for k in synergies:
 			ratios[k] = synergies[k] / total_power
-			
+
+	_is_poison_mine = ratios.get(EnergyPacket.SynergyType.POISON, 0.0) > MINE_POISON_THRESHOLD
+	# Mines use their own separate movement model (_physics_process_mine) -
+	# never registered with the batched flight-math manager, which only
+	# ever drives the normal ORGANIC VELOCITY ACCUMULATION path.
+	if not _is_poison_mine:
+		ProjectileManager.register(self)
+
 	_calculate_stats()
 	_build_visuals()
 	
@@ -214,9 +259,13 @@ func _ready():
 	# near-instantly, and what the player SEES is a world-anchored bolt
 	# flash along the flight path plus the arc flashes on whatever gets
 	# struck. Stylized-jagged, not photoreal, to keep the pixel identity.
-	if ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) > 0.5:
+	if not _is_poison_mine and ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) > 0.5:
 		final_speed = max(final_speed, 4200.0)
 		call_deferred("_spawn_instant_bolt_flash")
+
+func _exit_tree():
+	if not _is_poison_mine:
+		ProjectileManager.unregister(self)
 
 func _spawn_instant_bolt_flash():
 	if not get_parent() or direction == Vector2.ZERO:
@@ -246,7 +295,9 @@ func _spawn_instant_bolt_flash():
 # enough). Same outcome either way: detonate if this shot carries EXPLOSION,
 # then clean up.
 func _expire():
-	if ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) > 0.1:
+	if _is_poison_mine:
+		_trigger_poison_mine_detonation()
+	elif ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) > 0.1:
 		_trigger_explosion()
 	if not is_queued_for_deletion():
 		queue_free()
@@ -589,18 +640,44 @@ func _process(delta):
 			glow.scale = Vector2.ONE * (1.0 + sin(time_alive * 8.0) * 0.15)
 			glow.color.a = 0.2 + sin(time_alive * 5.0) * 0.1
 
-func _physics_process(delta: float):
-	time_alive += delta
+# Cache of this frame's setup values (ratio unpacking, homing target,
+# steering_resistance/straighten) - populated once by _prepare_flight_
+# request(), read back by _physics_process() regardless of which path
+# (batched Rust via ProjectileManager, single-call Rust, or full GDScript
+# fallback) ends up actually computing this frame's movement, so the
+# throttled homing-target physics query never runs twice in one frame.
+var _flight_r_kin: float = 0.0
+var _flight_r_vamp: float = 0.0
+var _flight_r_ice: float = 0.0
+var _flight_r_fire: float = 0.0
+var _flight_r_prc: float = 0.0
+var _flight_r_psn: float = 0.0
+var _flight_r_vtx: float = 0.0
+var _flight_r_ltg: float = 0.0
+var _flight_straighten: float = 0.0
+var _flight_steering_resistance: float = 1.0
+var _flight_active_homing_target: Node2D = null
+
+# Called by ProjectileManager BEFORE its batched Rust call this frame (see
+# that file's module comment for the process_priority ordering this relies
+# on), and by this projectile itself as a one-off fallback if the manager
+# didn't cover it (its very first tick, before it had a chance to
+# register, or the extension isn't loaded at all). Runs the throttled
+# homing-target physics query and packages everything the flight math
+# needs into a request Dictionary shaped for ProjectileFlight.compute_step/
+# compute_batch. Never called for poison mines (see _ready - they use
+# _physics_process_mine's entirely separate movement model instead).
+func _prepare_flight_request(delta: float) -> Dictionary:
 	var space_state = get_world_2d().direct_space_state
-	
-	var r_kin = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
-	var r_vamp = ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
-	var r_ice = ratios.get(EnergyPacket.SynergyType.ICE, 0.0)
-	var r_fire = ratios.get(EnergyPacket.SynergyType.FIRE, 0.0)
-	var r_prc = ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)
-	var r_psn = ratios.get(EnergyPacket.SynergyType.POISON, 0.0)
-	var r_vtx = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
-	var r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
+
+	_flight_r_kin = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
+	_flight_r_vamp = ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
+	_flight_r_ice = ratios.get(EnergyPacket.SynergyType.ICE, 0.0)
+	_flight_r_fire = ratios.get(EnergyPacket.SynergyType.FIRE, 0.0)
+	_flight_r_prc = ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)
+	_flight_r_psn = ratios.get(EnergyPacket.SynergyType.POISON, 0.0)
+	_flight_r_vtx = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
+	_flight_r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 
 	# KINETIC "The Straightener" (Natalia: "kinetic should also straighten
 	# paths") - dampens how hard OTHER elements bend this shot's actual
@@ -610,110 +687,168 @@ func _physics_process(delta: float):
 	# swirl) - Lightning's zigzag is purely a cosmetic visual_node offset,
 	# the underlying path is already straight, so there's nothing there for
 	# Kinetic to straighten.
-	var straighten = clamp(1.0 - r_kin, 0.0, 1.0)
+	_flight_straighten = clamp(1.0 - _flight_r_kin, 0.0, 1.0)
 
 	# 1. MASS / INERTIA (ICE & RAW)
 	# Heavy objects resist steering. Pierce ignores friction but doesn't affect mass steering resistance.
-	var steering_resistance = 1.0 + (3.0 * r_ice) # Ice makes it very hard to turn
-	
+	_flight_steering_resistance = 1.0 + (3.0 * _flight_r_ice) # Ice makes it very hard to turn
+
 	# 2. VAMPIRIC TERMINAL HOMING ("The Hunter")
 	# Re-acquiring the best target only needs to happen a few times a second,
 	# not every single physics tick - the shape query here was the single
 	# biggest per-projectile cost once combat got busy. The cached target's
 	# CURRENT position is still read fresh every tick below (so steering
 	# stays smooth), only the "who's the best target" search is throttled.
-	var active_homing_target = null
-	if is_homing or r_vamp > 0.0:
+	_flight_active_homing_target = null
+	if is_homing or _flight_r_vamp > 0.0:
 		_homing_query_timer -= delta
 		if _homing_query_timer <= 0.0 or not is_instance_valid(_cached_homing_target):
 			_homing_query_timer = HOMING_QUERY_INTERVAL
-			_cached_homing_target = _find_homing_target(space_state, r_kin, r_vamp, r_ltg)
+			_cached_homing_target = _find_homing_target(space_state, _flight_r_kin, _flight_r_vamp, _flight_r_ltg)
 		if is_instance_valid(_cached_homing_target):
-			active_homing_target = _cached_homing_target
+			_flight_active_homing_target = _cached_homing_target
 			target_direction = (_cached_homing_target.global_position - global_position).normalized()
-	
-	# 3. KINETIC STEERING ("The Straightener") & VAMPIRIC OVERRIDE
-	var current_speed = final_speed
-	
-	if active_homing_target != null:
-		var turn_speed = (8.0 * r_vamp) / steering_resistance
-		if r_kin > 0.0:
-			# (placeholder - Kinetic no longer has a homing-turn effect here; its
-			# identity is range now, see BASE_RANGE. See the passive-drift branch
-			# below for Kinetic's actual turn-speed contribution.)
-			pass
-		direction = direction.lerp(target_direction, turn_speed * delta).normalized()
-		
-		# If Kinetic + Vampiric, grant pierce based on kinetic ratio
-		if r_kin > 0.0 and r_vamp > 0.0:
-			r_prc = max(r_prc, 0.5) # Force granting pierce
-	elif target_direction != Vector2.ZERO:
-		var turn_speed = 0.5 # Passive drift
-		if r_kin > 0.0:
-			turn_speed += (6.0 * r_kin)
-		turn_speed /= steering_resistance
-		direction = direction.lerp(target_direction, turn_speed * delta).normalized()
-	
-	# 4. FIRE DECELERATION ("The Plume") vs PIERCE / KINETIC
-	# Pierce grants infinite mass/0 drag. Kinetic actively pushes through drag.
-	if r_fire > 0.0:
-		var drag_coefficient = 800.0 * r_fire
-		drag_coefficient *= (1.0 - r_prc) # Pierce cancels drag organically
-		drag_coefficient = max(0.0, drag_coefficient - (500.0 * r_kin)) # Kinetic fights it
-		
-		current_speed = max(50.0, final_speed - drag_coefficient * time_alive)
-	
-	# 5. POISON GRAVITY LOB ("The Mortar") - dampened by Kinetic's straightening
-	var gravity_velocity = Vector2.ZERO
-	if r_psn > 0.0:
-		gravity_velocity = Vector2(0, 400.0 * r_psn * time_alive * straighten) # Accelerates downwards over time
-	
-	# ORGANIC VELOCITY ACCUMULATION
-	var ortho = Vector2(-direction.y, direction.x)
-	var velocity = (direction * current_speed) + gravity_velocity
-	var visual_offset = Vector2.ZERO
-	
-	# 6. VORTEX SWIRL ("The Swirler")
-	# Applies a strong tangential force that oscillates, moving the projectile itself.
-	if r_vtx > 0.0:
-		var swirl_amplitude = 250.0 * r_vtx * straighten # Kinetic punches through the swirl
-		var swirl_freq = 6.0
-		var swirl_vel = ortho * cos(time_alive * swirl_freq) * swirl_amplitude
-		velocity += swirl_vel
-		
-		if r_vtx > 0.1:
-			# Throttled to VORTEX_QUERY_INTERVAL instead of every tick (see the
-			# perf comment near the other throttled fields) - accumulates
-			# elapsed time between pulls and passes THAT to _pull_nearby_items
-			# so the total impulse over time still matches, just applied in
-			# slightly chunkier steps instead of smoothly every 1/60s
-			# (imperceptible for a pull effect).
-			_vortex_query_timer += delta
-			if _vortex_query_timer >= VORTEX_QUERY_INTERVAL:
-				var elapsed = _vortex_query_timer
-				_vortex_query_timer = 0.0
-				_pull_nearby_items(elapsed)
-	
-	# 7. LIGHTNING ZIG-ZAG ("The Arc")
-	# Was a smooth sin(t*40)*cos(t*25) beat pattern, which reads as a slow
-	# side-to-side wobble rather than a bolt. Real lightning is jagged and
-	# irregular, so instead we hold a random lateral offset for a short
-	# segment, then snap-lerp to the next one - sharp direction changes,
-	# no smooth oscillation.
-	if r_ltg > 0.0:
-		var segment_length = 0.045
-		var segment_index = int(time_alive / segment_length)
-		if segment_index != _lightning_segment_index:
-			_lightning_segment_index = segment_index
-			_lightning_prev_offset = _lightning_target_offset
-			var seed = int(hash(get_instance_id())) ^ segment_index
-			_lightning_target_offset = (float(abs(seed) % 2000) / 1000.0) - 1.0 # deterministic pseudo-random in [-1, 1]
-		var seg_t = clamp(fmod(time_alive, segment_length) / segment_length, 0.0, 1.0)
-		# Ease sharply so it snaps rather than glides between segments
-		seg_t = seg_t * seg_t
-		var lightning_wave = lerp(_lightning_prev_offset, _lightning_target_offset, seg_t)
-		visual_offset += ortho * lightning_wave * (26.0 * r_ltg)
-	
+
+	return {
+		"instance_id": get_instance_id(),
+		"ratios": {"r_kin": _flight_r_kin, "r_vamp": _flight_r_vamp, "r_fire": _flight_r_fire, "r_psn": _flight_r_psn, "r_vtx": _flight_r_vtx, "r_ltg": _flight_r_ltg, "r_prc": _flight_r_prc},
+		"direction": direction, "target_direction": target_direction, "has_homing_target": _flight_active_homing_target != null,
+		"final_speed": final_speed, "time_alive": time_alive, "delta": delta,
+		"steering_resistance": _flight_steering_resistance, "straighten": _flight_straighten,
+		"lightning_state": {"segment_index": _lightning_segment_index, "prev_offset": _lightning_prev_offset, "target_offset": _lightning_target_offset},
+	}
+
+func _physics_process(delta: float):
+	time_alive += delta
+
+	if _is_poison_mine:
+		_physics_process_mine(delta)
+		return
+
+	# 3-7. KINETIC STEERING, FIRE DRAG, POISON GRAVITY LOB, VORTEX SWIRL,
+	# LIGHTNING ZIG-ZAG - the "ORGANIC VELOCITY ACCUMULATION" block. Ported
+	# to Rust (ProjectileFlight.compute_step/compute_batch,
+	# rust_ext/src/projectile_flight.rs) with a full GDScript fallback below
+	# if the extension isn't loaded - this is pure per-projectile vector
+	# math, no scene-tree/physics-server coupling, so it's the actual
+	# per-projectile-per-frame cost that scales with how many shots are
+	# live at once (unlike the homing/vortex-pull physics QUERIES, which
+	# cost the same either way and stay in GDScript regardless of path).
+	#
+	# The common case: ProjectileManager already computed this frame's
+	# result for every registered projectile in ONE batched Rust call
+	# (before this function ever runs - see that file's module comment on
+	# process_priority ordering) and this just reads it back. Falls
+	# through to preparing + computing inline, once, if the batch didn't
+	# cover this projectile this frame (its very first tick, most likely).
+	var current_speed: float
+	var gravity_velocity: Vector2
+	var velocity: Vector2
+	var visual_offset: Vector2
+	var ortho: Vector2
+
+	var res = ProjectileManager.get_result(get_instance_id())
+	if res == null:
+		var req = _prepare_flight_request(delta)
+		_ensure_flight_rust()
+		if _flight_rasterizer:
+			res = _flight_rasterizer.compute_step(
+				req["ratios"], req["direction"], req["target_direction"], req["has_homing_target"],
+				req["final_speed"], req["time_alive"], req["delta"],
+				req["steering_resistance"], req["straighten"], req["lightning_state"], req["instance_id"]
+			)
+
+	if res != null:
+		direction = res["direction"]
+		velocity = res["velocity"]
+		visual_offset = res["visual_offset"]
+		current_speed = res["current_speed"]
+		gravity_velocity = res["gravity_velocity"]
+		_lightning_segment_index = res["lightning_segment_index"]
+		_lightning_prev_offset = res["lightning_prev_offset"]
+		_lightning_target_offset = res["lightning_target_offset"]
+		ortho = Vector2(-direction.y, direction.x)
+	else:
+		# --- Full GDScript fallback (no Rust extension at all) - _prepare_
+		# flight_request already ran above regardless of this branch, so
+		# _flight_* and target_direction are already correctly set; only
+		# the actual math differs from the Rust path. ---
+		current_speed = final_speed
+
+		if _flight_active_homing_target != null:
+			var turn_speed = (8.0 * _flight_r_vamp) / _flight_steering_resistance
+			direction = direction.lerp(target_direction, turn_speed * delta).normalized()
+			# If Kinetic + Vampiric, grant pierce based on kinetic ratio
+			if _flight_r_kin > 0.0 and _flight_r_vamp > 0.0:
+				_flight_r_prc = max(_flight_r_prc, 0.5) # Force granting pierce
+		elif target_direction != Vector2.ZERO:
+			var turn_speed = 0.5 # Passive drift
+			if _flight_r_kin > 0.0:
+				turn_speed += (6.0 * _flight_r_kin)
+			turn_speed /= _flight_steering_resistance
+			direction = direction.lerp(target_direction, turn_speed * delta).normalized()
+
+		# 4. FIRE DECELERATION ("The Plume") vs PIERCE / KINETIC
+		# Pierce grants infinite mass/0 drag. Kinetic actively pushes through drag.
+		if _flight_r_fire > 0.0:
+			var drag_coefficient = 800.0 * _flight_r_fire
+			drag_coefficient *= (1.0 - _flight_r_prc) # Pierce cancels drag organically
+			drag_coefficient = max(0.0, drag_coefficient - (500.0 * _flight_r_kin)) # Kinetic fights it
+			current_speed = max(50.0, final_speed - drag_coefficient * time_alive)
+
+		# 5. POISON GRAVITY LOB ("The Mortar") - dampened by Kinetic's straightening
+		gravity_velocity = Vector2.ZERO
+		if _flight_r_psn > 0.0:
+			gravity_velocity = Vector2(0, 400.0 * _flight_r_psn * time_alive * _flight_straighten) # Accelerates downwards over time
+
+		# ORGANIC VELOCITY ACCUMULATION
+		ortho = Vector2(-direction.y, direction.x)
+		velocity = (direction * current_speed) + gravity_velocity
+		visual_offset = Vector2.ZERO
+
+		# 6. VORTEX SWIRL ("The Swirler")
+		# Applies a strong tangential force that oscillates, moving the projectile itself.
+		if _flight_r_vtx > 0.0:
+			var swirl_amplitude = 250.0 * _flight_r_vtx * _flight_straighten # Kinetic punches through the swirl
+			var swirl_freq = 6.0
+			var swirl_vel = ortho * cos(time_alive * swirl_freq) * swirl_amplitude
+			velocity += swirl_vel
+
+		# 7. LIGHTNING ZIG-ZAG ("The Arc")
+		# Was a smooth sin(t*40)*cos(t*25) beat pattern, which reads as a slow
+		# side-to-side wobble rather than a bolt. Real lightning is jagged and
+		# irregular, so instead we hold a random lateral offset for a short
+		# segment, then snap-lerp to the next one - sharp direction changes,
+		# no smooth oscillation.
+		if _flight_r_ltg > 0.0:
+			var segment_length = 0.045
+			var segment_index = int(time_alive / segment_length)
+			if segment_index != _lightning_segment_index:
+				_lightning_segment_index = segment_index
+				_lightning_prev_offset = _lightning_target_offset
+				var seed = int(hash(get_instance_id())) ^ segment_index
+				_lightning_target_offset = (float(abs(seed) % 2000) / 1000.0) - 1.0 # deterministic pseudo-random in [-1, 1]
+			var seg_t = clamp(fmod(time_alive, segment_length) / segment_length, 0.0, 1.0)
+			# Ease sharply so it snaps rather than glides between segments
+			seg_t = seg_t * seg_t
+			var lightning_wave = lerp(_lightning_prev_offset, _lightning_target_offset, seg_t)
+			visual_offset += ortho * lightning_wave * (26.0 * _flight_r_ltg)
+
+	# VORTEX pull query: touches OTHER physics bodies, not pure
+	# per-projectile math, so it stays in GDScript regardless of which
+	# path computed the movement above (see ProjectileFlight's own module
+	# comment). Throttled to VORTEX_QUERY_INTERVAL instead of every tick -
+	# accumulates elapsed time between pulls and passes THAT to
+	# _pull_nearby_items so the total impulse over time still matches, just
+	# applied in slightly chunkier steps instead of smoothly every 1/60s
+	# (imperceptible for a pull effect).
+	if _flight_r_vtx > 0.1:
+		_vortex_query_timer += delta
+		if _vortex_query_timer >= VORTEX_QUERY_INTERVAL:
+			var elapsed = _vortex_query_timer
+			_vortex_query_timer = 0.0
+			_pull_nearby_items(elapsed)
+
 	# APPLY PHYSICS
 	var _prev_global_pos = global_position
 	position += velocity * delta
@@ -764,6 +899,136 @@ func _physics_process(delta: float):
 		for p in helix_particles:
 			var angle = time_alive * p["speed"] + p["phase"]
 			p["node"].position = Vector2(cos(angle)*p["radius"]*0.5, sin(angle)*p["radius"])
+
+# Poison-mine movement: no gravity lob, vortex swirl, fire drag, homing, or
+# range-based speed bonuses - just a straight crawl (or a dead stop with no
+# KINETIC) in the direction it was fired, until it hits something or its
+# lifetime Timer calls _expire(). Lightning's cosmetic zig-zag visual offset
+# is kept even at zero velocity - a stationary mine crackling in place reads
+# better than one sitting perfectly still.
+func _physics_process_mine(delta: float):
+	var r_kin = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
+	var r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
+	var velocity = direction * MINE_CRAWL_SPEED * r_kin
+
+	var _prev_global_pos = global_position
+	position += velocity * delta
+
+	var _moved = global_position - _prev_global_pos
+	if _moved.length() > TUNNEL_RISK_MOVE_THRESHOLD:
+		_sweep_for_tunneled_hits(_prev_global_pos, _moved)
+
+	distance_traveled += _moved.length()
+	if distance_traveled >= max_range:
+		_expire()
+		return
+
+	var visual_offset = Vector2.ZERO
+	if r_ltg > 0.0:
+		var ortho = Vector2(-direction.y, direction.x)
+		var segment_length = 0.045
+		var segment_index = int(time_alive / segment_length)
+		if segment_index != _lightning_segment_index:
+			_lightning_segment_index = segment_index
+			_lightning_prev_offset = _lightning_target_offset
+			var seed = int(hash(get_instance_id())) ^ segment_index
+			_lightning_target_offset = (float(abs(seed) % 2000) / 1000.0) - 1.0
+		var seg_t = clamp(fmod(time_alive, segment_length) / segment_length, 0.0, 1.0)
+		seg_t = seg_t * seg_t
+		var lightning_wave = lerp(_lightning_prev_offset, _lightning_target_offset, seg_t)
+		visual_offset += ortho * lightning_wave * (26.0 * r_ltg)
+	visual_node.position = visual_offset
+	visual_node.rotation = direction.angle()
+
+	if helix_particles.size() > 0:
+		for p in helix_particles:
+			var angle = time_alive * p["speed"] + p["phase"]
+			p["node"].position = Vector2(cos(angle) * p["radius"] * 0.5, sin(angle) * p["radius"])
+
+# Poison-mine detonation: an AoE burst themed by whichever non-Poison,
+# non-Kinetic synergy is strongest in the packet (Kinetic is the mobility
+# stat, not a detonation flavor). Called from both _expire() (ran out of
+# time/range - "explodes when it expires") and _handle_hit() (an enemy
+# walked into it), guarded so it only ever fires once regardless of which
+# happens first.
+func _trigger_poison_mine_detonation():
+	if _mine_detonated:
+		return
+	_mine_detonated = true
+
+	var theme = -1
+	var theme_ratio = 0.0
+	for k in ratios:
+		if k == EnergyPacket.SynergyType.POISON or k == EnergyPacket.SynergyType.KINETIC or k == EnergyPacket.SynergyType.RAW:
+			continue
+		if ratios[k] > theme_ratio:
+			theme_ratio = ratios[k]
+			theme = k
+
+	var radius = 220.0 * (1.0 + 0.5 * aoe_bonus)
+	var space_state = get_world_2d().direct_space_state
+	var query = PhysicsShapeQueryParameters2D.new()
+	var shape = CircleShape2D.new()
+	shape.radius = radius
+	query.shape = shape
+	query.transform = global_transform
+	query.collision_mask = collision_mask
+	var results = space_state.intersect_shape(query)
+
+	var ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.POISON)
+	var burst_damage = damage * 1.5
+
+	match theme:
+		EnergyPacket.SynergyType.LIGHTNING:
+			ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.LIGHTNING)
+			for res in results:
+				var col = res["collider"]
+				if col.has_method("apply_damage"):
+					col.apply_damage(burst_damage, "LIGHTNING")
+					if col.has_method("apply_status"):
+						col.apply_status("paralyzed", 0.6)
+					_draw_lightning_arc(Vector2.ZERO, to_local(col.global_position))
+		EnergyPacket.SynergyType.VORTEX:
+			ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.VORTEX)
+			for res in results:
+				var col = res["collider"]
+				if col.has_method("apply_damage"):
+					col.apply_damage(burst_damage)
+				if col.has_method("pull_towards"):
+					col.pull_towards(global_position, 1.0, 900.0)
+				elif col is CharacterBody2D:
+					col.velocity = (global_position - col.global_position).normalized() * 900.0
+				if col.has_method("apply_status"):
+					col.apply_status("vortexed", 1.2)
+		EnergyPacket.SynergyType.FIRE:
+			ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.FIRE)
+			for res in results:
+				var col = res["collider"]
+				if col.has_method("apply_damage"):
+					col.apply_damage(burst_damage)
+					if col.has_method("apply_status"):
+						col.apply_status("burning", 5.0)
+		EnergyPacket.SynergyType.ICE:
+			ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.ICE)
+			for res in results:
+				var col = res["collider"]
+				if col.has_method("apply_damage"):
+					col.apply_damage(burst_damage * 0.6)
+					if col.has_method("apply_status"):
+						col.apply_status("frozen", 3.0)
+		_:
+			# Generic detonation - Explosion/Pierce/Vampiric/no clear
+			# secondary all just get a bigger version of the plain blast.
+			for res in results:
+				var col = res["collider"]
+				if col.has_method("apply_damage"):
+					col.apply_damage(burst_damage)
+
+	if get_parent():
+		var v = PulseRingVisual.new()
+		v.global_position = global_position
+		get_parent().add_child(v)
+		v.setup(radius, ring_color, 0.5)
 
 # Approximates the shape actually moved through this tick as a rectangle
 # (segment length x hitbox width) oriented along the direction of travel,
@@ -896,7 +1161,15 @@ func _handle_hit(target: Node2D):
 				EnergyPacket.SynergyType.VAMPIRIC: dominant_str = "VAMPIRIC"
 				
 	# Apply Base Damage
-	target.apply_damage(damage, dominant_str, source_mech)
+	# source_mech can outlive the frame it was fired on but not survive to
+	# the frame this shot actually lands (its owner died/despawned mid-
+	# flight) - Godot's argument-type check rejects a freed-object reference
+	# even for a nullable Node param, so this must be validated at the call
+	# site rather than left to apply_damage's own is_instance_valid guard
+	# further downstream (_log_incoming_damage), which never gets the
+	# chance to run.
+	var valid_source = source_mech if is_instance_valid(source_mech) else null
+	target.apply_damage(damage, dominant_str, valid_source, was_reflected)
 	
 	# Massive Damage Screen Shake on Hit
 	if fired_by_player and target.is_in_group("enemy") and damage >= 10000000.0:
@@ -1070,6 +1343,16 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 			for slick in get_tree().get_nodes_in_group("oil_slick"):
 				if is_instance_valid(slick) and global_position.distance_to(slick.global_position) <= slick.IGNITE_RADIUS:
 					slick.ignite()
+
+	# Poison mine: contact detonates it immediately (see _trigger_poison_mine_
+	# detonation's header comment) instead of piercing through like a normal
+	# shot - the direct hit above already dealt its own damage, this adds
+	# the AoE burst on top, then consumes the mine outright.
+	if _is_poison_mine:
+		_trigger_poison_mine_detonation()
+		if not is_queued_for_deletion():
+			queue_free()
+		return
 
 	pierce_count -= 1
 	if pierce_count <= 0:

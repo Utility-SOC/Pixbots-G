@@ -14,9 +14,23 @@ use godot::classes::{IRefCounted, RefCounted};
 // bytes instead of running the pixel loops itself. Batching into one call
 // matters: per-pixel FFI round-trips would eat the whole native-speed win.
 
-const CELL_SIZE: f32 = 3.0;
+// Kept in sync by hand with scripts/visuals/MechPartRenderer.gd's CELL_SIZE/
+// LIGHT_DIR/SHADE_STRENGTH constants (light_dir() below mirrors LIGHT_DIR) -
+// this is the accelerated mirror of that GDScript reference implementation,
+// not an independent design.
+const CELL_SIZE: f32 = 4.5;
 const GRID_RADIUS: i32 = 16;
 const GRID_DIM: i32 = GRID_RADIUS * 2;
+const SHADE_STRENGTH: f32 = 0.3;
+
+// fn, not a Vector2 const, since Vector2::new isn't guaranteed const-evaluable.
+fn light_dir() -> Vector2 {
+    Vector2::new(-0.55, -0.85)
+}
+
+// gdext 0.5's Dictionary is generic over key/value type now - VDict is the
+// untyped (Variant/Variant) form matching the old Dictionary-of-anything API.
+type VDict = Dictionary<Variant, Variant>;
 
 fn cell_to_local(gx: i32, gy: i32) -> Vector2 {
     Vector2::new((gx - GRID_RADIUS) as f32 + 0.5, (gy - GRID_RADIUS) as f32 + 0.5) * CELL_SIZE
@@ -45,6 +59,23 @@ fn point_in_polygon(p: Vector2, poly: &[Vector2]) -> bool {
     inside
 }
 
+// Matches Godot's Color.lightened()/darkened() exactly (move each channel
+// toward white/black by `amount`) - see MechPartRenderer.gd's
+// _rasterize_polygon comment for why this per-shape gradient exists instead
+// of per-edge bevel detection.
+fn lightened(c: Color, amount: f32) -> Color {
+    Color::from_rgba(
+        c.r + (1.0 - c.r) * amount,
+        c.g + (1.0 - c.g) * amount,
+        c.b + (1.0 - c.b) * amount,
+        c.a,
+    )
+}
+
+fn darkened(c: Color, amount: f32) -> Color {
+    Color::from_rgba(c.r * (1.0 - amount), c.g * (1.0 - amount), c.b * (1.0 - amount), c.a)
+}
+
 fn distance_to_segment(p: Vector2, a: Vector2, b: Vector2) -> f32 {
     let ab = b - a;
     let len_sq = ab.length_squared();
@@ -55,12 +86,16 @@ fn distance_to_segment(p: Vector2, a: Vector2, b: Vector2) -> f32 {
     p.distance_to(a + ab * t)
 }
 
+// Matches Godot's own Image::set_pixel byte conversion (C++ float->int cast,
+// i.e. truncation, not rounding) - confirmed by a byte-for-byte comparison
+// against the GDScript rasterizer catching a mismatch here (0.05*255=12.75:
+// GDScript produced 12, an earlier .round()-based version here produced 13).
 fn color_to_bytes(c: Color) -> [u8; 4] {
     [
-        (c.r.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (c.g.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (c.b.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (c.a.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (c.r.clamp(0.0, 1.0) * 255.0) as u8,
+        (c.g.clamp(0.0, 1.0) * 255.0) as u8,
+        (c.b.clamp(0.0, 1.0) * 255.0) as u8,
+        (c.a.clamp(0.0, 1.0) * 255.0) as u8,
     ]
 }
 
@@ -82,38 +117,64 @@ impl PartRasterizer {
     // fill_regions / line_regions are passed straight through from
     // MechPartRenderer's own _fill_regions/_line_regions arrays (same
     // Dictionary shape: {polygon, color} / {a, b, color, width}) so the
-    // GDScript call site barely changes. outline_color matches the constant
-    // in _add_outline(). Returns GRID_DIM*GRID_DIM*4 bytes of RGBA8 pixel
-    // data, row-major, matching Image.create(GRID_DIM, GRID_DIM, false,
-    // Image.FORMAT_RGBA8)'s layout.
+    // GDScript call site barely changes. Untyped Array<Variant>, not
+    // Array<Dictionary> - MechPartRenderer's fields are plain `var x: Array`,
+    // and Godot's typed-array marshalling requires the GDScript-side array
+    // to be explicitly `Array[Dictionary]` to bind to a Rust-typed
+    // Array<Dictionary> parameter; converting each element from Variant here
+    // instead avoids having to retype those fields (used elsewhere too).
+    // outline_color matches the constant in _add_outline(). Returns
+    // GRID_DIM*GRID_DIM*4 bytes of RGBA8 pixel data, row-major, matching
+    // Image.create(GRID_DIM, GRID_DIM, false, Image.FORMAT_RGBA8)'s layout.
     #[func]
     fn rasterize(
         &self,
-        fill_regions: Array<Dictionary>,
-        line_regions: Array<Dictionary>,
+        fill_regions: Array<Variant>,
+        line_regions: Array<Variant>,
         outline_color: Color,
     ) -> PackedByteArray {
         let dim = GRID_DIM as usize;
         let mut pixels: Vec<Color> = vec![Color::from_rgba(0.0, 0.0, 0.0, 0.0); dim * dim];
 
-        for region in fill_regions.iter_shared() {
+        for region_variant in fill_regions.iter_shared() {
+            let region: VDict = region_variant.to();
             let polygon: PackedVector2Array = region.get("polygon").unwrap_or_default().to();
             let color: Color = region.get("color").unwrap_or_default().to();
             let poly_slice = polygon.as_slice();
             if poly_slice.len() < 3 {
                 continue;
             }
+
+            let light = light_dir().normalized();
+            let mut min_p = Vector2::new(f32::INFINITY, f32::INFINITY);
+            let mut max_p = Vector2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
+            for p in poly_slice {
+                min_p.x = min_p.x.min(p.x);
+                min_p.y = min_p.y.min(p.y);
+                max_p.x = max_p.x.max(p.x);
+                max_p.y = max_p.y.max(p.y);
+            }
+            let center = (min_p + max_p) * 0.5;
+            let half_extent = ((max_p - min_p).length() * 0.5).max(1.0);
+
             for gy in 0..GRID_DIM {
                 for gx in 0..GRID_DIM {
                     let p = cell_to_local(gx, gy);
                     if point_in_polygon(p, poly_slice) {
-                        pixels[(gy as usize) * dim + (gx as usize)] = color;
+                        let t = (((p - center).dot(light)) / half_extent).clamp(-1.0, 1.0);
+                        let shaded = if t > 0.0 {
+                            lightened(color, SHADE_STRENGTH * t)
+                        } else {
+                            darkened(color, SHADE_STRENGTH * -t)
+                        };
+                        pixels[(gy as usize) * dim + (gx as usize)] = shaded;
                     }
                 }
             }
         }
 
-        for line in line_regions.iter_shared() {
+        for line_variant in line_regions.iter_shared() {
+            let line: VDict = line_variant.to();
             let a: Vector2 = line.get("a").unwrap_or_default().to();
             let b: Vector2 = line.get("b").unwrap_or_default().to();
             let color: Color = line.get("color").unwrap_or_default().to();
@@ -170,7 +231,7 @@ impl PartRasterizer {
     // regions) so it can be benchmarked in isolation, matching a typical
     // real part: 3 fills + 1 line + outline.
     #[func]
-    fn run_benchmark(&self, iterations: i64) -> Dictionary {
+    fn run_benchmark(&self, iterations: i64) -> VDict {
         let poly = PackedVector2Array::from(vec![
             Vector2::new(-15.0, -20.0),
             Vector2::new(15.0, -20.0),
@@ -179,24 +240,24 @@ impl PartRasterizer {
             Vector2::new(-12.0, 20.0),
             Vector2::new(-18.0, 0.0),
         ]);
-        let mut fill_regions: Array<Dictionary> = Array::new();
+        let mut fill_regions: Array<Variant> = Array::new();
         for (dx, alpha) in [(0.0, 1.0), (2.0, 0.6), (-2.0, 0.8)] {
             let mut shifted = PackedVector2Array::new();
             for p in poly.as_slice() {
                 shifted.push(Vector2::new(p.x + dx, p.y));
             }
-            let mut d = Dictionary::new();
-            d.set("polygon", shifted);
+            let mut d = VDict::new();
+            d.set("polygon", &shifted);
             d.set("color", Color::from_rgba(0.6, 0.7, 0.9, alpha));
-            fill_regions.push(&d);
+            fill_regions.push(&d.to_variant());
         }
-        let mut line_regions: Array<Dictionary> = Array::new();
-        let mut d = Dictionary::new();
+        let mut line_regions: Array<Variant> = Array::new();
+        let mut d = VDict::new();
         d.set("a", Vector2::new(-15.0, -20.0));
         d.set("b", Vector2::new(15.0, 20.0));
         d.set("color", Color::from_rgba(1.0, 1.0, 1.0, 1.0));
         d.set("width", 1.5f32);
-        line_regions.push(&d);
+        line_regions.push(&d.to_variant());
         let outline = Color::from_rgba(0.05, 0.05, 0.08, 1.0);
 
         let start = std::time::Instant::now();
@@ -206,7 +267,7 @@ impl PartRasterizer {
         let elapsed = start.elapsed();
         let us_per_part = elapsed.as_secs_f64() * 1_000_000.0 / (iterations as f64);
 
-        let mut result = Dictionary::new();
+        let mut result = VDict::new();
         result.set("elapsed_sec", elapsed.as_secs_f64());
         result.set("us_per_part", us_per_part);
         result.set("iterations", iterations);

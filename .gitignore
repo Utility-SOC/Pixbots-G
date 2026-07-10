@@ -35,3 +35,12 @@ Thumbs.db
 obj/
 bin/
 builds/
+
+# Rust GDExtension (rust_ext/) - built DLLs are large, platform-specific,
+# and regenerable via `cargo build [--release]` in rust_ext/. See
+# rust_ext/README.md for build/troubleshooting notes. Anyone pulling this
+# repo needs to build once locally before the extension loads - the
+# .gdextension file's paths point at these now-ignored locations on purpose.
+# Cargo.lock IS committed (cdylib/application target, not a library - locking
+# exact dependency versions matters more than it would for a published crate).
+rust_ext/target/

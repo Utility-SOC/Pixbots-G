@@ -16,10 +16,15 @@ extends Node2D
 # to know or care that painting is now rasterized instead of vector-drawn.
 
 # World-units per pixel "cell". Bigger = chunkier/more legible, smaller =
-# more detail but softer-reading at a glance. 3.0 keeps a ~36-unit-wide
-# torso to roughly 12 cells across - deliberately in Mario-sprite territory
-# rather than an arbitrary "pixelated" guess.
-const CELL_SIZE = 3.0
+# more detail but softer-reading at a glance. 4.5 keeps a ~36-unit-wide
+# torso to roughly 8 cells across - deliberately chunkier than the original
+# 3.0/~12-cells (Natalia: "MUCH lower resolution would be fine, I just want
+# a wider variety of mech appearance and for them to look good doing it") -
+# genuinely small icon-sprite territory rather than Mario-sprite territory,
+# which also means the per-shape shading gradient below (see
+# _rasterize_polygon) reads as bold color bands instead of getting lost in
+# noise, the opposite problem a HIGHER resolution would have here.
+const CELL_SIZE = 4.5
 # How many cells the bake canvas extends from center in each direction.
 # Must comfortably cover the largest part shape (arms/legs reach furthest).
 const GRID_RADIUS = 16
@@ -28,6 +33,19 @@ const GRID_DIM = GRID_RADIUS * 2
 var _fill_regions: Array = []  # [{polygon: PackedVector2Array, color: Color}], painted in order
 var _line_regions: Array = []  # [{a: Vector2, b: Vector2, color: Color, width: float}]
 var _sprite: Sprite2D = null
+
+# Optional native accelerator (rust_ext GDExtension, see ../../rust_ext/) for
+# the pixel loops below - measured ~60x faster in-engine (1690us -> 28us per
+# part; see rust_ext/README.md for the full benchmark writeup) since spawning
+# a squad of enemies bakes 6 parts x N mechs synchronously and was the actual
+# cause of the enemy-spawn stutter. Falls back to the pure-GDScript rasterizer
+# below if the extension DLL isn't present/loaded (e.g. a fresh checkout
+# before anyone's run `cargo build` in rust_ext/) - _rasterize_polygon/
+# _rasterize_line/_add_outline are kept as the reference implementation and
+# fallback, not dead code.
+var _rasterizer = null
+var _rasterizer_checked: bool = false
+const OUTLINE_COLOR = Color(0.05, 0.05, 0.08, 1.0)
 
 func add_fill(polygon: PackedVector2Array, color: Color):
 	if polygon.size() < 3:
@@ -49,15 +67,23 @@ func clear_layers():
 # bake()) to match the old API - MechRenderer.gd calls this once per part
 # after queuing all its fills/lines/accents.
 func finish():
-	var img = Image.create(GRID_DIM, GRID_DIM, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
+	if not _rasterizer_checked:
+		_rasterizer_checked = true
+		if ClassDB.class_exists("PartRasterizer"):
+			_rasterizer = ClassDB.instantiate("PartRasterizer")
 
-	for region in _fill_regions:
-		_rasterize_polygon(img, region.polygon, region.color)
-	for line in _line_regions:
-		_rasterize_line(img, line.a, line.b, line.color, line.width)
-
-	_add_outline(img)
+	var img: Image
+	if _rasterizer:
+		var bytes = _rasterizer.rasterize(_fill_regions, _line_regions, OUTLINE_COLOR)
+		img = Image.create_from_data(GRID_DIM, GRID_DIM, false, Image.FORMAT_RGBA8, bytes)
+	else:
+		img = Image.create(GRID_DIM, GRID_DIM, false, Image.FORMAT_RGBA8)
+		img.fill(Color(0, 0, 0, 0))
+		for region in _fill_regions:
+			_rasterize_polygon(img, region.polygon, region.color)
+		for line in _line_regions:
+			_rasterize_line(img, line.a, line.b, line.color, line.width)
+		_add_outline(img)
 
 	if not _sprite:
 		_sprite = Sprite2D.new()
@@ -71,11 +97,34 @@ func finish():
 func _cell_to_local(gx: int, gy: int) -> Vector2:
 	return Vector2((gx - GRID_RADIUS) + 0.5, (gy - GRID_RADIUS) + 0.5) * CELL_SIZE
 
+# Classic top-left directional pixel-art light, as a smooth gradient across
+# each fill region's OWN bounding box - not per-pixel edge detection. An
+# earlier per-edge highlight/shadow bevel pass was tried and abandoned (see
+# _add_outline's comment below): at this few pixels, classifying pixels as
+# "edge" vs "not edge" produces a scattered, noisy result. A continuous
+# gradient spanning the whole shape instead reads as one lit surface with
+# real volume, and gets bolder (not noisier) as resolution drops, since
+# fewer, larger color bands are exactly what a low pixel count wants.
+const LIGHT_DIR = Vector2(-0.55, -0.85)
+const SHADE_STRENGTH = 0.3 # max lighten/darken at the gradient's extremes
+
 func _rasterize_polygon(img: Image, polygon: PackedVector2Array, color: Color):
+	var light := LIGHT_DIR.normalized()
+	var min_p := Vector2.INF
+	var max_p := -Vector2.INF
+	for p in polygon:
+		min_p = min_p.min(p)
+		max_p = max_p.max(p)
+	var center := (min_p + max_p) * 0.5
+	var half_extent: float = max((max_p - min_p).length() * 0.5, 1.0)
+
 	for gy in range(GRID_DIM):
 		for gx in range(GRID_DIM):
-			if Geometry2D.is_point_in_polygon(_cell_to_local(gx, gy), polygon):
-				img.set_pixel(gx, gy, color)
+			var p := _cell_to_local(gx, gy)
+			if Geometry2D.is_point_in_polygon(p, polygon):
+				var t: float = clamp((p - center).dot(light) / half_extent, -1.0, 1.0)
+				var shaded := color.lightened(SHADE_STRENGTH * t) if t > 0.0 else color.darkened(SHADE_STRENGTH * -t)
+				img.set_pixel(gx, gy, shaded)
 
 func _rasterize_line(img: Image, a: Vector2, b: Vector2, color: Color, width: float):
 	var half_w = max(CELL_SIZE * 0.5, width * 0.5)
@@ -99,7 +148,7 @@ func _distance_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
 # per-edge highlight/shadow bevel treatment (which doesn't translate well
 # to this few pixels - it just looks like noise).
 func _add_outline(img: Image):
-	var outline_color = Color(0.05, 0.05, 0.08, 1.0)
+	var outline_color = OUTLINE_COLOR
 	var edge_cells = []
 	for gy in range(GRID_DIM):
 		for gx in range(GRID_DIM):

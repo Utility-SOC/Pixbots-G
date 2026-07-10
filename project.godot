@@ -22,6 +22,7 @@ DebugMenu="*res://scripts/ui/DebugMenu.gd"
 AudioManager="*res://scripts/audio/AudioManager.gd"
 SaveManager="*res://scripts/core/SaveManager.gd"
 ProceduralMusic="*res://scripts/core/ProceduralMusic.gd"
+ProjectileManager="*res://scripts/core/ProjectileManager.gd"
 
 [physics]
 

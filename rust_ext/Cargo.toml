@@ -8,3 +8,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 godot = "0.5.4"
+
+# The editor/F5 runs load the DEBUG dll (see ../rust_ext.gdextension), and an
+# unoptimized build of the rasterizer pixel loops is ~15x slower than release
+# (~430 vs ~28 us/part) - enough to bring back a hint of the spawn stutter
+# this extension exists to kill. Optimize dev builds; compile time stays
+# small since the crate is tiny and deps are cached.
+[profile.dev]
+opt-level = 2

@@ -7,3 +7,4 @@ unsafe impl ExtensionLibrary for RustExt {}
 
 mod hexmath;
 mod part_rasterizer;
+mod projectile_flight;

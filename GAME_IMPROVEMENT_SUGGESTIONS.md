@@ -61,35 +61,35 @@ roughly ordered by impact within each group.
 
 ## C. Performance
 
-9. **AI LOD is still the biggest unclaimed win** (carried over from the
-   first review, more urgent now): 80 near-peer mechs + boss ability logic
-   all full-tick regardless of distance/visibility. A distance-tiered tick
-   divider for `_execute_ai_tactics` (full rate near, 1/4 rate far) is the
-   cheapest large frame-time lever left.
-10. **Finish the group-scan consolidation**: 33 `get_nodes_in_group` sites;
-    several hot ones are now throttled, but a per-frame cached snapshot
-    (tiny EntityCache autoload: enemies/loot arrays refreshed once per
-    frame) would eliminate the remaining redundant tree walks.
-11. **MechPartRenderer bake caching**: every spawned mech re-rasterizes ~6
-    part images; near-peer waves bake 80 near-identical sprite sets. Cache
-    baked textures keyed by (shape points hash, rarity, color, accent) -
-    stacks multiplicatively with the trickle spawner on wave-start cost.
+9. ~~**AI LOD is still the biggest unclaimed win**~~ (Fixed: distance-tiered
+   tick divider shipped - `_execute_ai_tactics` runs 4Hz beyond 1400px of
+   the target, full rate near; see Mech.gd's `_lod_ai_timer`.)
+10. ~~**Finish the group-scan consolidation**~~ (Fixed: EntityCache autoload
+    serves per-frame cached group snapshots; magnet, drone targeting,
+    sight checks, minimap, and projectile impact scans route through it.
+    Rare-event scans stay direct on purpose.)
+11. ~~**MechPartRenderer bake caching**: every spawned mech re-rasterizes ~6
+    part images; near-peer waves bake 80 near-identical sprite sets.~~ (Fixed: Ported entire rasterization loop to Rust `part_rasterizer.rs`, drastically reducing bake time to microseconds)
 
 ## D. Structure / spaghetti
 
-12. **Mech.gd is now a 3,190-line god-class** (91 funcs: player input, AI
+12. ~~**Mech.gd is now a 3,190-line god-class** (91 funcs: player input, AI
     tactics, boss kit, statuses, heat, magnet, cloak, ramming, drone base).
     Mechanical split into child nodes/refcounted helpers - BossBrain,
     StatusEffectRunner, PlayerController - no behavior change, huge
-    readability/merge-conflict win. Do it BEFORE the melee pillar lands on
-    top of it.
-13. **Rarity math is scattered**: 8 copies of `_get_power_multiplier` across
-    tiles, plus separate rarity ladders in GarageMenu (scrap), SquadDirector
-    (power values), LootManager (drops), upgrade costs. One `RarityMath`
-    static class; the 8 tile copies are pure deletion.
-14. **Element name/id conversion exists in 5+ places** (SquadDirector match,
+    readability/merge-conflict win.~~ (Fixed: exactly that split landed - BossBrain, StatusEffectRunner, PlayerController, plus MagnetSystem and SightAndSearch; Mech.gd is down to ~2.6k lines. The MechModuleLibrary arm vocabulary is a separate VISUALS feature, not this refactor.)
+13. ~~**Rarity math is scattered**: 8 copies of `_get_power_multiplier` across
+    tiles.~~ (Fixed: the 5 byte-identical tile overrides were deleted - the
+    HexTile base class copy is the single source. The OTHER rarity ladders
+    (scrap values, drop rates, power scores) are intentionally different
+    curves and stay separate.)
+14. ~~**Element name/id conversion exists in 5+ places**~~ (Fixed:
+    EnergyPacket.SYNERGY_NAMES + element_name()/element_id() are canonical;
+    the consolidation also uncovered and fixed THREE divergent numberings
+    that were breaking shield rock-paper-scissors and the director's
+    counter-doctrine - see ElementTableCheck. Original text: SquadDirector match,
     SYNERGY_NAMES tables in WarRoomMenu + GarageMenu, Projectile's
-    dominant_str match, Mech's shield id mapping). Add static
+    dominant_str match, Mech's shield id mapping. Add static
     `EnergyPacket.element_name(id)` / `element_id(name)` beside the color
     helpers and delete the local copies.
 15. **Comment debt**: several comments still describe removed systems (the
@@ -119,7 +119,7 @@ roughly ordered by impact within each group.
 
 The README already flags that formal progression is "under construction," so this is timely rather than a criticism.
 
-- **Wave scaling runs on a pure `pow(1.10, wave-1)` HP multiplier with no ceiling.** By wave 50 that's a ~106x multiplier; by wave 100 it's ~11,700x. Even with the player's own power growing, an uncapped exponential against a mostly-linear player damage curve will eventually produce either a wall or a curve that trivializes early waves. Worth plotting expected player DPS against this curve and either flattening it past some wave count or introducing a second scaling lever (enemy count, squad composition variety) instead of pure HP inflation.
+- ~~**Wave scaling runs on a pure `pow(1.10, wave-1)` HP multiplier with no ceiling.** By wave 50 that's a ~106x multiplier; by wave 100 it's ~11,700x.~~ (Fixed: Soft-knee exponential added in recent commit, compounds to wave 25 then goes linear)
 - **Bosses are always a scaled-up Brawler** (`Main._spawn_boss` hardcodes `director._spawn_bot_for_role("brawler")`). With sniper, scout, ambusher, jammer, flamethrower, and now support archetypes all in the roster, boss fights would read very differently if the boss role were chosen per-fight (or a genuine "boss-only" kit existed - bigger hitbox, phase changes, etc.) rather than just being a Brawler at 2x/3x/5x/25x scale.
 - **The starter inventory looks like debug leftovers**: `Main._initialize_starter_inventory()` hands the player 20 Legendary Splitters outright, on top of 3-of-each-rarity Splitters/Reflectors/Amplifiers. That's a lot of high-value gear with zero play required to earn it - worth deciding whether that's an intentional "sandbox mode" default (matches the README's sandbox framing) or should be gated behind actual progression once a campaign exists.
 - **Scrap economy is thin.** `player_scrap` exists and is saved/loaded, but nothing in the read code prices anything in scrap - there's no shop, no scrap-for-reroll, no scrap-for-repair. It's plumbing without a payoff yet.

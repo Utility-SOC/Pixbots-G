@@ -137,9 +137,7 @@ pass: Mythic Magnet Repel now REFLECTS projectiles (ownership flip),
 per-bot element jitter (no more early-wave monoculture), settings moved to
 user:// (persist in exported builds), director telemetry persisted
 (counter-doctrine remembers between sessions), chips counted in near-peer
-power, map-area enemy-density scaling, save-format version log. Remaining
-majors: melee actuators proper, heat UI, Mech.gd split, AI LOD - see
-GAME_IMPROVEMENT_SUGGESTIONS.md second review for the full list.
+power, map-area enemy-density scaling, save-format version log. Unplanned but massive features that also landed: Traveling Champions async PvP (PNG steganography), Procedural Reactive Audio, Wave HP soft-knee scaling, the Mech.gd god-class split (BossBrain/StatusEffectRunner/PlayerController/MagnetSystem/SightAndSearch extracted), the arm module vocabulary (MechModuleLibrary), AI LOD (distance-tiered tick divider), and the Rust GDExtension (`rust_ext.dll`) which ported Part Rasterization and Projectile Physics to native code! Remaining majors: melee actuators proper - see GAME_IMPROVEMENT_SUGGESTIONS.md second review for the full list. (Heat UI is deliberately DROPPED, not pending - the thermal system itself is commented out per design ruling; see CLAUDE_CODE_HANDOFF.md.)
 
 **Status: groups 1-5 SHIPPED ✔, plus original Feature 5 phase 2 SHIPPED ✔**
 (manual-hex component upgrades, modifier chip extraction/stacking-infusion,
@@ -173,14 +171,59 @@ lightning + the full status suite. Remaining: groups 6-8.
 
 As the game scales to support massive battles (hundreds of mechs, massive hex layouts), performance bottlenecks in GDScript will emerge. A hybrid Godot/Rust approach (via `godot-rust` / GDExtension) provides a scalable, incremental path forward.
 
-### Phase 1: Low-Lift / High-Reward (Data & Math)
-- **`AutoEquipSolver` (The AI Grid Builder):** Pure recursive backtracking and BFS. Moving this to Rust is straightforward because it requires zero knowledge of the physics engine or UI. It takes in arrays of tiles and returns optimal coordinates in microseconds, eliminating wave-spawn hitching completely.
-- **`HexGrid` Calculations:** The logic that traces energy packets from the Core to weapons and resolves synergy multipliers (`_recalculate_grid`). Translating this to a pure Rust struct allows instant, lock-free computation of weapon stats whenever a grid changes.
-
-### Phase 2: Medium-Lift (Pathing & State)
-- **`MapGenerator` Flow Fields:** Porting the BFS/Dijkstra flow-field generation. Requires syncing the map's obstacle data across the FFI boundary, but drastically speeds up AI navigation updates.
-- **`SquadDirector` Logic:** The evolutionary algorithm (mutation, fitness scoring, telemetry aggregation) is perfectly suited for Rust, ensuring the meta-progression scales flawlessly without bogging down the main thread.
+### Phase 1 & 2: Low/Medium-Lift (SHIPPED)
+- **Part Rasterizer (`part_rasterizer.rs`)**: Nested point-in-polygon loops for generating procedural mech shapes were moved to a single FFI call returning RGBA8 pixels, eliminating enemy-spawn stutter.
+- **Projectile Flight Physics (`projectile_flight.rs`)**: Organic velocity math (Kinetic steering, Fire drag, Poison lobs, Vortex swirl, Lightning arcs) batched into a single Rust call for all active projectiles, eliminating GDScript dispatch overhead.
+- **HexGrid & Data (`hexmath.rs`)**: pipeline-validation benchmark class (neighbor/distance math with a checksum assert) proving the FFI round trip - NOT the grid solver itself. `_recalculate_grid`/`AutoEquipSolver` remain GDScript and stay on this list if they ever profile hot.
 
 ### Phase 3: High-Lift (Physics & Engine Switch)
 - **`Mech.gd` & Ramming Physics:** Moving the core mech loop into Rust requires constantly passing position, velocity, and `move_and_slide()` data across the C++/Rust boundary.
 - **Full ECS (Bevy Engine):** The nuclear option. If the project outgrows Godot entirely, dropping the Godot UI and rendering pipeline in favor of a pure Rust ECS (Entity Component System) like Bevy. Maximum performance, but requires rebuilding all visual and interface tools from scratch.
+
+---
+
+## Brainstormed Future Expansion (Third Review)
+
+These are concepts to flesh out the mid-to-late game progression, meta-game, and thematic immersion.
+
+### Progression & Meta-Game
+- **Expedition Map (Slay-the-Spire Style Progression) [Difficulty: Medium-High]:** Move away from a purely linear wave structure to a branching path "Tournament Bracket" or "Shop Campaign". Nodes could include Standard Matches, Elite Rivals (harder AI, better loot), Black Market, Repair Stations (spend scrap to fix destroyed hexes), and Mystery Events. Gives players strategic agency between battles.
+  - **Implementation:** 
+    - **UI:** A new node-based map scene showing the branching paths.
+    - **Data:** A generator that procedurally creates the node tree, randomizing encounters based on depth.
+    - **State:** Updating the save format to track current node, visited nodes, and available paths instead of just a linear wave counter.
+
+- **Corporate Sponsorships (Loot Filtering) [Difficulty: Low-Medium]:** After defeating a boss, align with an in-universe manufacturer (e.g., Heavy Industries for Kinetic/Armor, Quantum Dynamics for Lightning/Energy). Each boss represents a different sponsor, featuring a unique gear table, aesthetic, and loot pool. Defeating them grants access to their specific tech.
+  - **Implementation:**
+    - **Data:** Define "Sponsors" as data resources (JSON/GDScript), linking them to specific synergies, drop tables, and boss visual themes.
+    - **Loot Logic:** Hook into the existing drop generator and Black Market roller to weight probabilities based on the active sponsorship.
+    - **Boss Integration:** Add metadata to `BossProfile` linking them to a sponsor to determine their loadout and rewards.
+
+- **Pilot Skill Tree (Meta-Progression) [Difficulty: Medium]:** Earn XP alongside Scrap to level up the Player Character. Unlock permanent passive buffs across all runs, such as a Black Market discount (*Haggler*), free initial hex repair (*Duct Tape*), or a 2x charge multiplier on the first energy packet generated each match (*Overclocker*).
+  - **Implementation:**
+    - **UI:** A new skill tree menu in the Hub/Garage.
+    - **Data/State:** Add XP and unspent skill points to the global save state.
+    - **Hooks:** Thread the passive checks into existing systems (e.g., modifying Black Market prices, intercepting `_recalculate_grid()` for the *Overclocker* buff).
+
+### Gameplay & Modes
+- **"Real World" Tabletop Hazards [Difficulty: Medium-High]:** Lean into the physical shop aesthetic by having random "Shop Events" act as global battle modifiers for a wave. The most intense hazard is the **Shop Cat**: an entity that attacks bots moving too fast or interfering with its feline goals, causing massive damage and smashing bots against walls.
+  - **Implementation:**
+    - **Shop Cat:** A neutral, highly unpredictable AI entity (or environmental hazard) on the board. Needs custom logic to detect "fast movement" (velocity thresholds of nearby units) and a unique attack action (massive knockback/collision damage calculation).
+    - **Global Modifiers:** Add a modifier system checked at wave start to alter global variables (e.g., heat generation for a broken A/C, or tile friction for spilled soda).
+
+- **Tactical Puzzle Challenges [Difficulty: Medium]:** "Chess puzzle" style challenges set up by Evan. The player is given a specific enemy (e.g., a massive shield-tank) and a restricted box of parts, needing to build a mech to win in under 20 seconds. Teaches advanced, niche synergy interactions safely.
+  - **Implementation:**
+    - **Data:** A new JSON format defining specific challenge scenarios (fixed enemy loadout, fixed player inventory, time limit, win condition).
+    - **Game Flow:** A mode that skips the standard campaign progression, forces a specific Garage state, and auto-fails the battle if the timer runs out.
+
+- **Shop Wars (Asynchronous Clan Battles) [Difficulty: Low]:** Asynchronous PvP where players form clans and share JSON AI profiles online. People upload their JSONs to a website, and others download/upload/share them to fight and conquer territory.
+  - **Implementation:**
+    - **In-Game:** Utilizing the existing `SquadProfileManager` JSON export/import. The game needs a streamlined UI to load an opponent's JSON file directly from the OS to fight it.
+    - **Out-of-Game:** Relies on an external web service or community hub (like Discord) for players to host, share, and track the clan territory map.
+
+### Aesthetics & Rendering
+- **"Dead Cells" 3D-to-2D Pixelation (Visual Rework) [Difficulty: Very High]:** Shift from pure 2D point-in-polygon rasterization to rendering low-poly 3D modular components through an orthographic camera. Apply quantization and edge-detection post-processing shaders to generate isometric pixel art with dynamic lighting and procedural modularity. This matches the high-fidelity aesthetic references without needing massive hand-drawn spritesheets.
+  - **Implementation:**
+    - **Asset Pipeline:** Replace 2D vector generation with simple low-poly 3D models for components (chassis, weapons, joints).
+    - **Rendering:** Set up a Godot SubViewport with an Orthographic camera running at a low internal resolution (e.g., 320x180).
+    - **Shaders:** Apply a posterization/cel-shader for limited color palettes and a Sobel edge-detection shader for crisp black outlines.

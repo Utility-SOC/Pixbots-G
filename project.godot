@@ -23,6 +23,7 @@ AudioManager="*res://scripts/audio/AudioManager.gd"
 SaveManager="*res://scripts/core/SaveManager.gd"
 ProceduralMusic="*res://scripts/core/ProceduralMusic.gd"
 ProjectileManager="*res://scripts/core/ProjectileManager.gd"
+EntityCache="*res://scripts/core/EntityCache.gd"
 
 [physics]
 

@@ -190,7 +190,7 @@ func _find_nearest_enemy() -> Node2D:
 
 	var best: Node2D = null
 	var best_dist = TARGET_SEARCH_RADIUS
-	for e in get_tree().get_nodes_in_group("enemy"):
+	for e in EntityCache.get_group("enemy"):
 		if not is_instance_valid(e) or e.get("is_dead"):
 			continue
 		var d = global_position.distance_to(e.global_position)

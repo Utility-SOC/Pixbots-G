@@ -2390,7 +2390,7 @@ func _update_healer(delta: float):
 		_emit_heal_pulse()
 
 func _emit_heal_pulse():
-	var allies = get_tree().get_nodes_in_group("enemy")
+	var allies = EntityCache.get_group("enemy")
 	for ally in allies:
 		if ally == self or not is_instance_valid(ally) or not ("hp" in ally):
 			continue

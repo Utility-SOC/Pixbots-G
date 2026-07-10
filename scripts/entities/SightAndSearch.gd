@@ -79,7 +79,7 @@ func _update_player_sight(delta: float):
 # Module), but scans rather than assuming that in case a future mode lets
 # the player field multiple sources.
 func _get_active_player_jammer_field() -> Node:
-	for f in mech.get_tree().get_nodes_in_group("jammer_field"):
+	for f in EntityCache.get_group("jammer_field"):
 		if is_instance_valid(f) and f.owner_is_player:
 			return f
 	return null

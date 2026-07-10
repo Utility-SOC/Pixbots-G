@@ -41,7 +41,7 @@ func update(delta: float):
 		# 40-400px between 10Hz ticks and would tunnel straight through
 		# the field. The "projectile" group is small; this stays cheap.
 		if mech.magnet_repel_mode:
-			for proj in mech.get_tree().get_nodes_in_group("projectile"):
+			for proj in EntityCache.get_group("projectile"):
 				if not is_instance_valid(proj):
 					continue
 				if proj.get("fired_by_player") != false:
@@ -66,8 +66,10 @@ func update(delta: float):
 			var eff_delta = mech._magnet_accum_delta
 			mech._magnet_accum_delta = 0.0
 
-			var loot_nodes = mech.get_tree().get_nodes_in_group("loot")
+			var loot_nodes = EntityCache.get_group("loot")
 			for loot in loot_nodes:
+				if not is_instance_valid(loot):
+					continue # cached snapshot - see EntityCache's caller contract
 				if mech.min_loot_attract_rarity >= 0 and loot.has_method("get_rarity") and loot.get_rarity() < mech.min_loot_attract_rarity:
 					continue # Mythic Magnet filter - not shiny enough to bother with
 				if loot.global_position.distance_to(mech.global_position) < pull_radius:

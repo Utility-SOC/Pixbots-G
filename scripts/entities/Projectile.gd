@@ -1307,8 +1307,8 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 			
 	# Vampiric Heal
 	if ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0) > 0.1:
-		var players = get_tree().get_nodes_in_group("player")
-		if players.size() > 0 and players[0].has_method("apply_damage"):
+		var players = EntityCache.get_group("player")
+		if players.size() > 0 and is_instance_valid(players[0]) and players[0].has_method("apply_damage"):
 			players[0].apply_damage(-damage * 0.3 * ratios[EnergyPacket.SynergyType.VAMPIRIC])
 			
 	# Explosion AoE
@@ -1316,8 +1316,8 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 		_trigger_explosion()
 		
 	# --- BIOME SYNERGIES ---
-	var maps = get_tree().get_nodes_in_group("map_generator")
-	if maps.size() > 0:
+	var maps = EntityCache.get_group("map_generator")
+	if maps.size() > 0 and is_instance_valid(maps[0]):
 		var map = maps[0]
 		if map.has_method("get_biome_at_world_pos"):
 			var biome = map.get_biome_at_world_pos(global_position)
@@ -1340,7 +1340,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 		# only ever a handful of slicks exist on a given map, so the scan
 		# is cheap even done per FIRE hit.
 		if ratios.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1:
-			for slick in get_tree().get_nodes_in_group("oil_slick"):
+			for slick in EntityCache.get_group("oil_slick"):
 				if is_instance_valid(slick) and global_position.distance_to(slick.global_position) <= slick.IGNITE_RADIUS:
 					slick.ignite()
 

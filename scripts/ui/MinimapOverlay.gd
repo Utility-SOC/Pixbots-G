@@ -141,7 +141,7 @@ class MinimapView:
 			# plain circle, distinctly colored player-blue vs. enemy-red.
 			# Shows every active field unconditionally, matching the
 			# no-fog-of-war precedent the enemy dots below already set.
-			for field in get_tree().get_nodes_in_group("jammer_field"):
+			for field in EntityCache.get_group("jammer_field"):
 				if not is_instance_valid(field):
 					continue
 				var col = Color(0.3, 0.6, 1.0, 0.35) if field.owner_is_player else Color(0.85, 0.25, 0.3, 0.35)
@@ -153,11 +153,11 @@ class MinimapView:
 					draw_polyline(pts + PackedVector2Array([pts[0]]), col.lightened(0.35), 1.5, true)
 
 			# --- Entity dots ---
-			for loot in get_tree().get_nodes_in_group("loot"):
+			for loot in EntityCache.get_group("loot"):
 				if is_instance_valid(loot):
 					draw_circle(_world_to_px(loot.global_position, center), 2.0, Color(1.0, 0.85, 0.2))
 
-			for enemy in get_tree().get_nodes_in_group("enemy"):
+			for enemy in EntityCache.get_group("enemy"):
 				if is_instance_valid(enemy):
 					draw_circle(_world_to_px(enemy.global_position, center), 3.0, Color(1.0, 0.25, 0.2))
 

@@ -258,7 +258,7 @@ func _update_player_blind_state():
 	if not player or not is_instance_valid(player):
 		return
 	var blind = false
-	for f in get_tree().get_nodes_in_group("jammer_field"):
+	for f in EntityCache.get_group("jammer_field"):
 		if is_instance_valid(f) and not f.owner_is_player and f.is_point_inside(player.global_position):
 			blind = true
 			f.report_jam_contact(player.global_position)

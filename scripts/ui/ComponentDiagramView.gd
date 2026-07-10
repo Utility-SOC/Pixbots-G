@@ -241,7 +241,7 @@ func refresh(mech_components: Dictionary):
 		var comp = mech_components.get(info.slot)
 		if comp:
 			var txt = rarity_names[comp.rarity] if comp.rarity < rarity_names.size() else "?"
-			if comp.get("infusion_level", 0) > 0:
+			if comp.infusion_level > 0:
 				txt += " Lv%d" % comp.infusion_level
 			lbl.text = txt
 		else:
@@ -262,7 +262,7 @@ func _compute_preview_signature(mech_components: Dictionary) -> String:
 	for info in _slot_defs:
 		var comp = mech_components.get(info.slot)
 		if comp:
-			parts.append("%d:%d:%d:%d" % [info.slot, comp.get_instance_id(), comp.rarity, comp.get("infusion_level", 0)])
+			parts.append("%d:%d:%d:%d" % [info.slot, comp.get_instance_id(), comp.rarity, comp.infusion_level])
 		else:
 			parts.append("%d:-" % info.slot)
 	return ",".join(parts)

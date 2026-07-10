@@ -439,7 +439,8 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		"res://scripts/tiles/MicrocoreTile.gd",
 		"res://scripts/tiles/ResonatorTile.gd",
 		"res://scripts/tiles/ShieldGeneratorTile.gd",
-		"res://scripts/tiles/ShieldTile.gd"
+		"res://scripts/tiles/ShieldTile.gd",
+		"res://scripts/tiles/DroneBayTile.gd"
 	]
 	
 	# Give 50 of each normal tile

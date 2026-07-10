@@ -30,6 +30,17 @@ func set_dominant_synergy(synergy: EnergyPacket.SynergyType):
 		_generate_and_play()
 
 var _thread: Thread
+var _quitting: bool = false
+
+func _exit_tree():
+	# The generator thread captures `self` for the call_deferred handoff; if
+	# it outlives this node (app quit mid-generation) it fires into a freed
+	# instance and the engine tears down utility functions under its feet.
+	# Signal it to bail, then block until it actually has.
+	_quitting = true
+	if _thread and _thread.is_started():
+		_thread.wait_to_finish()
+		_thread = null
 
 func _generate_and_play():
 	print("[Audio] Generating new procedural loop. Synergy: ", current_synergy, " Combat: ", is_combat)
@@ -47,7 +58,9 @@ func _generate_and_play():
 func _generate_thread(args: Array):
 	var syn = args[0]
 	var combat = args[1]
-	var stream = ProceduralSynth.generate_level_loop(syn, combat)
+	var stream = ProceduralSynth.generate_level_loop(syn, combat, func(): return _quitting)
+	if stream == null or _quitting:
+		return
 	call_deferred("_on_generate_finished", stream)
 
 func _on_generate_finished(stream: AudioStreamWAV):

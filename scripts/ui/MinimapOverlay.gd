@@ -136,6 +136,22 @@ class MinimapView:
 			)
 			draw_texture_rect_region(map_tex, Rect2(Vector2.ZERO, size), src)
 
+			# --- Jammer fields (drawn before entity dots so dots stay
+			# legible on top) - the actual organic blob boundary, not a
+			# plain circle, distinctly colored player-blue vs. enemy-red.
+			# Shows every active field unconditionally, matching the
+			# no-fog-of-war precedent the enemy dots below already set.
+			for field in get_tree().get_nodes_in_group("jammer_field"):
+				if not is_instance_valid(field):
+					continue
+				var col = Color(0.3, 0.6, 1.0, 0.35) if field.owner_is_player else Color(0.85, 0.25, 0.3, 0.35)
+				var pts := PackedVector2Array()
+				for local_pt in field.boundary_points:
+					pts.append(_world_to_px(field.global_position + local_pt, center))
+				if pts.size() >= 3:
+					draw_colored_polygon(pts, col)
+					draw_polyline(pts + PackedVector2Array([pts[0]]), col.lightened(0.35), 1.5, true)
+
 			# --- Entity dots ---
 			for loot in get_tree().get_nodes_in_group("loot"):
 				if is_instance_valid(loot):

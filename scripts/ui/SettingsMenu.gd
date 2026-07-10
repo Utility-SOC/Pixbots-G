@@ -11,6 +11,7 @@ var slider_master: HSlider
 var slider_music: HSlider
 var slider_sfx: HSlider
 var opt_controls: OptionButton
+var edit_pilot_name: LineEdit
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -66,7 +67,28 @@ func _setup_ui():
 	opt_controls.add_item("Arrow Keys")
 	opt_controls.item_selected.connect(_on_controls_changed)
 	controls_tab.add_child(opt_controls)
-	
+
+	# PROFILE TAB
+	var profile_tab = VBoxContainer.new()
+	profile_tab.name = "Profile"
+	tab_container.add_child(profile_tab)
+
+	var pilot_label = Label.new()
+	pilot_label.text = "Pilot Name"
+	profile_tab.add_child(pilot_label)
+
+	var pilot_hint = Label.new()
+	pilot_hint.text = "Used to attribute AI profiles you share via the War Room's export/import - shown there, not advertised elsewhere."
+	pilot_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	pilot_hint.modulate = Color(0.7, 0.7, 0.7)
+	profile_tab.add_child(pilot_hint)
+
+	edit_pilot_name = LineEdit.new()
+	edit_pilot_name.max_length = 24
+	edit_pilot_name.text_submitted.connect(func(_t): SaveManager.set_pilot_name(edit_pilot_name.text))
+	edit_pilot_name.focus_exited.connect(func(): SaveManager.set_pilot_name(edit_pilot_name.text))
+	profile_tab.add_child(edit_pilot_name)
+
 	# CLOSE BUTTON
 	var btn_close = Button.new()
 	btn_close.text = "Save & Close"
@@ -123,6 +145,9 @@ func _on_controls_changed(index: int):
 			InputMap.action_add_event(action, event)
 
 func _load_settings():
+	if edit_pilot_name:
+		edit_pilot_name.text = SaveManager.pilot_name
+
 	if config.load(save_path) == OK:
 		var master_vol = config.get_value("Audio", "Master", 0.0)
 		var music_vol = config.get_value("Audio", "Music", 0.0)

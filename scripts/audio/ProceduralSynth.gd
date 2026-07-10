@@ -7,7 +7,10 @@ const TWO_PI: float = TAU
 # Frequencies for a C Minor Pentatonic Scale
 const SCALE_FREQS = [261.63, 311.13, 349.23, 392.00, 466.16, 523.25]
 
-static func generate_level_loop(synergy: EnergyPacket.SynergyType, is_combat: bool) -> AudioStreamWAV:
+# cancel_check: optional callable polled during the (multi-second) sample
+# loop so the caller's worker thread can be shut down promptly at app quit -
+# returns null when cancelled.
+static func generate_level_loop(synergy: EnergyPacket.SynergyType, is_combat: bool, cancel_check: Callable = Callable()) -> AudioStreamWAV:
 	# Generate a longer loop for more variability (16 seconds ambient, 8 seconds combat)
 	var duration_sec: float = 8.0
 	if not is_combat:
@@ -25,6 +28,8 @@ static func generate_level_loop(synergy: EnergyPacket.SynergyType, is_combat: bo
 	var use_saw = synergy == EnergyPacket.SynergyType.FIRE or synergy == EnergyPacket.SynergyType.EXPLOSION
 	
 	for i in range(total_samples):
+		if (i & 0xFFFF) == 0 and cancel_check.is_valid() and cancel_check.call():
+			return null
 		var time = float(i) / SAMPLE_RATE
 		var sample_val = 0.0
 		

@@ -78,12 +78,19 @@ func _setup_ui():
 	# Continue Game
 	var saves = SaveManager.get_save_files()
 	if saves.size() > 0:
-		# Just load the most recently modified or simply "autosave" if we have it
-		var continue_save = saves[saves.size() - 1]
-		if saves.has("autosave"):
-			continue_save = "autosave"
-			
-		var btn_continue = _create_button("Continue (" + continue_save + ")", func():
+		# Resume from whichever save made it FURTHEST (Natalia: "pick up
+		# from the highest level I've made it to"), not just whichever
+		# happened to be named "autosave" or sorted last in the directory
+		# listing - neither of those reflects actual progress.
+		var continue_save = saves[0]
+		var best_wave = -1
+		for s in saves:
+			var w = SaveManager.peek_max_wave(s)
+			if w > best_wave:
+				best_wave = w
+				continue_save = s
+
+		var btn_continue = _create_button("Continue (" + continue_save + " - Wave " + str(best_wave) + ")", func():
 			SaveManager.save_to_load = continue_save
 			SaveManager.current_game_mode = "campaign"
 			_launch_game("campaign")
@@ -130,11 +137,13 @@ func _setup_ui():
 	
 	# Tools & Options
 	# Tools & Options
+	var btn_war_room = _create_button("War Room", _on_war_room_pressed)
 	var btn_import_ai = _create_button("Import AI Templates", _on_import_ai)
 	var btn_import_mods = _create_button("Import Mods", _on_import_mods)
 	var btn_settings = _create_button("Settings", _on_settings_pressed)
 	var btn_quit = _create_button("Quit", _on_quit_pressed)
-	
+
+	vbox.add_child(btn_war_room)
 	vbox.add_child(btn_import_ai)
 	vbox.add_child(btn_import_mods)
 	vbox.add_child(btn_settings)
@@ -176,6 +185,19 @@ func _on_play_tournament():
 
 func _launch_game(mode: String):
 	get_tree().change_scene_to_file("res://main.tscn")
+
+func _on_war_room_pressed():
+	# Reuse a single instance across repeat presses (toggling it back open
+	# rather than stacking up hidden duplicates) - see WarRoomMenu._toggle,
+	# same instance/toggle pattern the in-game TAB shortcut uses.
+	var existing = get_node_or_null("WarRoomInstance")
+	if existing:
+		existing._toggle()
+		return
+	var wr = load("res://scripts/ui/WarRoomMenu.gd").new()
+	wr.name = "WarRoomInstance"
+	add_child(wr)
+	wr._toggle() # starts closed by default - open it immediately
 
 func _on_import_ai():
 	print("Opening AI Import Menu... (Mock)")

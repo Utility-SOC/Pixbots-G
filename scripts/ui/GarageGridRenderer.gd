@@ -64,10 +64,55 @@ func _ready():
 			camera_offset = size / 2.0
 	)
 
-func setup(grid_component: Node, parent_menu: Node):
+func setup(grid_component: Node, parent_menu: Node, extra_hexes: Array = []):
 	hex_grid = grid_component
 	menu_parent = parent_menu
-	camera_offset = size / 2.0 # Center
+	fit_to_content(extra_hexes)
+
+# Baseline half-extent (world pixels) of the zoomed-out reference frame -
+# roughly a 4-hex-ring radius. fit_to_content() never zooms in TIGHTER than
+# this frame, only ever zooms further OUT to fit something bigger. Without
+# this floor, a 3-tile starter part and a 20-tile oversized Black Market
+# part both get auto-scaled to fill the preview box edge-to-edge, which
+# defeats the entire point of previewing shape/size - they'd look about the
+# same size on screen. Holding a fixed baseline means the small one visibly
+# looks small and the oversized one visibly looks oversized within the same
+# frame, and only grows the frame (zooms out further) once content actually
+# exceeds it.
+const FIT_REFERENCE_HALF_EXTENT = 240.0
+
+# Frames the camera on whatever's actually in hex_grid (plus any extra valid-
+# but-empty cells passed in, e.g. a ComponentEquipment's valid_hexes) instead
+# of always centering on the origin at a leftover zoom level - previously
+# switching components (a tab, a diagram slot, or hovering a spare-parts
+# card) reused whatever zoom the player last scrolled to, so an oversized
+# Black Market part could open mostly off-screen and a tiny starter part
+# could open zoomed too far in to read.
+func fit_to_content(extra_hexes: Array = []):
+	if not hex_grid:
+		return
+	var coords: Array = []
+	for t in hex_grid.get_all_tiles():
+		coords.append(t.grid_position)
+	for h in extra_hexes:
+		coords.append(h)
+
+	var min_px = Vector2.ONE * -FIT_REFERENCE_HALF_EXTENT
+	var max_px = Vector2.ONE * FIT_REFERENCE_HALF_EXTENT
+	for c in coords:
+		var px = _hex_to_world(c)
+		min_px = min_px.min(px - Vector2.ONE * hex_size)
+		max_px = max_px.max(px + Vector2.ONE * hex_size)
+
+	var content_size = max_px - min_px
+	var avail = size - Vector2(24, 24) # padding so the frame doesn't touch the edges
+	if content_size.x <= 0.0 or content_size.y <= 0.0 or avail.x <= 0.0 or avail.y <= 0.0:
+		zoom = 1.0
+	else:
+		zoom = clamp(min(avail.x / content_size.x, avail.y / content_size.y), 0.12, 3.0)
+
+	var content_center = (min_px + max_px) / 2.0
+	camera_offset = size / 2.0 - content_center * zoom
 
 func _process(delta):
 	time_elapsed += delta
@@ -313,10 +358,18 @@ func _draw_packet(packet: EnergyPacket):
 		var font = ThemeDB.fallback_font
 		draw_string(font, pos + Vector2(-10, 20), str(int(packet.magnitude)), HORIZONTAL_ALIGNMENT_CENTER, -1, 12, Color.WHITE)
 
-func _hex_to_pixel(hex: HexCoord) -> Vector2:
+# Raw, unscaled hex->world position - NOT screen space (see _hex_to_pixel,
+# which folds in the CURRENT zoom/camera_offset). fit_to_content() needs
+# this one: computing a bounding box from _hex_to_pixel's screen-space
+# output would be circular (using the stale zoom/offset from whatever was
+# on screen before to compute the new zoom/offset).
+func _hex_to_world(hex: HexCoord) -> Vector2:
 	var x = hex_size * sqrt(3.0) * (hex.q + hex.r / 2.0)
 	var y = hex_size * 3.0 / 2.0 * hex.r
-	return Vector2(x, y) * zoom + camera_offset
+	return Vector2(x, y)
+
+func _hex_to_pixel(hex: HexCoord) -> Vector2:
+	return _hex_to_world(hex) * zoom + camera_offset
 
 func _pixel_to_hex(pos: Vector2) -> HexCoord:
 	var pt = (pos - camera_offset) / zoom

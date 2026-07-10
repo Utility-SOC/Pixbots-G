@@ -31,6 +31,7 @@ var status_label: Label
 var _boss_expanded: Dictionary = {}
 
 const SYNERGY_NAMES = ["RAW", "FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON", "EXPLOSION", "KINETIC", "PIERCE", "VAMPIRIC"]
+const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
 
 const COL_TITLE = Color(1.0, 0.85, 0.4)
 const COL_SECTION = Color(0.5, 0.9, 1.0)
@@ -122,11 +123,18 @@ func _toggle():
 	if is_open:
 		_refresh()
 
-func _get_director() -> Node:
+const WarRoomSnapshot = preload("res://scripts/ai/WarRoomSnapshot.gd")
+
+func _get_director():
 	var main = get_tree().current_scene
 	if main and "world" in main and main.world:
-		return main.world.get_node_or_null("SquadDirector")
-	return null
+		var live = main.world.get_node_or_null("SquadDirector")
+		if live:
+			return live
+	# No live game running (e.g. opened straight from the Main Menu) - fall
+	# back to a read-only snapshot of the last saved learned_state.json so
+	# the War Room still shows real data instead of just "no data yet".
+	return WarRoomSnapshot.load_from_disk()
 
 # --- Shared row/label builders ---------------------------------------------
 
@@ -258,6 +266,21 @@ func _build_threat_board(director):
 
 # --- Doctrines ---------------------------------------------------------------
 
+# times_used-weighted average across every profile in a role's pool (not a
+# plain average of each profile's own average, which would let a single
+# untested profile with one lucky deployment skew the role summary as much
+# as a profile with 50 deployments). Returns -1.0 if the role has no
+# deployments at all yet, so the caller can show "no data" instead of 0.
+func _role_average_fitness(profiles: Array) -> float:
+	var total_fitness = 0.0
+	var total_used = 0
+	for p in profiles:
+		total_fitness += p.total_fitness
+		total_used += p.times_used
+	if total_used == 0:
+		return -1.0
+	return total_fitness / float(total_used)
+
 func _build_doctrines(director):
 	_lbl(doctrine_vbox, "ALL SQUAD DOCTRINES", COL_SECTION, 15)
 	var sorted_templates: Array = director.templates.duplicate()
@@ -268,19 +291,40 @@ func _build_doctrines(director):
 		_lbl(doctrine_vbox, "%s  [%s]" % [t.template_name, "TRIAL" if t.is_experimental else "CORE"], COL_TRIAL if t.is_experimental else COL_CORE, 14)
 		_lbl(doctrine_vbox, "   %s | weight %.0f | deployed %d | avg %s" % [_format_roles(t.required_roles), t.spawn_weight, t.times_deployed, fit_str], _fitness_color(avg, t.times_deployed), 12)
 
-	_lbl(doctrine_vbox, "\nLOADOUT DOCTRINES (solver profiles)", COL_SECTION, 15)
-	var sorted_profiles: Array = director.solver_profiles.duplicate()
-	sorted_profiles.sort_custom(func(a, b): return a.spawn_weight > b.spawn_weight)
-	if sorted_profiles.is_empty():
+	_lbl(doctrine_vbox, "\nLOADOUT DOCTRINES (solver profiles, by role)", COL_SECTION, 15)
+	_lbl(doctrine_vbox, "Each role evolves its own lineage - a sniper doctrine no longer competes with a brawler doctrine for the same rotation.", COL_DIM, 11)
+	var by_role: Dictionary = {}
+	for p in director.solver_profiles:
+		var r = p.role if p.role != "" else "(unassigned/legacy)"
+		if not by_role.has(r):
+			by_role[r] = []
+		by_role[r].append(p)
+
+	if by_role.is_empty():
 		_lbl(doctrine_vbox, "   (reactive baseline only - no mutations on trial yet)", COL_DIM, 12)
-	for p in sorted_profiles:
-		var avg = p.get_average_fitness()
-		var syn = "none"
-		if p.favored_synergy >= 0 and p.favored_synergy < SYNERGY_NAMES.size():
-			syn = SYNERGY_NAMES[p.favored_synergy]
-		var fit_str = ("%.0f" % avg) if p.times_used > 0 else "-"
-		_lbl(doctrine_vbox, "%s  [%s]" % [p.profile_name, "TRIAL" if p.is_experimental else "CORE"], COL_TRIAL if p.is_experimental else COL_CORE, 14)
-		_lbl(doctrine_vbox, "   element %s | pierce %.2f / amp %.2f | weight %.0f | used %d | avg %s" % [syn, p.pierce_priority, p.amplify_priority, p.spawn_weight, p.times_used, fit_str], _fitness_color(avg, p.times_used), 12)
+
+	var role_order: Array = SquadTemplateMutator.ALL_ROLES.duplicate()
+	for r in by_role:
+		if not role_order.has(r):
+			role_order.append(r) # diver/piercing_jammer/legacy-unassigned etc.
+
+	for role in role_order:
+		if not by_role.has(role):
+			continue
+		var profiles: Array = by_role[role]
+		profiles.sort_custom(func(a, b): return a.spawn_weight > b.spawn_weight)
+		var role_avg = _role_average_fitness(profiles)
+		var role_header = str(role).capitalize()
+		role_header += (" - role avg fitness %.0f" % role_avg) if role_avg >= 0.0 else " - no deployments yet"
+		_lbl(doctrine_vbox, "\n" + role_header, COL_SECTION, 13)
+		for p in profiles:
+			var avg = p.get_average_fitness()
+			var syn = "none"
+			if p.favored_synergy >= 0 and p.favored_synergy < SYNERGY_NAMES.size():
+				syn = SYNERGY_NAMES[p.favored_synergy]
+			var fit_str = ("%.0f" % avg) if p.times_used > 0 else "-"
+			_lbl(doctrine_vbox, "  %s  [%s]" % [p.profile_name, "TRIAL" if p.is_experimental else "CORE"], COL_TRIAL if p.is_experimental else COL_CORE, 14)
+			_lbl(doctrine_vbox, "     element %s | pierce %.2f / amp %.2f | weight %.0f | used %d | avg %s" % [syn, p.pierce_priority, p.amplify_priority, p.spawn_weight, p.times_used, fit_str], _fitness_color(avg, p.times_used), 12)
 
 	var share_bar = HBoxContainer.new()
 	doctrine_vbox.add_child(share_bar)
@@ -288,16 +332,25 @@ func _build_doctrines(director):
 	btn_export.text = "Export AI Profile to Clipboard"
 	btn_export.pressed.connect(func():
 		var d = _get_director()
-		if d:
+		# A WarRoomSnapshot (no live game - opened from the Main Menu) has
+		# no export/import methods, just data - reading learned_state.json
+		# straight from disk works fine for the read-only tabs, but sharing
+		# needs a real SquadDirector to drive it.
+		if d and d.has_method("export_learned_state_to_clipboard"):
 			d.export_learned_state_to_clipboard()
 			status_label.text = "Exported - paste anywhere to share."
+		elif status_label:
+			status_label.text = "Start a game to export/import AI profiles."
 	)
 	share_bar.add_child(btn_export)
 	var btn_import = Button.new()
 	btn_import.text = "Import AI Profile from Clipboard"
 	btn_import.pressed.connect(func():
 		var d = _get_director()
-		if d and d.import_learned_state_from_clipboard():
+		if not (d and d.has_method("import_learned_state_from_clipboard")):
+			if status_label:
+				status_label.text = "Start a game to export/import AI profiles."
+		elif d.import_learned_state_from_clipboard():
 			_refresh()
 			status_label.text = "Imported and merged."
 		elif status_label:

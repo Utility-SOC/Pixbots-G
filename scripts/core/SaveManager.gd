@@ -45,6 +45,27 @@ const DIFFICULTY_NAMES = ["Casual", "Normal", "Hard", "Why would you do this to 
 const DIFFICULTY_HP_GROWTH = [1.08, 1.14, 1.20, 1.25]
 # Wave enemy-count multiplier
 const DIFFICULTY_COUNT_MULT = [0.7, 1.0, 1.3, 1.6]
+# Where per-wave HP growth stops compounding and goes linear - see
+# wave_hp_multiplier below.
+const WAVE_HP_KNEE = 25
+
+# THE per-wave enemy HP multiplier - every scaling site must use this, not
+# its own pow() (two copies of that formula had already appeared).
+# Pure exponential growth walls out the long game: at Normal's 1.14 the old
+# pow(growth, wave-1) hits ~610x by wave 50 and ~430,000x by wave 100 -
+# and Boss Rush is GATED on reaching wave 100 - while a player's damage
+# curve grows a few dozen x over the same run at best. The exponential now
+# runs only to WAVE_HP_KNEE (by which point it already outpaces any
+# realistic build curve), then continues LINEARLY at that difficulty's
+# per-wave rate. Wave-100 multipliers per difficulty: ~47x / ~300x /
+# ~1500x / ~5200x (previously ~2000x / ~430k / ~69M / ~3.9B).
+static func wave_hp_multiplier(p_difficulty: int, wave: int) -> float:
+	var growth = DIFFICULTY_HP_GROWTH[clamp(p_difficulty, 0, DIFFICULTY_HP_GROWTH.size() - 1)]
+	var n = max(0, wave - 1)
+	var mult = pow(growth, min(n, WAVE_HP_KNEE))
+	if n > WAVE_HP_KNEE:
+		mult *= 1.0 + (growth - 1.0) * (n - WAVE_HP_KNEE)
+	return mult
 
 var difficulty: int = 1
 

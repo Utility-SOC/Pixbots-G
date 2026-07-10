@@ -662,9 +662,9 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	var difficulty = SaveManager.difficulty
 	var main = get_tree().current_scene
 	if main and "current_wave" in main:
-		# Difficulty-driven growth (was a flat 1.10 for everyone)
-		var growth = SaveManager.DIFFICULTY_HP_GROWTH[difficulty]
-		wave_multiplier = pow(growth, max(0, main.current_wave - 1))
+		# Difficulty-driven growth with the post-knee linear tail - see
+		# SaveManager.wave_hp_multiplier for the curve and its rationale.
+		wave_multiplier = SaveManager.wave_hp_multiplier(difficulty, main.current_wave)
 
 	# "Why would you do this to yourself?": enemies are near-peers with the
 	# player's ACTUAL build power, always - clown-shoes full-Mythic builds

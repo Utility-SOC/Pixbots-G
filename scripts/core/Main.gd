@@ -739,7 +739,7 @@ func _spawn_wave_async(director, target_enemy_count: int) -> void:
 	if active_enemies <= 0:
 		# Fallback if assembly fails entirely
 		active_enemies = 3
-		var wave_multiplier = pow(SaveManager.DIFFICULTY_HP_GROWTH[SaveManager.difficulty], max(0, current_wave - 1))
+		var wave_multiplier = SaveManager.wave_hp_multiplier(SaveManager.difficulty, current_wave)
 		for i in range(3):
 			var m = load("res://scripts/entities/Mech.gd").new()
 			m.max_hp = 100.0 * wave_multiplier

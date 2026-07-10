@@ -37,8 +37,17 @@ var drone_visual_class: int = 0
 
 const FOLLOW_DISTANCE = 90.0
 const FOLLOW_LERP_SPEED = 6.0
-const TARGET_SEARCH_RADIUS = 480.0
+const TARGET_SEARCH_RADIUS = 800.0
 const TARGET_RESCAN_INTERVAL = 0.35
+# Sortie behavior (fix for "drone sits idle, never chases or shoots" - the
+# old behavior ONLY orbited the owner at FOLLOW_DISTANCE, so in any fight
+# happening beyond ~480px of the pet's orbit it never engaged at all): with
+# a live target the drone flies out and orbits IT at attack range instead,
+# but never strays farther than LEASH_DISTANCE from its owner - it's a pet
+# on a leash, not an independent hunter, and losing the target (or the
+# target leaving leash reach) snaps it back to the owner orbit.
+const ENGAGE_ORBIT_DISTANCE = 180.0
+const LEASH_DISTANCE = 420.0
 
 var _target_rescan_timer: float = 0.0
 var _current_target: Node2D = null
@@ -143,10 +152,19 @@ func _physics_process(delta: float):
 	#_update_heat(delta) # Thermal system commented out in Mech.gd - see there.
 	_tick_weapon_charges(delta)
 
-	# Lazy trailing orbit around the owner rather than a rigid fixed offset -
-	# reads as "a pet keeping pace," not a bolted-on turret.
+	# Lazy trailing orbit rather than a rigid fixed offset - reads as "a pet
+	# keeping pace," not a bolted-on turret. Anchors on the current target
+	# when it has one (sortie - see the constants block above), the owner
+	# otherwise.
 	_orbit_angle += delta * 1.2
-	var desired = owner_mech.global_position + Vector2(cos(_orbit_angle), sin(_orbit_angle) * 0.6) * FOLLOW_DISTANCE
+	var desired: Vector2
+	if is_instance_valid(_current_target):
+		desired = _current_target.global_position + Vector2(cos(_orbit_angle), sin(_orbit_angle) * 0.6) * ENGAGE_ORBIT_DISTANCE
+		var from_owner = desired - owner_mech.global_position
+		if from_owner.length() > LEASH_DISTANCE:
+			desired = owner_mech.global_position + from_owner.normalized() * LEASH_DISTANCE
+	else:
+		desired = owner_mech.global_position + Vector2(cos(_orbit_angle), sin(_orbit_angle) * 0.6) * FOLLOW_DISTANCE
 	global_position = global_position.lerp(desired, clamp(FOLLOW_LERP_SPEED * delta, 0.0, 1.0))
 
 	_target_rescan_timer -= delta

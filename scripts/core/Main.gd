@@ -534,6 +534,8 @@ func _start_wave():
 	_update_hud()
 	print("--- WAVE ", current_wave, " COMMENCING ---")
 	LootManager.current_wave = current_wave
+	# Reactive music: combat loop (faster arps + drums) for the wave.
+	AudioManager.set_combat_state(true)
 
 	# Spawn Squad Director if it doesn't exist
 	var director = world.get_node_or_null("SquadDirector")
@@ -1200,6 +1202,7 @@ func _show_death_report(log: Array):
 
 func _on_wave_cleared():
 	print("--- WAVE CLEARED ---")
+	AudioManager.set_combat_state(false) # back to the ambient loop
 	current_wave += 1
 	if current_wave > SaveManager.max_wave_reached:
 		SaveManager.max_wave_reached = current_wave
@@ -1208,6 +1211,7 @@ func _on_wave_cleared():
 func _open_garage():
 	print("Opening Garage Menu...")
 	get_tree().paused = true
+	AudioManager.set_combat_state(false) # garage is downtime regardless of how we got here
 	_despawn_all_drones()
 
 	# Full heal on entering garage
@@ -1255,6 +1259,19 @@ func _close_garage():
 			player._recalculate_grid()
 		SaveManager.save_game("autosave", player, player_inventory)
 		_spawn_drones_if_needed()
+		# Reactive music: key the soundtrack to the build that just left the
+		# bay - the dominant synergy across every armed weapon's packet.
+		var syn_totals: Dictionary = {}
+		for data in player.precalculated_weapons:
+			for k in data.packet.synergies:
+				syn_totals[k] = syn_totals.get(k, 0.0) + data.packet.synergies[k]
+		var dominant = EnergyPacket.SynergyType.RAW
+		var dominant_val = 0.0
+		for k in syn_totals:
+			if syn_totals[k] > dominant_val:
+				dominant_val = syn_totals[k]
+				dominant = k
+		AudioManager.set_dominant_synergy(dominant)
 
 	if garage_ui:
 		garage_ui.queue_free()

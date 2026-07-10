@@ -61,19 +61,26 @@ func _generate_thread(args: Array):
 	var stream = ProceduralSynth.generate_level_loop(syn, combat, func(): return _quitting)
 	if stream == null or _quitting:
 		return
-	call_deferred("_on_generate_finished", stream)
+	call_deferred("_on_generate_finished", stream, syn, combat)
 
-func _on_generate_finished(stream: AudioStreamWAV):
+func _on_generate_finished(stream: AudioStreamWAV, generated_syn: EnergyPacket.SynergyType, generated_combat: bool):
 	if _thread:
 		_thread.wait_to_finish()
 		_thread = null
-		
+
 	# Brief fade to prevent popping
 	if current_player.playing:
 		var tween = create_tween()
 		tween.tween_property(current_player, "volume_db", -40.0, 0.1)
 		await tween.finished
-		
+
 	current_player.stream = stream
 	current_player.volume_db = 0.0
 	current_player.play()
+
+	# State moved while this loop was baking (set_combat_state/
+	# set_dominant_synergy early-return when a thread is alive rather than
+	# stacking threads) - kick off a fresh generation for the CURRENT state
+	# so e.g. a wave-start combat cue isn't silently dropped.
+	if generated_syn != current_synergy or generated_combat != is_combat:
+		_generate_and_play()

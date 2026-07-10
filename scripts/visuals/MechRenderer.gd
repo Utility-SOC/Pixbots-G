@@ -2,6 +2,7 @@ class_name MechRenderer
 extends Node2D
 
 const MechPartRenderer = preload("res://scripts/visuals/MechPartRenderer.gd")
+const ModuleLib = preload("res://scripts/visuals/MechModuleLibrary.gd")
 
 var components: Dictionary = {}
 var drawn_parts: Dictionary = {}
@@ -299,50 +300,57 @@ func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = "", is_b
 
 func _draw_arm(tile, color, is_left, rng, scale_mult, rarity, accent: String = "", glow_comp = null):
 	var sign = -1.0 if is_left else 1.0
-	var offset = Vector2(24.0 * sign, -5.0)
-
-	var pts = _get_component_polygon(tile, scale_mult)
-	if pts.is_empty():
-		var w = 8.0 * scale_mult
-		var h = 28.0 * scale_mult
-		var is_weapon = (tile != null and tile.get("category") == HexTile.TileCategory.OUTPUT)
-		if accent == "sniper" and not is_left:
-			h *= 1.4 # Elongated barrel side, matches the long rifle arm shape
-		if is_weapon:
-			# Weapon/Gun arm
-			pts.append_array([
-				Vector2(-w, -h*0.5), Vector2(w, -h*0.5),
-				Vector2(w, h*0.2), Vector2(w*0.4, h*0.8), Vector2(w*0.4, h),
-				Vector2(-w*0.4, h), Vector2(-w*0.4, h*0.8), Vector2(-w, h*0.2)
-			])
-		else:
-			# Structural/Shield arm
-			pts.append_array([
-				Vector2(-w*1.5, -h*0.3), Vector2(w*1.5, -h*0.3),
-				Vector2(w, h*0.8), Vector2(-w, h*0.8)
-			])
-		# Mirror geometry if left
-		if is_left:
-			for i in range(pts.size()):
-				pts[i].x *= -1
-
-		var jitter = 2.0 * scale_mult
-		for i in range(pts.size()):
-			pts[i] += Vector2(rng.randf_range(-jitter, jitter), rng.randf_range(-jitter, jitter))
+	# Wider/higher than the old blob arms (was 24,-5): module hardware needs
+	# to clear the torso and leg mass to read, matching the reference
+	# sheets' shoulder-slung weapon stance.
+	var offset = Vector2(28.0 * sign, -8.0)
 
 	var slot = HexTile.BodySlot.ARM_L if is_left else HexTile.BodySlot.ARM_R
 	var body_slot = tile.body_slot if tile else slot
 	var part_name = "Arm_" + str(is_left)
-	var part = _render_mechanical_part(pts, color, offset, part_name, body_slot, rarity)
+	var part: PartHandle
 
-	if accent == "sniper" and not is_left:
-		# Laser-sight glint at the muzzle tip
-		part.renderer.add_fill(PackedVector2Array([
-			Vector2(-1.5, 24 * (1.0 + rarity * 0.05)), Vector2(1.5, 24 * (1.0 + rarity * 0.05)),
-			Vector2(1.5, 30 * (1.0 + rarity * 0.05)), Vector2(-1.5, 30 * (1.0 + rarity * 0.05))
-		]), Color(1.0, 0.2, 0.2))
+	var pts = _get_component_polygon(tile, scale_mult)
+	if pts.is_empty():
+		# Module vocabulary path (see MechModuleLibrary.gd): the arm is
+		# assembled from a recognizable hardware recipe picked from what the
+		# component grid actually contains (mount + dominant synergy ->
+		# gatling/sniper/missile pod/projector; shield gen -> shield; no
+		# mount -> claw/manipulator) instead of the old jittered polygon
+		# blob. The sprite reports the build.
+		# Tier ruling: grunts get smaller, greeble-stripped versions of the
+		# same core library; the hero and bosses each have exclusive kinds
+		# the other never fields (beam blade / twin gatling + siege pod).
+		var mech = get_parent()
+		var tier = "grunt"
+		if mech and mech.get("is_player") == true:
+			tier = "hero"
+		elif mech and mech.get("is_boss") == true:
+			tier = "boss"
+		var module = ModuleLib.pick_arm_module(glow_comp, mech, slot, tier)
+		var accent_color = EnergyPacket.get_color_for_synergy(module.synergy)
+		part = _begin_part(part_name, offset)
+		var hitbox_pts = ModuleLib.draw_arm_module(module.kind, part.renderer, color, scale_mult, sign, rng, accent_color, tier)
+		_attach_part_hitbox(part.container, hitbox_pts, body_slot)
+
+		# Rarity feedback (the old blob showed this via energy underlay +
+		# rings): RARE+ gets a synergy-colored energy seam on the shoulder
+		# block and contributes aura particle points like every other part.
+		if rarity >= HexTile.Rarity.RARE:
+			part.renderer.add_line(Vector2(-7.0 * scale_mult, -6.5 * scale_mult), Vector2(7.0 * scale_mult, -6.5 * scale_mult), accent_color.lightened(0.3), 2.0)
+			_particle_points.append(offset + Vector2(0, -12.0 * scale_mult))
+			_particle_points.append(offset + Vector2(0, 12.0 * scale_mult))
+	else:
+		part = _render_mechanical_part(pts, color, offset, part_name, body_slot, rarity)
+
 	_draw_conduit_glows(glow_comp, part, rng, scale_mult)
 	part.renderer.finish()
+
+	# Arms/weapons draw ON TOP of the torso and legs (they hold hardware in
+	# front of the body) - containers are added in slot order, so without
+	# this the default torso/leg parts, added later, painted right over the
+	# arm modules leaving only shoulder nubs visible.
+	part.container.z_index = 1
 
 	# Rotate weapons slightly outward
 	part.container.rotation = deg_to_rad(15.0 * sign)
@@ -595,7 +603,11 @@ class PartHandle:
 	var container: Node2D
 	var renderer: MechPartRenderer
 
-func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offset: Vector2, part_name: String, body_slot: int, rarity: int = 0) -> PartHandle:
+# Shared part shell: positioned container + its MechPartRenderer, already
+# registered in drawn_parts. Used by both the classic blob pipeline
+# (_render_mechanical_part) and the module-vocabulary path in _draw_arm,
+# which draws its own shapes and attaches its own hitbox afterwards.
+func _begin_part(part_name: String, offset: Vector2) -> PartHandle:
 	var container = Node2D.new()
 	container.position = offset
 	container.name = part_name
@@ -603,6 +615,40 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 	var part_renderer = MechPartRenderer.new()
 	part_renderer.name = part_name + "_Draw"
 	container.add_child(part_renderer)
+
+	add_child(container)
+	drawn_parts[part_name] = container
+
+	var handle = PartHandle.new()
+	handle.container = container
+	handle.renderer = part_renderer
+	return handle
+
+# The physical per-part hitbox (Area2D) - stays a real node, physics needs
+# it. Split out of _render_mechanical_part so the module path can attach a
+# hitbox from its recipe's returned silhouette.
+func _attach_part_hitbox(container: Node2D, pts: PackedVector2Array, body_slot: int):
+	var area = load("res://scripts/entities/PartHitbox.gd").new()
+	area.name = "Hitbox"
+	area.mech = get_parent()
+	area.body_slot = body_slot
+	# Guarded: a real Mech.gd always has collision_layer (it's a
+	# CharacterBody2D), but this renderer can also be driven by a lightweight
+	# preview stub (ComponentDiagramView's PreviewMechContext, a bare Node2D)
+	# that has no such property - reading it unconditionally crashed the
+	# Garage's live component preview the instant it tried to rebuild.
+	var parent_node = get_parent()
+	area.collision_layer = parent_node.collision_layer if parent_node and "collision_layer" in parent_node else 0
+	area.collision_mask = 0 # It just receives hits
+
+	var shape = CollisionPolygon2D.new()
+	shape.polygon = pts
+	area.add_child(shape)
+	container.add_child(area)
+
+func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offset: Vector2, part_name: String, body_slot: int, rarity: int = 0) -> PartHandle:
+	var handle = _begin_part(part_name, offset)
+	var part_renderer = handle.renderer
 
 	# Complex Edges for RARE and LEGENDARY.
 	# Only notch edges long enough for a notch to read as a deliberate
@@ -672,31 +718,7 @@ func _render_mechanical_part(pts: PackedVector2Array, energy_color: Color, offse
 
 	part_renderer.finish()
 
-	# 4. Physical Hitbox (Area2D) - stays a real node, physics needs it.
-	var area = load("res://scripts/entities/PartHitbox.gd").new()
-	area.name = "Hitbox"
-	area.mech = get_parent()
-	area.body_slot = body_slot
-	# Guarded: a real Mech.gd always has collision_layer (it's a
-	# CharacterBody2D), but this renderer can also be driven by a lightweight
-	# preview stub (ComponentDiagramView's PreviewMechContext, a bare Node2D)
-	# that has no such property - reading it unconditionally crashed the
-	# Garage's live component preview the instant it tried to rebuild.
-	var parent_node = get_parent()
-	area.collision_layer = parent_node.collision_layer if parent_node and "collision_layer" in parent_node else 0
-	area.collision_mask = 0 # It just receives hits
-
-	var shape = CollisionPolygon2D.new()
-	shape.polygon = pts
-	area.add_child(shape)
-	container.add_child(area)
-
-	add_child(container)
-	drawn_parts[part_name] = container
-
-	var handle = PartHandle.new()
-	handle.container = container
-	handle.renderer = part_renderer
+	_attach_part_hitbox(handle.container, pts, body_slot)
 	return handle
 
 func _shrink_polygon(pts: PackedVector2Array, amount: float) -> PackedVector2Array:

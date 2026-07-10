@@ -32,6 +32,7 @@ var _boss_expanded: Dictionary = {}
 
 const SYNERGY_NAMES = EnergyPacket.SYNERGY_NAMES # canonical table lives there
 const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
+const ChampionCard = preload("res://scripts/pvp/ChampionCard.gd")
 
 const COL_TITLE = Color(1.0, 0.85, 0.4)
 const COL_SECTION = Color(0.5, 0.9, 1.0)
@@ -357,6 +358,41 @@ func _build_doctrines(director):
 			status_label.text = "Clipboard doesn't contain a valid profile."
 	)
 	share_bar.add_child(btn_import)
+
+	# PvP Traveling Champions: share your MECH (not the AI) as a Champion
+	# Card PNG - the full loadout rides inside the image (see
+	# scripts/pvp/ChampionCard.gd). Import scans user://champion_cards/ for
+	# card PNGs friends gave you and registers them as challengers.
+	var champ_bar = HBoxContainer.new()
+	doctrine_vbox.add_child(champ_bar)
+	var btn_card = Button.new()
+	btn_card.text = "Export Champion Card (PNG)"
+	btn_card.pressed.connect(func():
+		var players = get_tree().get_nodes_in_group("player")
+		if players.is_empty():
+			status_label.text = "Start a game to export your champion."
+			return
+		var path = ChampionCard.export_card(players[0], SaveManager.pilot_name)
+		if path != "":
+			status_label.text = "Champion Card saved: %s (share the PNG!)" % ProjectSettings.globalize_path(path)
+		else:
+			status_label.text = "Card export failed - see log."
+	)
+	champ_bar.add_child(btn_card)
+	var btn_card_import = Button.new()
+	btn_card_import.text = "Import Champion Cards"
+	btn_card_import.pressed.connect(func():
+		var imported = ChampionCard.import_cards_from_dir()
+		var total = ChampionCard.list_ghosts().size()
+		if imported.is_empty():
+			status_label.text = "No new cards in %s (drop card PNGs there). %d challenger(s) registered." % [ProjectSettings.globalize_path(ChampionCard.CARDS_DIR), total]
+		else:
+			var names = []
+			for g in imported:
+				names.append(g.get("pilot_name", "?"))
+			status_label.text = "Imported: %s. %d challenger(s) may now appear in waves!" % [", ".join(names), total]
+	)
+	champ_bar.add_child(btn_card_import)
 	status_label = _lbl(doctrine_vbox, "", COL_DIM, 11)
 
 # --- Bosses ------------------------------------------------------------------

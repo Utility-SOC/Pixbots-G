@@ -91,6 +91,58 @@ func generate_loot_for_mech(mech: Node):
 			if randf() <= chance:
 				_spawn_loot_drop(mech, tile)
 
+# PvP ghost (Traveling Champion) loot - design ruling: a defeated ghost
+# ALWAYS drops one component and some tiles, with the ghost's own
+# equipped-tile rarities acting as a weighted loot table (rarer tiles it
+# actually carried show up more often), still subject to normal rarity
+# drop odds for the extra rolls.
+func generate_ghost_loot(mech: Node):
+	if not "components" in mech:
+		return
+	var equipped_tiles = []
+	for comp in mech.components.values():
+		if comp and comp.has_node("HexGridComponent"):
+			equipped_tiles.append_array(comp.get_node("HexGridComponent").get_all_tiles())
+	if equipped_tiles.is_empty():
+		return
+
+	# Rarity-weighted sampling of the ghost's own kit.
+	var weights = []
+	var total_weight = 0.0
+	for tile in equipped_tiles:
+		var wgt = pow(2.0, float(tile.rarity)) # each tier twice as attractive
+		weights.append(wgt)
+		total_weight += wgt
+
+	var pick_weighted = func():
+		var roll = randf() * total_weight
+		for i in range(equipped_tiles.size()):
+			roll -= weights[i]
+			if roll <= 0.0:
+				return equipped_tiles[i]
+		return equipped_tiles[equipped_tiles.size() - 1]
+
+	# 1. Guaranteed component at a rarity sampled from the ghost's kit.
+	var comp_rarity = pick_weighted.call().rarity
+	var pack = _create_procedural_component(comp_rarity, mech, "Champion")
+	_spawn_component_drop(mech, pack)
+
+	# 2. One guaranteed tile + a few extra rolls gated by the normal
+	# per-rarity drop odds (the "still subject to normal drop rules" part).
+	# A tile instance can only be handed to ONE pickup - re-picks are skipped.
+	var dropped = {}
+	var first_tile = pick_weighted.call()
+	dropped[first_tile] = true
+	_spawn_loot_drop(mech, first_tile)
+	for _i in range(3):
+		var tile = pick_weighted.call()
+		if dropped.has(tile):
+			continue
+		var chance = _get_mythic_drop_rate() if tile.rarity == HexTile.Rarity.MYTHIC else DROP_RATES.get(tile.rarity, 0.0)
+		if randf() <= chance:
+			dropped[tile] = true
+			_spawn_loot_drop(mech, tile)
+
 # Shared procedural-component builder - was inlined in the boss branch;
 # now regular salvage drops use the exact same path at lower rarity.
 func _create_procedural_component(rarity: int, mech: Node, name_prefix: String):

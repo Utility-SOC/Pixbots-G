@@ -4,6 +4,7 @@ const Mech = preload("res://scripts/entities/Mech.gd")
 
 const WeaponMountTile = preload("res://scripts/tiles/WeaponMountTile.gd")
 const DroneBayTile = preload("res://scripts/tiles/DroneBayTile.gd")
+const ChampionCardScript = preload("res://scripts/pvp/ChampionCard.gd")
 
 # Companion Drones (see Drone.gd/DroneBayTile.gd): one spawned alongside the
 # player per Drone Bay tile installed anywhere in their Backpack on deploy -
@@ -661,6 +662,14 @@ func _start_wave():
 	# Boss Wave Check (Every 5 waves)
 	elif current_wave > 0 and current_wave % 5 == 0:
 		_spawn_boss(director, false)
+	# Traveling Champion (PvP ghost): on ordinary waves, an imported
+	# champion sometimes shows up at the shop to challenge you - "counted
+	# like any game-shop challenger" per the design ruling. Story-wise it's
+	# a visiting player; mechanically it's their exact exported build.
+	elif current_wave >= 3 and randf() < 0.12:
+		var ghosts = ChampionCardScript.list_ghosts()
+		if not ghosts.is_empty():
+			_spawn_traveling_champion(ghosts[randi() % ghosts.size()])
 
 	# Difficulty scales how MANY as well as how strong (SquadDirector
 	# handles per-bot strength; near-peer stat scaling lives there too).
@@ -1036,6 +1045,64 @@ func _on_rival_defeated(rival):
 
 	_on_enemy_died()
 
+# ---- PvP Traveling Champions (see scripts/pvp/ChampionCard.gd) -----------
+# Spawns an imported ghost as a challenger fighting with the EXACT loadout
+# it was exported with - no near-peer inflation (the whole point is meeting
+# the other player's real build). HP scales from the ghost's OWN build
+# power so a strong import is a strong fight and a junk import stays junk.
+func _spawn_traveling_champion(ghost: Dictionary):
+	var champ = Mech.new()
+	champ.is_player = false
+	champ.combat_role = "brawler"
+	for slot_str in ghost.get("components", {}):
+		var comp = SaveManager._deserialize_component(ghost["components"][slot_str])
+		if comp:
+			champ.equip_component(comp)
+	var pilot = str(ghost.get("pilot_name", "Unknown Champion"))
+	champ.set_meta("is_ghost", true)
+	champ.set_meta("ghost_pilot", pilot)
+	champ.set_meta("ghost_id", str(ghost.get("ghost_id", "")))
+	champ.target = player
+	champ.collision_layer = 4
+	champ.collision_mask = 1 | 2 | 8
+
+	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
+	if randf() > 0.5: offset.x *= -1
+	if randf() > 0.5: offset.y *= -1
+	champ.global_position = map.get_valid_spawn_position(player.global_position + offset)
+	world.add_child(champ)
+	champ._recalculate_grid()
+
+	var director = world.get_node_or_null("SquadDirector")
+	if director:
+		var own_power = director._estimate_mech_power(champ)
+		champ.max_hp *= max(1.0, own_power / director.NEAR_PEER_BASELINE)
+		champ.hp = champ.max_hp
+
+	champ.died.connect(_on_champion_defeated.bind(champ))
+	active_enemies += 1
+
+	champ.scale = Vector2(1.3, 1.3)
+	if champ.has_method("_show_floating_text"):
+		champ._show_floating_text("CHAMPION: " + pilot, Color(0.6, 0.9, 1.0))
+	var dm = load("res://scripts/core/DialogueManager.gd").new()
+	dm._ready()
+	var champ_dialogue = dm.get_travelling_champion()
+	if champ_dialogue is Dictionary and champ_dialogue.get("intro", "") != "":
+		show_dialogue(pilot, str(champ_dialogue["intro"]), Color(0.6, 0.9, 1.0), 8.0)
+
+func _on_champion_defeated(champ):
+	var ghost_id = str(champ.get_meta("ghost_id")) if champ.has_meta("ghost_id") else ""
+	if ghost_id != "":
+		ChampionCardScript.record_result(ghost_id, true) # player beat the ghost
+	# Design ruling: a ghost ALWAYS drops a component + tiles biased by its
+	# own equipped rarities. (Deliberately NOT counted toward the 10-boss
+	# milestone - that counts regular wave bosses only.)
+	LootManager.generate_ghost_loot(champ)
+	if champ.has_meta("ghost_pilot"):
+		show_dialogue("Shopkeeper", "%s's champion goes down! Their pilot will hear about this." % champ.get_meta("ghost_pilot"), Color(0.8, 1.0, 0.8), 6.0)
+	_on_enemy_died()
+
 func _on_enemy_died():
 	active_enemies -= 1
 	# Not while the wave is still trickling in - killing the first squads
@@ -1047,6 +1114,12 @@ var last_garage_wave: int = 1
 
 func _on_player_died():
 	print("!!! GAME OVER - MAGNIFICENT EXPLOSION !!!")
+	# Dying with a Traveling Champion still on the field counts as losing
+	# the challenge - the ghost takes the rank points home.
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		if is_instance_valid(enemy) and enemy.has_meta("is_ghost") and not enemy.get("is_dead"):
+			ChampionCardScript.record_result(str(enemy.get_meta("ghost_id")), false)
+			break
 	_despawn_all_drones()
 	player.visible = false
 	player.set_process(false)

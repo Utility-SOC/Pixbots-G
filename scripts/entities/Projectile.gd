@@ -1149,16 +1149,7 @@ func _handle_hit(target: Node2D):
 	for k in ratios:
 		if ratios[k] > max_ratio:
 			max_ratio = ratios[k]
-			match k:
-				EnergyPacket.SynergyType.FIRE: dominant_str = "FIRE"
-				EnergyPacket.SynergyType.ICE: dominant_str = "ICE"
-				EnergyPacket.SynergyType.KINETIC: dominant_str = "KINETIC"
-				EnergyPacket.SynergyType.VORTEX: dominant_str = "VORTEX"
-				EnergyPacket.SynergyType.LIGHTNING: dominant_str = "LIGHTNING"
-				EnergyPacket.SynergyType.POISON: dominant_str = "POISON"
-				EnergyPacket.SynergyType.EXPLOSION: dominant_str = "EXPLOSION"
-				EnergyPacket.SynergyType.PIERCE: dominant_str = "PIERCE"
-				EnergyPacket.SynergyType.VAMPIRIC: dominant_str = "VAMPIRIC"
+			dominant_str = EnergyPacket.element_name(k)
 				
 	# Apply Base Damage
 	# source_mech can outlive the frame it was fired on but not survive to

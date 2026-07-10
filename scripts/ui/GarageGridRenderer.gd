@@ -569,12 +569,7 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 		
 		# EXPLICIT TEXT LABEL FOR SYNERGY
 		var font = ThemeDB.fallback_font
-		var SynergyType = EnergyPacket.SynergyType
-		var syn_name = "RAW"
-		for key_name in SynergyType.keys():
-			if SynergyType[key_name] == dominant_syn:
-				syn_name = key_name
-				break
+		var syn_name = EnergyPacket.element_name(dominant_syn)
 		draw_string(font, center + Vector2(-25, 25), "[%s]" % syn_name, HORIZONTAL_ALIGNMENT_CENTER, 50, 10, Color.WHITE)
 		
 	elif type.ends_with("Link"):

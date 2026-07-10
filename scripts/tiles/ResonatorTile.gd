@@ -83,10 +83,3 @@ func _process_sync(packet: EnergyPacket, entry_direction: int) -> Array[EnergyPa
 
 	return [packet]
 
-func _get_power_multiplier() -> float:
-	var mult = 1.0
-	if rarity == Rarity.UNCOMMON: mult = 1.2
-	elif rarity == Rarity.RARE: mult = 1.5
-	elif rarity == Rarity.LEGENDARY: mult = 3.0
-	elif rarity == Rarity.MYTHIC: mult = 5.0
-	return mult * (1.0 + (level - 1) * 0.1)

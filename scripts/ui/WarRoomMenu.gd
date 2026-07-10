@@ -30,7 +30,7 @@ var status_label: Label
 # collapse the instant anything else changes.
 var _boss_expanded: Dictionary = {}
 
-const SYNERGY_NAMES = ["RAW", "FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON", "EXPLOSION", "KINETIC", "PIERCE", "VAMPIRIC"]
+const SYNERGY_NAMES = EnergyPacket.SYNERGY_NAMES # canonical table lives there
 const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
 
 const COL_TITLE = Color(1.0, 0.85, 0.4)

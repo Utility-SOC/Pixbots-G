@@ -50,7 +50,7 @@ func on_tile_clicked(tile: HexTile):
 		# MYTHIC Core: shift native generation to a single element on every
 		# face at once, bypassing the need for early Catalysts.
 		if tile.rarity == HexTile.Rarity.MYTHIC:
-			var syn_names = ["RAW", "FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON", "EXPLOSION", "KINETIC", "PIERCE", "VAMPIRIC"]
+			var syn_names = EnergyPacket.SYNERGY_NAMES # canonical table
 			var native_state = [int(tile.face_outputs.get(0, 0))]
 			var native_btn = Button.new()
 			native_btn.text = "MYTHIC native element: %s (click to cycle all faces)" % syn_names[native_state[0] % 10]
@@ -131,15 +131,9 @@ func on_tile_clicked(tile: HexTile):
 		label.text = "Configure " + tile.tile_type + " Synergy"
 		vbox.add_child(label)
 
-		var SynergyType = EnergyPacket.SynergyType
 		var btn = Button.new()
-		var current_name = "RAW"
 		var prop_name = "secondary_synergy" if tile.tile_type == "Elemental Infuser" else "target_synergy"
-		for key_name in SynergyType.keys():
-			if SynergyType[key_name] == tile.get(prop_name):
-				current_name = key_name
-				break
-		btn.text = "Synergy: %s" % current_name
+		btn.text = "Synergy: %s" % EnergyPacket.element_name(tile.get(prop_name))
 		btn.gui_input.connect(func(event):
 			if event is InputEventMouseButton and event.pressed:
 				if event.button_index == MOUSE_BUTTON_LEFT:
@@ -148,12 +142,7 @@ func on_tile_clicked(tile: HexTile):
 					if tile.has_method("cycle_synergy_backward"):
 						tile.cycle_synergy_backward()
 
-				var new_name = "RAW"
-				for key_name in SynergyType.keys():
-					if SynergyType[key_name] == tile.get(prop_name):
-						new_name = key_name
-						break
-				btn.text = "Synergy: %s" % new_name
+				btn.text = "Synergy: %s" % EnergyPacket.element_name(tile.get(prop_name))
 				garage.grid_renderer.queue_redraw()
 		)
 		vbox.add_child(btn)
@@ -185,7 +174,6 @@ func on_tile_clicked(tile: HexTile):
 		vbox.add_child(label)
 
 		var directions = ["East", "South-East", "South-West", "West", "North-West", "North-East"]
-		var SynergyType = EnergyPacket.SynergyType
 
 		for i in range(6):
 			var hbox = HBoxContainer.new()
@@ -196,12 +184,7 @@ func on_tile_clicked(tile: HexTile):
 
 			var syn_btn = Button.new()
 			var current_syn = tile.get_face_output(i) if tile.has_method("get_face_output") else 0
-			var syn_name = "RAW"
-			for key_name in SynergyType.keys():
-				if SynergyType[key_name] == current_syn:
-					syn_name = key_name
-					break
-			syn_btn.text = "Syn: %s" % syn_name
+			syn_btn.text = "Syn: %s" % EnergyPacket.element_name(current_syn)
 			syn_btn.disabled = not btn.button_pressed or tile.rarity < HexTile.Rarity.UNCOMMON
 			hbox.add_child(syn_btn)
 
@@ -221,13 +204,7 @@ func on_tile_clicked(tile: HexTile):
 			syn_btn.pressed.connect(func():
 				if tile.has_method("cycle_face_output"):
 					tile.cycle_face_output(i)
-					var new_syn = tile.get_face_output(i)
-					var new_name = "RAW"
-					for key_name in SynergyType.keys():
-						if SynergyType[key_name] == new_syn:
-							new_name = key_name
-							break
-					syn_btn.text = "Syn: %s" % new_name
+					syn_btn.text = "Syn: %s" % EnergyPacket.element_name(tile.get_face_output(i))
 			)
 			vbox.add_child(hbox)
 

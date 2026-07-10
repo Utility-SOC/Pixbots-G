@@ -200,6 +200,24 @@ func _sync_synergies_to_magnitude():
 func _to_string() -> String:
 	return "EnergyPacket(mag: " + str(magnitude) + ")"
 
+# Canonical synergy id <-> element-name-string conversion. Order MUST match
+# the SynergyType enum above. These strings are the game's element ids in
+# damage/telemetry paths (Mech.apply_damage's `element`, SquadDirector's
+# usage dicts, SHIELD_COUNTER_WHEEL keys...) - before these helpers existed,
+# five call sites kept hand-written copies of this table and three of them
+# had silently drifted onto DIFFERENT numberings, breaking the shield
+# rock-paper-scissors and the director's shield counter-doctrine.
+const SYNERGY_NAMES = ["RAW", "FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON", "EXPLOSION", "KINETIC", "PIERCE", "VAMPIRIC"]
+
+static func element_name(id: int) -> String:
+	if id >= 0 and id < SYNERGY_NAMES.size():
+		return SYNERGY_NAMES[id]
+	return "RAW"
+
+# Returns the SynergyType id, or -1 for an unknown string ("RAW" returns 0).
+static func element_id(name: String) -> int:
+	return SYNERGY_NAMES.find(name)
+
 static func get_color_for_synergy(synergy: int) -> Color:
 	match synergy:
 		SynergyType.RAW: return Color(1, 1, 1) # White

@@ -42,14 +42,6 @@ func get_quality_factor() -> float:
 		Rarity.MYTHIC: base = 1.0
 	return min(1.0, base + (level - 1) * 0.005)
 
-func _get_power_multiplier() -> float:
-	var mult = 1.0
-	if rarity == Rarity.UNCOMMON: mult = 1.2
-	elif rarity == Rarity.RARE: mult = 1.5
-	elif rarity == Rarity.LEGENDARY: mult = 3.0
-	elif rarity == Rarity.MYTHIC: mult = 5.0
-	return mult * (1.0 + (level - 1) * 0.1)
-
 # Used by the adjacency-based "capacitor bank" behavior (see
 # Mech._recalculate_grid/_get_adjacent_accumulator_capacity) - when this
 # Accumulator sits directly adjacent to a Weapon Mount (rather than being

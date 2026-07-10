@@ -1786,12 +1786,14 @@ func _apply_shield_mitigation(amount: float, element: String) -> float:
 	elif typeof(dominant_shield_synergy) == TYPE_STRING and dominant_shield_synergy != "":
 		syn_id = int(dominant_shield_synergy)
 
-	if syn_id == 1: shield_str = "FIRE"
-	elif syn_id == 2: shield_str = "ICE"
-	elif syn_id == 3: shield_str = "POISON"
-	elif syn_id == 4: shield_str = "LIGHTNING"
-	elif syn_id == 5: shield_str = "VORTEX"
-	elif syn_id == 6: shield_str = "VAMPIRIC"
+	# dominant_shield_synergy is a stringified SynergyType id (see
+	# _recalculate_grid's shield block - keys come straight from packet
+	# synergies dicts). A previous hand-written table here used a stale
+	# numbering (3=POISON where SynergyType 3 is LIGHTNING, etc.), which
+	# silently broke the elemental rock-paper-scissors for LIGHTNING/VORTEX/
+	# POISON shields and gave VAMPIRIC/KINETIC shields no counters at all.
+	if syn_id > 0:
+		shield_str = EnergyPacket.element_name(syn_id)
 
 	if shield_str != "":
 		if element == "FIRE" and shield_str == "ICE": amount *= 2.0

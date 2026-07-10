@@ -518,18 +518,12 @@ const SHIELD_COUNTER_WHEEL = {
 	"VORTEX": "KINETIC",
 }
 
+# Thin wrapper over the canonical EnergyPacket.element_id() table, keeping
+# this function's historical "RAW (or unknown) means -1 / not jammable"
+# contract for its callers.
 func _element_string_to_synergy(element: String) -> int:
-	match element:
-		"FIRE": return EnergyPacket.SynergyType.FIRE
-		"ICE": return EnergyPacket.SynergyType.ICE
-		"LIGHTNING": return EnergyPacket.SynergyType.LIGHTNING
-		"VORTEX": return EnergyPacket.SynergyType.VORTEX
-		"POISON": return EnergyPacket.SynergyType.POISON
-		"EXPLOSION": return EnergyPacket.SynergyType.EXPLOSION
-		"KINETIC": return EnergyPacket.SynergyType.KINETIC
-		"PIERCE": return EnergyPacket.SynergyType.PIERCE
-		"VAMPIRIC": return EnergyPacket.SynergyType.VAMPIRIC
-		_: return -1
+	var id = EnergyPacket.element_id(element)
+	return id if id > 0 else -1
 
 # Thin wrappers - the actual reactive-baseline/role-scoped-selection/
 # mutate/crossover/cull logic all lives on ProfileEvolution now (see that
@@ -597,14 +591,15 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	if players.size() > 0:
 		var p = players[0]
 		if "dominant_shield_synergy" in p and p.dominant_shield_synergy != "":
-			var syn_id = int(p.dominant_shield_synergy)
-			match syn_id:
-				1: counter_element = 4 # Kinetic gets countered by Lightning
-				2: counter_element = 3 # Fire gets countered by Poison
-				3: counter_element = 2 # Poison gets countered by Fire
-				4: counter_element = 1 # Lightning gets countered by Kinetic
-				5: counter_element = 6 # Vampiric gets countered by Vortex
-				6: counter_element = 5 # Vortex gets countered by Vampiric
+			# dominant_shield_synergy is a stringified SynergyType id; pick
+			# the attack element that beats that shield per the same
+			# SHIELD_COUNTER_WHEEL Mech._apply_shield_mitigation uses.
+			# LIGHTNING is the fallback for shields nothing specifically
+			# beats (VORTEX/EXPLOSION/PIERCE/RAW) - it carries a flat 1.5x
+			# vs all shields. (A previous hand-written table here used a
+			# stale element numbering and countered the wrong shields.)
+			var shield_name = EnergyPacket.element_name(int(p.dominant_shield_synergy))
+			counter_element = EnergyPacket.element_id(SHIELD_COUNTER_WHEEL.get(shield_name, "LIGHTNING"))
 	
 	# Reactive AI: Apply Resistance Traits based on player history
 	var player_favored_element = -1
@@ -614,12 +609,15 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			if ratio > 0.4:
 				# Player relies heavily on this element, spawn resistant mechs
 				bot.elemental_resistances[element] = 0.5 # Take 50% damage
-				player_favored_element = int(element)
-				
+				# usage keys are element NAME strings (see log_player_damage) -
+				# int("FIRE") was silently producing 0/RAW here, and the old
+				# numeric-string comparisons below never matched anything.
+				player_favored_element = EnergyPacket.element_id(element)
+
 				# Special visual/gameplay traits
-				if element == "4": # LIGHTNING
+				if element == "LIGHTNING":
 					bot.modulate = Color(0.8, 0.8, 0.5)
-				elif element == "5": # VAMPIRIC
+				elif element == "VAMPIRIC":
 					bot.modulate = Color(0.9, 0.6, 0.6)
 					
 	# Apply generated synergies to bot's components

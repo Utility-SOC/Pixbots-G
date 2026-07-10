@@ -20,7 +20,7 @@ func _ready():
 	shape.shape = rect
 	add_child(shape)
 
-func apply_damage(amount: float, element: String = "RAW"):
+func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false):
 	hp -= amount
 	if hp <= 0:
 		queue_free()

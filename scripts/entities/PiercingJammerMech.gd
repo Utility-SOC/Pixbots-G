@@ -30,33 +30,17 @@ func _ready():
 		jammer_power = max(0.35, 0.6 - (main.current_wave * 0.01))
 	jammer_radius = 650.0
 
-	# Distinct red-tinted aura ring (vs. the Warden's blue) so players can
-	# visually tell "this one is protecting kills" from "this one is muting
-	# my damage" at a glance.
-	if jammer_visual:
-		jammer_visual.color = Color(0.8, 0.15, 0.2, 0.1)
-		jammer_visual.scale = Vector2(jammer_radius, jammer_radius)
+	# Distinct red-tinted ring (vs. the Warden's blue) - see JammerMech's
+	# ring_glow_color field comment.
+	ring_glow_color = Color(0.85, 0.2, 0.25)
 
-	# The aura radius is meaningfully larger than the jam radius (protects
-	# a whole squad clustered around it, not just whoever it's actively
-	# jamming) - draw a second, larger ring so the protective radius itself
-	# is readable on screen instead of being an invisible game-state check.
-	var aura_ring = Polygon2D.new()
-	var pts = PackedVector2Array()
-	for i in range(32):
-		var a = i * PI / 16.0
-		pts.append(Vector2(cos(a), sin(a)))
-	aura_ring.polygon = pts
-	aura_ring.scale = Vector2(PIERCE_AURA_RADIUS, PIERCE_AURA_RADIUS)
-	aura_ring.color = Color(0.95, 0.25, 0.2, 0.05)
-	aura_ring.z_index = -6
-	add_child(aura_ring)
-
-func _process(delta: float):
-	super._process(delta)
-	if jammer_visual:
-		# Keep the pulsing alpha in the red family instead of JammerMech's
-		# blue - super._process() already recolors it toward blue each call,
-		# so re-tint after the fact rather than duplicating the whole method.
-		var a = jammer_visual.color.a
-		jammer_visual.color = Color(0.8, 0.15, 0.2, a)
+# The aura radius is meaningfully larger than the jam radius (protects a
+# whole squad clustered around it, not just whoever it's actively jamming) -
+# draw a second, larger glow ring so the protective radius itself is
+# readable on screen instead of being an invisible game-state check.
+func _draw():
+	super._draw()
+	var pulse = 0.5 + sin(Time.get_ticks_msec() / 150.0) * 0.2
+	var c = Color(0.95, 0.3, 0.2)
+	draw_arc(Vector2.ZERO, PIERCE_AURA_RADIUS, 0.0, TAU, 64, Color(c.r, c.g, c.b, 0.08 * pulse), 10.0, true)
+	draw_arc(Vector2.ZERO, PIERCE_AURA_RADIUS, 0.0, TAU, 64, Color(c.r, c.g, c.b, 0.35), 1.5, true)

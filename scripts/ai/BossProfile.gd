@@ -35,6 +35,10 @@ const ALL_ROLES = ["brawler", "sniper", "ambusher", "flamethrower", "jammer", "c
 # way it already shows squad lineage.
 @export var parent_name: String = ""
 
+# See SquadTemplate.origin_pilot's field comment - same attribution
+# mechanism, shared across all three evolvable profile types.
+@export var origin_pilot: String = ""
+
 var times_used: int = 0
 var total_fitness: float = 0.0
 
@@ -85,6 +89,7 @@ func to_dict() -> Dictionary:
 		"times_used": times_used,
 		"total_fitness": total_fitness,
 		"fitness_history": fitness_history,
+		"origin_pilot": origin_pilot,
 	}
 
 func from_dict(data: Dictionary):
@@ -104,3 +109,4 @@ func from_dict(data: Dictionary):
 	if data.has("times_used"): times_used = int(data["times_used"])
 	if data.has("total_fitness"): total_fitness = float(data["total_fitness"])
 	if data.has("fitness_history"): fitness_history = data["fitness_history"].duplicate() if data["fitness_history"] is Array else []
+	if data.has("origin_pilot"): origin_pilot = str(data["origin_pilot"])

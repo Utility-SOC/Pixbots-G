@@ -14,15 +14,31 @@ const BossProfile = preload("res://scripts/ai/BossProfile.gd")
 const PlayerController = preload("res://scripts/entities/PlayerController.gd")
 const BossBrain = preload("res://scripts/entities/BossBrain.gd")
 const StatusEffectRunner = preload("res://scripts/entities/StatusEffectRunner.gd")
+const SightAndSearch = preload("res://scripts/entities/SightAndSearch.gd")
+const MagnetSystem = preload("res://scripts/entities/MagnetSystem.gd")
+const JammerField = preload("res://scripts/visuals/JammerField.gd")
 
 # Lazily constructed the first time it's needed (is_player branch of
 # _physics_process / is_boss branch of _execute_ai_tactics / first call to
-# update_status_effects) - see PlayerController.gd/BossBrain.gd/
-# StatusEffectRunner.gd's own header comments for why these are composed
-# RefCounted objects, not child Nodes.
+# update_status_effects / first call to _update_player_sight) - see
+# PlayerController.gd/BossBrain.gd/StatusEffectRunner.gd/SightAndSearch.gd's
+# own header comments for why these are composed RefCounted objects, not
+# child Nodes.
 var player_controller: PlayerController = null
 var boss_brain: BossBrain = null
 var status_runner: StatusEffectRunner = null
+var sight_and_search: SightAndSearch = null
+var magnet_system: MagnetSystem = null
+
+# JammerField is a real scene-tree Node (see its own header comment for why
+# it's NOT a RefCounted composed object like the three above) - constructed
+# lazily by _ensure_jammer_field() the first time this mech's equipped
+# Jammer Module is in VISION mode, freed by _release_jammer_field() the
+# moment it isn't (mode swapped, tile unequipped, or this mech dies).
+var jammer_field: JammerField = null
+var _jammer_field_exit_hooked: bool = false
+var _jammer_broadcast_timer: float = 0.0
+const JAMMER_BROADCAST_INTERVAL = 2.5
 
 # Cached lookups for two effectively-singleton nodes (the map and the
 # player) - both are created once at game start and outlive every mech that
@@ -151,8 +167,6 @@ var heal_pulse_timer: float = 0.0
 # remaining duration. Consulted when firing to suppress that element.
 var jammed_synergies: Dictionary = {}
 
-signal vision_jammed(duration: float)
-
 func apply_shield_energy(amount: float):
 	max_shield_hp += amount # Max shield grows based on energy it processes!
 	shield_hp = max_shield_hp
@@ -176,6 +190,35 @@ var magnet_visual: Line2D = null
 const MAGNET_UPDATE_HZ = 15.0
 var _magnet_update_timer: float = 0.0
 var _magnet_accum_delta: float = 0.0
+
+# MagnetTile.get_magnetic_power() accumulates packet.magnitude every time
+# ANY packet passes through it in _simulate_grid() - and a closed-loop grid
+# (Splitter/Reflector/Resonator circuits, explicitly allowed up to the
+# 100-step cap in _simulate_grid) can route the same packet through one
+# magnet many times in a single recalculation. With EnergyPacket.MAX_MAGNITUDE
+# at 150000 (raised for capacitor-bank builds), a handful of loop passes on a
+# dense Mythic grid used to blow total_magnetic_power into the millions,
+# feeding pull_radius/pull-speed formulas that were LINEAR in power with no
+# ceiling - a legitimately powerful build could make every loot pickup on
+# the ENTIRE map snap to the player in a single 1/MAGNET_UPDATE_HZ tick
+# regardless of true distance.
+#
+# First fix here was a flat clamp on total_magnetic_power itself - too
+# blunt: a single NORMAL (non-looped) packet passing through one Mythic
+# magnet can easily carry a magnitude in the thousands on a decent mid-game
+# build, nowhere near the pathological loop-abuse case, so the flat cap
+# also crushed ordinary magnet scaling down to "barely stronger than the
+# 150 baseline" for anyone past the very early game ("the magnet doesn't
+# seem to be working"). Replaced with a saturating curve instead: pull_
+# radius/speed grow close to linearly with power at normal scales (matching
+# the original feel) but asymptotically approach a fixed ceiling no matter
+# how large total_magnetic_power gets - "more power = more pull" stays true
+# all the way up instead of hitting a wall, while still bounding the
+# absolute maximum reach against the loop-abuse case. total_magnetic_power
+# itself is left unclamped (see pull_radius/pull_speed_mult below).
+const MAGNET_POWER_SCALE = 250.0
+const MAGNET_PULL_RADIUS_MAX_BONUS = 2500.0
+const MAGNET_PULL_SPEED_MAX_BONUS = 5.0
 
 
 var fire_cooldown: float = 0.0
@@ -243,8 +286,74 @@ var min_loot_attract_rarity: int = -1
 var visual_seed: int = 0
 
 signal dealt_damage(amount: float)
+# New fitness-axis input (see Squad._calculate_fitness): mirrors dealt_damage
+# but for the receiving side, so Squad can score damage TRADED (dealt vs.
+# taken) instead of only ever looking at offense. was_reflected flags damage
+# from a Mythic Magnet repel-mode bounce specifically - Natalia asked for the
+# AI to notice when it's dying to its own reflected fire and weight
+# speed/shield accordingly (see the magnet-repel flip block below).
+signal took_damage(amount: float, was_reflected: bool)
 signal died()
 signal fled_to_wild(bot: Node)
+
+# --- Individual-bot fitness tracking (Natalia: "individuals in types of
+# roles... tracked/scored") ------------------------------------------------
+# Mirrors Squad._calculate_fitness's inputs but scoped to THIS bot alone,
+# by self-connecting dealt_damage/took_damage in _ready() rather than
+# scattering += calls across every emission site (Projectile._handle_hit,
+# Mech._boss_emit_dealt_damage, Mech.apply_damage). Squad still sums these
+# same signals into a SQUAD-wide total for template/composition scoring
+# (a group property) - this is the per-bot analog, consumed by
+# SquadDirector.credit_bot_death() to score that bot's OWN spawn_profile
+# with its OWN performance instead of the squad's shared aggregate.
+var _own_damage_dealt: float = 0.0
+var _own_hits_landed: int = 0
+var _own_damage_taken: float = 0.0
+var _own_reflected_damage_taken: float = 0.0
+var _own_blind_hits_landed: int = 0
+var _own_first_engagement_time: float = -1.0
+var _own_time_alive: float = 0.0
+
+func _on_own_dealt_damage(amount: float):
+	_own_damage_dealt += amount
+	_own_hits_landed += 1
+	if _own_first_engagement_time < 0:
+		_own_first_engagement_time = _own_time_alive
+	# has_sight_of_player is only meaningful for non-player mechs (the
+	# player never runs _update_player_sight on itself) - harmless either
+	# way since individual fitness is only ever consumed for enemy bots.
+	if not has_sight_of_player:
+		_own_blind_hits_landed += 1
+
+func _on_own_took_damage(amount: float, was_reflected: bool):
+	_own_damage_taken += amount
+	if was_reflected:
+		_own_reflected_damage_taken += amount
+
+# Same formula shape as Squad._calculate_fitness (damage/hits/survival/
+# trade/blind), minus the flee-penalty term - that's a squad-cohesion
+# signal ("the group went quiet"), not meaningful for a single bot whose
+# own timeline just ends at death. Kept directly comparable in scale to
+# squad-level fitness (100 = "expected average" convention) so a solver
+# profile's average fitness means the same thing whether it was credited
+# via the old squad-aggregate path or this new per-bot one.
+func get_individual_fitness() -> float:
+	var damage_score = _own_damage_dealt * 1.0
+	var hit_score = _own_hits_landed * 3.0
+
+	var survival_score = 0.0
+	if _own_first_engagement_time >= 0:
+		survival_score = min(_own_time_alive - _own_first_engagement_time, 60.0) * 2.0
+	if _own_hits_landed <= 0:
+		survival_score = 0.0
+
+	var trade_ratio = damage_score / max(1.0, _own_damage_taken)
+	var trade_score = clamp((trade_ratio - 1.0) * 15.0, -40.0, 60.0)
+
+	var reflection_penalty = _own_reflected_damage_taken * 0.5
+	var blind_score = _own_blind_hits_landed * 4.0
+
+	return max(0.0, damage_score + hit_score + survival_score + trade_score + blind_score - reflection_penalty)
 
 var is_dead: bool = false
 
@@ -261,6 +370,12 @@ func apply_jammer_debuff(power_multiplier: float):
 	current_jammer_debuff = min(current_jammer_debuff, power_multiplier)
 
 func _ready():
+	# Individual-bot fitness tracking (see the field block above) - self-
+	# connected rather than instrumented at every dealt_damage/took_damage
+	# emission site.
+	dealt_damage.connect(_on_own_dealt_damage)
+	took_damage.connect(_on_own_took_damage)
+
 	# Build default body
 	equip_component(ComponentEquipment.create_starter_torso(combat_role if not is_player else "", base_rarity))
 	equip_component(ComponentEquipment.create_starter_arm(true, combat_role if not is_player else "", base_rarity))
@@ -370,6 +485,19 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 			return ComponentEquipment.create_support_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON), forced_synergy)
 		"commander":
 			return ComponentEquipment.create_command_backpack(max(p_rarity, HexTile.Rarity.RARE))
+
+	# Commanders always come with a companion Drone (see create_command_
+	# backpack); every other enemy role gets a modest independent chance at
+	# one too (Natalia: "mobs/enemies should get to have them too") - never
+	# for the player (role == "" only ever happens for the player's own
+	# backpack, which stays entirely Garage-controlled, never procedurally
+	# overridden). Rolled AFTER the role match above so it only ever applies
+	# to whichever roles fell through without a guaranteed special backpack
+	# of their own (including a "scout"/"ambusher" that rolled OUT of their
+	# usual jammer/cloak chance above).
+	if role != "" and randf() < 0.12:
+		return ComponentEquipment.create_drone_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
+
 	return ComponentEquipment.create_starter_backpack(role, p_rarity)
 
 # -1 if no over-reliance is currently flagged, or no director exists yet
@@ -411,6 +539,7 @@ func unequip_component(slot: HexTile.BodySlot) -> ComponentEquipment:
 	return null
 
 func _physics_process(delta: float):
+	_own_time_alive += delta
 	current_jammer_debuff = 1.0 # Reset every frame, JammerMech will re-apply it before we shoot if near
 	_refresh_water_state()
 
@@ -437,8 +566,12 @@ func _physics_process(delta: float):
 			shield_hp = min(max_shield_hp, shield_hp + shield_recharge_rate * delta)
 
 	if is_boss:
-		_boss_time_alive += delta
-		if _boss_first_engagement >= 0.0:
+		# _boss_time_alive/_boss_first_engagement used to be separate boss-only
+		# clocks duplicating _own_time_alive/_own_first_engagement_time (see
+		# get_individual_fitness's field block) - a boss fight is "a squad of
+		# one" so the individual-bot tracking already covers this identically;
+		# only the flee-penalty piece below is genuinely boss-specific.
+		if _own_first_engagement_time >= 0.0:
 			_boss_time_since_hit += delta
 			if _boss_time_since_hit > BOSS_FLEE_GRACE:
 				_boss_flee_penalty += BOSS_FLEE_RATE * delta
@@ -459,51 +592,9 @@ func _physics_process(delta: float):
 		external_force = external_force.lerp(Vector2.ZERO, lerp_weight)
 
 		# Magnet Logic
-		if total_magnetic_power > 0.0:
-			var pull_radius = 150.0 + (total_magnetic_power * 10.0)
-			_update_magnet_visual(pull_radius)
-
-			_magnet_accum_delta += delta
-			_magnet_update_timer -= delta
-			# Mythic Repel mode (design ruling): the field REFLECTS enemy
-			# projectiles instead of shoving mechs - ownership flips so the
-			# reflected shot hunts enemies and credits us for the damage.
-			# Runs per-frame, NOT on the 10Hz throttle: a fast bolt covers
-			# 40-400px between 10Hz ticks and would tunnel straight through
-			# the field. The "projectile" group is small; this stays cheap.
-			if magnet_repel_mode:
-				for proj in get_tree().get_nodes_in_group("projectile"):
-					if not is_instance_valid(proj):
-						continue
-					if proj.get("fired_by_player") != false:
-						continue # only enemy shots get turned
-					if proj.global_position.distance_to(global_position) > pull_radius:
-						continue
-					proj.fired_by_player = true
-					proj.collision_mask = 4 | 1 # now hunts enemies + world
-					proj.source_mech = self # damage credit / lifesteal to us
-					var away = (proj.global_position - global_position).normalized()
-					if away == Vector2.ZERO:
-						away = -proj.direction
-					proj.direction = away
-					if "target_direction" in proj:
-						proj.target_direction = away
-					proj.modulate = Color(1.6, 1.6, 2.2) # flash so the turn reads
-
-			if _magnet_update_timer <= 0.0:
-				_magnet_update_timer = 1.0 / MAGNET_UPDATE_HZ
-				var eff_delta = _magnet_accum_delta
-				_magnet_accum_delta = 0.0
-
-				var loot_nodes = get_tree().get_nodes_in_group("loot")
-				for loot in loot_nodes:
-					if min_loot_attract_rarity >= 0 and loot.has_method("get_rarity") and loot.get_rarity() < min_loot_attract_rarity:
-						continue # Mythic Magnet filter - not shiny enough to bother with
-					if loot.global_position.distance_to(global_position) < pull_radius:
-						# Pull strength scales with power
-						loot.pull_towards(global_position, eff_delta * (0.5 + total_magnetic_power * 0.02))
-		elif magnet_visual:
-			magnet_visual.visible = false
+		if not magnet_system:
+			magnet_system = MagnetSystem.new(self)
+		magnet_system.update(delta)
 		
 		# Drowning check
 		if not Input.is_action_pressed("ui_select"):
@@ -524,11 +615,13 @@ func _physics_process(delta: float):
 				_execute_ai_tactics(0.25)
 			# move_and_slide runs every frame so they slide properly
 			velocity += external_force
+			velocity = _avoid_water_in_velocity(velocity, delta)
 			move_and_slide()
 			# Skipped: _process_ramming(delta) and visual updates when far
 		else:
 			_execute_ai_tactics(delta)
 			velocity += external_force
+			velocity = _avoid_water_in_velocity(velocity, delta)
 			move_and_slide()
 			_process_ramming(delta)
 			
@@ -633,33 +726,6 @@ func pull_towards(target_pos: Vector2, delta: float, strength: float = 600.0):
 	var dir = (target_pos - global_position).normalized()
 	external_force += dir * strength * delta
 
-# Visual feedback for how far the Magnet is currently reaching - previously
-# the pull radius had zero on-screen representation, so there was no way to
-# tell how strong/far a magnet build actually was without guessing from feel.
-# Gold tint when a Mythic Magnet's rarity filter is active, cyan otherwise.
-func _update_magnet_visual(pull_radius: float):
-	if not magnet_visual:
-		magnet_visual = Line2D.new()
-		magnet_visual.z_index = -1
-		var pts = PackedVector2Array()
-		for i in range(33):
-			var a = i * TAU / 32.0
-			pts.append(Vector2(cos(a), sin(a)))
-		magnet_visual.points = pts
-		add_child(magnet_visual)
-
-	magnet_visual.visible = true
-	magnet_visual.scale = Vector2.ONE * pull_radius
-	var is_filtered = min_loot_attract_rarity >= 0
-	var base_color = Color(1.0, 0.85, 0.2) if is_filtered else Color(0.3, 0.9, 1.0)
-	var pulse = 0.35 + sin(Time.get_ticks_msec() / 200.0) * 0.15
-	magnet_visual.default_color = Color(base_color.r, base_color.g, base_color.b, pulse)
-	# The node itself is scaled up to pull_radius to draw the ring at the
-	# right size, which would also scale up the line width - counteract
-	# that so the ring reads as a consistent ~2px outline regardless of how
-	# large the pull radius is.
-	magnet_visual.width = 2.0 / max(1.0, pull_radius)
-
 # Refreshes _in_water via an O(1) terrain-array lookup (same data source
 # die()'s water check reads). Called once at the very top of
 # _physics_process, BEFORE update_status_effects() - previously _in_water
@@ -677,6 +743,34 @@ func _refresh_water_state():
 		if grid_pos.x >= 0 and grid_pos.x < map.width and grid_pos.y >= 0 and grid_pos.y < map.height:
 			is_over_water = map.terrain[grid_pos.y][grid_pos.x] == map.BiomeType.WATER
 	_in_water = is_over_water
+
+# Prevents enemies from just walking straight into water and drowning.
+# _execute_ai_tactics/_execute_search compute movement as a pure straight
+# line toward whatever they're chasing/searching (global_position.
+# direction_to(...)) - MapGenerator's astar_grid is built water-aware
+# (water tiles marked solid, see MapGenerator._build_navigation) but is
+# never actually consulted by enemy movement, so any chase/search path that
+# happened to cross a lake or river turned it into an "enemies delete
+# themselves in ~1s" hazard rather than a real obstacle, instead of the
+# amphibious/jumpjet-gated hazard it's meant to be (see _check_drowning).
+# Cheap: one lookahead terrain lookup, same cost as the existing
+# _refresh_water_state() check already run every tick.
+func _avoid_water_in_velocity(vel: Vector2, delta: float) -> Vector2:
+	if is_amphibious or _has_jumpjets() or vel == Vector2.ZERO:
+		return vel
+	var map = _get_map_ref()
+	if not map or not ("terrain" in map):
+		return vel
+	var lookahead = global_position + vel * max(delta, 0.15) # a beat ahead, not just this tick
+	var grid_pos = Vector2i(int(floor(lookahead.x / map.tile_size)), int(floor(lookahead.y / map.tile_size)))
+	if grid_pos.x < 0 or grid_pos.x >= map.width or grid_pos.y < 0 or grid_pos.y >= map.height:
+		return vel
+	if map.terrain[grid_pos.y][grid_pos.x] != map.BiomeType.WATER:
+		return vel
+	# Heading into water - slide along its edge instead of stopping dead
+	# (a hard stop reads as "the AI got stuck"; sliding reads as avoidance).
+	var tangent = Vector2(-vel.y, vel.x).normalized()
+	return tangent * vel.length()
 
 func _check_drowning():
 	var is_over_water = _in_water
@@ -1507,191 +1601,15 @@ var _search_heading_idx: int = 0
 var _search_leg_start: Vector2 = Vector2.ZERO
 var _search_leg_target: Vector2 = Vector2.ZERO
 
-func _effective_sight_range() -> float:
-	return SIGHT_RANGE * (SCOUT_SIGHT_MULT if combat_role == "scout" else 1.0)
-
-func _effective_search_radius() -> float:
-	return SEARCH_WANDER_RADIUS * (SCOUT_SEARCH_MULT if combat_role == "scout" else 1.0)
-
-# Range + line-of-sight gate. Only updates has_sight_of_player/
-# last_known_player_pos - _execute_ai_tactics decides what to actually DO
-# with that state (chase vs. search).
 func _update_player_sight(delta: float):
-	if not _search_pos_initialized:
-		# Nothing better to go on yet - search near where it woke up rather
-		# than freezing until the first lucky spot.
-		last_known_player_pos = global_position
-		_search_pos_initialized = true
-
-	_sight_check_timer -= delta
-	if _sight_check_timer > 0.0:
-		return
-	_sight_check_timer = 1.0 / SIGHT_CHECK_HZ
-
-	var dist = global_position.distance_to(target.global_position)
-	var visible = false
-	if dist <= _effective_sight_range():
-		var space_state = get_world_2d().direct_space_state
-		# Collision mask 1 = World/obstacles only (same convention as the
-		# strafe-into-walls and boss-retreat-clearance raycasts elsewhere in
-		# this file) - other mechs don't block sight, only terrain/obstacles.
-		var query = PhysicsRayQueryParameters2D.create(global_position, target.global_position, 1)
-		visible = space_state.intersect_ray(query).is_empty()
-
-	if visible:
-		_gain_sight(target.global_position)
-		# Per Natalia: "if any squad member sees me the whole squad sees
-		# me. BUT other squads do not get that freebie." - only broadcasts
-		# to THIS mech's own squad.members, never anything global.
-		_share_sight_with_squad(target.global_position)
-	else:
-		has_sight_of_player = false
+	if not sight_and_search:
+		sight_and_search = SightAndSearch.new(self)
+	sight_and_search._update_player_sight(delta)
 
 func _gain_sight(player_pos: Vector2):
 	has_sight_of_player = true
 	last_known_player_pos = player_pos
 
-func _share_sight_with_squad(player_pos: Vector2):
-	if not squad or not is_instance_valid(squad):
-		return
-	for mate in squad.members:
-		if mate == self or not is_instance_valid(mate):
-			continue
-		if mate.has_method("_gain_sight"):
-			mate._gain_sight(player_pos)
-
-# What a non-boss mech does while it doesn't have sight of the player -
-# always ACTIVELY searching (no idle/give-up state - see the block comment
-# above). Scouts run a frontier-exploration search (see
-# _execute_scout_search); everyone else runs the expanding-square pattern
-# (see the block comment above _SEARCH_HEADINGS). No shooting while
-# searching - it doesn't know where you are, it shouldn't be able to hit you.
-func _execute_search(delta: float):
-	if squad and is_instance_valid(squad):
-		# "Everyone in the squad knows where everyone in the squad has
-		# looked" - mark the ground actually under us as covered. This is a
-		# deliberately cheap stand-in for a full LOS sweep (a real
-		# multi-directional raycast fan per mech per tick would be the
-		# "more precise" version, but at wave-scale enemy counts that's
-		# exactly the kind of per-tick physics query this session already
-		# found and fixed for projectiles/homing) - standing somewhere and
-		# not immediately spotting the player from here still means this
-		# immediate area has been looked at.
-		squad.mark_explored(global_position)
-
-	if combat_role == "scout":
-		_execute_scout_search(delta)
-		return
-
-	if not _search_pattern_initialized or _search_datum.distance_to(last_known_player_pos) > SEARCH_REDATUM_DIST:
-		_start_search_pattern(last_known_player_pos)
-
-	if global_position.distance_to(_search_leg_target) < 24.0:
-		_advance_search_leg()
-
-	# Skip legs the squad has already cleared recently rather than
-	# dutifully re-walking ground a squadmate just covered - bounded
-	# iteration count so a small/crowded search area can't loop forever.
-	var skip_guard = 0
-	while squad and is_instance_valid(squad) and squad.is_recently_explored(_search_leg_target) and skip_guard < 6:
-		_advance_search_leg()
-		skip_guard += 1
-
-	var search_dir = global_position.direction_to(_search_leg_target)
-	# More committed than the old passive wander (0.6x) - "more aggressive"
-	# per Natalia, though still a notch under a full chase (1.0x) since it's
-	# still just a hunch, not a confirmed sighting.
-	velocity = search_dir * current_move_speed * speed_modifier * 0.85
-
-# (Re)centers the expanding-square pattern on `datum` - called on first
-# search and again whenever a fresh sighting moves the datum meaningfully
-# ("redatum-ing", same term SAR crews use for this). Starting heading is
-# randomized per mech so squadmates searching the same datum fan out in
-# different initial directions instead of all walking the same spiral
-# single-file.
-func _start_search_pattern(datum: Vector2):
-	_search_datum = datum
-	_search_leg_len_units = 1
-	_search_legs_done_at_this_len = 0
-	_search_heading_idx = randi() % 4
-	_search_leg_start = global_position
-	_search_pattern_initialized = true
-	_search_leg_target = _next_leg_target()
-
-func _next_leg_target() -> Vector2:
-	var heading = _SEARCH_HEADINGS[_search_heading_idx % 4]
-	var length = _search_leg_len_units * SEARCH_LEG_UNIT * (SCOUT_SEARCH_MULT if combat_role == "scout" else 1.0)
-	var target = _search_leg_start + heading * length
-
-	# Line-of-sight/obstacle awareness: don't commit to a leg that just
-	# marches straight into a wall - try rotating through the other 3
-	# headings first (same mask-1/Env-only raycast convention as the
-	# player-sight check above) before giving up and using it anyway.
-	var space_state = get_world_2d().direct_space_state
-	var attempts = 0
-	while attempts < 3:
-		var query = PhysicsRayQueryParameters2D.create(_search_leg_start, target, 1)
-		if space_state.intersect_ray(query).is_empty():
-			break
-		attempts += 1
-		heading = _SEARCH_HEADINGS[(_search_heading_idx + attempts) % 4]
-		target = _search_leg_start + heading * length
-
-	return target
-
-# Advances to the next leg of the expanding square: turn 90 degrees, and
-# every 2 legs the leg length grows by one unit (the classic 1,1,2,2,3,3...
-# ES pattern). Past SEARCH_MAX_LEG_UNITS the pattern has grown too large
-# without success - recenter on the same datum and start over small rather
-# than spiraling toward the edge of the map forever.
-func _advance_search_leg():
-	_search_leg_start = _search_leg_target
-	_search_heading_idx = (_search_heading_idx + 1) % 4
-	_search_legs_done_at_this_len += 1
-	if _search_legs_done_at_this_len >= 2:
-		_search_legs_done_at_this_len = 0
-		_search_leg_len_units += 1
-	if _search_leg_len_units > SEARCH_MAX_LEG_UNITS:
-		_start_search_pattern(_search_datum)
-		return
-	_search_leg_target = _next_leg_target()
-
-# Scouts don't hunt for one specific last-known spot - per Natalia, "scouts
-# optimize for seeing unseen map": push outward into whichever nearby
-# direction the squad HASN'T already marked explored, continually
-# expanding the squad's collective vision instead of converging on a single
-# point. Genuine reconnaissance rather than a wider version of the same
-# datum search everyone else runs.
-func _execute_scout_search(delta: float):
-	_search_waypoint_timer -= delta
-	if _search_waypoint_timer <= 0.0 or global_position.distance_to(_search_waypoint) < 40.0:
-		_search_waypoint_timer = SEARCH_WAYPOINT_INTERVAL * 1.5
-		_search_waypoint = _pick_frontier_point()
-
-	var search_dir = global_position.direction_to(_search_waypoint)
-	velocity = search_dir * current_move_speed * speed_modifier # scouts commit fully - no caution discount
-
-# Cheap frontier-exploration heuristic: sample a ring of candidate points
-# around the scout, favor ones further out, and heavily discount any the
-# squad has already covered recently - a bounded-cost stand-in for a full
-# unexplored-region search that still reliably pushes toward genuinely new
-# ground instead of re-treading it.
-func _pick_frontier_point() -> Vector2:
-	var best = Vector2.ZERO
-	var best_score = -1.0
-	for i in range(8):
-		var ang = (TAU / 8.0) * i + randf_range(-0.3, 0.3)
-		var dist = randf_range(250.0, _effective_search_radius())
-		var candidate = global_position + Vector2(cos(ang), sin(ang)) * dist
-		var score = dist
-		if squad and is_instance_valid(squad) and squad.is_recently_explored(candidate):
-			score *= 0.15
-		if score > best_score:
-			best_score = score
-			best = candidate
-	if best == Vector2.ZERO:
-		best = global_position + Vector2(1, 0).rotated(randf() * TAU) * 300.0
-	return best
 
 func _execute_ai_tactics(delta):
 	if not target:
@@ -1728,7 +1646,9 @@ func _execute_ai_tactics(delta):
 				_ai_state_label.text = "CHASE" if has_sight_of_player else "SEARCH"
 				_ai_state_label.modulate = Color(0.3, 1.0, 0.3) if has_sight_of_player else Color(1.0, 0.6, 0.2)
 			if not has_sight_of_player:
-				_execute_search(delta)
+				if not sight_and_search:
+					sight_and_search = SightAndSearch.new(self)
+				sight_and_search._execute_search(delta)
 				return
 
 		var dist = global_position.distance_to(target.global_position)
@@ -1950,7 +1870,7 @@ func _is_pierce_execution_exempt() -> bool:
 			return true
 	return false
 
-func apply_damage(amount: float, element: String = "RAW", source: Node = null):
+func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false):
 	if elemental_resistances.has(element):
 		amount *= elemental_resistances[element]
 
@@ -1993,6 +1913,12 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null):
 	# all, nothing left to apply" - that's the only case that should bail.
 	if amount == 0.0:
 		return
+
+	# Squad._calculate_fitness's damage-traded and reflection-punishment
+	# axes (see took_damage's own field comment) - post-mitigation amount,
+	# same point dealt_damage's counterpart fires from the attacker's side.
+	if not is_player and amount > 0:
+		took_damage.emit(amount, was_reflected)
 
 	if is_player and amount > 0:
 		_log_incoming_damage(amount, element, source)
@@ -2061,6 +1987,12 @@ func _log_incoming_damage(amount: float, element: String, source: Node):
 # from _emit_heal_pulse() (which sets hp directly and bypasses this
 # function entirely, so it calls this separately).
 func _show_floating_text(text: String, color: Color):
+	# Hidden enemies (player currently Blind, see Main._update_player_blind_state)
+	# shouldn't leak combat info through floating damage/status text - it's a
+	# sibling node under `parent`, not a child of this mech, so it isn't
+	# covered by the .visible toggle there automatically.
+	if not is_player and not visible:
+		return
 	var parent = get_parent()
 	if not parent:
 		return
@@ -2351,27 +2283,36 @@ func _get_ambush_multiplier() -> float:
 		return AMBUSH_MULTIPLIER
 	return 1.0
 
-# --- Jammer Module (equippable pulse ability) --------------------------
+# --- Jammer Module (equippable ability) ---------------------------------
+# VISION mode (jammer_mode == 0) is now a persistent, spatial JammerField
+# (see that class's own header comment) instead of a periodic full-screen-
+# dim pulse - not stealth, an announcement: it broadcasts this mech's rough
+# location to the opposing side while denying them an exact position, and
+# blinds (see Mech._update_player_sight / Main._update_player_blind_state)
+# anyone from the opposing side standing inside it. SYNERGY mode
+# (jammer_mode == 1) is UNCHANGED - still the old pulse-timer/duration mute.
 
 func _update_jammer_module(delta: float):
-	if not has_jammer_module:
-		return
-	jammer_pulse_timer -= delta
-	if jammer_pulse_timer <= 0.0:
-		jammer_pulse_timer = jammer_pulse_interval
-		_emit_jammer_pulse()
+	if has_jammer_module and jammer_mode == 0: # VISION
+		_ensure_jammer_field()
+		if is_player:
+			_tick_jammer_broadcast(delta)
+	else:
+		_release_jammer_field()
 
-func _emit_jammer_pulse():
+	if has_jammer_module and jammer_mode == 1: # SYNERGY, unchanged pulse timer
+		jammer_pulse_timer -= delta
+		if jammer_pulse_timer <= 0.0:
+			jammer_pulse_timer = jammer_pulse_interval
+			_emit_synergy_jam_pulse()
+
+func _emit_synergy_jam_pulse():
 	var p = _get_player_ref()
 	if not p:
 		return
 	if global_position.distance_to(p.global_position) <= jammer_pulse_radius:
-		if jammer_mode == 0:
-			if p.has_method("apply_vision_jam"):
-				p.apply_vision_jam(jammer_effect_duration)
-		else:
-			if p.has_method("apply_synergy_jam"):
-				p.apply_synergy_jam(jammer_target_synergy, jammer_effect_duration)
+		if p.has_method("apply_synergy_jam"):
+			p.apply_synergy_jam(jammer_target_synergy, jammer_effect_duration)
 
 	var visual_class = load("res://scripts/attacks/PulseRingVisual.gd")
 	if visual_class:
@@ -2381,9 +2322,48 @@ func _emit_jammer_pulse():
 		if get_parent():
 			get_parent().add_child(v)
 
-func apply_vision_jam(duration: float):
-	if is_player:
-		vision_jammed.emit(duration)
+func _ensure_jammer_field():
+	if jammer_field and is_instance_valid(jammer_field):
+		return
+	if not get_parent():
+		return
+	jammer_field = JammerField.new()
+	jammer_field.global_position = global_position
+	jammer_field.setup(self, jammer_pulse_radius, -1.0)
+	get_parent().add_child(jammer_field)
+	if not _jammer_field_exit_hooked:
+		_jammer_field_exit_hooked = true
+		tree_exiting.connect(_release_jammer_field)
+
+func _release_jammer_field():
+	if jammer_field and is_instance_valid(jammer_field):
+		jammer_field.queue_free()
+	jammer_field = null
+
+# Throttled (not per-frame) alert to every enemy on the map that the
+# player's jammer is active, and roughly where - reuses the EXISTING
+# search-AI primitives entirely unmodified (see receive_jammer_alert below
+# and _execute_search's own redatum-on-drift logic), doesn't touch or
+# improve that system, just feeds it a new target.
+func _tick_jammer_broadcast(delta: float):
+	_jammer_broadcast_timer -= delta
+	if _jammer_broadcast_timer > 0.0 or not jammer_field or not is_instance_valid(jammer_field):
+		return
+	_jammer_broadcast_timer = JAMMER_BROADCAST_INTERVAL
+	var main = get_tree().current_scene
+	if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
+		main.world.get_node("SquadDirector").broadcast_jammer_alert(jammer_field.global_position)
+
+# Called by SquadDirector.broadcast_jammer_alert on every live squad member.
+# Deliberately does nothing but nudge last_known_player_pos - an enemy
+# that's already in a real fight (has_sight_of_player) or is a boss ignores
+# this entirely; everyone else's existing _execute_search picks up the new
+# datum and redatums its search pattern toward it, same as any other
+# lost-sight wander trigger.
+func receive_jammer_alert(approx_pos: Vector2):
+	if is_boss or is_player or has_sight_of_player:
+		return
+	last_known_player_pos = approx_pos
 
 func apply_synergy_jam(synergy_id: int, duration: float):
 	jammed_synergies[synergy_id] = max(jammed_synergies.get(synergy_id, 0.0), duration)
@@ -2441,10 +2421,6 @@ func _emit_heal_pulse():
 # fight is effectively "a squad of one." Feeds BossProfile.update_fitness
 # via Main._on_boss_died -> SquadDirector._on_boss_defeated, which is what
 # makes boss profiles evolve instead of just being 6 static archetypes.
-var _boss_time_alive: float = 0.0
-var _boss_hits_landed: int = 0
-var _boss_damage_dealt: float = 0.0
-var _boss_first_engagement: float = -1.0
 var _boss_time_since_hit: float = 0.0
 var _boss_flee_penalty: float = 0.0
 const BOSS_FLEE_GRACE: float = 5.0
@@ -2454,22 +2430,25 @@ const BOSS_FLEE_RATE: float = 1.5
 # there) - covers normal shots fired via Projectile automatically. Ability
 # damage (shockwave/railgun) doesn't route through a Projectile, so
 # _resolve_shockwave/_resolve_railgun call this directly after apply_damage.
-func _on_self_dealt_damage(amount: float):
-	_boss_damage_dealt += amount
-	_boss_hits_landed += 1
+# Damage/hit/survival counting itself is now shared with every mech via
+# _on_own_dealt_damage/get_individual_fitness (see that field block near
+# the top of the file) - this used to duplicate that exact counting into a
+# separate _boss_* set of fields feeding an almost-identical formula; the
+# only thing still genuinely boss-specific is resetting the flee timer.
+func _on_self_dealt_damage(_amount: float):
 	_boss_time_since_hit = 0.0
-	if _boss_first_engagement < 0.0:
-		_boss_first_engagement = _boss_time_alive
 
+# Same shape as Squad._calculate_fitness (damage dealt + hits landed +
+# capped survival-since-first-engagement + damage-traded/blind bonuses -
+# flee penalty), just scoped to a single mech since a boss fight is
+# effectively "a squad of one" - get_individual_fitness() already computes
+# exactly that; flee penalty is the one piece unique to a boss (a squad can
+# go quiet as a group, but this is measuring one mech refusing to engage).
+# Feeds BossProfile.update_fitness via Main._on_boss_died ->
+# SquadDirector._on_boss_defeated, which is what makes boss profiles evolve
+# instead of just being 6 static archetypes.
 func get_boss_fitness() -> float:
-	var damage_score = _boss_damage_dealt * 1.0
-	var hit_score = _boss_hits_landed * 3.0
-	var survival_score = 0.0
-	if _boss_first_engagement >= 0.0:
-		survival_score = min(_boss_time_alive - _boss_first_engagement, 60.0) * 2.0
-	if _boss_hits_landed <= 0:
-		survival_score = 0.0 # never engaged at all - no survival credit (anti-hiding, same rule as Squad's)
-	return max(0.0, damage_score + hit_score + survival_score - _boss_flee_penalty)
+	return max(0.0, get_individual_fitness() - _boss_flee_penalty)
 
 # BossBrain (a RefCounted, not a Node) can't own the dealt_damage signal
 # itself - its shockwave/railgun ability resolution calls this instead of
@@ -2536,7 +2515,14 @@ func die():
 	if not is_player:
 		var main_scene = get_tree().current_scene
 		if main_scene and "world" in main_scene and main_scene.world and main_scene.world.has_node("SquadDirector"):
-			main_scene.world.get_node("SquadDirector").log_player_kill(last_damage_element)
+			var director = main_scene.world.get_node("SquadDirector")
+			director.log_player_kill(last_damage_element)
+			# Credit THIS bot's own solver profile with ITS OWN individual
+			# performance (see get_individual_fitness/SquadDirector.
+			# credit_bot_death) - fires on every bot death regardless of
+			# whether its squad ultimately wipes or wins, unlike the old
+			# squad-wide crediting which only ever fired on a full wipe.
+			director.credit_bot_death(self)
 
 	# VAMPIRIC kills leave a drained husk that blocks movement and shots
 	# for a while - terrain you make out of your enemies (group 3 spec).
@@ -2574,37 +2560,49 @@ func die():
 
 func build_loadout_for_role(role_name: String):
 	var inventory = []
-	
+
 	var add_tile = func(path, rarity, synergy=0):
 		var tile = load(path).new()
 		tile.rarity = rarity
 		if synergy > 0 and "secondary_synergy" in tile:
 			tile.secondary_synergy = synergy
 		inventory.append(tile)
-		
+
+	# Tile rarity now scales with base_rarity instead of being hardcoded -
+	# previously every enemy got the exact same fixed-rarity weapon tiles
+	# regardless of base_rarity (only component/frame SIZE scaled), so a
+	# "Mythic-tier" enemy's huge grid ended up sparsely filled with COMMON/
+	# UNCOMMON/RARE gear. The offsets below preserve each role's original
+	# relative shape (signature tile strongest, support tiles trail behind
+	# it) rather than flattening everything to the same tier - the old
+	# hardcoded ceiling was RARE (2), so that's offset 0; UNCOMMON (1) was
+	# one step below that ceiling, COMMON (0) was two steps below.
+	var tier = func(offset: int) -> int:
+		return clamp(base_rarity - offset, HexTile.Rarity.COMMON, HexTile.Rarity.MYTHIC)
+
 	match role_name:
 		"sniper":
-			add_tile.call("res://scripts/tiles/AmplifierTile.gd", HexTile.Rarity.RARE)
-			add_tile.call("res://scripts/tiles/CatalystTile.gd", HexTile.Rarity.RARE)
-			add_tile.call("res://scripts/tiles/DirectionalConduitTile.gd", HexTile.Rarity.COMMON)
+			add_tile.call("res://scripts/tiles/AmplifierTile.gd", tier.call(0))
+			add_tile.call("res://scripts/tiles/CatalystTile.gd", tier.call(0))
+			add_tile.call("res://scripts/tiles/DirectionalConduitTile.gd", tier.call(2))
 		"brawler":
-			add_tile.call("res://scripts/tiles/SplitterTile.gd", HexTile.Rarity.UNCOMMON)
-			add_tile.call("res://scripts/tiles/SplitterTile.gd", HexTile.Rarity.UNCOMMON)
-			add_tile.call("res://scripts/tiles/AmplifierTile.gd", HexTile.Rarity.UNCOMMON)
+			add_tile.call("res://scripts/tiles/SplitterTile.gd", tier.call(1))
+			add_tile.call("res://scripts/tiles/SplitterTile.gd", tier.call(1))
+			add_tile.call("res://scripts/tiles/AmplifierTile.gd", tier.call(1))
 		"flamethrower":
-			add_tile.call("res://scripts/tiles/InfuserTile.gd", HexTile.Rarity.RARE, 1) # FIRE
-			add_tile.call("res://scripts/tiles/SplitterTile.gd", HexTile.Rarity.UNCOMMON)
-			add_tile.call("res://scripts/tiles/SplitterTile.gd", HexTile.Rarity.COMMON)
+			add_tile.call("res://scripts/tiles/InfuserTile.gd", tier.call(0), 1) # FIRE
+			add_tile.call("res://scripts/tiles/SplitterTile.gd", tier.call(1))
+			add_tile.call("res://scripts/tiles/SplitterTile.gd", tier.call(2))
 		"ambusher":
-			add_tile.call("res://scripts/tiles/InfuserTile.gd", HexTile.Rarity.RARE, 4) # KINETIC
-			add_tile.call("res://scripts/tiles/AmplifierTile.gd", HexTile.Rarity.UNCOMMON)
+			add_tile.call("res://scripts/tiles/InfuserTile.gd", tier.call(0), 4) # KINETIC
+			add_tile.call("res://scripts/tiles/AmplifierTile.gd", tier.call(1))
 		"scout":
 			pass # Uses basic conduits if they were available, fallback empty solver handles it
 		"commander":
 			# Weapons are secondary for a Commander - the Command Suite
 			# backpack is the payload. Feed the solver defensive parts.
-			add_tile.call("res://scripts/tiles/ShieldTile.gd", HexTile.Rarity.RARE)
-			add_tile.call("res://scripts/tiles/AccumulatorTile.gd", HexTile.Rarity.RARE)
+			add_tile.call("res://scripts/tiles/ShieldTile.gd", tier.call(0))
+			add_tile.call("res://scripts/tiles/AccumulatorTile.gd", tier.call(0))
 
 	# Give the solver something to actually work with: an Infuser it can
 	# configure toward the spawn profile's counter-element/Pierce priority.
@@ -2612,7 +2610,7 @@ func build_loadout_for_role(role_name: String):
 	# the role already hardcodes above - it couldn't introduce a genuinely
 	# new counter-element into a role that doesn't normally use one.
 	if spawn_profile != null:
-		add_tile.call("res://scripts/tiles/InfuserTile.gd", HexTile.Rarity.UNCOMMON)
+		add_tile.call("res://scripts/tiles/InfuserTile.gd", tier.call(1))
 
 	var solver = load("res://scripts/core/AutoEquipSolver.gd").new()
 

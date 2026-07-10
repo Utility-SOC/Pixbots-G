@@ -140,6 +140,34 @@ func _get_power_multiplier() -> float:
 	elif rarity == Rarity.MYTHIC: mult = 5.0
 	return mult * (1.0 + (level - 1) * 0.1)
 
+# Weapon Mount Capacity (Natalia: "especially at higher rarities would have
+# more capacity before firing, so instead of getting 100 projectiles in a
+# split second from a heavily fuelled shotgun, it could just have 10% as
+# many projectiles, but much bigger"). Shotgun/Radial Burst used to always
+# fire a fixed pellet count (5 / 8) no matter how invested the mount was -
+# a dense capacitor-bank grid with many such mounts firing at once really
+# could produce ~100 total projectiles in one volley. A mount's power
+# multiplier (rarity AND level - patterns only unlock at Mythic today, so
+# level is the practical lever within that) now scales its pellet count
+# DOWN as it grows, with each remaining pellet's payload scaled UP by the
+# same factor - total output per volley is unchanged, just redistributed
+# across fewer, proportionally bigger shots. This is also a direct answer
+# to "too many projectiles tanks performance": the mounts most likely to
+# spam a screen full of pellets (heavily leveled Mythic ones) are exactly
+# the ones this eases off the hardest.
+const SHOTGUN_MAX_PELLETS = 5
+const SHOTGUN_MIN_PELLETS = 2
+const RADIAL_MAX_PELLETS = 8
+const RADIAL_MIN_PELLETS = 4
+
+func _pattern_pellet_count(max_pellets: int, min_pellets: int) -> int:
+	# _get_power_multiplier() is 5.0 at a fresh Mythic level-1 mount (the
+	# baseline every pattern already assumes) and grows further with level
+	# upgrades - capacity_factor stays 1.0 (full pellet count) at that
+	# baseline, then eases the count down as the mount gets more invested.
+	var capacity_factor = _get_power_multiplier() / 5.0
+	return clamp(int(round(max_pellets / capacity_factor)), min_pellets, max_pellets)
+
 func get_muzzle_position(mech) -> Vector2:
 	var renderer = mech.get_node_or_null("MechRenderer")
 	if not renderer:
@@ -164,21 +192,35 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 
 	# MYTHIC Weapon Mount firing patterns: split the volley into a shotgun
 	# spread or a 360-degree radial burst by recursively firing scaled-down
-	# child packets. _pattern_child guards recursion; step-staggered shots
-	# keep their normal behavior (patterns only apply to instant volleys).
-	if not _pattern_child and step == 0 and "mythic_pattern" in self and rarity == Rarity.MYTHIC:
+	# child packets. _pattern_child guards recursion (children are marked
+	# true and skip this whole check, so no fractal explosion risk).
+	# Previously also required step == 0 ("this packet took zero hex-hops
+	# from the Core"), which on any grid where the mount isn't the Core's
+	# immediate neighbor - i.e. almost every non-trivial build, and
+	# essentially every dense Mythic-tier one - meant the pattern silently
+	# never fired at all, degrading to a single normal shot regardless of
+	# the mode selected. Beam (pattern 3, below) never had this restriction,
+	# confirming it was an oversight specific to Shotgun/Radial rather than
+	# an intentional "patterns only apply to instant volleys" design call.
+	if not _pattern_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC:
 		var pattern = int(get("mythic_pattern"))
-		if pattern == 1: # Shotgun: 5 pellets, 40% payload each, +/-24 deg
-			for i in range(5):
+		if pattern == 1: # Shotgun: up to 5 pellets, +/-24 deg spread
+			var pellet_count = _pattern_pellet_count(SHOTGUN_MAX_PELLETS, SHOTGUN_MIN_PELLETS)
+			var per_pellet_amplify = (SHOTGUN_MAX_PELLETS * 0.4) / float(pellet_count)
+			var angle_step = 48.0 / max(1, pellet_count - 1)
+			for i in range(pellet_count):
 				var pellet = packet.copy()
-				pellet.amplify(0.4)
-				_fire_combined_projectile(mech, pellet, 0, true, deg_to_rad(-24.0 + 12.0 * i))
+				pellet.amplify(per_pellet_amplify)
+				var angle_deg = -24.0 + angle_step * i if pellet_count > 1 else 0.0
+				_fire_combined_projectile(mech, pellet, 0, true, deg_to_rad(angle_deg))
 			return
-		elif pattern == 2: # Radial burst: 8 shots, 50% payload, full circle
-			for i in range(8):
+		elif pattern == 2: # Radial burst: up to 8 shots, full circle
+			var shard_count = _pattern_pellet_count(RADIAL_MAX_PELLETS, RADIAL_MIN_PELLETS)
+			var per_shard_amplify = (RADIAL_MAX_PELLETS * 0.5) / float(shard_count)
+			for i in range(shard_count):
 				var shard = packet.copy()
-				shard.amplify(0.5)
-				_fire_combined_projectile(mech, shard, 0, true, TAU * float(i) / 8.0)
+				shard.amplify(per_shard_amplify)
+				_fire_combined_projectile(mech, shard, 0, true, TAU * float(i) / shard_count)
 			return
 		# pattern 3 (Beam) falls through - single projectile, tuned below.
 

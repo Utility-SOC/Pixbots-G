@@ -392,57 +392,64 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 	# Add a Core at (0,0)
 	var core_tile = load("res://scripts/tiles/CoreTile.gd").new()
 	core_tile.body_slot = HexTile.BodySlot.TORSO
+	core_tile.rarity = p_rarity
 	torso.hex_grid.add_tile(HexCoord.new(0, 0), core_tile)
 	torso.fixed_sinks.append(HexCoord.new(0, 0))
-		
+
 	# Find outermost Q for arms
 	var min_q = 0
 	var max_q = 0
 	for h in torso.valid_hexes:
 		if h.q < min_q: min_q = h.q
 		if h.q > max_q: max_q = h.q
-		
+
 	# Add Sink for Left Arm
 	var l_arm_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.ARM_L, true)
 	l_arm_sink.body_slot = HexTile.BodySlot.TORSO
+	l_arm_sink.rarity = p_rarity
 	torso.hex_grid.add_tile(HexCoord.new(min_q, 0), l_arm_sink)
 	torso.fixed_sinks.append(HexCoord.new(min_q, 0))
-		
+
 	# Add Sink for Right Arm
 	var r_arm_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.ARM_R, true)
 	r_arm_sink.body_slot = HexTile.BodySlot.TORSO
+	r_arm_sink.rarity = p_rarity
 	torso.hex_grid.add_tile(HexCoord.new(max_q, 0), r_arm_sink)
 	torso.fixed_sinks.append(HexCoord.new(max_q, 0))
-	
+
 	# Find outermost R for head and legs
 	var min_r = 0
 	var max_r = 0
 	for h in torso.valid_hexes:
 		if h.r < min_r: min_r = h.r
 		if h.r > max_r: max_r = h.r
-		
+
 	# Add Sink for Head (Top)
 	var head_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.HEAD, true)
 	head_sink.body_slot = HexTile.BodySlot.TORSO
+	head_sink.rarity = p_rarity
 	torso.hex_grid.add_tile(HexCoord.new(0, min_r), head_sink)
 	torso.fixed_sinks.append(HexCoord.new(0, min_r))
-	
+
 	# Add Sink for Left Leg (Bottom Left)
 	var l_leg_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.LEG_L, true)
 	l_leg_sink.body_slot = HexTile.BodySlot.TORSO
+	l_leg_sink.rarity = p_rarity
 	torso.hex_grid.add_tile(HexCoord.new(-1, max_r), l_leg_sink)
 	torso.fixed_sinks.append(HexCoord.new(-1, max_r))
-	
+
 	# Add Sink for Right Leg (Bottom Right)
 	var r_leg_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.LEG_R, true)
 	r_leg_sink.body_slot = HexTile.BodySlot.TORSO
+	r_leg_sink.rarity = p_rarity
 	torso.hex_grid.add_tile(HexCoord.new(1, max_r), r_leg_sink)
 	torso.fixed_sinks.append(HexCoord.new(1, max_r))
-	
+
 	# Add Sink for Accessory Return (receives energy from Head/Backpack, acts as Input)
 	var head_return_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new()
 	head_return_sink.body_slot = HexTile.BodySlot.TORSO
 	head_return_sink.tile_type = "Accessory Return"
+	head_return_sink.rarity = p_rarity
 	var acc_pos = HexCoord.new(0, min_r + 1)
 	for h in torso.valid_hexes:
 		if not torso.hex_grid.has_tile(h):
@@ -450,16 +457,18 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 			break
 	torso.hex_grid.add_tile(acc_pos, head_return_sink)
 	torso.fixed_sinks.append(acc_pos)
-	
+
 	# Add Sink for Backpack
 	var backpack_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.BACKPACK, true)
 	backpack_sink.body_slot = HexTile.BodySlot.TORSO
+	backpack_sink.rarity = p_rarity
 	torso.hex_grid.add_tile(HexCoord.new(0, 1), backpack_sink)
 	torso.fixed_sinks.append(HexCoord.new(0, 1))
-	
+
 	if role != "":
 		var ai_mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
 		ai_mount.body_slot = HexTile.BodySlot.TORSO
+		ai_mount.rarity = p_rarity
 		var ai_mount_pos = HexCoord.new(1, -1)
 		for h in torso.valid_hexes:
 			if not torso.hex_grid.has_tile(h):
@@ -467,8 +476,9 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 				break
 		torso.hex_grid.add_tile(ai_mount_pos, ai_mount)
 		torso.fixed_sinks.append(ai_mount_pos)
-		
+
 		var ai_core = load("res://scripts/tiles/MicrocoreTile.gd").new()
+		ai_core.rarity = p_rarity
 		var ai_core_pos = null
 		for d in range(6):
 			var n = ai_mount_pos.neighbor(d)
@@ -482,7 +492,7 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 				break
 		if ai_core_pos:
 			torso.hex_grid.add_tile(ai_core_pos, ai_core)
-	
+
 	return torso
 	
 static func create_starter_arm(is_left: bool, role: String = "", p_rarity: int = HexTile.Rarity.COMMON):
@@ -496,9 +506,10 @@ static func create_starter_arm(is_left: bool, role: String = "", p_rarity: int =
 	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
 	intake.tile_type = "Energy Intake"
 	intake.body_slot = slot
+	intake.rarity = p_rarity
 	arm.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	arm.fixed_sinks.append(HexCoord.new(0, 0))
-	
+
 	# Add a Weapon Mount at the furthest extent
 	var max_q = 0
 	var mount_h = HexCoord.new(0, 0)
@@ -507,14 +518,16 @@ static func create_starter_arm(is_left: bool, role: String = "", p_rarity: int =
 		if h.q * dir > max_q * dir:
 			max_q = h.q
 			mount_h = HexCoord.new(h.q, h.r)
-			
+
 	var mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
 	mount.body_slot = slot
+	mount.rarity = p_rarity
 	arm.hex_grid.add_tile(mount_h, mount)
 	arm.fixed_sinks.append(mount_h)
-	
+
 	if role != "":
 		var ai_core = load("res://scripts/tiles/MicrocoreTile.gd").new()
+		ai_core.rarity = p_rarity
 		var ai_core_pos = null
 		for d in range(6):
 			var n = mount_h.neighbor(d)
@@ -542,9 +555,10 @@ static func create_starter_leg(is_left: bool, role: String = "", p_rarity: int =
 	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
 	intake.tile_type = "Energy Intake"
 	intake.body_slot = slot
+	intake.rarity = p_rarity
 	leg.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	leg.fixed_sinks.append(HexCoord.new(0, 0))
-	
+
 	# Add Actuator at bottom
 	var max_r = 0
 	var mount_h = HexCoord.new(0, 0)
@@ -552,12 +566,13 @@ static func create_starter_leg(is_left: bool, role: String = "", p_rarity: int =
 		if h.r > max_r:
 			max_r = h.r
 			mount_h = HexCoord.new(h.q, h.r)
-			
+
 	var actuator = load("res://scripts/tiles/ActuatorTile.gd").new()
 	actuator.body_slot = slot
+	actuator.rarity = p_rarity
 	leg.hex_grid.add_tile(mount_h, actuator)
 	leg.fixed_sinks.append(mount_h)
-	
+
 	return leg
 
 static func create_starter_head(role: String = "", p_rarity: int = HexTile.Rarity.COMMON):
@@ -570,19 +585,21 @@ static func create_starter_head(role: String = "", p_rarity: int = HexTile.Rarit
 	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
 	intake.tile_type = "Energy Intake"
 	intake.body_slot = HexTile.BodySlot.HEAD
+	intake.rarity = p_rarity
 	head.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	head.fixed_sinks.append(HexCoord.new(0, 0))
-	
+
 	var min_r = 0
 	for h in head.valid_hexes:
 		if h.r < min_r: min_r = h.r
-		
+
 	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
 	tor_return.tile_type = "Torso Return"
 	tor_return.body_slot = HexTile.BodySlot.HEAD
+	tor_return.rarity = p_rarity
 	head.hex_grid.add_tile(HexCoord.new(0, min_r), tor_return)
 	head.fixed_sinks.append(HexCoord.new(0, min_r))
-	
+
 	return head
 
 static func create_starter_backpack(role: String = "", p_rarity: int = HexTile.Rarity.COMMON):
@@ -594,18 +611,20 @@ static func create_starter_backpack(role: String = "", p_rarity: int = HexTile.R
 	
 	var core = load("res://scripts/tiles/MicrocoreTile.gd").new()
 	core.body_slot = HexTile.BodySlot.BACKPACK
+	core.rarity = p_rarity
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), core)
-	
+
 	var max_r = 0
 	for h in pack.valid_hexes:
 		if h.r > max_r: max_r = h.r
-		
+
 	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
 	tor_return.tile_type = "Torso Return"
 	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	tor_return.rarity = p_rarity
 	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
 	pack.fixed_sinks.append(HexCoord.new(0, max_r))
-	
+
 	return pack
 
 # Standalone body for the Drone companion (see DroneBayTile.gd) - a small,
@@ -1018,6 +1037,20 @@ static func create_command_backpack(p_rarity: int = HexTile.Rarity.RARE):
 		tile.rarity = p_rarity
 		tile.body_slot = HexTile.BodySlot.BACKPACK
 		pack.hex_grid.add_tile(m[1], tile)
+
+	# Commanders come with a companion Drone by default (Natalia: "commanders
+	# should come with one by default at the appropriate rarity") - always
+	# installed, not rarity-gated like the second Heal Beacon above, since
+	# this is the one guaranteed case (see Mech._create_role_backpack's
+	# generic per-role chance for everyone else). build_drone_loadout() is
+	# called explicitly (unlike the generic module loop above) since
+	# DroneBayTile needs its nested loadout/visual_class built, not just
+	# rarity/body_slot set.
+	var drone_bay = load("res://scripts/tiles/DroneBayTile.gd").new()
+	drone_bay.rarity = p_rarity
+	drone_bay.body_slot = HexTile.BodySlot.BACKPACK
+	drone_bay.build_drone_loadout()
+	pack.hex_grid.add_tile(HexCoord.new(-2, 1), drone_bay)
 
 	var max_r = 0
 	for h in pack.valid_hexes:

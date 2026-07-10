@@ -18,6 +18,11 @@ extends BossProfile
 @export var dialogue_intro: String = ""
 @export var dialogue_win: String = ""
 @export var dialogue_loss: String = ""
+# One-line flavor description of the rival's deck gimmick (from dialogue.json).
+@export var gimmick: String = ""
+# Round-scaling villain monologues from dialogue.json, keyed by round
+# ("round_1".."round_3", "mythic").
+@export var monologues: Dictionary = {}
 
 # For Leo & Luna: 2v1 match. If > 1, SquadDirector spawns multiple Mechs.
 @export var mech_count: int = 1
@@ -37,6 +42,8 @@ func to_dict() -> Dictionary:
 	d["dialogue_intro"] = dialogue_intro
 	d["dialogue_win"] = dialogue_win
 	d["dialogue_loss"] = dialogue_loss
+	d["gimmick"] = gimmick
+	d["monologues"] = monologues
 	d["mech_count"] = mech_count
 	return d
 
@@ -60,4 +67,6 @@ func from_dict(data: Dictionary):
 	if data.has("dialogue_intro"): dialogue_intro = str(data["dialogue_intro"])
 	if data.has("dialogue_win"): dialogue_win = str(data["dialogue_win"])
 	if data.has("dialogue_loss"): dialogue_loss = str(data["dialogue_loss"])
+	if data.has("gimmick"): gimmick = str(data["gimmick"])
+	if data.has("monologues"): monologues = data["monologues"].duplicate()
 	if data.has("mech_count"): mech_count = int(data["mech_count"])

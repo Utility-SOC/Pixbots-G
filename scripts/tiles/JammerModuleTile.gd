@@ -52,7 +52,10 @@ func get_jam_energy() -> float:
 	return e
 
 func get_pulse_radius() -> float:
-	return 220.0 + rarity * 60.0
+	# x1.7: fields read as too small/subtle in play relative to how good
+	# they look - rarity scaling (more power = bigger field) unchanged,
+	# just the whole curve scaled up.
+	return (220.0 + rarity * 60.0) * 1.7
 
 func get_pulse_interval() -> float:
 	match rarity:

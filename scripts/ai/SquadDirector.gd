@@ -5,40 +5,21 @@ const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
 const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 const BossProfile = preload("res://scripts/ai/BossProfile.gd")
 const WarRoomNames = preload("res://scripts/ai/WarRoomNames.gd")
+const TemplateEvolution = preload("res://scripts/ai/TemplateEvolution.gd")
+const ProfileEvolution = preload("res://scripts/ai/ProfileEvolution.gd")
+const BossEvolution = preload("res://scripts/ai/BossEvolution.gd")
+const DroneBayTileScript = preload("res://scripts/tiles/DroneBayTile.gd")
 
-# --- AI squad evolution tuning ---
-# How many "on trial" experimental templates can exist at once. Without a
-# cap, mutation + merge-derived templates would accumulate forever (the
-# "ten million failed squad types" problem).
-const MAX_EXPERIMENTAL_TEMPLATES = 5
-# An experimental template needs at least this many completed deployments
-# before it's judged - one bad squad wipe shouldn't be a death sentence.
-const MIN_TRIALS_BEFORE_CULL = 3
-# Average fitness below this after MIN_TRIALS_BEFORE_CULL gets the template
-# removed. 100 is "expected average" per SquadTemplate's own convention
-# (see SquadTemplate.update_fitness), so this is "meaningfully worse than a
-# typical squad", not "worse than the best squad".
-const CULL_FITNESS_THRESHOLD = 60.0
-# Average fitness above this promotes the template out of experimental
-# status entirely - it's earned a permanent spot in the rotation.
-const GRADUATE_FITNESS_THRESHOLD = 110.0
-
-# --- Solver profile evolution tuning (mirrors the squad-template constants
-# above - same shape, applied to AutoEquipSolver loadout profiles instead
-# of squad compositions) ---
-const MAX_EXPERIMENTAL_PROFILES = 5
-const MIN_PROFILE_TRIALS_BEFORE_CULL = 3
-const PROFILE_CULL_THRESHOLD = 60.0
-const PROFILE_GRADUATE_THRESHOLD = 110.0
-
-# --- Boss profile evolution tuning (same shape again, applied to boss
-# "kits" - base_role/ability_pool/enrage_style/position_style/hp_mult - so
-# bosses stop being 6 fixed hand-picked archetypes and become a mutating,
-# fitness-selected pool like everything else the director evolves.) ---
-const MAX_EXPERIMENTAL_BOSS_PROFILES = 4
-const MIN_BOSS_PROFILE_TRIALS_BEFORE_CULL = 2 # boss fights are rarer events than squad wipes - don't demand as many trials
-const BOSS_PROFILE_CULL_THRESHOLD = 60.0
-const BOSS_PROFILE_GRADUATE_THRESHOLD = 110.0
+# --- AI evolution: three near-identical evolutionary subsystems (squad
+# composition, loadout doctrine, boss kits), each mutate/crossover/cull/
+# graduate/select for their own data type. Composed-RefCounted-helper
+# pattern (same as Mech.gd's PlayerController/BossBrain/StatusEffectRunner)
+# rather than three flat sets of functions interleaved in this file - see
+# each helper's own header comment. Tuning constants live on their
+# respective helper now (TemplateEvolution.MAX_EXPERIMENTAL_TEMPLATES etc.)
+var template_evolution: TemplateEvolution
+var profile_evolution: ProfileEvolution
+var boss_evolution: BossEvolution
 
 var solver_profiles: Array[SolverProfile] = []
 var boss_profiles: Array[BossProfile] = []
@@ -86,11 +67,15 @@ func get_next_rival() -> String:
 	return chosen
 
 func _ready():
+	template_evolution = TemplateEvolution.new(self)
+	profile_evolution = ProfileEvolution.new(self)
+	boss_evolution = BossEvolution.new(self)
+
 	profile_manager = SquadProfileManager.new()
 	profile_manager.name = "ProfileManager"
 	add_child(profile_manager)
-	_register_default_boss_profiles()
-	
+	boss_evolution.register_defaults()
+
 	# Load Rival profiles
 	var dm = load("res://scripts/core/DialogueManager.gd").new()
 	dm._ready()
@@ -100,28 +85,6 @@ func _ready():
 		# Initialize pool if empty
 		if active_rival_pool.is_empty():
 			active_rival_pool = all_rival_profiles.keys()
-
-# The 6 original hand-picked archetypes, now as the PERMANENT (non-
-# experimental) seed of the boss_profiles pool rather than a flat const
-# array Main.gd picked from directly. Mutation/crossover grow the pool from
-# here; these six never get culled (is_experimental stays false) so there's
-# always a stable baseline even if every experiment underperforms.
-func _register_default_boss_profiles():
-	var seeds = [
-		{"name": "Warhulk", "role": "brawler", "ability": "shockwave", "enrage": "juggernaut", "position": "aggressive", "hp_mult": 1.0},
-		{"name": "Longshot", "role": "sniper", "ability": "railgun", "enrage": "berserker", "position": "kiter", "hp_mult": 2.3},
-		{"name": "Specter", "role": "ambusher", "ability": "blink_strike", "enrage": "berserker", "position": "aggressive", "hp_mult": 1.5},
-		{"name": "Incinerator", "role": "flamethrower", "ability": "fire_pool", "enrage": "unstable", "position": "aggressive", "hp_mult": 1.2},
-		{"name": "Warden", "role": "jammer", "ability": "jam_burst", "enrage": "vampiric", "position": "kiter", "hp_mult": 0.55},
-		{"name": "Overlord", "role": "commander", "ability": "rally", "enrage": "vampiric", "position": "circler", "hp_mult": 0.45},
-	]
-	for s in seeds:
-		var bp = BossProfile.new(s.name, s.role)
-		bp.ability_pool = [s.ability]
-		bp.enrage_style = s.enrage
-		bp.position_style = s.position
-		bp.hp_mult = s.hp_mult
-		boss_profiles.append(bp)
 
 # Merge templates by template_name, solver profiles by profile_name, and
 # boss profiles by profile_name: known entries get their learned stats
@@ -161,6 +124,57 @@ func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss
 			existing_bp.from_dict(lbp.to_dict())
 		else:
 			boss_profiles.append(lbp)
+
+# Merge path for a CROSS-PILOT clipboard import - see _merge_learned above
+# for the same-pilot load/save-restore path, which stays overwrite-based
+# ("resume where I left off" should update your own templates in place).
+# This one is "someone else's doctrine showed up": on a name collision the
+# incoming item is renamed with its origin_pilot attribution and registered
+# as a SEPARATE new entry instead of clobbering local progress (Natalia:
+# "if they have the same name can they be appended with the name of the
+# user you originally got it from (Silently, it should be visible in the
+# war room, but not advertised in menus unduly)"). Imports also always land
+# at full weight/standing (is_experimental = false) rather than the trial
+# gate every locally-bred mutant has to earn its way through - a
+# battle-tested import from someone else's game has already proven itself
+# and shouldn't need to re-prove itself here too ("Crossover templates
+# should all come in with their full weight").
+func _merge_imported(loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = []):
+	for lt in loaded_templates:
+		var collision = false
+		for t in templates:
+			if t.template_name == lt.template_name:
+				collision = true
+				break
+		if collision:
+			var tag = lt.origin_pilot if lt.origin_pilot != "" else "Unknown Pilot"
+			lt.template_name = "%s (%s)" % [lt.template_name, tag]
+		lt.is_experimental = false
+		register_template(lt)
+
+	for lp in loaded_profiles:
+		var collision_p = false
+		for p in solver_profiles:
+			if p.profile_name == lp.profile_name:
+				collision_p = true
+				break
+		if collision_p:
+			var tag = lp.origin_pilot if lp.origin_pilot != "" else "Unknown Pilot"
+			lp.profile_name = "%s (%s)" % [lp.profile_name, tag]
+		lp.is_experimental = false
+		solver_profiles.append(lp)
+
+	for lbp in loaded_boss_profiles:
+		var collision_b = false
+		for bp in boss_profiles:
+			if bp.profile_name == lbp.profile_name:
+				collision_b = true
+				break
+		if collision_b:
+			var tag = lbp.origin_pilot if lbp.origin_pilot != "" else "Unknown Pilot"
+			lbp.profile_name = "%s (%s)" % [lbp.profile_name, tag]
+		lbp.is_experimental = false
+		boss_profiles.append(lbp)
 
 func load_learned_state():
 	if not profile_manager:
@@ -238,7 +252,7 @@ func import_learned_state_from_clipboard() -> bool:
 	var data = profile_manager.import_from_clipboard()
 	if data.is_empty():
 		return false
-	_merge_learned(data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []))
+	_merge_imported(data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []))
 	save_learned_state()
 	print("[DIRECTOR] Imported AI profile from clipboard.")
 	return true
@@ -258,90 +272,14 @@ func _on_wild_bot_died(bot: Node):
 func register_template(template: SquadTemplate):
 	templates.append(template)
 
-func _count_experimental() -> int:
-	var n = 0
-	for t in templates:
-		if t.is_experimental:
-			n += 1
-	return n
-
-# Introduces one new experimental template, either by mutating an existing
-# one or generating a fresh random composition - as long as there's room
-# under MAX_EXPERIMENTAL_TEMPLATES. Call this periodically (Main.gd calls it
-# every few waves) rather than on every squad spawn, so trials aren't
-# constantly getting reset before they've proven anything.
-# Fitness-weighted parent selection for mutation/breeding - templates that
-# keep proving themselves in combat get picked as parents more often, which
-# is what makes the "borrow from successful past buildouts" loop real.
-func _pick_fitness_weighted_parent(candidates: Array) -> SquadTemplate:
-	var total = 0.0
-	for t in candidates:
-		total += max(10.0, t.get_average_fitness())
-	var roll = randf() * total
-	var acc = 0.0
-	for t in candidates:
-		acc += max(10.0, t.get_average_fitness())
-		if roll <= acc:
-			return t
-	return candidates[0]
-
+# Thin wrapper - external callers (Main.gd) keep calling director.
+# maybe_introduce_experimental_template() unchanged; the actual mutate/
+# crossover/random logic lives on TemplateEvolution now.
 func maybe_introduce_experimental_template():
-	if templates.is_empty() or _count_experimental() >= MAX_EXPERIMENTAL_TEMPLATES:
-		return
-
-	var candidates = templates.filter(func(t): return not t.is_experimental)
-	if candidates.is_empty():
-		candidates = templates
-
-	# Three sources of fresh doctrine: mutate one proven parent (40%),
-	# crossbreed two proven parents (30%, needs 2+ candidates), or a fully
-	# random composition for genetic diversity (30%).
-	var new_template: SquadTemplate = null
-	var roll = randf()
-	if roll < 0.4:
-		new_template = SquadTemplateMutator.mutate(_pick_fitness_weighted_parent(candidates))
-	elif roll < 0.7 and candidates.size() >= 2:
-		var parent_a = _pick_fitness_weighted_parent(candidates)
-		var parent_b = parent_a
-		for i in range(8): # draw until we get a different second parent (bounded)
-			parent_b = _pick_fitness_weighted_parent(candidates)
-			if parent_b != parent_a:
-				break
-		if parent_a == parent_b:
-			new_template = SquadTemplateMutator.mutate(parent_a)
-		else:
-			new_template = SquadTemplateMutator.crossover(parent_a, parent_b)
-			print("[DIRECTOR] Crossbred '", parent_a.template_name, "' x '", parent_b.template_name, "'")
-	else:
-		new_template = SquadTemplateMutator.random_template()
-
-	if new_template:
-		register_template(new_template)
-		print("[DIRECTOR] New experimental template on trial: '", new_template.template_name, "' roles=", new_template.required_roles)
-
-func select_template_weighted() -> SquadTemplate:
-	if templates.is_empty():
-		return null
-		
-	# Weighted random selection
-	var total_weight = 0.0
-	for t in templates:
-		total_weight += t.spawn_weight
-		
-	var roll = randf() * total_weight
-	var current_weight = 0.0
-	var selected_template: SquadTemplate = templates[0]
-	
-	for t in templates:
-		current_weight += t.spawn_weight
-		if roll <= current_weight:
-			selected_template = t
-			break
-			
-	return selected_template
+	template_evolution.maybe_introduce_experimental_template()
 
 func attempt_squad_assembly() -> Squad:
-	var selected_template = select_template_weighted()
+	var selected_template = template_evolution.select_template_weighted()
 	if not selected_template:
 		return null
 	return _assemble_squad(selected_template)
@@ -470,7 +408,7 @@ func _merge_squads(squad_a: Squad, squad_b: Squad):
 		# become a candidate template sometimes, so the director can find
 		# out empirically whether combined squads like this one are
 		# actually more effective than what's already in rotation.
-		if randf() < 0.4 and _count_experimental() < MAX_EXPERIMENTAL_TEMPLATES:
+		if randf() < 0.4 and template_evolution._count_experimental() < TemplateEvolution.MAX_EXPERIMENTAL_TEMPLATES:
 			var derived = SquadTemplateMutator.from_squad_composition(squad_a, "Fused")
 			if derived:
 				register_template(derived)
@@ -492,6 +430,21 @@ func log_bot_damage(amount: float, element: String):
 		bot_element_usage[element] = 0.0
 	bot_element_usage[element] += amount
 	total_bot_damage_dealt += amount
+
+# Jamming is not stealth - it's an announcement. The player's own active
+# JammerField calls this (throttled, see Mech._tick_jammer_broadcast) to
+# alert every live enemy on the map to its rough (laggy, off-true-position)
+# location, regardless of squad or current sight state. Deliberately reaches
+# every squad, not just the player's own (contrast _share_sight_with_squad's
+# own-squad-only scoping) - each mech decides for itself whether to act on
+# it (see Mech.receive_jammer_alert).
+func broadcast_jammer_alert(approx_pos: Vector2):
+	for squad in active_squads:
+		if not is_instance_valid(squad):
+			continue
+		for m in squad.members:
+			if is_instance_valid(m) and m.has_method("receive_jammer_alert"):
+				m.receive_jammer_alert(approx_pos)
 
 # --- Kill-method telemetry + over-reliance counter-pressure ----------------
 # Damage telemetry (above) tracks what the player SPRAYS; this tracks what
@@ -578,228 +531,32 @@ func _element_string_to_synergy(element: String) -> int:
 		"VAMPIRIC": return EnergyPacket.SynergyType.VAMPIRIC
 		_: return -1
 
-# Builds a SolverProfile automatically from what the director has observed
-# about the player: which element they lean on (so enemies build toward the
-# element that counters the player's shield) and how much shield/HP they're
-# packing (so a tanky player build gets answered with Pierce instead of
-# just more raw damage). This is the "counters should start proportional to
-# the player" default - get_active_solver_profile()/maybe_introduce_experimental_profile()
-# below are what make it "evolvy" over time rather than static.
-func build_reactive_profile() -> SolverProfile:
-	var profile = SolverProfile.new("Reactive")
+# Thin wrappers - the actual reactive-baseline/role-scoped-selection/
+# mutate/crossover/cull logic all lives on ProfileEvolution now (see that
+# file's header comment). Kept here under the same names since
+# _spawn_bot_for_role (below) and outside code call these on the director.
+func build_reactive_profile(role: String = "") -> SolverProfile:
+	return profile_evolution.build_reactive_profile(role)
 
-	if total_damage_taken > 200.0:
-		var top_element = ""
-		var top_ratio = 0.0
-		for element in player_element_usage.keys():
-			var ratio = player_element_usage[element] / total_damage_taken
-			if ratio > top_ratio:
-				top_ratio = ratio
-				top_element = element
-
-		if top_element != "" and SHIELD_COUNTER_WHEEL.has(top_element):
-			profile.favored_synergy = _element_string_to_synergy(SHIELD_COUNTER_WHEEL[top_element])
-
-	var players = get_tree().get_nodes_in_group("player")
-	if players.size() > 0:
-		var p = players[0]
-		var tankiness = 0.0
-		if "max_shield_hp" in p:
-			tankiness += p.max_shield_hp
-		if "max_hp" in p:
-			tankiness += max(0.0, p.max_hp - 100.0) # 100 is the baseline starting max_hp
-		if tankiness > 100.0:
-			profile.pierce_priority = clamp(0.3 + tankiness / 600.0, 0.3, 0.9)
-
-	return profile
-
-# Weighted pick between an always-fresh reactive baseline (recomputed from
-# current telemetry every call, so it never goes stale) and whatever
-# experimental profiles have been mutated in. This is what "evolvy" means
-# for the solver: over time, mutated profiles that outperform the plain
-# reactive baseline get selected more often (see update below), and
-# underperformers get culled the same way experimental squad templates are.
-func get_active_solver_profile() -> SolverProfile:
-	var reactive = build_reactive_profile()
-	reactive.spawn_weight = 100.0
-
-	if solver_profiles.is_empty():
-		return reactive
-
-	var candidates: Array = solver_profiles.duplicate()
-	candidates.append(reactive)
-
-	var total_weight = 0.0
-	for p in candidates: total_weight += p.spawn_weight
-	var roll = randf() * total_weight
-	var acc = 0.0
-	for p in candidates:
-		acc += p.spawn_weight
-		if roll <= acc:
-			return p
-	return reactive
-
-func _count_experimental_profiles() -> int:
-	var n = 0
-	for p in solver_profiles:
-		if p.is_experimental:
-			n += 1
-	return n
+func get_active_solver_profile(role: String = "") -> SolverProfile:
+	return profile_evolution.get_active_solver_profile(role)
 
 func maybe_introduce_experimental_profile():
-	if _count_experimental_profiles() >= MAX_EXPERIMENTAL_PROFILES:
-		return
-	var mutant: SolverProfile = null
-	# 30% crossbreed when two profiles exist to breed from
-	if solver_profiles.size() >= 2 and randf() < 0.3:
-		var a = solver_profiles[randi() % solver_profiles.size()]
-		var b = a
-		for i in range(8):
-			b = solver_profiles[randi() % solver_profiles.size()]
-			if b != a:
-				break
-		mutant = _crossover_profiles(a, b) if a != b else _mutate_profile(a)
-	else:
-		var parent = solver_profiles[randi() % solver_profiles.size()] if not solver_profiles.is_empty() else build_reactive_profile()
-		mutant = _mutate_profile(parent)
-	solver_profiles.append(mutant)
-	print("[DIRECTOR] New experimental solver profile on trial: '", mutant.profile_name, "' favored=", mutant.favored_synergy, " pierce=", "%.2f" % mutant.pierce_priority)
+	profile_evolution.maybe_introduce_experimental_profile()
 
-# Loadout-doctrine breeding: averaged priorities with a little noise,
-# favored element from the fitter parent - same shape as squad crossover.
-func _crossover_profiles(a: SolverProfile, b: SolverProfile) -> SolverProfile:
-	var fitter = a if a.get_average_fitness() >= b.get_average_fitness() else b
-	var child = SolverProfile.new(WarRoomNames.designation(), fitter.favored_synergy)
-	child.pierce_priority = clamp((a.pierce_priority + b.pierce_priority) / 2.0 + randf_range(-0.05, 0.05), 0.0, 1.0)
-	child.amplify_priority = clamp((a.amplify_priority + b.amplify_priority) / 2.0 + randf_range(-0.05, 0.05), 0.1, 2.0)
-	child.is_experimental = true
-	child.base_spawn_weight = 65.0
-	child.spawn_weight = 65.0
-	return child
-
-func _mutate_profile(parent: SolverProfile) -> SolverProfile:
-	var mutant = SolverProfile.new(WarRoomNames.designation(), parent.favored_synergy)
-	mutant.pierce_priority = clamp(parent.pierce_priority + randf_range(-0.3, 0.3), 0.0, 1.0)
-	mutant.amplify_priority = clamp(parent.amplify_priority + randf_range(-0.3, 0.3), 0.1, 2.0)
-	if randf() < 0.3:
-		mutant.favored_synergy = randi() % EnergyPacket.SynergyType.size()
-	mutant.is_experimental = true
-	mutant.base_spawn_weight = 60.0
-	mutant.spawn_weight = 60.0
-	return mutant
-
-# Cull/graduate experimental profiles - called from _on_squad_defeated,
-# same trigger point as the squad-template evolution.
-func _evaluate_experimental_profile(p: SolverProfile):
-	if not p.is_experimental or p.times_used < MIN_PROFILE_TRIALS_BEFORE_CULL:
-		return
-	var avg = p.get_average_fitness()
-	if avg < PROFILE_CULL_THRESHOLD:
-		solver_profiles.erase(p)
-		print("[DIRECTOR] Experimental solver profile '", p.profile_name, "' culled (avg fitness %.1f < %.1f)" % [avg, PROFILE_CULL_THRESHOLD])
-	elif avg >= PROFILE_GRADUATE_THRESHOLD:
-		p.is_experimental = false
-		print("[DIRECTOR] Experimental solver profile '", p.profile_name, "' graduated to permanent rotation! (avg fitness %.1f)" % avg)
-
-# --- Boss profile evolution (same shape as solver-profile evolution above,
-# applied to BossProfile instead) ---
-
-# Fitness-weighted pick among the registered boss profiles (the 6 permanent
-# seeds plus whatever's been mutated in). Unlike get_active_solver_profile,
-# there's no "always-fresh reactive baseline" here - boss_profiles is never
-# empty (see _register_default_boss_profiles), so a plain weighted pick is
-# enough.
+# Thin wrappers - the actual seed/select/mutate/cull logic all lives on
+# BossEvolution now (see that file's header comment). Kept here under the
+# same names since Main.gd calls these on the director directly.
 func get_active_boss_profile() -> BossProfile:
-	if boss_profiles.is_empty():
-		return BossProfile.new()
-	var total_weight = 0.0
-	for bp in boss_profiles: total_weight += bp.spawn_weight
-	var roll = randf() * total_weight
-	var acc = 0.0
-	for bp in boss_profiles:
-		acc += bp.spawn_weight
-		if roll <= acc:
-			return bp
-	return boss_profiles[0]
-
-func _count_experimental_boss_profiles() -> int:
-	var n = 0
-	for bp in boss_profiles:
-		if bp.is_experimental:
-			n += 1
-	return n
+	return boss_evolution.get_active_boss_profile()
 
 func maybe_introduce_experimental_boss_profile():
-	if _count_experimental_boss_profiles() >= MAX_EXPERIMENTAL_BOSS_PROFILES or boss_profiles.is_empty():
-		return
-	var parent = boss_profiles[randi() % boss_profiles.size()]
-	var mutant = _mutate_boss_profile(parent)
-	boss_profiles.append(mutant)
-	print("[DIRECTOR] New experimental boss profile on trial: '", mutant.profile_name, "' role=", mutant.base_role, " abilities=", mutant.ability_pool, " enrage=", mutant.enrage_style, " position=", mutant.position_style)
-
-# Nudges ONE facet of the parent per mutation (same "targeted tweak, not a
-# full reroll" philosophy as _mutate_profile) so it's possible to tell which
-# change is responsible for a fitness swing over several generations:
-#   - swap enrage style
-#   - swap position style
-#   - grow/reroll the ability pool (a boss with 2 abilities alternates
-#     between them - this is the actual "more evolution options" lever)
-#   - nudge hp_mult +-15%
-#   - small chance to re-roll the underlying role entirely (changes stats
-#     AND visuals/backpack - the most dramatic mutation, kept rare)
-func _mutate_boss_profile(parent: BossProfile) -> BossProfile:
-	var mutant = BossProfile.new(WarRoomNames.designation(), parent.base_role)
-	mutant.ability_pool = parent.ability_pool.duplicate()
-	mutant.enrage_style = parent.enrage_style
-	mutant.position_style = parent.position_style
-	mutant.hp_mult = parent.hp_mult
-	mutant.is_experimental = true
-	mutant.base_spawn_weight = 60.0
-	mutant.spawn_weight = 60.0
-	mutant.parent_name = parent.profile_name
-
-	var roll = randf()
-	if roll < 0.25:
-		mutant.enrage_style = BossProfile.ALL_ENRAGE_STYLES[randi() % BossProfile.ALL_ENRAGE_STYLES.size()]
-	elif roll < 0.5:
-		mutant.position_style = BossProfile.ALL_POSITION_STYLES[randi() % BossProfile.ALL_POSITION_STYLES.size()]
-	elif roll < 0.8:
-		if mutant.ability_pool.size() < 2 and randf() < 0.6:
-			var addable = BossProfile.ALL_ABILITIES.filter(func(a): return not mutant.ability_pool.has(a))
-			if addable.size() > 0:
-				mutant.ability_pool.append(addable[randi() % addable.size()])
-		elif mutant.ability_pool.size() > 0:
-			var idx = randi() % mutant.ability_pool.size()
-			mutant.ability_pool[idx] = BossProfile.ALL_ABILITIES[randi() % BossProfile.ALL_ABILITIES.size()]
-	else:
-		mutant.hp_mult = clamp(mutant.hp_mult * randf_range(0.85, 1.15), 0.2, 4.0)
-
-	# Rare, dramatic: rebuild on a different role's stat block entirely.
-	if randf() < 0.1:
-		mutant.base_role = BossProfile.ALL_ROLES[randi() % BossProfile.ALL_ROLES.size()]
-
-	return mutant
-
-func _evaluate_experimental_boss_profile(bp: BossProfile):
-	if not bp.is_experimental or bp.times_used < MIN_BOSS_PROFILE_TRIALS_BEFORE_CULL:
-		return
-	var avg = bp.get_average_fitness()
-	if avg < BOSS_PROFILE_CULL_THRESHOLD:
-		boss_profiles.erase(bp)
-		print("[DIRECTOR] Experimental boss profile '", bp.profile_name, "' culled (avg fitness %.1f < %.1f)" % [avg, BOSS_PROFILE_CULL_THRESHOLD])
-	elif avg >= BOSS_PROFILE_GRADUATE_THRESHOLD:
-		bp.is_experimental = false
-		print("[DIRECTOR] Experimental boss profile '", bp.profile_name, "' graduated to permanent rotation! (avg fitness %.1f)" % avg)
+	boss_evolution.maybe_introduce_experimental_boss_profile()
 
 # Called from Main._on_boss_died once the boss's own fitness is computed
 # (see Mech.get_boss_fitness) - same trigger shape as _on_squad_defeated.
 func _on_boss_defeated(profile: BossProfile, fitness_score: float):
-	if not profile:
-		return
-	profile.update_fitness(fitness_score)
-	print("[DIRECTOR] Boss Defeated! Profile: '", profile.profile_name, "' | Fitness: ", "%.1f" % fitness_score, " | New Weight: ", "%.1f" % profile.spawn_weight)
-	_evaluate_experimental_boss_profile(profile)
-	save_learned_state()
+	boss_evolution.on_boss_defeated(profile, fitness_score)
 
 func _all_roles_filled(roles: Dictionary) -> bool:
 	for count in roles.values():
@@ -819,13 +576,14 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	bot.combat_role = role
 	bot.base_rarity = p_rarity
 	if "spawn_profile" in bot:
-		bot.spawn_profile = get_active_solver_profile()
+		bot.spawn_profile = get_active_solver_profile(role)
 		# Per-bot element jitter: ~35% of bots clone the profile with a
 		# random favored element. Without this, early waves (before any
 		# experimental profiles exist) are a monoculture of the reactive
 		# baseline - every bot firing the same projectile type.
 		if randf() < 0.35:
 			var jittered = SolverProfile.new(bot.spawn_profile.profile_name + "*", randi() % EnergyPacket.SynergyType.size())
+			jittered.role = role
 			jittered.pierce_priority = bot.spawn_profile.pierce_priority
 			jittered.amplify_priority = bot.spawn_profile.amplify_priority
 			bot.spawn_profile = jittered
@@ -1004,6 +762,26 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 		bot.shield_hp = bot.max_shield_hp
 		
 	add_child(bot)
+
+	# One-time visibility sync for the Blind mechanic (see Main.
+	# _update_player_blind_state): that check only re-walks the "enemy"
+	# group on an actual blind-state TRANSITION now (not every frame), so a
+	# bot spawned while the player is ALREADY blind needs this explicit
+	# correction rather than waiting on a transition that may not come for
+	# a while.
+	var main_ref = get_tree().current_scene
+	if main_ref and "player_is_blind" in main_ref:
+		bot.visible = not main_ref.player_is_blind
+
+	# Companion Drone(s) - Commanders always come with one (see
+	# ComponentEquipment.create_command_backpack), other roles have a modest
+	# independent chance (see Mech._create_role_backpack). Fire-and-forget:
+	# unlike the player's own drones (Main.gd's respawn-on-cooldown wrapper
+	# around this same helper), an enemy mech never gets revived, so there's
+	# nothing to respawn - the drone just dies alongside/after its owner via
+	# Drone._physics_process's existing owner-validity check.
+	DroneBayTileScript.spawn_drones_for(bot, self)
+
 	return bot
 
 # --- Near-peer scaling (difficulty 3, partial on 2) -------------------------
@@ -1064,17 +842,30 @@ func _player_dominant_rarity() -> int:
 func spawn_squad() -> Squad:
 	return attempt_squad_assembly()
 
+# Called from Mech.die() for every non-player mech, regardless of whether
+# its squad ultimately wipes or wins - credits THAT bot's own spawn_profile
+# with ITS OWN individual performance (see Mech.get_individual_fitness),
+# not a shared squad-wide score. Previously all solver-profile crediting
+# happened here in _on_squad_defeated using squad.used_profiles + the
+# squad's aggregate fitness, which had two problems: every bot in a squad
+# got credited identically regardless of its own actual contribution, and
+# nothing was ever credited at all unless the WHOLE squad wiped - a squad
+# that won a fight with survivors taught the director nothing.
+func credit_bot_death(mech: Node):
+	if not ("spawn_profile" in mech) or not mech.spawn_profile:
+		return
+	# Only credit profiles actually tracked in the evolving pool - the
+	# always-fresh reactive baseline and per-bot jittered clones (see
+	# _spawn_bot_for_role) are throwaway instances never added to
+	# solver_profiles, so crediting them would just vanish with the bot.
+	if not solver_profiles.has(mech.spawn_profile):
+		return
+	var fitness = mech.get_individual_fitness() if mech.has_method("get_individual_fitness") else 0.0
+	mech.spawn_profile.update_fitness(fitness)
+	profile_evolution.evaluate_experimental_profile(mech.spawn_profile)
+
 func _on_squad_defeated(squad: Squad, fitness_score: float):
 	active_squads.erase(squad)
-
-	# Credit every SolverProfile used to build this squad's loadouts with
-	# the same fitness score the squad template gets - a profile that keeps
-	# ending up in high-fitness squads is a good profile, same logic as
-	# template evolution, just scoped to loadout quality instead of
-	# squad composition.
-	for p in squad.used_profiles:
-		p.update_fitness(fitness_score)
-		_evaluate_experimental_profile(p)
 
 	var t = squad.template
 	if t:
@@ -1083,17 +874,9 @@ func _on_squad_defeated(squad: Squad, fitness_score: float):
 		print("[DIRECTOR] Squad Defeated! Template: '", t.template_name, "'")
 		print("           Fitness: ", "%.1f" % fitness_score, " | New Weight: ", "%.1f" % t.spawn_weight)
 
-		# Cull/graduate experimental templates once they've had a fair trial.
-		# This is what keeps mutation + merge-derived templates from piling up
-		# forever - underperformers get removed, standouts become permanent.
-		if t.is_experimental and t.times_deployed >= MIN_TRIALS_BEFORE_CULL:
-			var avg = t.get_average_fitness()
-			if avg < CULL_FITNESS_THRESHOLD:
-				templates.erase(t)
-				print("[DIRECTOR] Experimental template '", t.template_name, "' culled (avg fitness %.1f < %.1f)" % [avg, CULL_FITNESS_THRESHOLD])
-			elif avg >= GRADUATE_FITNESS_THRESHOLD:
-				t.is_experimental = false
-				print("[DIRECTOR] Experimental template '", t.template_name, "' graduated to permanent rotation! (avg fitness %.1f)" % avg)
+		# Cull/graduate experimental templates once they've had a fair trial -
+		# see TemplateEvolution.evaluate_experimental_template.
+		template_evolution.evaluate_experimental_template(t)
 
 	# Persist post-evaluation state (weights, fitness, culls, graduations,
 	# profile credit) - this is what makes the evolutionary system actually

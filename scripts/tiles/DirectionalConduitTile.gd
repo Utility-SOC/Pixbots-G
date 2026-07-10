@@ -12,6 +12,15 @@ var rotation_steps: int = 0
 # Mythic-mode popup and HexTile subclasses like JumpjetTile.gd).
 @export_enum("Two-Way", "One-Way Valve") var mythic_mode: int = 0
 
+# Whatever synergy actually dominated the last packet that routed through
+# THIS specific conduit instance - not a component-wide average, so a build
+# that splits FIRE down one conduit and ICE down another shows two
+# differently-glowing conduits (see MechRenderer._draw_conduit_glows).
+# -1 means "never carried a packet yet" (e.g. a dead-end branch). Set during
+# _simulate_grid's precompute pass (deploy/equip-change time), not every
+# combat frame, so this is a cheap, stable snapshot rather than a live feed.
+var last_dominant_synergy: int = -1
+
 func cycle_mythic_mode():
 	mythic_mode = (mythic_mode + 1) % 2
 
@@ -42,6 +51,7 @@ func can_enter_from(direction: int) -> bool:
 	return direction == allowed1 or direction == allowed2
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+	last_dominant_synergy = packet.get_dominant_synergy()
 	if is_disabled:
 		return [packet] # degraded: straight pass-through, same convention as HexTile's base case
 	# Valve mode (Mythic-only) is the ONE case that actually enforces

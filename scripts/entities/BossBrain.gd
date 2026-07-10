@@ -436,20 +436,19 @@ func _do_fire_pool():
 	residue.collision_mask = 8 # Player - JumpjetResidue defaults to Enemies (4) for the player's own residue
 	mech._show_floating_text("BURN", Color(1.0, 0.5, 0.1))
 
-# Warden: a big one-shot vision-blackout burst layered on top of the
+# Warden: a big one-shot spatial jam burst layered on top of the
 # JammerMech's own continuous power-drain aura (see JammerMech.gd) - the
-# passive drain is the constant pressure, this is the periodic spike.
+# passive drain is the constant pressure, this is the periodic spike. Spawns
+# a short-lived JammerField (same class the equippable Jammer Module uses)
+# instead of the old full-screen blackout - owner_mech=null keeps it
+# stationary (no anchor to lag toward), lifetime=1.5 self-frees it.
 func _do_jam_burst():
 	var burst_radius = 900.0
-	if mech.target and mech.target.has_method("apply_vision_jam") and mech.global_position.distance_to(mech.target.global_position) <= burst_radius:
-		mech.target.apply_vision_jam(1.5)
-	var visual_class = load("res://scripts/attacks/PulseRingVisual.gd")
-	if visual_class:
-		var v = visual_class.new()
-		v.global_position = mech.global_position
-		v.setup(burst_radius, Color(0.2, 0.5, 1.0, 1.0))
-		if mech.get_parent():
-			mech.get_parent().add_child(v)
+	var field = load("res://scripts/visuals/JammerField.gd").new()
+	field.global_position = mech.global_position
+	field.setup(null, burst_radius, 1.5)
+	if mech.get_parent():
+		mech.get_parent().add_child(field)
 	mech._show_floating_text("JAM BURST", Color(0.3, 0.6, 1.0))
 
 # Overlord: no summoning (per design constraint) - instead a big self-heal,

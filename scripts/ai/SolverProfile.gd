@@ -12,6 +12,18 @@ extends Resource
 
 @export var profile_name: String = "Default"
 
+# Which combat role this doctrine is tuned for ("sniper", "brawler", etc. -
+# see SquadTemplateMutator.ALL_ROLES) - "" means role-agnostic (the always-
+# fresh reactive baseline SquadDirector.build_reactive_profile() builds, or
+# a legacy profile saved before role-scoping existed). Profiles used to be
+# one flat pool shared by every role, which meant a sniper doctrine (should
+# favor Pierce, long range) and a brawler doctrine (should favor Kinetic/
+# Explosion, close range) directly competed for the same spawn-weight
+# rotation and diluted each other. Selection/mutation/crossover now all
+# stay within-role (see SquadDirector.get_active_solver_profile/
+# maybe_introduce_experimental_profile) so each role grows its own lineage.
+@export var role: String = ""
+
 # EnergyPacket.SynergyType to build toward, or -1 for "no preference"
 # (plain Amplifier/Catalyst priority, the old fixed behavior).
 @export var favored_synergy: int = -1
@@ -25,6 +37,10 @@ extends Resource
 @export var is_experimental: bool = false
 @export var base_spawn_weight: float = 100.0
 @export var spawn_weight: float = 100.0
+
+# See SquadTemplate.origin_pilot's field comment - same attribution
+# mechanism, shared across all three evolvable profile types.
+@export var origin_pilot: String = ""
 
 var times_used: int = 0
 var total_fitness: float = 0.0
@@ -53,6 +69,7 @@ func update_fitness(fitness_score: float):
 func to_dict() -> Dictionary:
 	return {
 		"profile_name": profile_name,
+		"role": role,
 		"favored_synergy": favored_synergy,
 		"pierce_priority": pierce_priority,
 		"amplify_priority": amplify_priority,
@@ -61,10 +78,12 @@ func to_dict() -> Dictionary:
 		"base_spawn_weight": base_spawn_weight,
 		"times_used": times_used,
 		"total_fitness": total_fitness,
+		"origin_pilot": origin_pilot,
 	}
 
 func from_dict(data: Dictionary):
 	if data.has("profile_name"): profile_name = data["profile_name"]
+	if data.has("role"): role = str(data["role"])
 	if data.has("favored_synergy"): favored_synergy = int(data["favored_synergy"])
 	if data.has("pierce_priority"): pierce_priority = float(data["pierce_priority"])
 	if data.has("amplify_priority"): amplify_priority = float(data["amplify_priority"])
@@ -73,3 +92,4 @@ func from_dict(data: Dictionary):
 	if data.has("base_spawn_weight"): base_spawn_weight = float(data["base_spawn_weight"])
 	if data.has("times_used"): times_used = int(data["times_used"])
 	if data.has("total_fitness"): total_fitness = float(data["total_fitness"])
+	if data.has("origin_pilot"): origin_pilot = str(data["origin_pilot"])

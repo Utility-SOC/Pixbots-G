@@ -19,6 +19,14 @@ const ComponentEquipmentClass = preload("res://scripts/core/ComponentEquipment.g
 # flying unit.
 var drone_loadout: ComponentEquipmentClass = null
 
+# Which procedural chassis silhouette (see DroneRenderer.DRONE_CLASSES) this
+# bay's drone renders as. Picked once and persisted (not re-rolled every
+# spawn/frame) so a given Drone Bay keeps a stable visual identity across
+# deploys and save/load - matching how drone_loadout itself is built once
+# and kept, not regenerated. -1 means "not yet assigned" (older saves,
+# or a bay that hasn't built its loadout yet).
+var visual_class: int = -1
+
 func _init():
 	tile_type = "Drone Bay"
 	category = TileCategory.OUTPUT
@@ -43,9 +51,15 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 # constructors) - i.e. AFTER _init() already ran - so eagerly building in
 # _init() would silently lock in a Common-sized grid regardless of the
 # rarity the caller sets a moment later.
+# Kept in sync with DroneRenderer.DRONE_CLASSES.size() by hand (tiles don't
+# preload visuals code) - bump this if a chassis archetype is added/removed.
+const VISUAL_CLASS_COUNT = 4
+
 func get_or_build_loadout() -> ComponentEquipmentClass:
 	if drone_loadout == null:
 		drone_loadout = ComponentEquipmentClass.create_starter_drone(rarity)
+	if visual_class < 0:
+		visual_class = randi() % VISUAL_CLASS_COUNT
 	return drone_loadout
 
 # Explicit (re)build, used right after setting .rarity when a caller wants a
@@ -56,15 +70,52 @@ func get_or_build_loadout() -> ComponentEquipmentClass:
 # hand-customized loadout across it (matching how backpacks in general work).
 func build_drone_loadout():
 	drone_loadout = ComponentEquipmentClass.create_starter_drone(rarity)
+	visual_class = randi() % VISUAL_CLASS_COUNT
 
-# Shared lookup used by GarageMenu (Drone tab), ComponentDiagramView (satellite
-# callout), and Main.gd (spawn/respawn) - finds the Drone Bay tile installed
-# in a given Backpack ComponentEquipment, or null if there isn't one/no
-# backpack is equipped at all.
-static func find_in_backpack(backpack) -> DroneBayTile:
+# Shared lookup used by GarageMenu (Drone tabs), ComponentDiagramView
+# (satellite callout), and Main.gd (spawn/respawn) - finds every Drone Bay
+# tile installed in a given Backpack ComponentEquipment (a build can carry
+# more than one - each gets its own independent drone), or an empty array
+# if there isn't one/no backpack is equipped at all.
+static func find_all_in_backpack(backpack) -> Array[DroneBayTile]:
+	var found: Array[DroneBayTile] = []
 	if not backpack or not backpack.hex_grid:
-		return null
+		return found
 	for tile in backpack.hex_grid.get_all_tiles():
 		if tile.tile_type == "Drone Bay":
-			return tile
-	return null
+			found.append(tile)
+	return found
+
+# Convenience for callers that only ever want "is there at least one" (the
+# ComponentDiagramView satellite summary) - the FIRST bay found, or null.
+static func find_in_backpack(backpack) -> DroneBayTile:
+	var all = find_all_in_backpack(backpack)
+	return all[0] if not all.is_empty() else null
+
+# Spawns one Drone per Drone Bay tile found in `owner_mech`'s equipped
+# Backpack, added as children of `parent_node`. Shared by Main.gd (the
+# player, wrapped in its own respawn-on-cooldown bookkeeping - see
+# _spawn_drones_if_needed) and SquadDirector.gd (enemies, fire-and-forget:
+# an enemy mech never gets revived, so there's nothing to respawn once its
+# drone dies alongside/after it - see Drone._physics_process's owner-
+# validity check, which already handles that cleanup for free). Returns the
+# spawned Drone nodes (callers that need per-drone bookkeeping, like Main.gd's
+# respawn timers, use the bay tile itself - drone.drone_loadout_source's
+# owner - as the stable key, not this return value).
+static func spawn_drones_for(owner_mech: Node, parent_node: Node) -> Array:
+	var spawned: Array = []
+	if not owner_mech or not ("components" in owner_mech) or not owner_mech.components.has(HexTile.BodySlot.BACKPACK):
+		return spawned
+	var backpack = owner_mech.components[HexTile.BodySlot.BACKPACK]
+	var bays = find_all_in_backpack(backpack)
+	var DroneScript = load("res://scripts/entities/Drone.gd")
+	for i in range(bays.size()):
+		var bay = bays[i]
+		var loadout = bay.get_or_build_loadout() # also assigns visual_class if unset
+		var drone = DroneScript.new()
+		drone.setup(owner_mech, loadout, bay.rarity, bay.visual_class)
+		var spread_angle = (TAU / max(1, bays.size())) * i
+		drone.global_position = owner_mech.global_position + Vector2(cos(spread_angle), sin(spread_angle)) * 70.0
+		parent_node.add_child(drone)
+		spawned.append(drone)
+	return spawned

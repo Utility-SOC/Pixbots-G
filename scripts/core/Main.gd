@@ -5,12 +5,16 @@ const Mech = preload("res://scripts/entities/Mech.gd")
 const WeaponMountTile = preload("res://scripts/tiles/WeaponMountTile.gd")
 const DroneBayTile = preload("res://scripts/tiles/DroneBayTile.gd")
 
-# Companion Drone (see Drone.gd/DroneBayTile.gd): spawned alongside the
-# player on deploy if a Drone Bay is installed in their Backpack, destroyed
-# and respawned after a cooldown if it dies mid-run - "destructible,
-# respawns" per Natalia's design choice.
-var drone_node: Node2D = null
-var _drone_respawn_timer: float = 0.0
+# Companion Drones (see Drone.gd/DroneBayTile.gd): one spawned alongside the
+# player per Drone Bay tile installed anywhere in their Backpack on deploy -
+# a build can carry more than one bay, each flying an independent drone with
+# its own loadout. Each is destroyed and respawned after its own cooldown if
+# it dies mid-run - "destructible, respawns" per Natalia's design choice.
+# Both dictionaries are keyed by the owning DroneBayTile's instance ID (the
+# tile itself, not the Drone node, since that's what survives a drone's
+# death/respawn cycle and what GarageMenu edits).
+var drone_nodes: Dictionary = {} # bay instance ID -> Drone
+var _drone_respawn_timers: Dictionary = {} # bay instance ID -> float seconds remaining
 const DRONE_RESPAWN_DELAY = 8.0
 
 var current_mode: String = "sandbox"
@@ -35,7 +39,10 @@ var wave_label: Label
 var timer_label: Label
 var extraction_marker: Node2D = null
 var extraction_indicator: Polygon2D = null
-var vision_jam_overlay: ColorRect
+# Jammers are no longer a full-screen dim (see JammerField.gd) - the
+# player's Blind state is now "standing inside a hostile JammerField",
+# checked continuously by _update_player_blind_state() below.
+var player_is_blind: bool = false
 var boss_health_bar_bg: ColorRect = null
 var boss_health_bar_fg: ColorRect = null
 var boss_health_label: Label = null
@@ -178,15 +185,6 @@ func _setup_hud():
 	extraction_indicator.visible = false
 	hud_canvas.add_child(extraction_indicator)
 
-	# Full-screen overlay used by enemy Jammer Modules (vision-jam pulse).
-	# Sits on top of everything else in the HUD layer, starts invisible.
-	vision_jam_overlay = ColorRect.new()
-	vision_jam_overlay.color = Color(0.0, 0.0, 0.0, 1.0)
-	vision_jam_overlay.modulate.a = 0.0
-	vision_jam_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vision_jam_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hud_canvas.add_child(vision_jam_overlay)
-
 	# Boss UI
 	var b_width = 400
 	var b_height = 30
@@ -240,13 +238,38 @@ func show_dialogue(speaker: String, text: String, color: Color = Color(1.0, 0.85
 	dialogue_label.text = "[b][color=#%s]%s[/color][/b]\n%s" % [hex_color, speaker, text]
 	dialogue_timer = duration
 
-func _on_vision_jammed(duration: float):
-	if not vision_jam_overlay:
+# Continuously re-evaluated (not a timer) - the player is Blind exactly
+# while standing inside a hostile JammerField's live boundary, and un-blind
+# the instant they leave or its owner dies. The jammer_field scan itself
+# stays unconditional every frame (that group is small, 1-3 active fields
+# at once, and needs the real-time boundary check), but the "enemy" group -
+# up to 80 members - only gets its .visible toggled on an actual blind-state
+# TRANSITION, not every single frame regardless of change. This was walking
+# and writing .visible on the whole enemy roster 60x/sec even while nothing
+# changed - a genuine per-frame O(enemy count) cost for a state that only
+# actually flips a few times per encounter. Since this loop no longer runs
+# every frame, a freshly-spawned enemy while the player is ALREADY blind
+# (no transition to trigger this loop) needs its own one-time correction at
+# spawn time instead - see SquadDirector._spawn_bot_for_role's visibility
+# sync right after add_child(bot).
+var _was_player_blind: bool = false
+
+func _update_player_blind_state():
+	if not player or not is_instance_valid(player):
 		return
-	var tween = create_tween()
-	tween.tween_property(vision_jam_overlay, "modulate:a", 0.85, 0.2)
-	tween.tween_interval(max(0.0, duration - 0.5))
-	tween.tween_property(vision_jam_overlay, "modulate:a", 0.0, 0.3)
+	var blind = false
+	for f in get_tree().get_nodes_in_group("jammer_field"):
+		if is_instance_valid(f) and not f.owner_is_player and f.is_point_inside(player.global_position):
+			blind = true
+			f.report_jam_contact(player.global_position)
+			break
+	player_is_blind = blind
+	if blind == _was_player_blind:
+		return
+	_was_player_blind = blind
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		if is_instance_valid(enemy):
+			enemy.visible = not blind
 
 func _update_hud():
 	if wave_label:
@@ -278,50 +301,68 @@ func _process(delta: float):
 	elif extraction_indicator:
 		extraction_indicator.visible = false
 
-	if _drone_respawn_timer > 0.0:
-		_drone_respawn_timer -= delta
-		if _drone_respawn_timer <= 0.0:
-			_spawn_drone_if_needed()
-	
+	if not _drone_respawn_timers.is_empty():
+		var ready_bays = []
+		for bay_id in _drone_respawn_timers.keys():
+			_drone_respawn_timers[bay_id] -= delta
+			if _drone_respawn_timers[bay_id] <= 0.0:
+				ready_bays.append(bay_id)
+		for bay_id in ready_bays:
+			_drone_respawn_timers.erase(bay_id)
+		if not ready_bays.is_empty():
+			_spawn_drones_if_needed()
+
 	if dialogue_timer > 0:
 		dialogue_timer -= delta
 		if dialogue_timer <= 0:
 			dialogue_box.visible = false
 
-# Spawns the companion Drone alongside the player if they have a Drone Bay
-# installed in their Backpack and don't already have a live one - called on
-# every deploy (_close_garage) and again after the respawn cooldown elapses
-# following a mid-combat drone death (see _on_drone_died).
-func _spawn_drone_if_needed():
-	if is_instance_valid(drone_node):
-		return
+	_update_player_blind_state()
+
+# Spawns a companion Drone for every Drone Bay tile installed anywhere in the
+# player's Backpack that doesn't already have a live drone and isn't on
+# respawn cooldown - called on every deploy (_close_garage) and again
+# whenever an individual bay's respawn cooldown elapses following a
+# mid-combat drone death (see _on_drone_died).
+func _spawn_drones_if_needed():
 	if not player or not player.components.has(HexTile.BodySlot.BACKPACK):
 		return
 	var backpack = player.components[HexTile.BodySlot.BACKPACK]
-	var drone_bay = DroneBayTile.find_in_backpack(backpack)
-	if not drone_bay:
-		return
+	var bays = DroneBayTile.find_all_in_backpack(backpack)
+	for i in range(bays.size()):
+		var drone_bay = bays[i]
+		var bay_id = drone_bay.get_instance_id()
+		if drone_nodes.has(bay_id) and is_instance_valid(drone_nodes[bay_id]):
+			continue
+		if _drone_respawn_timers.has(bay_id):
+			continue
 
-	var drone = load("res://scripts/entities/Drone.gd").new()
-	drone.setup(player, drone_bay.get_or_build_loadout(), drone_bay.rarity)
-	drone.global_position = player.global_position + Vector2(60, -40)
-	drone.drone_died.connect(_on_drone_died)
-	world.add_child(drone)
-	drone_node = drone
+		var drone = load("res://scripts/entities/Drone.gd").new()
+		var loadout = drone_bay.get_or_build_loadout() # also assigns visual_class if unset - must run before reading it below
+		drone.setup(player, loadout, drone_bay.rarity, drone_bay.visual_class)
+		# Spread multiple drones' starting positions out (and their
+		# _orbit_angle, randomized independently in Drone.gd's setup) so a
+		# multi-bay build doesn't spawn every drone stacked on the same point.
+		var spread_angle = (TAU / max(1, bays.size())) * i
+		drone.global_position = player.global_position + Vector2(cos(spread_angle), sin(spread_angle)) * 70.0
+		drone.drone_died.connect(_on_drone_died.bind(bay_id))
+		world.add_child(drone)
+		drone_nodes[bay_id] = drone
 
-func _on_drone_died(_rarity: int):
-	drone_node = null
-	_drone_respawn_timer = DRONE_RESPAWN_DELAY
+func _on_drone_died(_rarity: int, bay_id: int):
+	drone_nodes.erase(bay_id)
+	_drone_respawn_timers[bay_id] = DRONE_RESPAWN_DELAY
 
-# Garage state is a hard reset point for the drone same as everything else
+# Garage state is a hard reset point for the drones same as everything else
 # about the run (see _open_garage's full-heal) - simpler and more robust than
-# trying to keep a live drone node correctly paused/hidden through the
-# Garage UI. A fresh one spawns right back on deploy (_close_garage).
-func _despawn_drone():
-	if is_instance_valid(drone_node):
-		drone_node.queue_free()
-	drone_node = null
-	_drone_respawn_timer = 0.0
+# trying to keep live drones correctly paused/hidden through the Garage UI.
+# Fresh ones spawn right back on deploy (_close_garage).
+func _despawn_all_drones():
+	for bay_id in drone_nodes.keys():
+		if is_instance_valid(drone_nodes[bay_id]):
+			drone_nodes[bay_id].queue_free()
+	drone_nodes.clear()
+	_drone_respawn_timers.clear()
 
 func _spawn_extraction_marker():
 	var marker_class = load("res://scripts/entities/ExtractionMarker.gd")
@@ -375,8 +416,7 @@ func _setup_player():
 	world.add_child(player)
 	player.add_to_group("player")
 	player.died.connect(_on_player_died)
-	player.vision_jammed.connect(_on_vision_jammed)
-	
+
 	if SaveManager.save_to_load != "":
 		var load_data = SaveManager.load_game(SaveManager.save_to_load)
 		if load_data.has("components") and not load_data["components"].is_empty():
@@ -790,7 +830,10 @@ func _spawn_boss(director, is_mega: bool):
 	boss.collision_layer = 4
 	boss.collision_mask = 1 | 2 | 8
 	active_enemies += 1
-	world.add_child(boss)
+	# NOT world.add_child(boss) - director._spawn_bot_for_role() already
+	# parented it under SquadDirector (which itself lives under world), same
+	# as every regular squad member. A second add_child here throws "already
+	# has a parent" (see the identical fix in _spawn_rival below).
 
 	# One-time "First boss" dialogue pair (STORY_SCRIPT.md) instead of the
 	# regular rotating boss_defeats line - see first_boss_encountered's own
@@ -821,42 +864,43 @@ func _on_boss_died(boss):
 	else:
 		show_dialogue("Shopkeeper", dm.get_boss_defeat(), Color(1.0, 0.6, 0.2), 6.0)
 
+	# NOTE: the actual guaranteed component drop (shield/jetpack/missile/
+	# drone backpack, keyed off this same "boss_drop" meta) already happened
+	# in Mech.die() via LootManager.generate_loot_for_mech() BEFORE the
+	# died signal that triggers this handler fired (see that function's own
+	# "LootManager is an autoload singleton... instead of instantiating a
+	# throwaway copy" comment - it was migrated to be the one canonical
+	# source). This used to ALSO build a second, independent shield/jetpack/
+	# missile/drone drop right here from the exact same meta - a confusing
+	# duplicate pickup on top of the real one at best, and its tile-scatter
+	# neighbor below was actively broken (see tile_data's own note). Removed;
+	# the guaranteed scattered-tiles bonus is the one thing this function
+	# still uniquely contributes (LootManager only ever rolls drops from the
+	# boss's OWN equipped tiles, never fresh random ones).
 	var drop_type = boss.get_meta("boss_drop", "shield")
-	var drop_pack = null
-	
+
 	if drop_type == "mega":
 		# Megaboss guaranteed Legendary Drop
 		var pickup = load("res://scripts/entities/LootPickup.gd").new()
 		pickup.global_position = boss.global_position
-		
+
 		# Generate a legendary tile
 		var legend_tile = _generate_random_tile()
 		legend_tile.rarity = HexTile.Rarity.LEGENDARY
-		pickup.item_data = legend_tile
+		# LootPickup's field is `tile_data`, not `item_data` (no such
+		# property exists) - was silently creating pickups that could never
+		# actually be collected (neither the equipment_data nor tile_data
+		# branch in LootPickup._on_body_entered ever matched).
+		pickup.tile_data = legend_tile
 		world.add_child(pickup)
-	else:
-		if drop_type == "shield":
-			drop_pack = load("res://scripts/core/ComponentEquipment.gd").create_shield_backpack()
-		elif drop_type == "jetpack":
-			drop_pack = load("res://scripts/core/ComponentEquipment.gd").create_jetpack_backpack()
-		elif drop_type == "missile":
-			drop_pack = load("res://scripts/core/ComponentEquipment.gd").create_missile_backpack()
-		elif drop_type == "drone":
-			drop_pack = load("res://scripts/core/ComponentEquipment.gd").create_drone_backpack(HexTile.Rarity.RARE)
 
-		if drop_pack:
-			var pickup = load("res://scripts/entities/LootPickup.gd").new()
-			pickup.equipment_data = drop_pack
-			pickup.global_position = boss.global_position
-			world.add_child(pickup)
-		
 	# NEW: Guarantee 3-5 scattered tiles for any Boss
 	var drop_rarity = HexTile.Rarity.LEGENDARY if drop_type == "mega" else HexTile.Rarity.RARE
 	_scatter_random_tiles(boss.global_position, randi_range(3, 5), drop_rarity)
 		
 	_on_enemy_died()
 
-func _generate_random_tile() -> Node:
+func _generate_random_tile() -> HexTile:
 	var tile_types = [
 		preload("res://scripts/tiles/WeaponMountTile.gd"),
 		preload("res://scripts/tiles/AccumulatorTile.gd"),
@@ -873,7 +917,10 @@ func _scatter_random_tiles(origin: Vector2, count: int, rarity: int):
 		var tile = _generate_random_tile()
 		tile.rarity = rarity
 		var pickup = load("res://scripts/entities/LootPickup.gd").new()
-		pickup.item_data = tile
+		# LootPickup's field is `tile_data`, not `item_data` (no such
+		# property exists) - was silently spawning pickups that could never
+		# actually be collected.
+		pickup.tile_data = tile
 		pickup.global_position = origin + Vector2(randf_range(-50, 50), randf_range(-50, 50))
 		world.call_deferred("add_child", pickup)
 
@@ -944,7 +991,12 @@ func _spawn_rival(director, force_rarity = -1, force_name = ""):
 		rival.collision_layer = 4
 		rival.collision_mask = 1 | 2 | 8
 		active_enemies += 1
-		world.add_child(rival)
+		# NOT world.add_child(rival) - director._spawn_bot_for_role() already
+		# parented it under SquadDirector (itself already inside world), same
+		# as every regular squad member (Squad.add_member only tracks a
+		# reference, never reparents). A second add_child here throws "Can't
+		# add child ... already has a parent 'SquadDirector'" - this was a
+		# real crash every Rival wave.
 
 		if i == 0:
 			if rival.has_method("_show_floating_text"):
@@ -993,7 +1045,7 @@ var last_garage_wave: int = 1
 
 func _on_player_died():
 	print("!!! GAME OVER - MAGNIFICENT EXPLOSION !!!")
-	_despawn_drone()
+	_despawn_all_drones()
 	player.visible = false
 	player.set_process(false)
 	player.set_physics_process(false)
@@ -1156,7 +1208,7 @@ func _on_wave_cleared():
 func _open_garage():
 	print("Opening Garage Menu...")
 	get_tree().paused = true
-	_despawn_drone()
+	_despawn_all_drones()
 
 	# Full heal on entering garage
 	player.hp = player.max_hp
@@ -1202,7 +1254,7 @@ func _close_garage():
 		if player.has_method("_recalculate_grid"):
 			player._recalculate_grid()
 		SaveManager.save_game("autosave", player, player_inventory)
-		_spawn_drone_if_needed()
+		_spawn_drones_if_needed()
 
 	if garage_ui:
 		garage_ui.queue_free()

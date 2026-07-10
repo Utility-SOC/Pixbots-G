@@ -9,15 +9,28 @@ var members: Array[Node] = []
 var active_members: int = 0
 var initial_members: int = 0
 
-# SolverProfiles used to build this squad's members' loadouts (set by
-# SquadDirector when it spawns a bot). Tracked here, not per-mech, so
-# SquadDirector can credit them with the squad's overall fitness the same
-# moment it updates the squad template's fitness - no separate per-mech
-# signal plumbing needed.
-var used_profiles: Array = []
-
 var time_alive: float = 0.0
 var total_damage_dealt: float = 0.0
+
+# --- Additional fitness inputs (Natalia: "recommend additional axes of
+# fitness... tracked/used") ------------------------------------------------
+# Damage this squad's members actually took, mirroring total_damage_dealt -
+# lets fitness reward FAVORABLE TRADES (dealt >> taken) instead of only ever
+# looking at offense, which previously let a squad that "won" by trading
+# evenly (or badly) score identically to one that stomped cleanly.
+var total_damage_taken: float = 0.0
+# Subset of the above specifically from a Mythic Magnet repel-mode bounce -
+# the AI noticing "we're dying to our own reflected fire" and weighting
+# speed/shield accordingly was an explicit ask, not just an offense/defense
+# balance nicety.
+var reflected_damage_taken: float = 0.0
+# Hits landed while the attacking member itself had has_sight_of_player ==
+# false (i.e. it was standing inside the player's own JammerField and
+# denied precise targeting - see Mech._update_player_sight). Closes the
+# loop on this session's Jammer redesign: nothing previously measured
+# whether the AI actually adapted to being Blind, so it had no way to learn
+# "keep pressing" vs. "back off and snipe" as separate viable strategies.
+var blind_hits_landed: int = 0
 
 # --- Fitness inputs added for the AI evolution system ---
 # Raw hit count (not just damage total) so a template that lands lots of
@@ -85,25 +98,36 @@ func add_member(mech: Node):
 	if "squad" in mech:
 		mech.squad = self
 
-	if "spawn_profile" in mech and mech.spawn_profile != null and not used_profiles.has(mech.spawn_profile):
-		used_profiles.append(mech.spawn_profile)
-
 	# Listen for when the member dies (exits the tree)
 	mech.tree_exiting.connect(_on_member_died)
 
 	# Listen for when the member deals damage
 	if mech.has_user_signal("dealt_damage") or mech.has_signal("dealt_damage"):
-		mech.dealt_damage.connect(_on_member_dealt_damage)
+		mech.dealt_damage.connect(_on_member_dealt_damage.bind(mech))
 	elif not mech.has_signal("dealt_damage"):
 		mech.add_user_signal("dealt_damage", [{"name": "amount", "type": TYPE_FLOAT}])
-		mech.connect("dealt_damage", _on_member_dealt_damage)
+		mech.connect("dealt_damage", _on_member_dealt_damage.bind(mech))
 
-func _on_member_dealt_damage(amount: float):
+	# Listen for when the member takes damage (see total_damage_taken's own
+	# field comment) - a real declared signal on every Mech from the start,
+	# so this doesn't need the has_user_signal fallback dance dealt_damage
+	# above still carries for historical/defensive reasons.
+	if mech.has_signal("took_damage"):
+		mech.took_damage.connect(_on_member_took_damage)
+
+func _on_member_dealt_damage(amount: float, mech: Node = null):
 	total_damage_dealt += amount
 	hits_landed += 1
 	time_since_last_hit_dealt = 0.0
 	if first_engagement_time < 0:
 		first_engagement_time = time_alive
+	if mech and is_instance_valid(mech) and "has_sight_of_player" in mech and not mech.has_sight_of_player:
+		blind_hits_landed += 1
+
+func _on_member_took_damage(amount: float, was_reflected: bool):
+	total_damage_taken += amount
+	if was_reflected:
+		reflected_damage_taken += amount
 
 func get_center_position() -> Vector2:
 	if members.is_empty(): return Vector2.ZERO
@@ -157,5 +181,26 @@ func _calculate_fitness() -> float:
 
 	# 5. Flee Penalty - accumulated whenever the squad goes quiet for too
 	# long after having engaged at least once (see _physics_process).
-	var fitness = damage_score + hit_score + survival_score - flee_penalty
+
+	# 6. Damage Trade Efficiency - rewards favorable trades (dealt >> taken)
+	# and mildly punishes lopsided ones. Ratio-based (not raw magnitude) so
+	# it stays meaningful regardless of how big damage numbers get late-game.
+	# Clamped so one freak early trade (e.g. a single hit before any damage
+	# taken yet) can't swing the whole score.
+	var trade_ratio = damage_score / max(1.0, total_damage_taken)
+	var trade_score = clamp((trade_ratio - 1.0) * 15.0, -40.0, 60.0)
+
+	# 7. Reflection Punishment (Natalia: "AI will need to track if I am
+	# doing something like using the mythic magnet - that should prompt
+	# more speed to breach the magnet projectiles, and more shield than
+	# weapon to survive shooting themselves"). Same magnitude scale as
+	# damage_score so it's directly comparable, not a separate unit.
+	var reflection_penalty = reflected_damage_taken * 0.5
+
+	# 8. Blind Resilience - landing hits while denied precise sight (inside
+	# the player's own JammerField) is a harder feat than a normal hit, so
+	# it's worth slightly more than hit_score's per-hit rate (3.0).
+	var blind_score = blind_hits_landed * 4.0
+
+	var fitness = damage_score + hit_score + survival_score + trade_score + blind_score - flee_penalty - reflection_penalty
 	return max(0.0, fitness)

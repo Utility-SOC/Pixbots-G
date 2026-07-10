@@ -39,8 +39,20 @@ func _ready():
 	var rect = RectangleShape2D.new()
 	rect.size = Vector2(16, 16)
 	shape.shape = rect
-	add_child(shape)
-	
+	# LootPickup.new()+add_child() can happen synchronously from inside a
+	# projectile's own physics collision callback (kill a mech -> die() ->
+	# loot drop, all still on the same _on_area_entered stack) - adding a
+	# CollisionShape2D here would mutate physics state while the physics
+	# server is still flushing the very query that led here ("Can't change
+	# this state while flushing queries"). Worse than the same-shaped bug
+	# already fixed in ExtractionMarker.gd: that one only broke Garage
+	# visuals, this one means the shape genuinely never attaches, so the
+	# pickup's Area2D can never detect the player standing on it - loot
+	# that LOOKS present (its sprite adds fine) but can never actually be
+	# collected, sitting inert forever exactly like the "loot just sitting
+	# still nearby" reports.
+	call_deferred("add_child", shape)
+
 	body_entered.connect(_on_body_entered)
 
 func pull_towards(target_pos: Vector2, delta_mod: float):

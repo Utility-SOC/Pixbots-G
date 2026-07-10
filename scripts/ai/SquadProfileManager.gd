@@ -61,6 +61,17 @@ func save_profile(profile_name: String, templates: Array[SquadTemplate], solver_
 	else:
 		push_error("Failed to save AI Profile: ", save_path)
 
+# Lightweight telemetry-only write, symmetric with load_telemetry() below -
+# reuses save_profile()'s file shape (empty templates/solver/boss arrays)
+# since that's exactly what _read_profile_data()/load_telemetry() expect.
+# SquadDirector uses this for the rival round-tracking counters, saved under
+# a separate "<name>_rounds" file so they don't get bundled into the main
+# learned-state profile's clipboard export (see save_profile's v1.3 comment
+# above on why combat-history telemetry stays out of exports).
+func save_telemetry(profile_name: String, telemetry: Dictionary):
+	var empty_templates: Array[SquadTemplate] = []
+	save_profile(profile_name, empty_templates, [], [], telemetry)
+
 # Shared file-read/parse step for load_profile/load_solver_profiles - the
 # two loaders read the same file, so the path-fallback and JSON handling
 # live once here instead of twice.
@@ -132,14 +143,25 @@ func _boss_profiles_from_data(data: Dictionary) -> Array:
 			profiles.append(p)
 	return profiles
 
+# Stamps an exported item's origin_pilot with the exporter's identity ONLY
+# if it doesn't already carry one - a template bred locally becomes "from
+# me" the moment it leaves this install, but a template that was ALREADY
+# imported from someone else keeps crediting its real originator through a
+# chain of hand-offs instead of every re-share overwriting it with whoever
+# most recently passed it along.
+func _stamp_origin(d: Dictionary) -> Dictionary:
+	if str(d.get("origin_pilot", "")) == "":
+		d["origin_pilot"] = SaveManager.pilot_name
+	return d
+
 func export_to_clipboard(templates: Array[SquadTemplate], solver_profiles: Array = [], boss_profiles: Array = []):
 	var profile_data = {"templates": [], "solver_profiles": [], "boss_profiles": []}
 	for t in templates:
-		profile_data["templates"].append(t.to_dict())
+		profile_data["templates"].append(_stamp_origin(t.to_dict()))
 	for p in solver_profiles:
-		profile_data["solver_profiles"].append(p.to_dict())
+		profile_data["solver_profiles"].append(_stamp_origin(p.to_dict()))
 	for bp in boss_profiles:
-		profile_data["boss_profiles"].append(bp.to_dict())
+		profile_data["boss_profiles"].append(_stamp_origin(bp.to_dict()))
 	DisplayServer.clipboard_set(JSON.stringify(profile_data))
 	print("Profile exported to clipboard! Ready to share.")
 

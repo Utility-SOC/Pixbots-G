@@ -48,6 +48,22 @@ const DIFFICULTY_COUNT_MULT = [0.7, 1.0, 1.3, 1.6]
 
 var difficulty: int = 1
 
+# Install-wide (not per-save) identity used to attribute AI profiles shared
+# via the War Room's export/import clipboard flow - when an imported
+# template collides by name with one you already have, the importer's
+# pilot_name gets appended to disambiguate instead of silently overwriting
+# your own learned progress (see SquadDirector._merge_learned). Same
+# ConfigFile as difficulty above, not tied to any single save slot since a
+# pilot's identity for sharing purposes isn't campaign-specific.
+var pilot_name: String = "Unknown Pilot"
+
+func set_pilot_name(name: String):
+	pilot_name = name.strip_edges() if name.strip_edges() != "" else "Unknown Pilot"
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH) # keep existing sections if present
+	config.set_value("Game", "PilotName", pilot_name)
+	config.save(SETTINGS_PATH)
+
 # Settings live at user:// (writable in exported builds - res:// is
 # READ-ONLY once exported, so the old res://settings.cfg writes silently
 # failed for players). SETTINGS_PATH is the single source of truth;
@@ -78,6 +94,7 @@ func _ready():
 	var config = ConfigFile.new()
 	if config.load(SETTINGS_PATH) == OK:
 		difficulty = clamp(int(config.get_value("Game", "Difficulty", 1)), 0, 3)
+		pilot_name = str(config.get_value("Game", "PilotName", "Unknown Pilot"))
 
 # SAVE FORMAT VERSION LOG (bump on any schema change; loaders are
 # has()-guarded so old saves keep working, this is for humans + future
@@ -324,6 +341,7 @@ func _serialize_tile(tile) -> Dictionary:
 		# resetting to its default weapon mount.
 		if tile.drone_loadout:
 			data["drone_loadout"] = _serialize_component(tile.drone_loadout)
+		data["visual_class"] = tile.visual_class
 
 	# Mythic ability state - generic sweep so every current and future
 	# mythic toggle persists without this list needing per-type branches.
@@ -372,8 +390,11 @@ func _deserialize_tile(data: Dictionary):
 	elif "rotation_steps" in tile:
 		tile.rotation_steps = int(data.get("rotation_steps", 1))
 
-	if tile.tile_type == "Drone Bay" and data.has("drone_loadout"):
-		tile.drone_loadout = _deserialize_component(data["drone_loadout"])
+	if tile.tile_type == "Drone Bay":
+		if data.has("drone_loadout"):
+			tile.drone_loadout = _deserialize_component(data["drone_loadout"])
+		if data.has("visual_class"):
+			tile.visual_class = int(data["visual_class"])
 
 	# Mythic ability state (see _serialize_tile's generic sweep)
 	for prop in ["mythic_pattern", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost"]:
@@ -394,6 +415,24 @@ func get_save_files() -> Array[String]:
 					saves.append(file_name.replace(".json", ""))
 			file_name = dir.get_next()
 	return saves
+
+# Lightweight peek at a save's max_wave_reached without doing the full
+# component/tile-grid deserialization load_game() does - lets MainMenu
+# compare progress across every save file cheaply (Natalia: "Continue
+# should pick up from the highest level I've made it to", not just
+# whichever save happens to be named "autosave" or sorts last).
+func peek_max_wave(save_name: String) -> int:
+	var path = SAVE_DIR + save_name + ".json"
+	if not FileAccess.file_exists(path):
+		return 0
+	var file = FileAccess.open(path, FileAccess.READ)
+	if not file:
+		return 0
+	var json = JSON.parse_string(file.get_as_text())
+	file.close()
+	if not json or typeof(json) != TYPE_DICTIONARY:
+		return 0
+	return int(json.get("max_wave_reached", 1))
 
 func save_loadout(slot_index: int, mech: Node):
 	var data = {

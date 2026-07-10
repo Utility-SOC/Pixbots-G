@@ -147,9 +147,13 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 				splitter = inventory[split_idx]
 				inventory.remove_at(split_idx)
 			else:
-				# Spawn a generic splitter to prevent broken routing
+				# Spawn a generic splitter to prevent broken routing - matches
+				# the component's own rarity so a high-rarity enemy's grid
+				# isn't sparsely filled with COMMON-default filler tiles once
+				# the inventory the caller handed in runs out.
 				splitter = load("res://scripts/tiles/SplitterTile.gd").new()
-				
+				splitter.rarity = component.rarity
+
 			splitter.active_faces.clear()
 			for child_v in children:
 				var child_h = HexCoord.new(child_v.x, child_v.y)
@@ -205,9 +209,12 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 						splitter = inventory[idx]
 						inventory.remove_at(idx)
 					else:
-						# Spawn generic splitter to prevent broken routing at corners
+						# Spawn generic splitter to prevent broken routing at
+						# corners - see the matching comment above for why this
+						# inherits the component's rarity.
 						splitter = load("res://scripts/tiles/SplitterTile.gd").new()
-						
+						splitter.rarity = component.rarity
+
 					splitter.active_faces.clear()
 					splitter.active_faces.append(exit_dir)
 					grid.add_tile(h, splitter)
@@ -220,7 +227,10 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 				tile = inventory[0]
 				inventory.remove_at(0)
 			else:
+				# Same rarity-inheritance reasoning as the generic-splitter
+				# fallbacks above.
 				tile = load("res://scripts/tiles/DirectionalConduitTile.gd").new()
+				tile.rarity = component.rarity
 
 			if tile.tile_type == "Elemental Infuser" and profile != null:
 				tile.secondary_synergy = _pick_profile_synergy(profile)

@@ -50,5 +50,12 @@ func _on_body_entered(body: Node2D):
 	if body.is_in_group("player"):
 		var main = get_tree().current_scene
 		if main and main.has_method("_open_garage"):
-			main._open_garage()
+			# _open_garage() rebuilds mech visuals, which adds new physics
+			# nodes (hitbox Area2D/CollisionShape2D) - doing that synchronously
+			# from inside this body_entered signal mutates physics state while
+			# the physics server is still flushing the very query that fired
+			# this callback ("Can't change this state while flushing queries").
+			# Deferring past the current physics step is exactly what Godot's
+			# own error message recommends here.
+			main.call_deferred("_open_garage")
 			queue_free()

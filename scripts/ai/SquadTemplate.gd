@@ -28,6 +28,17 @@ var total_fitness: float = 0.0
 # fully random templates). The parent may since have been culled - keep the
 # name anyway so the family tree can show ghost ancestors.
 @export var parent_name: String = ""
+
+# Which pilot first bred this template - "" means locally bred on this
+# install, never imported. Stamped at export time (see SquadProfileManager.
+# export_to_clipboard) with the exporting pilot's SaveManager.pilot_name if
+# it wasn't already set, so a re-shared template keeps crediting its actual
+# originator through a chain of hand-offs. Used on import to disambiguate a
+# name collision instead of silently overwriting local progress (see
+# SquadDirector._merge_imported) and to bias crossover toward mixing
+# lineages from different pilots (see maybe_introduce_experimental_template).
+# Visible in the War Room, deliberately not surfaced anywhere more prominent.
+@export var origin_pilot: String = ""
 # Per-deployment fitness scores, newest last, capped so a long campaign
 # doesn't grow saves unboundedly. Drives the War Room efficacy graph.
 const FITNESS_HISTORY_CAP = 60
@@ -76,6 +87,7 @@ func to_dict() -> Dictionary:
 		"is_experimental": is_experimental,
 		"parent_name": parent_name,
 		"fitness_history": fitness_history,
+		"origin_pilot": origin_pilot,
 	}
 
 func from_dict(data: Dictionary):
@@ -88,4 +100,5 @@ func from_dict(data: Dictionary):
 	if data.has("is_experimental"): is_experimental = bool(data["is_experimental"])
 	if data.has("parent_name"): parent_name = str(data["parent_name"])
 	if data.has("fitness_history"): fitness_history = data["fitness_history"].duplicate() if data["fitness_history"] is Array else []
+	if data.has("origin_pilot"): origin_pilot = str(data["origin_pilot"])
 

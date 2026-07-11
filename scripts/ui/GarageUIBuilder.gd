@@ -130,6 +130,15 @@ func build():
 	clear_button.pressed.connect(garage._on_clear_grid_pressed)
 	bottom_bar.add_child(clear_button)
 
+	# Blueprint import: apply a friend's card PNG (any Champion Card - every
+	# card carries the full buildout by design ruling) as a build recipe
+	# assembled from parts you actually own. See GarageMenu.
+	var blueprint_button = Button.new()
+	blueprint_button.text = "Blueprints"
+	blueprint_button.custom_minimum_size = Vector2(120, 50)
+	blueprint_button.pressed.connect(garage._on_blueprint_pressed)
+	bottom_bar.add_child(blueprint_button)
+
 	var sep_fire_toggle = CheckButton.new()
 	sep_fire_toggle.text = "Separate L/R Firing"
 

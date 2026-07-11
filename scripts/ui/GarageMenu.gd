@@ -645,3 +645,67 @@ func _show_warning(msg: String):
 	dialog.dialog_text = msg
 	add_child(dialog)
 	dialog.popup_centered()
+
+# --- Blueprint Cards ---------------------------------------------------------
+# Lists every card PNG in user://champion_cards/ and applies the chosen one
+# as a BLUEPRINT: the build is reassembled onto the player's mech using only
+# owned parts (see ChampionCard.assemble_blueprint); anything unowned or
+# unfittable becomes a shopping list. Same PNGs the Traveling Champion
+# system fights - one card, two uses, per design ruling.
+func _on_blueprint_pressed():
+	var ChampionCardScript = load("res://scripts/pvp/ChampionCard.gd")
+	var dir = DirAccess.open(ChampionCardScript.CARDS_DIR)
+	var cards: Array = []
+	if dir:
+		for file in dir.get_files():
+			if not file.ends_with(".png"):
+				continue
+			var f = FileAccess.open(ChampionCardScript.CARDS_DIR.path_join(file), FileAccess.READ)
+			if not f:
+				continue
+			var payload = ChampionCardScript.extract_payload(f.get_buffer(f.get_length()))
+			f.close()
+			if not payload.is_empty():
+				cards.append(payload)
+	if cards.is_empty():
+		_show_warning("No card PNGs found in %s.\nDrop a friend's Champion Card there (or export your own from the War Room)." % ProjectSettings.globalize_path(ChampionCardScript.CARDS_DIR))
+		return
+
+	var popup = PopupPanel.new()
+	var vbox = VBoxContainer.new()
+	popup.add_child(vbox)
+	var title = Label.new()
+	title.text = "Apply a Blueprint (uses only parts you own)"
+	vbox.add_child(title)
+	for payload in cards:
+		var btn = Button.new()
+		btn.text = "%s  (wave record %d)" % [payload.get("pilot_name", "Unknown"), int(payload.get("max_wave", 0))]
+		btn.pressed.connect(func():
+			popup.hide()
+			_apply_blueprint(payload)
+		)
+		vbox.add_child(btn)
+	add_child(popup)
+	popup.popup_centered(Vector2(340, 80 + cards.size() * 40))
+	popup.popup_hide.connect(func(): popup.queue_free())
+
+func _apply_blueprint(payload: Dictionary):
+	var main = get_parent()
+	if not main or main.get("player") == null:
+		_show_warning("No active mech to apply the blueprint to.")
+		return
+	var ChampionCardScript = load("res://scripts/pvp/ChampionCard.gd")
+	var result = ChampionCardScript.assemble_blueprint(payload, main.player, inventory)
+	_mark_player_grid_dirty()
+	_refresh_inventory_ui()
+	if grid_renderer:
+		grid_renderer.queue_redraw()
+	var msg = "Blueprint '%s': placed %d of %d tiles from your stock." % [payload.get("pilot_name", "?"), result.placed, result.total]
+	if not result.missing.is_empty():
+		msg += "\n\nShopping list:"
+		var counts = {}
+		for m in result.missing:
+			counts[m] = counts.get(m, 0) + 1
+		for m in counts:
+			msg += "\n  %dx %s" % [counts[m], m]
+	_show_warning(msg)

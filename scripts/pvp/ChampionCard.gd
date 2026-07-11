@@ -258,6 +258,92 @@ static func list_ghosts() -> Array:
 			ghosts.append(parsed)
 	return ghosts
 
+# ---------------------------------------------------------------- blueprint --
+
+const RARITY_NAMES = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
+const SLOT_NAMES = {0: "Torso", 1: "Left Arm", 2: "Right Arm", 3: "Left Leg", 4: "Right Leg", 5: "Head", 6: "Backpack"}
+
+# Design ruling: every card PNG carries the full buildout, so any card can
+# ALSO be applied as a Blueprint - rebuild the shared loadout in your own
+# Garage using only parts you actually own. Existing (non-infrastructure)
+# tiles are returned to inventory first, then each blueprint tile is
+# matched against the inventory by tile_type (exact rarity preferred, then
+# nearest). Anything you don't own or that won't fit your component's
+# shape lands on the shopping list instead of being conjured for free.
+# Returns {"placed": int, "total": int, "missing": Array[String]}.
+static func assemble_blueprint(payload: Dictionary, mech: Node, inventory: Array) -> Dictionary:
+	var placed = 0
+	var total = 0
+	var missing: Array = []
+	var infra = ["Core Reactor", "Energy Intake", "Torso Return", "Accessory Return", "Head Link", "Left Arm Link", "Right Arm Link", "Left Leg Link", "Right Leg Link", "Backpack Link"]
+
+	for slot_str in payload.get("components", {}):
+		var slot = int(slot_str)
+		var bp_comp = SaveManager._deserialize_component(payload["components"][slot_str])
+		if bp_comp == null or bp_comp.hex_grid == null:
+			continue
+		var target = mech.components.get(slot)
+		if target == null or target.hex_grid == null:
+			# No component in this slot at all - everything here is missing.
+			for tile in bp_comp.hex_grid.get_all_tiles():
+				if not infra.has(tile.tile_type):
+					total += 1
+					missing.append("%s %s (no %s equipped)" % [RARITY_NAMES[clamp(tile.rarity, 0, 4)], tile.tile_type, SLOT_NAMES.get(slot, "part")])
+			continue
+
+		# Clear the target grid back into inventory (never touching fixed
+		# sinks or link/core infrastructure).
+		for coord in target.hex_grid.grid.keys().duplicate():
+			var existing = target.hex_grid.grid[coord]
+			if infra.has(existing.tile_type):
+				continue
+			var hex = HexCoord.new(coord.x, coord.y)
+			var is_fixed = false
+			for f in target.fixed_sinks:
+				if f.q == hex.q and f.r == hex.r:
+					is_fixed = true
+					break
+			if is_fixed:
+				continue
+			target.hex_grid.remove_tile(hex)
+			inventory.append(existing)
+
+		# Place the blueprint's tiles from owned stock.
+		for coord in bp_comp.hex_grid.grid.keys():
+			var bp_tile = bp_comp.hex_grid.grid[coord]
+			if infra.has(bp_tile.tile_type):
+				continue
+			total += 1
+			var hex = HexCoord.new(coord.x, coord.y)
+			var label = "%s %s" % [RARITY_NAMES[clamp(bp_tile.rarity, 0, 4)], bp_tile.tile_type]
+			if not target.can_place_tile(hex) or target.hex_grid.has_tile(hex):
+				missing.append(label + " (won't fit your %s's shape)" % SLOT_NAMES.get(slot, "part"))
+				continue
+			# Best owned match: same tile_type, exact rarity first, then
+			# nearest rarity.
+			var best = null
+			var best_gap = 99
+			for inv_tile in inventory:
+				if inv_tile.tile_type != bp_tile.tile_type:
+					continue
+				var gap = abs(int(inv_tile.rarity) - int(bp_tile.rarity))
+				if gap < best_gap:
+					best_gap = gap
+					best = inv_tile
+					if gap == 0:
+						break
+			if best == null:
+				missing.append(label)
+				continue
+			inventory.erase(best)
+			best.body_slot = slot
+			target.hex_grid.add_tile(hex, best)
+			placed += 1
+
+	if "is_grid_dirty" in mech:
+		mech.is_grid_dirty = true
+	return {"placed": placed, "total": total, "missing": missing}
+
 # --------------------------------------------------------------- local rank --
 
 # Local rank lives in an encrypted file (design ruling) keyed off this

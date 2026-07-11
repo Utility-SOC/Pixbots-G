@@ -3,27 +3,80 @@ extends Camera2D
 var shake_intensity: float = 0.0
 var shake_duration: float = 0.0
 
-# --- Battlefield zoom -------------------------------------------------------
-# Mouse wheel zooms the game camera out to show more of the table (or back
-# in). Camera2D.zoom below 1.0 = wider view. Smooth-lerped so it reads as
-# a camera pull, not a snap. NOTE: the minimap consumes wheel events while
-# the cursor is over it (accept_event), so the two don't fight.
-const ZOOM_MIN = 0.3  # "way more of the game table"
-const ZOOM_MAX = 1.5
-const ZOOM_STEP = 1.12
-var _target_zoom: float = 1.0
+# --- Battlefield zoom (the ONE owner of camera.zoom) ------------------------
+# There were briefly TWO wheel-zoom systems (this one and a Main.gd one)
+# lerping camera.zoom against each other every frame - the "zooms out then
+# pops back in" playtest report. Main's was removed; everything lives here.
+#
+# base_zoom is set by Main at camera creation (1.5 / PIXEL_SHRINK_FACTOR -
+# zoom is relative to the internal pixel viewport, not the window).
+# The wheel moves a target FACTOR the camera glides toward and snaps onto.
+# Zooming out past FACTOR_MIN enters STRATEGIC VIEW (playtest ruling): the
+# camera detaches from the pixbot and SNAPS to frame the whole table.
+# Wheel-up exits back to tactical follow-cam at max zoom-out.
+var base_zoom: float = 0.75
+const FACTOR_MIN = 0.35 # tactical zoom-out limit (~2.9x classic framing)
+const FACTOR_MAX = 1.0
+const ZOOM_STEP = 1.15
+const ZOOM_GLIDE = 9.0 # exponential approach rate per second
+
+var _factor: float = 1.0
+var _target_factor: float = 1.0
+var strategic: bool = false
+var _smoothing_was: bool = true
 
 func _unhandled_input(event):
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_target_zoom = clamp(_target_zoom * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX)
+			if strategic:
+				_exit_strategic()
+			else:
+				_target_factor = min(FACTOR_MAX, _target_factor * ZOOM_STEP)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_target_zoom = clamp(_target_zoom / ZOOM_STEP, ZOOM_MIN, ZOOM_MAX)
+			if strategic:
+				return # already all the way out
+			if _target_factor <= FACTOR_MIN + 0.001:
+				_enter_strategic()
+			else:
+				_target_factor = max(FACTOR_MIN, _target_factor / ZOOM_STEP)
+
+func _enter_strategic():
+	var maps = get_tree().get_nodes_in_group("map_generator")
+	if maps.is_empty():
+		return
+	var map = maps[0]
+	strategic = true
+	top_level = true # stop following the pixbot
+	_smoothing_was = position_smoothing_enabled
+	position_smoothing_enabled = false # ruling: SNAP to the board, no pan
+	var map_px = Vector2(map.width, map.height) * map.tile_size
+	global_position = map_px / 2.0
+	var vp = get_viewport_rect().size
+	var fit = min(vp.x / map_px.x, vp.y / map_px.y) * 0.95
+	zoom = Vector2.ONE * fit
+	reset_smoothing()
+
+func _exit_strategic():
+	strategic = false
+	top_level = false
+	position = Vector2.ZERO
+	position_smoothing_enabled = _smoothing_was
+	reset_smoothing()
+	# Re-enter tactical at max zoom-out; further wheel-ups glide back in.
+	_factor = FACTOR_MIN
+	_target_factor = FACTOR_MIN
 
 func _process(delta: float):
-	var zoom_weight = 8.0 * delta
-	if zoom_weight > 1.0: zoom_weight = 1.0
-	zoom = zoom.lerp(Vector2.ONE * _target_zoom, zoom_weight)
+	if not strategic:
+		if _factor != _target_factor:
+			# Exponential glide (frame-rate independent) with a hard snap
+			# near the target so fractional resting zooms don't shimmer the
+			# pixel pipeline.
+			var t = 1.0 - exp(-ZOOM_GLIDE * delta)
+			_factor = lerpf(_factor, _target_factor, t)
+			if abs(_factor - _target_factor) < 0.004:
+				_factor = _target_factor
+		zoom = Vector2.ONE * base_zoom * _factor
 
 	if shake_duration > 0.0:
 		shake_duration -= delta

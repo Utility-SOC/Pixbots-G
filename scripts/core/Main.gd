@@ -93,46 +93,9 @@ var dialogue_timer: float = 0.0
 const PIXEL_SHRINK_FACTOR = 2
 var world: Node2D
 
-# Battle camera zoom (playtest rulings: mortars need to zoom out "by a
-# decent margin", then "I need out further, I need smooth action with
-# mouse wheel, I need it to snap at the top rather than wobbling").
-# The wheel moves a TARGET; the camera glides toward it every frame and
-# SNAPS once within epsilon - no per-click jump, no wobble at the limits.
-const BATTLE_ZOOM_MIN = 0.28 # ~3.5x the classic framing per axis
-const BATTLE_ZOOM_MAX = 1.0
-const BATTLE_ZOOM_STEP = 1.18
-const BATTLE_ZOOM_GLIDE = 9.0 # exponential approach rate per second
-
-var battle_zoom_target: float = 1.0
-var _battle_zoom_current: float = 1.0
-
-func _unhandled_input(event):
-	# Combat only - the Garage grid has its own wheel-zoom, and paused
-	# menus shouldn't eat scroll.
-	if garage_ui != null or get_tree().paused or player == null:
-		return
-	if event is InputEventMouseButton and event.pressed:
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			battle_zoom_target = min(BATTLE_ZOOM_MAX, battle_zoom_target * BATTLE_ZOOM_STEP)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			battle_zoom_target = max(BATTLE_ZOOM_MIN, battle_zoom_target / BATTLE_ZOOM_STEP)
-
-func _update_battle_zoom(delta: float):
-	if _battle_zoom_current == battle_zoom_target:
-		return
-	# Exponential glide (frame-rate independent), hard snap near the target
-	# so the value settles EXACTLY instead of asymptotically shimmering -
-	# fractional zoom resting values shimmer on the pixel pipeline.
-	var t = 1.0 - exp(-BATTLE_ZOOM_GLIDE * delta)
-	_battle_zoom_current = lerp(_battle_zoom_current, battle_zoom_target, t)
-	if abs(_battle_zoom_current - battle_zoom_target) < 0.004:
-		_battle_zoom_current = battle_zoom_target
-	_apply_battle_zoom()
-
-func _apply_battle_zoom():
-	var cam = get_tree().get_first_node_in_group("camera")
-	if cam:
-		cam.zoom = (Vector2(1.5, 1.5) / PIXEL_SHRINK_FACTOR) * _battle_zoom_current
+# Battle camera zoom lives entirely in CameraShake.gd now (single owner of
+# camera.zoom) - a second wheel-zoom system briefly lived here and fought
+# the camera's own one every frame, causing the "pops back in" rubber-band.
 
 func _ready():
 	_setup_pixel_viewport()
@@ -156,6 +119,18 @@ func _ready():
 	# comment for why this replaced the old Main._unhandled_input +
 	# GarageMenu._input dual-handler approach.
 	add_child(load("res://scripts/ui/GlobalPauseHandler.gd").new())
+
+	# Register gameplay actions that have no [input] section entry. The
+	# cloak generator gates on InputMap.has_action("cloak") - without this
+	# the action never existed, so AI ambushers could cloak and the PLAYER
+	# never could (playtest: "how do I use my cloak generator?").
+	# Hold C to cloak. Runtime-registered actions are rebindable through
+	# the same InputMap the settings menu edits.
+	if not InputMap.has_action("cloak"):
+		InputMap.add_action("cloak")
+		var cloak_key = InputEventKey.new()
+		cloak_key.physical_keycode = KEY_C
+		InputMap.action_add_event("cloak", cloak_key)
 
 	# Per Natalia: every game start (new game or loaded save) should land in
 	# the Garage first, not straight into combat - the player deploys
@@ -359,8 +334,6 @@ func _process(delta: float):
 		if dialogue_timer <= 0:
 			dialogue_box.visible = false
 
-	_update_battle_zoom(delta)
-
 	_update_player_blind_state()
 
 # Spawns a companion Drone for every Drone Bay tile installed anywhere in the
@@ -501,9 +474,9 @@ func _setup_player():
 	# per mech than intended). Dividing by the shrink factor here keeps the
 	# on-screen framing where it was while still getting the low-res pass.
 	camera.zoom = Vector2(1.5, 1.5) / PIXEL_SHRINK_FACTOR
+	camera.set("base_zoom", 1.5 / PIXEL_SHRINK_FACTOR) # CameraShake owns zoom from here
 	camera.add_to_group("camera")
 	player.add_child(camera)
-	_apply_battle_zoom()
 	
 	# Pre-calculate weapons so the first shot doesn't freeze the game
 	player._recalculate_grid()

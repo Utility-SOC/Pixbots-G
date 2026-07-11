@@ -507,6 +507,59 @@ func _apply_kill_method_counter_pressure():
 		_counter_announced_element = top_element
 		print("[DIRECTOR] Player %s-execution share %.0f%% - jammer counter-doctrine now targeting %s." % [top_element, top_share * 100.0, top_element])
 
+# --- Director "tells" -------------------------------------------------------
+# The learning loop is the game's most interesting system and it was
+# invisible outside the War Room. These build short Evan-voiced lines from
+# the REAL telemetry (never invented flavor): pre-wave intel when the
+# counter-doctrine or resistance profiling is actually active, and an
+# occasional post-wave debrief when the director just logged a lopsided
+# kill pattern. Empty string = nothing worth saying (silence is the common
+# case on purpose - a tell every wave would read as noise, not learning).
+
+var _wave_start_kill_counts: Dictionary = {}
+var _last_intel_line: String = ""
+
+func note_wave_started():
+	_wave_start_kill_counts = player_kill_methods.duplicate()
+
+func get_intel_line(wave: int) -> String:
+	if wave < 3:
+		return "" # nothing learned yet - don't fake it
+	var line = ""
+	if counter_jam_synergy >= 0:
+		var el = EnergyPacket.element_name(counter_jam_synergy).capitalize()
+		line = "Heads up - the Director's fitted %s-jammers this round. Your favorite trick won't land clean." % el
+	elif total_damage_taken > 500.0:
+		for element in player_element_usage:
+			if player_element_usage[element] / total_damage_taken > 0.4:
+				line = "It's been studying your %s matches - expect resistant plating out there." % str(element).capitalize()
+				break
+	if line == "" and wave % 4 == 0:
+		var top_t = null
+		for t in templates:
+			if top_t == null or t.spawn_weight > top_t.spawn_weight:
+				top_t = t
+		if top_t and top_t.spawn_weight >= 150.0:
+			line = "The Director keeps reaching for its '%s' lineup. Just saying." % top_t.template_name
+	if line == _last_intel_line:
+		return "" # don't repeat the same tell two waves running
+	_last_intel_line = line
+	return line
+
+func get_debrief_line() -> String:
+	var best_el = ""
+	var best_delta = 0
+	for element in player_kill_methods:
+		var delta = player_kill_methods[element] - int(_wave_start_kill_counts.get(element, 0))
+		if delta > best_delta:
+			best_delta = delta
+			best_el = element
+	# Only when the pattern is genuinely lopsided, and not every time -
+	# the debrief should feel like being noticed, not like a ticker.
+	if best_el != "RAW" and best_el != "" and best_delta >= 8 and randf() < 0.4:
+		return "It logged every one of those %d %s kills just now. It'll remember." % [best_delta, str(best_el).capitalize()]
+	return ""
+
 # Same counter pairing already used for shield bonus damage in
 # Mech._apply_shield_mitigation (FIRE<->ICE, POISON<->VAMPIRIC,
 # KINETIC<->LIGHTNING, VORTEX->KINETIC) - reused here rather than inventing
@@ -622,6 +675,7 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 					
 	# Apply generated synergies to bot's components
 	bot.ready.connect(func():
+		var counter_fitted = false
 		for comp in bot.components.values():
 			for coord in comp.hex_grid.grid.keys():
 				var tile = comp.hex_grid.grid[coord]
@@ -633,6 +687,7 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 						tile.jam_mode = 1
 					if "target_synergy" in tile:
 						tile.target_synergy = counter_jam_synergy
+						counter_fitted = true
 				if tile.tile_type == "Microcore":
 					# If this core feeds a weapon, set it to the counter_element
 					# If it feeds a shield, set it to the player_favored_element
@@ -651,6 +706,11 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 						if is_shield_feeder and player_favored_element != -1:
 							tile.set_face_output(d, player_favored_element)
 		bot.is_grid_dirty = true
+		# Director tell: a bot that was specifically kitted against the
+		# player's kill pattern announces it - the counter-doctrine should
+		# be visible on the battlefield, not just in the War Room.
+		if counter_fitted and bot.has_method("_show_floating_text"):
+			bot._show_floating_text("COUNTER-FIT", Color(0.8, 0.45, 1.0))
 	)
 	
 	var wave_multiplier = 1.0

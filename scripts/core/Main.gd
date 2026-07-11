@@ -595,6 +595,15 @@ func _start_wave():
 		# updates them in place instead of duplicating them.
 		director.load_learned_state()
 
+	# Director tells (see SquadDirector.get_intel_line): Evan tips the player
+	# off when the learning loop is genuinely reacting to them. Skipped in
+	# Boss Rush, which runs its own intro dialogue on the same channel.
+	director.note_wave_started()
+	if SaveManager.current_game_mode != "boss_rush":
+		var intel = director.get_intel_line(current_wave)
+		if intel != "":
+			show_dialogue("Evan", intel, Color(0.7, 0.9, 1.0), 6.0)
+
 	# Periodically let the director try out a new experimental squad
 	# composition (mutation or fresh random template). Not every wave, so
 	# each trial gets a few waves to actually accumulate deployments before
@@ -1276,6 +1285,13 @@ func _show_death_report(log: Array):
 func _on_wave_cleared():
 	print("--- WAVE CLEARED ---")
 	AudioManager.set_combat_state(false) # back to the ambient loop
+	# Occasional post-wave debrief when the director just logged a lopsided
+	# kill pattern (see SquadDirector.get_debrief_line's gating).
+	var tell_director = world.get_node_or_null("SquadDirector")
+	if tell_director:
+		var debrief = tell_director.get_debrief_line()
+		if debrief != "":
+			show_dialogue("Evan", debrief, Color(0.7, 0.9, 1.0), 5.0)
 	current_wave += 1
 	if current_wave > SaveManager.max_wave_reached:
 		SaveManager.max_wave_reached = current_wave

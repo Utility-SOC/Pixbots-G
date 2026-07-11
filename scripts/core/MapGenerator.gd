@@ -251,9 +251,100 @@ func _generate_map():
 		if map_type == "Tabletop" or force_ruins:
 			_place_tabletop_ruins()
 
+		# Connectivity guarantee (play report: "no meaningful gaps - easy to
+		# get boxed in and unable to advance" on Forest/Volcano). Obstacle
+		# tendrils can seal walkable pockets off entirely; carve corridors
+		# from every meaningful pocket back to the main continent BEFORE
+		# collision/nav/spawn data are built from the obstacles dict.
+		_carve_pocket_corridors()
+
 		main_continent_tiles = _analyze_connectivity()
 		if map_type != "Normal" or main_continent_tiles.size() >= required_size:
 			map_valid = true
+
+# A walkable pocket this size or bigger MUST be reachable from the main
+# continent without crossing obstacles. Smaller slivers aren't worth a
+# corridor (nothing spawns there and you can't wander in).
+const MIN_POCKET_SIZE = 6
+
+# Finds every walkable region, then for each non-main pocket of meaningful
+# size BFS-walks THROUGH obstacle cells (never water - lakes are a designed
+# barrier with their own traversal rules, and RuinParts stay intact - blast
+# your own door through a building, that's what destructible ruins are for)
+# to the nearest main-continent cell and deletes the obstacles along that
+# path, widened by one cell. Obstacle-locked pockets stop existing; water-
+# locked pockets are left alone on purpose.
+func _carve_pocket_corridors():
+	var visited = {}
+	var regions: Array = []
+	for y in range(height):
+		for x in range(width):
+			var pos = Vector2i(x, y)
+			if visited.has(pos) or terrain[y][x] == BiomeType.WATER or obstacles.has(pos):
+				continue
+			var region = {pos: true}
+			visited[pos] = true
+			var queue = [pos]
+			var head = 0
+			while head < queue.size():
+				var curr = queue[head]
+				head += 1
+				for n in [Vector2i(curr.x + 1, curr.y), Vector2i(curr.x - 1, curr.y), Vector2i(curr.x, curr.y + 1), Vector2i(curr.x, curr.y - 1)]:
+					if n.x < 0 or n.x >= width or n.y < 0 or n.y >= height:
+						continue
+					if visited.has(n) or terrain[n.y][n.x] == BiomeType.WATER or obstacles.has(n):
+						continue
+					visited[n] = true
+					region[n] = true
+					queue.append(n)
+			regions.append(region)
+
+	if regions.size() <= 1:
+		return
+	regions.sort_custom(func(a, b): return a.size() > b.size())
+	var main_region = regions[0]
+
+	for i in range(1, regions.size()):
+		var region = regions[i]
+		if region.size() < MIN_POCKET_SIZE:
+			continue
+		# BFS from the pocket, allowed through carvable obstacle cells,
+		# until we touch the main region; parent links give the corridor.
+		var start: Vector2i = region.keys()[0]
+		var parent = {start: start}
+		var queue = [start]
+		var head = 0
+		var reached = Vector2i(-1, -1)
+		while head < queue.size() and reached.x < 0:
+			var curr = queue[head]
+			head += 1
+			for n in [Vector2i(curr.x + 1, curr.y), Vector2i(curr.x - 1, curr.y), Vector2i(curr.x, curr.y + 1), Vector2i(curr.x, curr.y - 1)]:
+				if n.x < 0 or n.x >= width or n.y < 0 or n.y >= height or parent.has(n):
+					continue
+				if terrain[n.y][n.x] == BiomeType.WATER:
+					continue
+				if obstacles.get(n, "") == "RuinPart":
+					continue
+				parent[n] = curr
+				if main_region.has(n):
+					reached = n
+					break
+				queue.append(n)
+		if reached.x < 0:
+			continue # water/ruin-locked - a designed barrier, not a bug
+
+		# Walk the path back, deleting obstacles along it (1-cell widened
+		# so the corridor is passable for a mech, not a single-tile slit).
+		var walk = reached
+		while true:
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					var c = Vector2i(walk.x + dx, walk.y + dy)
+					if obstacles.has(c) and obstacles[c] != "RuinPart":
+						obstacles.erase(c)
+			if walk == parent[walk]:
+				break
+			walk = parent[walk]
 
 func _analyze_connectivity() -> Dictionary:
 	var visited = {}
@@ -656,6 +747,10 @@ func _create_wall_collision(pos: Vector2, size: Vector2):
 func _spawn_tree(pos: Vector2):
 	var body = load("res://scripts/core/TreeObstacle.gd").new()
 	body.global_position = pos + Vector2(tile_size/2, tile_size/2)
+	# So the tree can clear its nav footprint when destroyed (same pattern
+	# as RuinObstacle) - without this, dead trees left invisible AI walls.
+	body.map_ref = self
+	body.cell = Vector2i(int(pos.x / tile_size), int(pos.y / tile_size))
 	add_child(body)
 
 func _create_collision(x: int, y: int, layer: int, shrink: int = 0):

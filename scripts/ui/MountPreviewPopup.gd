@@ -80,7 +80,22 @@ func _make_preview_projectile() -> Node2D:
 	proj.collision_mask = 0
 	proj.remove_from_group("projectile") # invisible to magnet reflection etc.
 	proj.rotation = 0.0
+	# Cage the visuals inside the window: combat trails/particles emit in
+	# WORLD space (top_level / local_coords=false), which let the shot's
+	# effects escape the popup and paint over the hex grid. Convert
+	# particles to local space and drop world-space trail lines entirely.
+	_cage(proj)
 	return proj
+
+func _cage(node: Node):
+	for child in node.get_children():
+		if child is CPUParticles2D or child is GPUParticles2D:
+			child.set("local_coords", true)
+		if child is Line2D:
+			child.visible = false # world-space trail - meaningless in here
+		if "top_level" in child and child.top_level:
+			child.top_level = false
+		_cage(child)
 
 func _rebuild_pool():
 	_clear_pool()
@@ -92,11 +107,12 @@ func _rebuild_pool():
 		count = 3
 	for i in range(count):
 		_pool.append(_make_preview_projectile())
-	# Fit the stage: combat projectiles are world-sized (a big charged shot
-	# renders 60px+ before glow) - zoom out so it stays inside the range.
+	# Fit the stage: combat projectiles are world-sized (a big charged shot's
+	# shape alone is ~20px x visual_scale before its oversized glow) - zoom
+	# so the shot reads at ~24px inside the 86px-tall range.
 	var proj = _pool[0]
-	var approx = 8.0 * max(0.1, proj.scale.x) * max(1.0, float(proj.get("visual_scale") if "visual_scale" in proj else 1.0))
-	stage.scale = Vector2.ONE * clamp(26.0 / approx, 0.2, 1.4)
+	var vs = max(1.0, float(proj.get("visual_scale") if "visual_scale" in proj else 1.0)) * max(0.25, proj.scale.x)
+	stage.scale = Vector2.ONE * clamp(24.0 / (20.0 * vs), 0.25, 1.2)
 
 # mount: the hovered WeaponMountTile; entries: every precalculated_weapons
 # dict for this mount (possibly several traversal steps + a bank);
@@ -127,9 +143,13 @@ func show_for(mount, entries: Array, fire_rate: float, screen_pos: Vector2):
 			line += "  [+BANK]"
 		info.text = line + "\n" + elements + "\nCharge: %.1fs" % _charge_time
 
-	# Sit beside the cursor, clamped on-screen.
+	# Docked to the top-right of the screen, NOT following the cursor -
+	# cursor-following covered the tile tooltip and the mount's own config
+	# popup (playtest report: "it covers the setting, so I can't change the
+	# weapon type"). A fixed dock is predictable and never in the way of
+	# what you're actually pointing at.
 	var vp = get_viewport_rect().size if is_inside_tree() else Vector2(1152, 648)
-	global_position = Vector2(min(screen_pos.x + 18, vp.x - 210), min(screen_pos.y + 12, vp.y - 150))
+	global_position = Vector2(vp.x - 214, 8)
 	visible = true
 	_rebuild_pool()
 

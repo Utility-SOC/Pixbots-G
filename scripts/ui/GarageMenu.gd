@@ -497,8 +497,12 @@ func _update_mount_preview(tile: HexTile, screen_pos: Vector2):
 	var main = get_parent()
 	if main and main.get("player") != null:
 		var p = main.player
-		if p.is_grid_dirty:
-			p._recalculate_grid() # live edits -> live preview
+		# ALWAYS recalc, don't trust is_grid_dirty: individual garage edit
+		# paths historically forgot to set it (the reason _close_garage
+		# flags it unconditionally on deploy) - a freshly wired mount would
+		# read stale sim data and falsely claim NO ENERGY. Hover-enter is
+		# rare and the sim is a few ms; truth is worth it.
+		p._recalculate_grid()
 		fire_rate = p.fire_rate
 		for d in p.precalculated_weapons:
 			if d.mount == tile:

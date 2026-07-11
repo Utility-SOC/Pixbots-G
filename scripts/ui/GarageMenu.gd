@@ -469,11 +469,41 @@ func _on_tooltip_requested(tile: HexTile, screen_pos: Vector2):
 	if not garage_inventory_panel:
 		garage_inventory_panel = GarageInventoryPanel.new(self)
 	garage_inventory_panel.on_tooltip_requested(tile, screen_pos)
+	_update_mount_preview(tile, screen_pos)
 
 func _on_tooltip_cleared():
 	if not garage_inventory_panel:
 		garage_inventory_panel = GarageInventoryPanel.new(self)
 	garage_inventory_panel.on_tooltip_cleared()
+	if mount_preview:
+		mount_preview.hide_preview()
+
+# --- live weapon-mount projectile preview (see MountPreviewPopup.gd) --------
+# Hovering a Weapon Mount shows the exact projectile + firing pattern that
+# mount will produce with the grid AS CURRENTLY WIRED - the sim is re-run
+# on demand when edits dirtied it, so the preview always tells the truth.
+var mount_preview = null
+
+func _update_mount_preview(tile: HexTile, screen_pos: Vector2):
+	if tile == null or tile.tile_type != "Weapon Mount":
+		if mount_preview:
+			mount_preview.hide_preview()
+		return
+	if not mount_preview:
+		mount_preview = load("res://scripts/ui/MountPreviewPopup.gd").new()
+		add_child(mount_preview)
+	var entries: Array = []
+	var fire_rate = 0.25
+	var main = get_parent()
+	if main and main.get("player") != null:
+		var p = main.player
+		if p.is_grid_dirty:
+			p._recalculate_grid() # live edits -> live preview
+		fire_rate = p.fire_rate
+		for d in p.precalculated_weapons:
+			if d.mount == tile:
+				entries.append(d)
+	mount_preview.show_for(tile, entries, fire_rate, screen_pos)
 
 func _on_tile_clicked(tile: HexTile):
 	if not garage_tile_config_popup:

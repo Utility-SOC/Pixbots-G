@@ -110,7 +110,17 @@ func _detonate():
 		proj.monitorable = false
 		proj._handle_hit(direct_target) # the entire direct-fire impact pipeline
 		if not proj.is_queued_for_deletion():
-			proj.queue_free()
+			if proj._lightning_hops_left > 0 or proj.ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) > 0.05:
+				# Lightning payload survives the impact by design (blink
+				# re-targeting) - RE-ARM it as a live projectile so it
+				# teleport-hops onward from the crater, exactly like
+				# direct-fire lightning would.
+				proj.set_physics_process(true)
+				proj.monitoring = true
+				proj.monitorable = true
+				ProjectileManager.register(proj)
+			else:
+				proj.queue_free()
 
 	# Splash ring: falloff damage only - elemental spread (arcs, explosion
 	# radius, residues) already came from the direct hit above.

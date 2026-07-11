@@ -47,6 +47,24 @@ const KINETIC_RANGE_BONUS = 5600.0
 var max_range: float = BASE_RANGE
 var distance_traveled: float = 0.0
 
+# --- LIGHTNING = instantaneous travel (design ruling 2026-07-11) -----------
+# Lightning's identity is BLINK movement, not an on-hit zap: every
+# BLINK_INTERVAL the shot teleports toward the nearest target in
+# acquisition range, covering `lightning ratio` of the distance per hop -
+# full lightning arrives instantly, partial lightning visibly hops toward
+# it "but won't make it all the way" per hop. On impact, a lightning shot
+# RE-TARGETS instead of dying (up to 1 + 4x ratio targets, 5 at 100%), and
+# each new leg gets the FULL range budget back. Composes with the other
+# movement synergies: kinetic sets how long each leg can be, vortex keeps
+# spiraling between hops, etc. Blink displacement flows through the normal
+# tunnel-sweep and distance accounting below, so hops spend range budget
+# and hit what they cross.
+const BLINK_INTERVAL = 0.11
+const BLINK_ACQUIRE_RANGE = 420.0
+const LIGHTNING_BLINK_MIN = 0.05
+var _blink_timer: float = 0.0
+var _lightning_hops_left: int = 0
+
 var damage: float = 10.0
 var is_crit: bool = false
 var direction: Vector2 = Vector2.ZERO
@@ -345,6 +363,12 @@ func _calculate_stats():
 	# Kinetic bonus on top - see the field comment above for why this is
 	# KINETIC's whole identity now.
 	max_range = BASE_RANGE + KINETIC_RANGE_BONUS * r_kin
+
+	# Lightning blink hops (see the BLINK_INTERVAL block comment): extra
+	# targets beyond the first, 4 at full lightning.
+	var r_ltg_stats = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
+	if r_ltg_stats > LIGHTNING_BLINK_MIN:
+		_lightning_hops_left = int(round(4.0 * r_ltg_stats))
 
 	# Size/Mass (ratio-driven only - magnitude-driven size lives entirely in
 	# _build_visuals()'s p_scale below. An earlier pass also added a
@@ -883,6 +907,11 @@ func _physics_process(delta: float):
 	# reliably catch the hit for free, and this was previously gated at just
 	# 4.0px, so nearly every projectile at any speed paid for a full physics
 	# shape query every single tick regardless of whether it needed one.
+	# LIGHTNING blink hop (see BLINK_INTERVAL block comment) - moves
+	# global_position BEFORE the sweep/distance section so the teleport
+	# spends range budget and sweep-hits whatever it crosses.
+	_update_blink(delta)
+
 	var _moved = global_position - _prev_global_pos
 	if _moved.length() > TUNNEL_RISK_MOVE_THRESHOLD:
 		_sweep_for_tunneled_hits(_prev_global_pos, _moved)
@@ -910,6 +939,44 @@ func _physics_process(delta: float):
 		for p in helix_particles:
 			var angle = time_alive * p["speed"] + p["phase"]
 			p["node"].position = Vector2(cos(angle)*p["radius"]*0.5, sin(angle)*p["radius"])
+
+# One lightning blink step: teleport `lightning ratio` of the way toward
+# the nearest un-hit target within acquisition range, drawing the bolt
+# along the jump. Heading snaps to the target so the residual (kinetic/
+# vortex-shaped) flight between hops keeps closing.
+func _update_blink(delta: float):
+	var r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
+	if r_ltg <= LIGHTNING_BLINK_MIN:
+		return
+	_blink_timer -= delta
+	if _blink_timer > 0.0:
+		return
+	_blink_timer = BLINK_INTERVAL
+
+	var pool = EntityCache.get_group("enemy") if fired_by_player else EntityCache.get_group("player")
+	var best = null
+	var best_dist = BLINK_ACQUIRE_RANGE
+	for v in pool:
+		if not is_instance_valid(v) or v.get("is_dead"):
+			continue
+		if _handled_targets.has(v.get_instance_id()):
+			continue
+		var d = global_position.distance_to(v.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = v
+	if best == null:
+		return
+
+	var to_target = best.global_position - global_position
+	if to_target.length() < 2.0:
+		return
+	var hop = to_target * min(1.0, r_ltg)
+	_draw_lightning_arc(Vector2.ZERO, hop) # bolt along the jump, local to our pre-hop position
+	global_position += hop
+	direction = to_target.normalized()
+	if "target_direction" in self:
+		target_direction = direction
 
 # Poison-mine movement: no gravity lob, vortex swirl, fire drag, homing, or
 # range-based speed bonuses - just a straight crawl (or a dead stop with no
@@ -1269,43 +1336,13 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 	# just one jump), each hop dealing falloff damage. Hop count and jump
 	# radius both scale with how much of the packet was actually Lightning.
 	var r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
-	if r_ltg > 0.05 and target.is_in_group("enemy"):
-		var max_hops = 1 + int(round(4.0 * r_ltg)) # up to 5 hops at 100% lightning
-		var jump_radius = 350.0 * r_ltg
-		var already_hit: Array = [target]
-		var chain_from_pos = global_position
-		var chain_damage = damage * 0.5
-
-		for hop in range(max_hops):
-			var space_state = get_world_2d().direct_space_state
-			var query = PhysicsShapeQueryParameters2D.new()
-			var shape = CircleShape2D.new()
-			shape.radius = jump_radius
-			query.shape = shape
-			query.transform = Transform2D(0, chain_from_pos)
-			query.collision_mask = 4 if collision_mask & 4 else 8
-			var results = space_state.intersect_shape(query)
-
-			var closest = null
-			var min_dist = shape.radius
-			for res in results:
-				var col = res["collider"]
-				if col in already_hit: continue
-				if col.has_method("apply_damage") and col.is_in_group("enemy"):
-					var d = chain_from_pos.distance_to(col.global_position)
-					if d < min_dist:
-						min_dist = d
-						closest = col
-
-			if not closest:
-				break
-
-			_draw_lightning_arc(chain_from_pos - global_position, closest.global_position - global_position)
-			closest.apply_damage(chain_damage, "LIGHTNING")
-
-			already_hit.append(closest)
-			chain_from_pos = closest.global_position
-			chain_damage *= 0.7 # each additional hop falls off
+	# (The old on-hit zap-chain lived here. REPLACED by the blink-movement
+	# model - design ruling 2026-07-11: lightning is instantaneous TRAVEL,
+	# not a stationary arc. The shot itself now teleport-hops to the next
+	# target (see _update_blink) and survives impacts to re-target (see the
+	# _lightning_hops_left block at the bottom of this function), dealing
+	# its FULL on-hit pipeline to every leg's target instead of a decaying
+	# side-channel zap.)
 			
 	# Vampiric Heal
 	if ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0) > 0.1:
@@ -1354,6 +1391,16 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 		_trigger_poison_mine_detonation()
 		if not is_queued_for_deletion():
 			queue_free()
+		return
+
+	# LIGHTNING re-target: instead of dying, hop out to the next victim.
+	# Each new leg gets the FULL range budget back ("each leg has the same
+	# potential length as the first one" - design ruling), and the blink
+	# timer is zeroed so the jump happens on the very next tick.
+	if _lightning_hops_left > 0:
+		_lightning_hops_left -= 1
+		distance_traveled = 0.0
+		_blink_timer = 0.0
 		return
 
 	pierce_count -= 1

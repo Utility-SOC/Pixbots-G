@@ -110,16 +110,21 @@ func _finish():
 	var shell = load("res://scripts/attacks/MortarShell.gd").new()
 	shell.setup(Vector2.ZERO, e1.global_position, 0.5, 40.0, {EnergyPacket.SynergyType.LIGHTNING: 10.0}, true, player)
 	world.add_child(shell)
-	# The chain hop is a physics shape query - freshly added bodies aren't
-	# in the broadphase until a physics step runs.
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	shell._detonate() # skip the flight
-	if e2.hp >= e2_hp:
-		push_error("FAIL: lightning mortar didn't chain to the second enemy (hp %.0f)" % e2.hp)
+	# Blink model: the payload survives the direct hit, re-arms, and
+	# teleport-hops to the bystander over the next few physics ticks,
+	# landing a full contact hit (not a decaying side-channel zap).
+	for i in range(20):
+		await get_tree().physics_frame
+		if is_instance_valid(e2) and e2.hp < e2_hp:
+			break
+	if not is_instance_valid(e2) or e2.hp >= e2_hp:
+		push_error("FAIL: lightning mortar payload never blink-hopped to the second enemy")
 		failures += 1
 	else:
-		print("5) lightning mortar chained: bystander hp %.0f -> %.0f" % [e2_hp, e2.hp])
+		print("5) lightning payload blink-hopped: bystander hp %.0f -> %.0f" % [e2_hp, e2.hp])
 	shell.queue_free()
 
 	# --- mortar counter-doctrine: artillery use up-weights cloak/jammer ---

@@ -1,7 +1,11 @@
 class_name CatalystTile
 extends HexTile
 
-@export var target_synergy: EnergyPacket.SynergyType = EnergyPacket.SynergyType.FIRE
+# Defaults to RAW (design ruling): a fresh tile shouldn't impose FIRE on
+# every new build - the player picks the element. A RAW-target catalyst is
+# a legitimate "normalizer" (converts everything back to RAW at its usual
+# efficiency), so nothing special-cases it.
+@export var target_synergy: EnergyPacket.SynergyType = EnergyPacket.SynergyType.RAW
 @export var efficiency: float = 1.2
 
 # MYTHIC ability: "Inverted" catalyst acts as a FILTER instead of a
@@ -22,6 +26,9 @@ func get_weight() -> float:
 
 func cycle_synergy():
 	target_synergy = (target_synergy + 1) % 10
+
+func cycle_synergy_backward():
+	target_synergy = (target_synergy + 9) % 10
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0: return [packet]

@@ -39,6 +39,11 @@ func cycle_face_output(direction: int):
 	current = (current + 1) % EnergyPacket.SynergyType.size()
 	face_outputs[direction] = current
 
+func cycle_face_output_backward(direction: int):
+	var current = get_face_output(direction)
+	current = (current + EnergyPacket.SynergyType.size() - 1) % EnergyPacket.SynergyType.size()
+	face_outputs[direction] = current
+
 func generate_energy(grid: Node) -> Array[EnergyPacket]:
 	var packets: Array[EnergyPacket] = []
 	var current_power = get_power_output()

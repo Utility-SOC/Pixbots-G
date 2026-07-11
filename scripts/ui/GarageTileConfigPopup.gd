@@ -53,14 +53,20 @@ func on_tile_clicked(tile: HexTile):
 			var syn_names = EnergyPacket.SYNERGY_NAMES # canonical table
 			var native_state = [int(tile.face_outputs.get(0, 0))]
 			var native_btn = Button.new()
-			native_btn.text = "MYTHIC native element: %s (click to cycle all faces)" % syn_names[native_state[0] % 10]
-			native_btn.pressed.connect(func():
-				native_state[0] = (native_state[0] + 1) % 10
-				for f in range(6):
-					tile.set_face_output(f, native_state[0])
-				native_btn.text = "MYTHIC native element: %s (click to cycle all faces)" % syn_names[native_state[0]]
-				garage._mark_player_grid_dirty()
-				garage.grid_renderer.queue_redraw()
+			native_btn.text = "MYTHIC native element: %s (L/R click cycles all faces)" % syn_names[native_state[0] % 10]
+			native_btn.gui_input.connect(func(event):
+				if event is InputEventMouseButton and event.pressed:
+					if event.button_index == MOUSE_BUTTON_LEFT:
+						native_state[0] = (native_state[0] + 1) % 10
+					elif event.button_index == MOUSE_BUTTON_RIGHT:
+						native_state[0] = (native_state[0] + 9) % 10
+					else:
+						return
+					for f in range(6):
+						tile.set_face_output(f, native_state[0])
+					native_btn.text = "MYTHIC native element: %s (L/R click cycles all faces)" % syn_names[native_state[0]]
+					garage._mark_player_grid_dirty()
+					garage.grid_renderer.queue_redraw()
 			)
 			vbox.add_child(native_btn)
 
@@ -201,9 +207,16 @@ func on_tile_clicked(tile: HexTile):
 						child_btn.set_block_signals(false)
 			)
 
-			syn_btn.pressed.connect(func():
-				if tile.has_method("cycle_face_output"):
-					tile.cycle_face_output(i)
+			# Left-click cycles forward, right-click cycles back (same
+			# convention as the Catalyst/Infuser synergy button).
+			syn_btn.gui_input.connect(func(event):
+				if event is InputEventMouseButton and event.pressed:
+					if event.button_index == MOUSE_BUTTON_LEFT and tile.has_method("cycle_face_output"):
+						tile.cycle_face_output(i)
+					elif event.button_index == MOUSE_BUTTON_RIGHT and tile.has_method("cycle_face_output_backward"):
+						tile.cycle_face_output_backward(i)
+					else:
+						return
 					syn_btn.text = "Syn: %s" % EnergyPacket.element_name(tile.get_face_output(i))
 			)
 			vbox.add_child(hbox)

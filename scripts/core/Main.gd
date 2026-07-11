@@ -500,15 +500,17 @@ func _initialize_starter_inventory():
 			shield.rarity = r
 			player_inventory.append(shield)
 				
-	# Add Infusers
+	# Add Infusers (enum values, not magic ints - the old literal `3` here
+	# was commented POISON but is actually LIGHTNING in SynergyType order,
+	# so the starter "poison" infuser had been infusing lightning)
 	var poison_infuser = load("res://scripts/tiles/InfuserTile.gd").new()
 	poison_infuser.rarity = HexTile.Rarity.RARE
-	poison_infuser.secondary_synergy = 3 # POISON
+	poison_infuser.secondary_synergy = EnergyPacket.SynergyType.POISON
 	player_inventory.append(poison_infuser)
-	
+
 	var fire_infuser = load("res://scripts/tiles/InfuserTile.gd").new()
 	fire_infuser.rarity = HexTile.Rarity.RARE
-	fire_infuser.secondary_synergy = 1 # FIRE
+	fire_infuser.secondary_synergy = EnergyPacket.SynergyType.FIRE
 	player_inventory.append(fire_infuser)
 	
 	# Add Catalyst

@@ -1,285 +1,299 @@
 {
-    "intermission_quips": [
-        "Corp resets the table. Same rules, meaner bots. That's the fun part.",
-        "Your paint's holding up better than my first bot's did. Who would have known acetone melts paint?",
-        "Somebody's mom called asking if this is 'that gambling game.' It's not. It's a far more expensive vice. It's a HOBBY.",
-        "Trainer AI's been muttering about you in its logs. That's a compliment.",
-        "Loose tile on lane three, watch your footing. The bots won't.",
-        "Remember. It is only a game, and assault WILL get you banned from the store. Keep it on the table.",
-        "Closed Wednesdays for FightShovel 1920.",
-        "PixBot Market - Thursday Night.\"",
-        "10:00 PM, You don't have to go home, but you can't stay here.",
-        "Consider Ink Wash.\"",
-        "Jump-Jets allow your Pixel Bot to survive water levels.",
-        "Combine different synergies for unique effects.",
-        "The meta is a suggestion. Play what makes you happy, as long as it wins.",
-        "No running in the shop. I don't care if you're excited about your new missile launcher.",
-        "I just got a shipment of new chassis parts. First come, first served.",
-        "Don't tap on the arena glass. The AI hates it.",
-        "Some people play chess. We play chess with lasers and acid.",
-        "I'm thinking of hosting a 2v2 tournament next month. Find a partner.",
-        "If you smell smoke, your bot is overheating. Or the microwave in the back is broken again.",
-        "Respect your opponent. Even if they run a pure stalling deck.",
-        "Yes, the rumors are true. The Corp is watching these matches. No, I don't know why.",
-        "Every piece of scrap is a potential upgrade if you squint hard enough.",
-        "The stealth bot always gets you when you blink.",
-        "There is no 'luck' in PixBots. Just probability and poor planning.",
-        "I've seen kids cry over this game. I've seen parents rage over it.",
-        "Remember to hydrate. Water Bottles are free. Soda has a 10% discount for players.",
-        "Basic Hygiene Required."
-    ],
-    "first_boss_intro": "Heads up \u2014 that's a Corp centerpiece model. They ship one big chassis per trainer kit so new pilots learn to fight something SCARY. Kill the legs out from under the drama.",
-    "first_boss_defeat": "And THAT is why we keep the good salvage behind the counter. Take your pick, champ.",
-    "boss_defeats": [
-        "Down goes the big one! Somebody get the broom.",
-        "Corp's gonna want that chassis back. Corp can have it in pieces.",
-        "You know some regulars practice a month before their first centerpiece kill? Don't tell them how fast you got yours.",
-        "That was a lot of expensive hardware you just turned into scrap. Good job.",
-        "I'd ask if you're proud of yourself, but I can see the smirk from here.",
-        "Another centerpiece goes to the junkyard. I hope the Corp has good insurance.",
-        "You took that thing apart like it was made of cheap plastic. Which it might be.",
-        "Nice maneuvering. I thought you were toast when it charged.",
-        "You're making the AI look bad. It's going to hold a grudge.",
-        "I'm going to need a bigger scrap bin.",
-        "That boss had a family. Mostly smaller, equally angry bots, but still.",
-        "I almost felt bad for it. Almost.",
-        "Textbook takedown. You've been doing your homework.",
-        "I think I saw a spark of genuine fear in its optical sensors.",
-        "Keep playing like that and I'll have to start charging you for the electricity.",
-        "You just voided its warranty in record time.",
-        "If anyone asks, that crater was already there.",
-        "That's one way to disassemble a multi-million dollar prototype.",
-        "You're going to need a bigger trophy shelf.",
-        "I'm not saying I'm impressed, but my eyebrow is slightly raised.",
-        "That boss thought it was the apex predator. You proved it wrong.",
-        "Clean kill. The AI is frantically rewriting its combat algorithms right now.",
-        "I guess the Corp needs to go back to the drawing board on that model.",
-        "You dismantled that thing with the cold efficiency of a tax auditor.",
-        "I've seen worse pilots survive longer, but not many.",
-        "That was a solid hit. You actually made me look up from my magazine.",
-        "The bigger they are, the more salvage they drop.",
-        "I hope you got a good picture of that explosion. It was cinematic.",
-        "You're starting to look like a real pilot out there.",
-        "That boss was a menace. Now it's a paperweight.",
-        "I'll add that kill to the chalkboard. It's getting full.",
-        "You just gave that AI a complex. It's going to need therapy.",
-        "Not bad. Not bad at all. Now do it again."
-    ],
-    "rivals": {
-        "Arthur": {
-            "intro": "Arthur just walked in. His parents bought him the entire new set before it officially released. His bot is basically a walking vault of Mythic parts. Try to scratch the paint.",
-            "win": "Money can't buy tactical awareness! Arthur's having his chauffeur carry out the pieces.",
-            "loss": "Yeah, there's a reason those parts cost more than my car. Better luck next time.",
-            "gimmick": "Only uses the most expensive, rarest Mythic parts. Raw stats over synergy.",
-            "monologues": {
-                "round_1": "Don't touch the paint, peasant. Do you know how much a single Mythic actuator costs? More than your whole garage.",
-                "round_2": "You got lucky last time. My chassis wasn't polished. Let's see you handle the real power of money.",
-                "round_3": "I don't care how many matches you've won, you're still using scraps. I'm going to put you in your place.",
-                "mythic": "Okay... I admit it. You've got skills. Even my dad's corporate engineers couldn't build a loadout like yours. Show me how you do it."
-            }
-        },
-        "Beatrice": {
-            "intro": "Beatrice wants a match. She's been doing calculations in a notebook for an hour. Her bot isn't just built, it's engineered. Watch out for chain reactions.",
-            "win": "You just broke her algorithm! She's furiously erasing equations right now.",
-            "loss": "Mathematically eliminated. She predicted your every move on page four.",
-            "gimmick": "Perfect mathematical synergy. Every part triggers a reaction in another part.",
-            "monologues": {
-                "round_1": "Your build is highly inefficient. I've calculated fourteen distinct structural flaws. Prepare to be optimized out of the bracket.",
-                "round_2": "I had to carry a remainder in my last equation to account for your... erratic playstyle. I won't make that mistake twice.",
-                "round_3": "Your loadout defies traditional mathematical models. It's fascinating. I'd like to test a new theorem against it."
-            }
-        },
-        "Grog": {
-            "intro": "Here comes Grog. He calls his bot 'The Blender.' He doesn't believe in ranged weapons or dodging. Keep your distance, or you'll get pureed.",
-            "win": "The bigger they are, the harder they crash! Good job kiting the big guy.",
-            "loss": "Well... your bot is flat now. We'll need a spatula.",
-            "gimmick": "Pure, unadulterated melee aggression. Heavy armor, massive physical damage.",
-            "monologues": {
-                "round_1": "Me smash your little toy into tiny pieces! Grog strongest!",
-                "round_2": "You run fast. But Grog smash faster this time!",
-                "round_3": "You tough. You take big hit and not break. Grog respect that. Let us have good smash!"
-            }
-        },
-        "Leo & Luna": {
-            "intro": "Oh boy. The twins are challenging you. It's a 2v1. One of them is going to stab you in the back while the other shoots you from across the room. I'm legally obligated to say: Good luck.",
-            "win": "You beat the twins?! And you watched your own back! That's... genuinely impressive.",
-            "loss": "You didn't see that coming, did you? Neither did I, and I have the security cameras.",
-            "gimmick": "A 2v1 match. Luna uses a cloaked melee assassin; Leo uses a cloaked long-range sniper.",
-            "monologues": {
-                "round_1": "(Leo) \"They won't even see us coming.\" (Luna) \"They never do, brother. It's almost too easy.\"",
-                "round_2": "(Leo) \"You survived the crossfire last time.\" (Luna) \"An anomaly. We've adjusted our firing arcs.\"",
-                "round_3": "(Leo) \"You have eyes in the back of your head.\" (Luna) \"A worthy prey. Let us dance in the shadows once more.\""
-            }
-        },
-        "Rudy": {
-            "intro": "It's Rudy. He was the best pilot in this shop three years ago. Then he started... experimenting. Bypassing safety limiters. Overclocking. His bot is a ticking bomb. Don't let it take you with it.",
-            "win": "Rudy's bot finally melted down. A tragedy, really, but a win's a win.",
-            "loss": "He might be crazy, but the power output on that thing is undeniable. Get the fire extinguisher.",
-            "gimmick": "The Overclocker. Used to be the shop champion until he started tampering with his core. His bot deals massive, erratic damage but damages itself over time. Unstable.",
-            "monologues": {
-                "round_1": "Limiters are for cowards! You're gonna see true power! Assuming my core doesn't melt first!",
-                "round_2": "I tweaked the plasma regulator! It's running at 400% capacity! It burns! It burns so good!",
-                "round_3": "You're crazy. You're crazier than me. You stare down the meltdown and you don't even blink. Let's see who burns out first!"
-            }
-        },
-        "Professor P.": {
-            "intro": "Professor P. is up. He doesn't do direct damage. He just applies layers of acid and fire until there's nothing left. Try not to inhale the fumes.",
-            "win": "You extinguished his thesis! Excellent counter-play.",
-            "loss": "You've been successfully dissolved. Let me get the mop.",
-            "gimmick": "Status effects. Acid, Fire, Shock. Wants to watch you slowly melt.",
-            "monologues": {
-                "round_1": "Ah, a new specimen. Let's observe how your armor plating reacts to a concentrated sulfuric compound.",
-                "round_2": "Your resistance to corrosive agents was statistically anomalous. I've prepared a more volatile mixture for this experiment.",
-                "round_3": "Your adaptations are nothing short of brilliant. This next match will be published in my most prestigious journal!"
-            }
-        },
-        "Zane": {
-            "intro": "Zane's up. If you blink, his bot has already crossed the board twice. Don't try to track him, anticipate where he's going.",
-            "win": "You caught the fly! Precision beats speed when it matters.",
-            "loss": "Death by a thousand very, very fast papercuts.",
-            "gimmick": "All jump-jets and haste engines. Fragile but almost impossible to hit.",
-            "monologues": {
-                "round_1": "Try to keep up! Actually, don't. It's embarrassing to watch you try.",
-                "round_2": "You managed to clip my wing last time. I've upgraded my thrusters. You won't even see the blur.",
-                "round_3": "You've got fast reflexes. Real fast. Most people give up. Let's push the redline and see who breaks."
-            }
-        },
-        "Chloe": {
-            "intro": "Chloe's challenging you. She never fights alone. Expect about twenty micro-bots to swarm the field before you can say 'pest control.'",
-            "win": "Swarm defeated! It's like stepping on a nest of angry, robotic hornets.",
-            "loss": "You got overrun. There's just too many of them.",
-            "gimmick": "Minion spam. Summons turrets, tiny drones, and decoys.",
-            "monologues": {
-                "round_1": "Why fight alone when you can bring friends? And by friends, I mean thirty autonomous kill-drones.",
-                "round_2": "You squashed my little ones. They didn't like that. And neither did I.",
-                "round_3": "You handle the swarm better than anyone. My drones actually consider you an apex threat now. I'm honored."
-            }
-        },
-        "Vance": {
-            "intro": "Vance is here. He built a fortress, not a fighter. It's going to be a long, slow grind. Bring a book.",
-            "win": "The walls came tumbling down! Nice siege tactics.",
-            "loss": "You ran out of ammo and he's still at full shields. Classic Vance.",
-            "gimmick": "Ultimate defense. Shields, barricades, repair drones. Wins by outlasting you.",
-            "monologues": {
-                "round_1": "Go ahead. Shoot me. I've got all day. My shields recharge faster than you can pull the trigger.",
-                "round_2": "You found a crack in the armor. Impressive. But I brought the heavy barricades this time.",
-                "round_3": "You're the unstoppable force, and I'm the immovable object. This is what we play the game for."
-            }
-        },
-        "Maya": {
-            "intro": "Maya's set up in the corner. If you walk into a straight line, she'll put a hole through three of your bots at once. Stay in cover.",
-            "win": "You closed the gap! A sniper's worst nightmare is a melee weapon.",
-            "loss": "You caught a railgun round to the core. Next time, zig-zag.",
-            "gimmick": "Plays from the absolute furthest edge of the board. Piercing railguns.",
-            "monologues": {
-                "round_1": "Distance is safety. By the time you figure out where I am, there'll be a hole through your chassis.",
-                "round_2": "You're good at closing the gap. I respect that. But I've recalibrated my optics.",
-                "round_3": "I don't usually let anyone get this close. You've earned the right to see the whites of my eyes."
-            }
-        },
-        "Declan": {
-            "intro": "Watch your step. Declan uses the board itself as a weapon. If you get pulled into a corner, you aren't coming out.",
-            "win": "You avoided the traps and took him out! Great spatial awareness.",
-            "loss": "You walked right into that one. Literally.",
-            "gimmick": "Magnet tiles, push/pull mechanics, hazards. Uses the arena against you.",
-            "monologues": {
-                "round_1": "Watch your step. The board is mine. Every tile is a trap waiting to snap.",
-                "round_2": "You sidestepped the magnets. Clever. But I've rigged the entire quadrant this time.",
-                "round_3": "You read the board like a grandmaster. It's a genuine pleasure trying to outsmart you."
-            }
-        },
-        "Jin": {
-            "intro": "Jin plays the odds. His bot is chaotic and unpredictable. Even he doesn't know what it's going to do. Roll the dice.",
-            "win": "The house always wins, and today, you're the house.",
-            "loss": "He rolled a natural twenty on that plasma blast. Pure luck. Probably.",
-            "gimmick": "RNG parts. Attacks might do 1 damage or 100 damage. Teleports randomly.",
-            "monologues": {
-                "round_1": "Snake eyes or jackpot, let's let the dice decide! I love the thrill of the unknown!",
-                "round_2": "My luck ran dry last hand. But the house always takes another bet. Double or nothing!",
-                "round_3": "You don't play the odds, you make your own luck. That's the mark of a true high roller. Deal me in!"
-            }
-        },
-        "Sammy": {
-            "intro": "Sammy built his bot out of the scrap bin I keep out back. It shouldn't function, but it does. Don't underestimate the junk.",
-            "win": "You sent him back to the scrapyard. Good.",
-            "loss": "Defeated by literal trash. I won't tell anyone if you won't.",
-            "gimmick": "Built entirely from rusted, junkyard parts that have bizarre, unintended interactions.",
-            "monologues": {
-                "round_1": "One man's trash is my treasure! Don't laugh at the rust, it adds character!",
-                "round_2": "I found a shiny new exhaust pipe in the dumpster. It makes my bot 12% more unpredictable!",
-                "round_3": "You don't care that my bot is made of cans and duct tape. You fight me like a pro. Thanks for not going easy on me."
-            }
-        },
-        "Rex": {
-            "intro": "Hold up. Rex wants a match. He's been staring at your bot for twenty minutes. He just rebuilt his to match yours, piece for piece. Let's see who pilots it better.",
-            "win": "You proved you're the original! Nobody flies your rig like you do.",
-            "loss": "Losing to your own build hurts. He's going to be so smug about this.",
-            "gimmick": "He analyzes your exact build and copies it, but he's practiced with it against the AI.",
-            "monologues": {
-                "round_1": "Anything you can do, I can do better. Let's see how you handle your own medicine.",
-                "round_2": "So you tweaked your build. Cute. I downloaded your new schematic ten minutes ago.",
-                "round_3": "You've mastered this loadout. I can copy the parts, but I can't copy your instincts. Show me the masterclass."
-            }
-        }
-    },
-    "travelling_champion": {
-        "intro": "Now THIS is an occasion. A travelling champion's AI, fresh off someone else's table, somewhere out there in the world. Different shop, different habits, different homework. Beat the ghost, take the glory.",
-        "win": "I'm putting this on the board out front. 'LOCAL PILOT DEFEATS [CHAMPION_NAME].' You want that in marker or the good vinyl letters?",
-        "loss": "Their table taught them different tricks, that's all. Study the War Room tape and issue a rematch. Champions love rematches. It's why they travel."
-    },
-    "generic_rival_wins": [
-        "Clean match! Shake the hand, take the win.",
-        "You out-piloted them. Plain and simple.",
-        "They had a good build, but your strategy was better.",
-        "That's another notch on your belt. Don't let it go to your head.",
-        "You read them like an open book. Good tactical awareness.",
-        "They thought they had the counter, but you adapted perfectly.",
-        "A solid victory. They're going to be analyzing that replay for hours.",
-        "You dismantled their game plan. Excellent work.",
-        "They underestimated you. Their mistake.",
-        "You proved your loadout is superior. At least for today.",
-        "A well-earned win. Now go claim your salvage.",
-        "They put up a fight, but you had the edge.",
-        "You stayed cool under pressure. That's what wins matches.",
-        "They're walking away with a bruised ego and a broken bot.",
-        "You just sent them back to the drawing board."
-    ],
-    "generic_rival_losses": [
-        "Losing is just a lesson with a higher repair bill.",
-        "They outplayed you this time. Figure out why, and don't let it happen again.",
-        "You got outmaneuvered. It happens to the best of us.",
-        "Their build was a hard counter. Time to tweak your loadout.",
-        "You missed a crucial opening. Pay closer attention next time.",
-        "They saw right through your strategy. You need to be more unpredictable.",
-        "A tough loss, but a valuable one. Review the tape.",
-        "They had the better tactics today. Tomorrow is a new day.",
-        "You got caught off guard. Stay frosty.",
-        "Your bot wasn't ready for that kind of punishment. Upgrade your armor.",
-        "They exploited a weakness you didn't even know you had.",
-        "You hesitated. In this game, hesitation is scrap.",
-        "They brought a better tool for the job. Adapt and overcome.",
-        "You got steamrolled. Dust yourself off and get back to the garage.",
-        "Losing stings, but it's the only way to get better. Go fix your bot."
-    ],
-    "milestones": {
-        "10_bosses": "Ten centerpiece kills. That's Sponsored Pilot tier \u2014 Corp merch box, don't ask me what shipping cost. One Legendary chassis piece, two Legendary tiles. Spend them loud.",
-        "level_100": "Kid. Level one hundred. I've had the shop nine years and I've rarely seen a pilot reach this point. Based on your record and how much you've forced the AI to evolve, the system's authorizing a payout. I'm looking at up to fifteen Mythic tiles for you. Fifteen. Corp says 'tournament-grade.' I say try not to vaporize my east wall."
-    },
-    "black_market": [
-        "Officially, that case is 'returns pending inspection.' Unofficially \u2014 players sell to each other. That kid, Silas? He always has the strangest, glitchiest, non-regulation components. I don't know where he gets them, and the rotation changes every ten minutes. Nothing has a warranty. You didn't hear it from me."
-    ],
-    "death_footers": [
-        "Bots break. Pilots learn. Bench is that way, I'll put the kettle on.",
-        "The trainer got you. The trainer gets everyone. It's the learning part of the learning tool.",
-        "That arm's fixable. Your pride, also fixable. Scrap's in the bin.",
-        "Don't let it get to your head. I lost my first twenty matches in a row.",
-        "Go tweak your loadout. A minor adjustment is the difference between scrap and glory.",
-        "You're getting predictable. The AI learns. You have to learn faster."
-    ],
-    "game_over_3_loss": "Three straight losses in the brackets. Look, kid, I'm sorry... but Corp rules are Corp rules. I have to pull your tournament registration for this circuit. Take some time, build a new rig, and we'll try again next season.",
-    "tournament_teaser": "You've seen the bracket out front, right? Regional qualifiers run through sponsored shops like mine. Keep this up and I'm signing you up \u2014 and I do NOT put my shop's name on just anybody. Ask Rudy... Actually, don't ask Rudy. Just keep winning.",
-    "boss_rush": {
-        "intro": "So, you want to run the gauntlet. No breaks, no easy waves, just the heavy hitters back to back. If you survive, you keep what you salvage. If you don't... well, let's hope you survive.",
-        "completion": "You actually cleared the board. I don't think I've seen anyone do that since Rudy before... well, never mind. Take your loot, you earned every piece."
-    }
+	"intermission_quips": [
+		"Corp resets the table. Same rules, meaner bots. That's the fun part.",
+		"Your paint's holding up better than my first bot's did. Who would have known acetone melts paint?",
+		"Somebody's mom called asking if this is 'that gambling game.' It's not. It's a far more expensive vice. It's a HOBBY.",
+		"Trainer AI's been muttering about you in its logs. That's a compliment.",
+		"Loose tile on lane three, watch your footing. The bots won't.",
+		"Remember. It is only a game, and assault WILL get you banned from the store. Keep it on the table.",
+		"Closed Wednesdays for FightShovel 1920.",
+		"PixBot Market - Thursday night. Bring scrap, leave with regrets.",
+		"10:00 PM, You don't have to go home, but you can't stay here.",
+		"Flat paint job? Dry brush the edges, ink wash the recesses. Your bot fights better when it looks loved. That's science.",
+		"Jump-Jets allow your Pixel Bot to survive water levels.",
+		"Combine different synergies for unique effects.",
+		"The meta is a suggestion. Play what makes you happy, as long as it wins.",
+		"No running in the shop. I don't care if you're excited about your new missile launcher.",
+		"I just got a shipment of new chassis parts. First come, first served.",
+		"Don't tap on the arena glass. The AI hates it.",
+		"Some people play chess. We play chess with lasers and acid.",
+		"I'm thinking of hosting a 2v2 tournament next month. Find a partner.",
+		"If you smell smoke, your bot is overheating. Or the microwave in the back is broken again.",
+		"Respect your opponent. Even if they run a pure stalling deck.",
+		"Yes, the rumors are true. The Corp is watching these matches. No, I don't know why.",
+		"Every piece of scrap is a potential upgrade if you squint hard enough.",
+		"The stealth bot always gets you when you blink.",
+		"There is no 'luck' in PixBots. Just probability and poor planning.",
+		"I've seen kids cry over this game. I've seen parents rage over it.",
+		"Remember to hydrate. Water Bottles are free. Soda has a 10% discount for players.",
+		"Basic Hygiene Required.",
+		"Mortars are legal now. The insurance called. We're 'in discussions.'",
+		"Saw a bot teleport across the whole table yesterday. Lightning builds, man. I miss when this was a walking game.",
+		"The Director doesn't sleep. It just sits there. Learning. Anyway, cocoa's fresh.",
+		"Somebody cloaked their bot and forgot where they parked it. Check under the counter if yours is missing.",
+		"If your torso tab ever goes missing, scroll left. Trust me on this one.",
+		"New house rule: if your bot boxes itself in behind terrain, you buy the table snacks.",
+		"A kid asked me what RAW does. Everything, kid. It does everything. Just not WELL.",
+		"Watched two drones and a mortar carry a match while the pilot ate a sandwich. Beautiful game.",
+		"Champion cards from out of town keep showing up in my mailbox. You people have friends EVERYWHERE.",
+		"The shop cat is not a legal target. The shop cat has never been a legal target.",
+		"Your shield doesn't need a button. Your cloak does. C, by the way. The manual's under the register somewhere.",
+		"Pierce for speed, kinetic for range. I will put it on a shirt if I have to.",
+		"Someone left a full-vortex bot running overnight. Everything in aisle two is now in aisle three.",
+		"The Corp rep asked why our tables win so much. I said 'good coaching.' Buy something so it's not a lie."
+	],
+	"first_boss_intro": "Heads up — that's a Corp centerpiece model. They ship one big chassis per trainer kit so new pilots learn to fight something SCARY. Kill the legs out from under the drama.",
+	"first_boss_defeat": "And THAT is why we keep the good salvage behind the counter. Take your pick, champ.",
+	"boss_defeats": [
+		"Down goes the big one! Somebody get the broom.",
+		"Corp's gonna want that chassis back. Corp can have it in pieces.",
+		"You know some regulars practice a month before their first centerpiece kill? Don't tell them how fast you got yours.",
+		"That was a lot of expensive hardware you just turned into scrap. Good job.",
+		"I'd ask if you're proud of yourself, but I can see the smirk from here.",
+		"Another centerpiece goes to the junkyard. I hope the Corp has good insurance.",
+		"You took that thing apart like it was made of cheap plastic. Which it might be.",
+		"Nice maneuvering. I thought you were toast when it charged.",
+		"You're making the AI look bad. It's going to hold a grudge.",
+		"I'm going to need a bigger scrap bin.",
+		"That boss had a family. Mostly smaller, equally angry bots, but still.",
+		"I almost felt bad for it. Almost.",
+		"Textbook takedown. You've been doing your homework.",
+		"I think I saw a spark of genuine fear in its optical sensors.",
+		"Keep playing like that and I'll have to start charging you for the electricity.",
+		"You just voided its warranty in record time.",
+		"If anyone asks, that crater was already there.",
+		"That's one way to disassemble a multi-million dollar prototype.",
+		"You're going to need a bigger trophy shelf.",
+		"I'm not saying I'm impressed, but my eyebrow is slightly raised.",
+		"That boss thought it was the apex predator. You proved it wrong.",
+		"Clean kill. The AI is frantically rewriting its combat algorithms right now.",
+		"I guess the Corp needs to go back to the drawing board on that model.",
+		"You dismantled that thing with the cold efficiency of a tax auditor.",
+		"I've seen worse pilots survive longer, but not many.",
+		"That was a solid hit. You actually made me look up from my magazine.",
+		"The bigger they are, the more salvage they drop.",
+		"I hope you got a good picture of that explosion. It was cinematic.",
+		"You're starting to look like a real pilot out there.",
+		"That boss was a menace. Now it's a paperweight.",
+		"I'll add that kill to the chalkboard. It's getting full.",
+		"You just gave that AI a complex. It's going to need therapy.",
+		"Not bad. Not bad at all. Now do it again."
+	],
+	"rivals": {
+		"Arthur": {
+			"intro": "Arthur just walked in. His parents bought him the entire new set before it officially released. His bot is basically a walking vault of Mythic parts. Try to scratch the paint.",
+			"win": "Money can't buy tactical awareness! Arthur's having his chauffeur carry out the pieces.",
+			"loss": "Yeah, there's a reason those parts cost more than my car. Better luck next time.",
+			"gimmick": "Only uses the most expensive, rarest Mythic parts. Raw stats over synergy.",
+			"monologues": {
+				"round_1": "Don't touch the paint, peasant. Do you know how much a single Mythic actuator costs? More than your whole garage.",
+				"round_2": "You got lucky last time. My chassis wasn't polished. Let's see you handle the real power of money.",
+				"round_3": "I don't care how many matches you've won, you're still using scraps. I'm going to put you in your place.",
+				"mythic": "Okay... I admit it. You've got skills. Even my dad's corporate engineers couldn't build a loadout like yours. Show me how you do it."
+			}
+		},
+		"Beatrice": {
+			"intro": "Beatrice wants a match. She's been doing calculations in a notebook for an hour. Her bot isn't just built, it's engineered. Watch out for chain reactions.",
+			"win": "You just broke her algorithm! She's furiously erasing equations right now.",
+			"loss": "Mathematically eliminated. She predicted your every move on page four.",
+			"gimmick": "Perfect mathematical synergy. Every part triggers a reaction in another part.",
+			"monologues": {
+				"round_1": "Your build is highly inefficient. I've calculated fourteen distinct structural flaws. Prepare to be optimized out of the bracket.",
+				"round_2": "I had to carry a remainder in my last equation to account for your... erratic playstyle. I won't make that mistake twice.",
+				"round_3": "Your loadout defies traditional mathematical models. It's fascinating. I'd like to test a new theorem against it."
+			}
+		},
+		"Grog": {
+			"intro": "Here comes Grog. He calls his bot 'The Blender.' He doesn't believe in ranged weapons or dodging. Keep your distance, or you'll get pureed.",
+			"win": "The bigger they are, the harder they crash! Good job kiting the big guy.",
+			"loss": "Well... your bot is flat now. We'll need a spatula.",
+			"gimmick": "Pure, unadulterated melee aggression. Heavy armor, massive physical damage.",
+			"monologues": {
+				"round_1": "Me smash your little toy into tiny pieces! Grog strongest!",
+				"round_2": "You run fast. But Grog smash faster this time!",
+				"round_3": "You tough. You take big hit and not break. Grog respect that. Let us have good smash!"
+			}
+		},
+		"Leo & Luna": {
+			"intro": "Oh boy. The twins are challenging you. It's a 2v1. One of them is going to stab you in the back while the other shoots you from across the room. I'm legally obligated to say: Good luck.",
+			"win": "You beat the twins?! And you watched your own back! That's... genuinely impressive.",
+			"loss": "You didn't see that coming, did you? Neither did I, and I have the security cameras.",
+			"gimmick": "A 2v1 match. Luna uses a cloaked melee assassin; Leo uses a cloaked long-range sniper.",
+			"monologues": {
+				"round_1": "(Leo) \"They won't even see us coming.\" (Luna) \"They never do, brother. It's almost too easy.\"",
+				"round_2": "(Leo) \"You survived the crossfire last time.\" (Luna) \"An anomaly. We've adjusted our firing arcs.\"",
+				"round_3": "(Leo) \"You have eyes in the back of your head.\" (Luna) \"A worthy prey. Let us dance in the shadows once more.\""
+			}
+		},
+		"Rudy": {
+			"intro": "It's Rudy. He was the best pilot in this shop three years ago. Then he started... experimenting. Bypassing safety limiters. Overclocking. His bot is a ticking bomb. Don't let it take you with it.",
+			"win": "Rudy's bot finally melted down. A tragedy, really, but a win's a win.",
+			"loss": "He might be crazy, but the power output on that thing is undeniable. Get the fire extinguisher.",
+			"gimmick": "The Overclocker. Used to be the shop champion until he started tampering with his core. His bot deals massive, erratic damage but damages itself over time. Unstable.",
+			"monologues": {
+				"round_1": "Limiters are for cowards! You're gonna see true power! Assuming my core doesn't melt first!",
+				"round_2": "I tweaked the plasma regulator! It's running at 400% capacity! It burns! It burns so good!",
+				"round_3": "You're crazy. You're crazier than me. You stare down the meltdown and you don't even blink. Let's see who burns out first!"
+			}
+		},
+		"Professor P.": {
+			"intro": "Professor P. is up. He doesn't do direct damage. He just applies layers of acid and fire until there's nothing left. Try not to inhale the fumes.",
+			"win": "You extinguished his thesis! Excellent counter-play.",
+			"loss": "You've been successfully dissolved. Let me get the mop.",
+			"gimmick": "Status effects. Acid, Fire, Shock. Wants to watch you slowly melt.",
+			"monologues": {
+				"round_1": "Ah, a new specimen. Let's observe how your armor plating reacts to a concentrated sulfuric compound.",
+				"round_2": "Your resistance to corrosive agents was statistically anomalous. I've prepared a more volatile mixture for this experiment.",
+				"round_3": "Your adaptations are nothing short of brilliant. This next match will be published in my most prestigious journal!"
+			}
+		},
+		"Zane": {
+			"intro": "Zane's up. If you blink, his bot has already crossed the board twice. Don't try to track him, anticipate where he's going.",
+			"win": "You caught the fly! Precision beats speed when it matters.",
+			"loss": "Death by a thousand very, very fast papercuts.",
+			"gimmick": "All jump-jets and haste engines. Fragile but almost impossible to hit.",
+			"monologues": {
+				"round_1": "Try to keep up! Actually, don't. It's embarrassing to watch you try.",
+				"round_2": "You managed to clip my wing last time. I've upgraded my thrusters. You won't even see the blur.",
+				"round_3": "You've got fast reflexes. Real fast. Most people give up. Let's push the redline and see who breaks."
+			}
+		},
+		"Chloe": {
+			"intro": "Chloe's challenging you. She never fights alone. Expect about twenty micro-bots to swarm the field before you can say 'pest control.'",
+			"win": "Swarm defeated! It's like stepping on a nest of angry, robotic hornets.",
+			"loss": "You got overrun. There's just too many of them.",
+			"gimmick": "Minion spam. Summons turrets, tiny drones, and decoys.",
+			"monologues": {
+				"round_1": "Why fight alone when you can bring friends? And by friends, I mean thirty autonomous kill-drones.",
+				"round_2": "You squashed my little ones. They didn't like that. And neither did I.",
+				"round_3": "You handle the swarm better than anyone. My drones actually consider you an apex threat now. I'm honored."
+			}
+		},
+		"Vance": {
+			"intro": "Vance is here. He built a fortress, not a fighter. It's going to be a long, slow grind. Bring a book.",
+			"win": "The walls came tumbling down! Nice siege tactics.",
+			"loss": "You ran out of ammo and he's still at full shields. Classic Vance.",
+			"gimmick": "Ultimate defense. Shields, barricades, repair drones. Wins by outlasting you.",
+			"monologues": {
+				"round_1": "Go ahead. Shoot me. I've got all day. My shields recharge faster than you can pull the trigger.",
+				"round_2": "You found a crack in the armor. Impressive. But I brought the heavy barricades this time.",
+				"round_3": "You're the unstoppable force, and I'm the immovable object. This is what we play the game for."
+			}
+		},
+		"Maya": {
+			"intro": "Maya's set up in the corner. If you walk into a straight line, she'll put a hole through three of your bots at once. Stay in cover.",
+			"win": "You closed the gap! A sniper's worst nightmare is a melee weapon.",
+			"loss": "You caught a railgun round to the core. Next time, zig-zag.",
+			"gimmick": "Plays from the absolute furthest edge of the board. Piercing railguns.",
+			"monologues": {
+				"round_1": "Distance is safety. By the time you figure out where I am, there'll be a hole through your chassis.",
+				"round_2": "You're good at closing the gap. I respect that. But I've recalibrated my optics.",
+				"round_3": "I don't usually let anyone get this close. You've earned the right to see the whites of my eyes."
+			}
+		},
+		"Declan": {
+			"intro": "Watch your step. Declan uses the board itself as a weapon. If you get pulled into a corner, you aren't coming out.",
+			"win": "You avoided the traps and took him out! Great spatial awareness.",
+			"loss": "You walked right into that one. Literally.",
+			"gimmick": "Magnet tiles, push/pull mechanics, hazards. Uses the arena against you.",
+			"monologues": {
+				"round_1": "Watch your step. The board is mine. Every tile is a trap waiting to snap.",
+				"round_2": "You sidestepped the magnets. Clever. But I've rigged the entire quadrant this time.",
+				"round_3": "You read the board like a grandmaster. It's a genuine pleasure trying to outsmart you."
+			}
+		},
+		"Jin": {
+			"intro": "Jin plays the odds. His bot is chaotic and unpredictable. Even he doesn't know what it's going to do. Roll the dice.",
+			"win": "The house always wins, and today, you're the house.",
+			"loss": "He rolled a natural twenty on that plasma blast. Pure luck. Probably.",
+			"gimmick": "RNG parts. Attacks might do 1 damage or 100 damage. Teleports randomly.",
+			"monologues": {
+				"round_1": "Snake eyes or jackpot, let's let the dice decide! I love the thrill of the unknown!",
+				"round_2": "My luck ran dry last hand. But the house always takes another bet. Double or nothing!",
+				"round_3": "You don't play the odds, you make your own luck. That's the mark of a true high roller. Deal me in!"
+			}
+		},
+		"Sammy": {
+			"intro": "Sammy built his bot out of the scrap bin I keep out back. It shouldn't function, but it does. Don't underestimate the junk.",
+			"win": "You sent him back to the scrapyard. Good.",
+			"loss": "Defeated by literal trash. I won't tell anyone if you won't.",
+			"gimmick": "Built entirely from rusted, junkyard parts that have bizarre, unintended interactions.",
+			"monologues": {
+				"round_1": "One man's trash is my treasure! Don't laugh at the rust, it adds character!",
+				"round_2": "I found a shiny new exhaust pipe in the dumpster. It makes my bot 12% more unpredictable!",
+				"round_3": "You don't care that my bot is made of cans and duct tape. You fight me like a pro. Thanks for not going easy on me."
+			}
+		},
+		"Rex": {
+			"intro": "Hold up. Rex wants a match. He's been staring at your bot for twenty minutes. He just rebuilt his to match yours, piece for piece. Let's see who pilots it better.",
+			"win": "You proved you're the original! Nobody flies your rig like you do.",
+			"loss": "Losing to your own build hurts. He's going to be so smug about this.",
+			"gimmick": "He analyzes your exact build and copies it, but he's practiced with it against the AI.",
+			"monologues": {
+				"round_1": "Anything you can do, I can do better. Let's see how you handle your own medicine.",
+				"round_2": "So you tweaked your build. Cute. I downloaded your new schematic ten minutes ago.",
+				"round_3": "You've mastered this loadout. I can copy the parts, but I can't copy your instincts. Show me the masterclass."
+			}
+		}
+	},
+	"travelling_champion": {
+		"intro": "Now THIS is an occasion. A travelling champion's AI, fresh off someone else's table, somewhere out there in the world. Different shop, different habits, different homework. Beat the ghost, take the glory.",
+		"win": "I'm putting this on the board out front. 'LOCAL PILOT DEFEATS [CHAMPION_NAME].' You want that in marker or the good vinyl letters?",
+		"loss": "Their table taught them different tricks, that's all. Study the War Room tape and issue a rematch. Champions love rematches. It's why they travel."
+	},
+	"generic_rival_wins": [
+		"Clean match! Shake the hand, take the win.",
+		"You out-piloted them. Plain and simple.",
+		"They had a good build, but your strategy was better.",
+		"That's another notch on your belt. Don't let it go to your head.",
+		"You read them like an open book. Good tactical awareness.",
+		"They thought they had the counter, but you adapted perfectly.",
+		"A solid victory. They're going to be analyzing that replay for hours.",
+		"You dismantled their game plan. Excellent work.",
+		"They underestimated you. Their mistake.",
+		"You proved your loadout is superior. At least for today.",
+		"A well-earned win. Now go claim your salvage.",
+		"They put up a fight, but you had the edge.",
+		"You stayed cool under pressure. That's what wins matches.",
+		"They're walking away with a bruised ego and a broken bot.",
+		"You just sent them back to the drawing board."
+	],
+	"generic_rival_losses": [
+		"Losing is just a lesson with a higher repair bill.",
+		"They outplayed you this time. Figure out why, and don't let it happen again.",
+		"You got outmaneuvered. It happens to the best of us.",
+		"Their build was a hard counter. Time to tweak your loadout.",
+		"You missed a crucial opening. Pay closer attention next time.",
+		"They saw right through your strategy. You need to be more unpredictable.",
+		"A tough loss, but a valuable one. Review the tape.",
+		"They had the better tactics today. Tomorrow is a new day.",
+		"You got caught off guard. Stay frosty.",
+		"Your bot wasn't ready for that kind of punishment. Upgrade your armor.",
+		"They exploited a weakness you didn't even know you had.",
+		"You hesitated. In this game, hesitation is scrap.",
+		"They brought a better tool for the job. Adapt and overcome.",
+		"You got steamrolled. Dust yourself off and get back to the garage.",
+		"Losing stings, but it's the only way to get better. Go fix your bot."
+	],
+	"milestones": {
+		"10_bosses": "Ten centerpiece kills. That's Sponsored Pilot tier — Corp merch box, don't ask me what shipping cost. One Legendary chassis piece, two Legendary tiles. Spend them loud.",
+		"level_100": "Kid. Level one hundred. I've had the shop nine years and I've rarely seen a pilot reach this point. Based on your record and how much you've forced the AI to evolve, the system's authorizing a payout. I'm looking at up to fifteen Mythic tiles for you. Fifteen. Corp says 'tournament-grade.' I say try not to vaporize my east wall."
+	},
+	"black_market": [
+		"Officially, that case is 'returns pending inspection.' Unofficially — players sell to each other. That kid, Silas? He always has the strangest, glitchiest, non-regulation components. I don't know where he gets them, and the rotation changes every ten minutes. Nothing has a warranty. You didn't hear it from me."
+	],
+	"death_footers": [
+		"Bots break. Pilots learn. Bench is that way, I'll put the kettle on.",
+		"The trainer got you. The trainer gets everyone. It's the learning part of the learning tool.",
+		"That arm's fixable. Your pride, also fixable. Scrap's in the bin.",
+		"Don't let it get to your head. I lost my first twenty matches in a row.",
+		"Go tweak your loadout. A minor adjustment is the difference between scrap and glory.",
+		"You're getting predictable. The AI learns. You have to learn faster."
+	],
+	"game_over_3_loss": "Three straight losses in the brackets. Look, kid, I'm sorry... but Corp rules are Corp rules. I have to pull your tournament registration for this circuit. Take some time, build a new rig, and we'll try again next season.",
+	"tournament_teaser": "You've seen the bracket out front, right? Regional qualifiers run through sponsored shops like mine. Keep this up and I'm signing you up — and I do NOT put my shop's name on just anybody. Ask Rudy... Actually, don't ask Rudy. Just keep winning.",
+	"boss_rush": {
+		"intro": "So, you want to run the gauntlet. No breaks, no easy waves, just the heavy hitters back to back. If you survive, you keep what you salvage. If you don't... well, let's hope you survive.",
+		"completion": "You actually cleared the board. I don't think I've seen anyone do that since Rudy before... well, never mind. Take your loot, you earned every piece."
+	}
 }

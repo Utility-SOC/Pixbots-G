@@ -147,6 +147,15 @@ func build():
 	blueprint_button.pressed.connect(garage._on_blueprint_pressed)
 	bottom_bar.add_child(blueprint_button)
 
+	# Drone template (playtest ruling: "use a drone template for several
+	# drones instead of manually building each one") - copies the OPEN
+	# drone tab's loadout onto every other installed Drone Bay.
+	var drone_copy_button = Button.new()
+	drone_copy_button.text = "Drone->All"
+	drone_copy_button.custom_minimum_size = Vector2(100, 50)
+	drone_copy_button.pressed.connect(garage._on_drone_copy_all_pressed)
+	bottom_bar.add_child(drone_copy_button)
+
 	var sep_fire_toggle = CheckButton.new()
 	sep_fire_toggle.text = "Separate L/R Firing"
 

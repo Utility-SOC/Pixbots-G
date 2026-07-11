@@ -689,6 +689,30 @@ func _show_warning(msg: String):
 	add_child(dialog)
 	dialog.popup_centered()
 
+# Drone template (see GarageUIBuilder's Drone->All button): clone the open
+# drone tab's loadout onto every other installed bay - serialize round trip
+# so each bay owns an independent copy, not a shared reference.
+func _on_drone_copy_all_pressed():
+	var meta = component_tabs.get_tab_metadata(component_tabs.current_tab)
+	if not (meta is Dictionary and meta.get("slot") == HexTile.BodySlot.DRONE):
+		_show_warning("Open a Drone tab first - that drone's loadout gets copied to every other bay.")
+		return
+	var src_bay = meta.get("bay")
+	if not src_bay or not is_instance_valid(src_bay):
+		return
+	var source = src_bay.get_or_build_loadout()
+	var copied = 0
+	for bay in _find_all_drone_bay_tiles():
+		if bay == src_bay:
+			continue
+		bay.drone_loadout = SaveManager._deserialize_component(SaveManager._serialize_component(source))
+		copied += 1
+	_mark_player_grid_dirty()
+	if copied == 0:
+		_show_warning("No other Drone Bays installed to copy to.")
+	else:
+		_show_warning("Copied this drone's loadout to %d other bay(s)." % copied)
+
 # --- Blueprint Cards ---------------------------------------------------------
 # Lists every card PNG in user://champion_cards/ and applies the chosen one
 # as a BLUEPRINT: the build is reassembled onto the player's mech using only

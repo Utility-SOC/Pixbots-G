@@ -304,6 +304,20 @@ func _deserialize_component(cdata: Dictionary):
 			var tile = _deserialize_tile(tdata)
 			if tile and tile.grid_position:
 				comp.hex_grid.add_tile(tile.grid_position, tile)
+
+	# Safety net: a tile must never sit OUTSIDE its component's footprint.
+	# Legacy pre-v3 loadout files carried no valid_hexes, so a random
+	# regenerated shape could land under saved tiles - producing hexes you
+	# could clear but never re-place. Absorb any stray tile's hex into the
+	# footprint instead.
+	for h in comp.hex_grid.grid.keys():
+		var covered = false
+		for v in comp.valid_hexes:
+			if v.q == h.x and v.r == h.y:
+				covered = true
+				break
+		if not covered:
+			comp.valid_hexes.append(HexCoord.new(h.x, h.y))
 				
 	comp.fixed_sinks.clear()
 	if cdata.has("fixed_sinks"):
@@ -493,8 +507,19 @@ func load_loadout(slot_index: int, mech: Node, inventory: Array) -> bool:
 		var slot = int(slot_str)
 		new_comps[slot] = _deserialize_component(components[slot_str])
 		
-	# Swap them onto the mech
-	mech.components = new_comps
+	# Swap them onto the mech PROPERLY - through unequip/equip, not a raw
+	# dict assignment. The old assignment left the previous component nodes
+	# parented to the mech forever (leak + ghost grids) and never
+	# add_child'd the new ones, which is how loadout loads produced the
+	# "tiles outside the footprint that can be removed but never replaced"
+	# stuck state (playtest report).
+	for slot in mech.components.keys().duplicate():
+		var old = mech.unequip_component(slot)
+		if old:
+			old.queue_free()
+	for slot in new_comps.keys():
+		if new_comps[slot]:
+			mech.equip_component(new_comps[slot])
 	mech.is_grid_dirty = true
 	return true
 

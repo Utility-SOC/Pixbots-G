@@ -2485,7 +2485,7 @@ func _spawn_corpse_obstacle():
 	if existing.size() >= 12 and is_instance_valid(existing[0]):
 		existing[0].queue_free()
 
-	var husk = StaticBody2D.new()
+	var husk = load("res://scripts/entities/CorpseHusk.gd").new() # destructible by anything (playtest ruling)
 	husk.add_to_group("corpse_obstacle")
 	husk.collision_layer = 1 # world obstacle: blocks movement and shots
 	husk.collision_mask = 0

@@ -797,17 +797,19 @@ func _spawn_wave_async(director, target_enemy_count: int) -> void:
 # comfortable distance from the player; if everything is close (small
 # Tabletop maps), takes the farthest available rather than giving up.
 func _pick_spawn_anchor() -> Vector2:
+	# Playtest ruling: squads spawn NEAR THE MIDDLE of the map rather than
+	# marching in from the table edges - anchors sample the central region
+	# (a band around the map middle) plus behind-obstacle ambush points,
+	# still keeping a comfortable standoff from the player.
 	var map_w = map.width * map.tile_size
 	var map_h = map.height * map.tile_size
-	var inset = 120.0
 	var candidates: Array = []
 
 	for i in range(4):
-		match randi() % 4:
-			0: candidates.append(Vector2(randf_range(inset, map_w - inset), inset))
-			1: candidates.append(Vector2(randf_range(inset, map_w - inset), map_h - inset))
-			2: candidates.append(Vector2(inset, randf_range(inset, map_h - inset)))
-			3: candidates.append(Vector2(map_w - inset, randf_range(inset, map_h - inset)))
+		candidates.append(Vector2(
+			randf_range(map_w * 0.25, map_w * 0.75),
+			randf_range(map_h * 0.25, map_h * 0.75)
+		))
 
 	if map.obstacles.size() > 0:
 		var obstacle_keys = map.obstacles.keys()

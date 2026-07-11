@@ -140,7 +140,16 @@ func _populate_component_tabs():
 	if mech_components.is_empty():
 		return
 
+	# Canonical slot order, Torso ALWAYS first - insertion order comes from
+	# whatever the save dict happened to hold, which could bury the Torso
+	# tab off-screen behind a pile of drone tabs.
+	var slot_order = [HexTile.BodySlot.TORSO, HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R, HexTile.BodySlot.LEG_L, HexTile.BodySlot.LEG_R, HexTile.BodySlot.HEAD, HexTile.BodySlot.BACKPACK]
 	for slot in mech_components.keys():
+		if not slot_order.has(slot):
+			slot_order.append(slot) # future slots still get a tab
+	for slot in slot_order:
+		if not mech_components.has(slot):
+			continue
 		var comp = mech_components[slot]
 		component_tabs.add_tab(comp.component_name)
 		component_tabs.set_tab_metadata(component_tabs.get_tab_count() - 1, slot)

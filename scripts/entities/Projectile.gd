@@ -38,7 +38,12 @@ var final_speed: float = 500.0
 # instead, see _calculate_stats() - "armor-piercing round" fits a raw
 # velocity bonus better than "range" does).
 const BASE_RANGE = 1400.0
-const KINETIC_RANGE_BONUS = 2800.0
+# Raised 2800 -> 5600 (playtest ruling: "kinetic should be able to make
+# range MUCH longer") - a full-KINETIC shot now flies 5x base range. The
+# lifetime cap scales with kinetic too (see _get_lifetime), or slow shots
+# would time out long before spending this budget. Speed itself remains
+# PIERCE's stat, not kinetic's (see _calculate_stats).
+const KINETIC_RANGE_BONUS = 5600.0
 var max_range: float = BASE_RANGE
 var distance_traveled: float = 0.0
 
@@ -309,6 +314,12 @@ func _get_lifetime() -> float:
 		if ratios.has(EnergyPacket.SynergyType.KINETIC):
 			# Kinetic stretches the fire plume length
 			base_life += 1.0 * ratios[EnergyPacket.SynergyType.KINETIC]
+	elif ratios.has(EnergyPacket.SynergyType.KINETIC):
+		# Kinetic's range budget (BASE_RANGE + KINETIC_RANGE_BONUS) is only
+		# real if the shot LIVES long enough to fly it - at base speed the
+		# old flat 4s capped every shot at ~2000px regardless of range. Full
+		# kinetic now gets ~12s: enough to spend the whole 7000px budget.
+		base_life += 8.0 * ratios[EnergyPacket.SynergyType.KINETIC]
 	return max(0.1, base_life)
 
 func _calculate_stats():

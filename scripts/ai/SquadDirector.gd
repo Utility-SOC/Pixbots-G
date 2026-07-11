@@ -519,6 +519,25 @@ func _apply_kill_method_counter_pressure():
 var _wave_start_kill_counts: Dictionary = {}
 var _last_intel_line: String = ""
 
+# --- Mortar counter-doctrine (playtest ruling: "more use of mortars means
+# more use of cloaking and visual jammers") -------------------------------
+# Indirect fire's weakness is target acquisition: cloaked ambushers give
+# the telegraph nothing to aim at and vision jammers deny the aim point.
+# Every reported mortar detonation past the grace threshold gently
+# up-weights templates carrying those roles - same continuous-pressure
+# pattern as the kill-method doctrine above.
+const MORTAR_PRESSURE_MIN_SHOTS = 10
+
+var player_mortar_shots: int = 0
+
+func log_mortar_shot():
+	player_mortar_shots += 1
+	if player_mortar_shots < MORTAR_PRESSURE_MIN_SHOTS:
+		return
+	for t in templates:
+		if t.required_roles.has("ambusher") or t.required_roles.has("jammer"):
+			t.spawn_weight = min(250.0, t.spawn_weight * 1.03)
+
 func note_wave_started():
 	_wave_start_kill_counts = player_kill_methods.duplicate()
 
@@ -529,6 +548,8 @@ func get_intel_line(wave: int) -> String:
 	if counter_jam_synergy >= 0:
 		var el = EnergyPacket.element_name(counter_jam_synergy).capitalize()
 		line = "Heads up - the Director's fitted %s-jammers this round. Your favorite trick won't land clean." % el
+	elif player_mortar_shots >= MORTAR_PRESSURE_MIN_SHOTS + 5:
+		line = "All that artillery's been noticed - expect smoke, cloaks, and jammers on the table."
 	elif total_damage_taken > 500.0:
 		for element in player_element_usage:
 			if player_element_usage[element] / total_damage_taken > 0.4:

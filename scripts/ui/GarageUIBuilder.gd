@@ -64,6 +64,14 @@ func build():
 
 	garage.component_tabs = TabBar.new()
 	garage.component_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# A build can legitimately produce a LOT of tabs (body slots + backpack
+	# + one per installed Drone Bay). Without clip_tabs the bar silently
+	# scrolls with no way back - playtest report: "I can't get back to my
+	# torso!" clip_tabs shows prev/next arrows when the bar overflows, and
+	# max_tab_width keeps long procedural component names from eating the
+	# whole bar by themselves.
+	garage.component_tabs.clip_tabs = true
+	garage.component_tabs.max_tab_width = 110
 	garage.component_tabs.tab_changed.connect(garage._on_tab_changed)
 	tab_hbox.add_child(garage.component_tabs)
 

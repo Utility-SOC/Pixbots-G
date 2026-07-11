@@ -93,6 +93,33 @@ var dialogue_timer: float = 0.0
 const PIXEL_SHRINK_FACTOR = 2
 var world: Node2D
 
+# Battle camera zoom (playtest ruling: mortars need to zoom out "by a
+# decent margin"). Scroll wheel in combat; 1.0 = the classic framing,
+# BATTLE_ZOOM_MIN lets you see ~2.3x the world in each direction - enough
+# to place a mortar telegraph well beyond the old screen edge.
+const BATTLE_ZOOM_MIN = 0.42
+const BATTLE_ZOOM_MAX = 1.0
+var battle_zoom: float = 1.0
+
+func _unhandled_input(event):
+	# Combat only - the Garage grid has its own wheel-zoom, and paused
+	# menus shouldn't eat scroll.
+	if garage_ui != null or get_tree().paused or player == null:
+		return
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			battle_zoom = min(BATTLE_ZOOM_MAX, battle_zoom * 1.15)
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			battle_zoom = max(BATTLE_ZOOM_MIN, battle_zoom / 1.15)
+		else:
+			return
+		_apply_battle_zoom()
+
+func _apply_battle_zoom():
+	var cam = get_tree().get_first_node_in_group("camera")
+	if cam:
+		cam.zoom = (Vector2(1.5, 1.5) / PIXEL_SHRINK_FACTOR) * battle_zoom
+
 func _ready():
 	_setup_pixel_viewport()
 	_load_campaign()
@@ -460,6 +487,7 @@ func _setup_player():
 	camera.zoom = Vector2(1.5, 1.5) / PIXEL_SHRINK_FACTOR
 	camera.add_to_group("camera")
 	player.add_child(camera)
+	_apply_battle_zoom()
 	
 	# Pre-calculate weapons so the first shot doesn't freeze the game
 	player._recalculate_grid()

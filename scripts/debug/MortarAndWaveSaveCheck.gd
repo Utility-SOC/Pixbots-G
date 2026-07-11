@@ -37,6 +37,10 @@ func _ready():
 	world.add_child(enemy)
 	enemy.set_physics_process(false)
 	enemy.global_position = Vector2(400, 0)
+	# Tanky on purpose: the payload drives the FULL direct-fire pipeline
+	# (crits, part damage) and a dead enemy frees before the assertions.
+	enemy.max_hp = 100000.0
+	enemy.hp = 100000.0
 	hp_before = enemy.hp
 
 	# Mythic mount in Mortar mode, FIRE payload, aimed at the enemy.
@@ -84,6 +88,55 @@ func _process(delta: float):
 	_finish()
 
 func _finish():
+	# --- LIGHTNING mortar chains like direct fire (the payload drives the
+	# real Projectile._handle_hit pipeline, so the arc jumps to a second
+	# enemy near the impact) ---
+	var e1 = MechScript.new()
+	e1.is_player = false
+	world.add_child(e1)
+	e1.set_physics_process(false)
+	e1.global_position = Vector2(900, 0)
+	e1.max_hp = 100000.0
+	e1.hp = 100000.0
+	var e2 = MechScript.new()
+	e2.is_player = false
+	world.add_child(e2)
+	e2.set_physics_process(false)
+	e2.global_position = Vector2(1000, 0) # inside chain range of e1
+	e2.max_hp = 100000.0
+	e2.hp = 100000.0
+	var e2_hp = e2.hp
+
+	var shell = load("res://scripts/attacks/MortarShell.gd").new()
+	shell.setup(Vector2.ZERO, e1.global_position, 0.5, 40.0, {EnergyPacket.SynergyType.LIGHTNING: 10.0}, true, player)
+	world.add_child(shell)
+	# The chain hop is a physics shape query - freshly added bodies aren't
+	# in the broadphase until a physics step runs.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	shell._detonate() # skip the flight
+	if e2.hp >= e2_hp:
+		push_error("FAIL: lightning mortar didn't chain to the second enemy (hp %.0f)" % e2.hp)
+		failures += 1
+	else:
+		print("5) lightning mortar chained: bystander hp %.0f -> %.0f" % [e2_hp, e2.hp])
+	shell.queue_free()
+
+	# --- mortar counter-doctrine: artillery use up-weights cloak/jammer ---
+	var director = load("res://scripts/ai/SquadDirector.gd").new()
+	add_child(director)
+	var t = load("res://scripts/ai/SquadTemplate.gd").new("Smoke Screen", {"ambusher": 2, "jammer": 1})
+	director.register_template(t)
+	var w_before = t.spawn_weight
+	for i in range(16):
+		director.log_mortar_shot()
+	var intel = director.get_intel_line(5)
+	if t.spawn_weight <= w_before or not ("artillery" in intel):
+		push_error("FAIL: mortar doctrine (weight %.0f -> %.0f, intel '%s')" % [w_before, t.spawn_weight, intel])
+		failures += 1
+	else:
+		print("6) mortar doctrine: cloak/jammer template %.0f -> %.0f, tell: %s" % [w_before, t.spawn_weight, intel])
+
 	# --- wave-save round trip ---
 	SaveManager.save_game("wavetest_harness", player, [])
 	var loaded = SaveManager.load_game("wavetest_harness")

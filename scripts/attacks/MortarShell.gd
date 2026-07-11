@@ -47,37 +47,88 @@ func _process(delta: float):
 		_detonate()
 	queue_redraw()
 
+# Design ruling: the payload does exactly what DIRECT FIRE of this packet
+# would do on impact. Implemented literally - a real (movement-neutered)
+# Projectile is spawned at the impact point and its actual _handle_hit
+# pipeline is driven against the victim nearest the aim point, so chain
+# lightning arcs, explosion AoE, vampiric lifesteal, biome combos, oil
+# ignition, statuses, pierce rend - present and future - all fire from the
+# landing zone with zero reimplementation. Other victims inside the ring
+# take falloff splash (the element's own spread mechanics - arcs, blasts -
+# already reach them the same way direct fire would).
 func _detonate():
-	var dominant = EnergyPacket.SynergyType.RAW
-	var best = 0.0
-	for k in synergies:
-		if synergies[k] > best:
-			best = synergies[k]
-			dominant = k
-	var element = EnergyPacket.element_name(dominant)
+	var world = get_parent()
 
-	# Positional AoE against the OPPOSING side only.
+	# Feed the director's mortar counter-doctrine (cloaks/jammers answer
+	# artillery) - player shots only; the AI countering itself is silly.
+	if fired_by_player:
+		var main = get_tree().current_scene if is_inside_tree() else null
+		if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
+			main.world.get_node("SquadDirector").log_mortar_shot()
 	var victims: Array = []
 	if fired_by_player:
 		victims = EntityCache.get_group("enemy")
 	else:
 		victims = EntityCache.get_group("player")
+
+	var direct_target = null
+	var direct_dist = AOE_RADIUS
+	var splash: Array = []
 	for v in victims:
 		if not is_instance_valid(v) or v.get("is_dead"):
 			continue
 		var dist = v.global_position.distance_to(target_pos)
 		if dist > AOE_RADIUS:
 			continue
-		# Full damage at center, 50% at the rim.
-		var falloff = 1.0 - 0.5 * (dist / AOE_RADIUS)
-		if v.has_method("apply_damage"):
-			var src = source_mech if (source_mech and is_instance_valid(source_mech)) else null
-			v.apply_damage(damage * falloff, element, src)
-		if v.has_method("apply_status"):
-			if element == "FIRE":
-				v.apply_status("burning", 2.5)
-			elif element == "ICE":
-				v.apply_status("frozen", 2.0)
+		if dist < direct_dist:
+			if direct_target:
+				splash.append(direct_target)
+			direct_target = v
+			direct_dist = dist
+		else:
+			splash.append(v)
+
+	var src = source_mech if (source_mech and is_instance_valid(source_mech)) else null
+
+	if direct_target and world:
+		var proj = load("res://scripts/entities/Projectile.gd").new()
+		proj.synergies = synergies.duplicate()
+		proj.damage = damage
+		proj.fired_by_player = fired_by_player
+		proj.source_mech = src
+		proj.direction = Vector2.DOWN # payload arrives from above
+		proj.global_position = target_pos
+		# Combat-correct collision MASK even though the projectile never
+		# flies: the chain-lightning hop query derives its target layer
+		# from it (mask & 4 -> hunt enemies). Monitoring stays off, so the
+		# mask never causes contact hits.
+		proj.collision_mask = (4 | 1) if fired_by_player else (8 | 1)
+		world.add_child(proj) # _ready computes ratios/stats
+		ProjectileManager.unregister(proj)
+		proj.set_physics_process(false)
+		proj.monitoring = false
+		proj.monitorable = false
+		proj._handle_hit(direct_target) # the entire direct-fire impact pipeline
+		if not proj.is_queued_for_deletion():
+			proj.queue_free()
+
+	# Splash ring: falloff damage only - elemental spread (arcs, explosion
+	# radius, residues) already came from the direct hit above.
+	var element = EnergyPacket.element_name(_dominant_synergy())
+	for v in splash:
+		if not is_instance_valid(v) or not v.has_method("apply_damage"):
+			continue
+		var falloff = 1.0 - 0.5 * (v.global_position.distance_to(target_pos) / AOE_RADIUS)
+		v.apply_damage(damage * 0.6 * falloff, element, src)
+
+func _dominant_synergy() -> int:
+	var dominant = EnergyPacket.SynergyType.RAW
+	var best = 0.0
+	for k in synergies:
+		if synergies[k] > best:
+			best = synergies[k]
+			dominant = k
+	return dominant
 
 func _draw():
 	if _landed:

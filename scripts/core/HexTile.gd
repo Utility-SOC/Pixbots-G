@@ -204,6 +204,9 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# an intentional "patterns only apply to instant volleys" design call.
 	if not _pattern_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC:
 		var pattern = int(get("mythic_pattern"))
+		if pattern == 4: # Mortar: remote payload at the aim point (see MortarShell.gd)
+			_fire_mortar(mech, packet)
+			return
 		if pattern == 1: # Shotgun: up to 5 pellets, +/-24 deg spread
 			var pellet_count = _pattern_pellet_count(SHOTGUN_MAX_PELLETS, SHOTGUN_MIN_PELLETS)
 			var per_pellet_amplify = (SHOTGUN_MAX_PELLETS * 0.4) / float(pellet_count)
@@ -318,6 +321,23 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 			mech.get_parent().add_child(proj)
 		else:
 			mech.add_child(proj)
+
+# Mortar pattern: the payload is delivered AT the aim position (travel
+# time + ground telegraph + elemental AoE) instead of fired along a line.
+# Speed constant sets how long targets get to react per unit distance.
+const MORTAR_SPEED = 420.0
+
+func _fire_mortar(mech, packet: EnergyPacket):
+	var world = mech.get_parent()
+	if not world:
+		return
+	var target_pos: Vector2 = mech.get("last_aim_position") if "last_aim_position" in mech else mech.global_position + Vector2(0, -100)
+	var muzzle = get_muzzle_position(mech)
+	var flight_time = clamp(muzzle.distance_to(target_pos) / MORTAR_SPEED, 0.35, 2.2)
+	var dmg = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
+	var shell = load("res://scripts/attacks/MortarShell.gd").new()
+	shell.setup(muzzle, target_pos, flight_time, dmg, packet.synergies.duplicate(), mech.get("is_player") == true, mech)
+	world.add_child(shell)
 
 # WeaponMountTile has an explicit @export damage_multiplier; other tiles
 # that fire (like ComponentLinkTile acting as a Return "vent") don't, so

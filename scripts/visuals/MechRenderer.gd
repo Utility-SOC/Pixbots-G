@@ -125,35 +125,37 @@ func _rebuild_visuals():
 			v_seed = mech.visual_seed
 		rng.seed = hash(comp.component_name) + comp.rarity + v_seed
 
+		var tier = _tier_of(mech)
 		if comp.slot_type == HexTile.BodySlot.TORSO:
-			_draw_torso(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent, is_boss, comp)
+			_draw_torso(null, _part_color(profile.color, mech, "torso", tier), rng, rarity_mult, comp.rarity, profile.accent, is_boss, comp)
 		elif comp.slot_type == HexTile.BodySlot.ARM_L:
-			_draw_arm(null, profile.color, true, rng, rarity_mult, comp.rarity, profile.accent, comp)
+			_draw_arm(null, _part_color(profile.color, mech, "arm_l", tier), true, rng, rarity_mult, comp.rarity, profile.accent, comp)
 		elif comp.slot_type == HexTile.BodySlot.ARM_R:
-			_draw_arm(null, profile.color, false, rng, rarity_mult, comp.rarity, profile.accent, comp)
+			_draw_arm(null, _part_color(profile.color, mech, "arm_r", tier), false, rng, rarity_mult, comp.rarity, profile.accent, comp)
 		elif comp.slot_type == HexTile.BodySlot.LEG_L:
-			_draw_leg(null, profile.color, true, rng, rarity_mult, comp.rarity, comp)
+			_draw_leg(null, _part_color(profile.color, mech, "leg_l", tier), true, rng, rarity_mult, comp.rarity, comp)
 		elif comp.slot_type == HexTile.BodySlot.LEG_R:
-			_draw_leg(null, profile.color, false, rng, rarity_mult, comp.rarity, comp)
+			_draw_leg(null, _part_color(profile.color, mech, "leg_r", tier), false, rng, rarity_mult, comp.rarity, comp)
 		elif comp.slot_type == HexTile.BodySlot.HEAD:
-			_draw_head(null, profile.color, rng, rarity_mult, comp.rarity, profile.accent, is_boss, comp)
+			_draw_head(null, _part_color(profile.color, mech, "head", tier), rng, rarity_mult, comp.rarity, profile.accent, is_boss, comp)
 
 	# Draw standard parts for any slots that weren't overridden by tiles
 	var rng_def = RandomNumberGenerator.new()
 	rng_def.seed = 12345
 
+	var def_tier = _tier_of(mech)
 	if not drawn_parts.has("Torso"):
-		_draw_torso(null, profile.color, rng_def, profile.scale, 0, profile.accent, is_boss)
+		_draw_torso(null, _part_color(profile.color, mech, "torso", def_tier), rng_def, profile.scale, 0, profile.accent, is_boss)
 	if not drawn_parts.has("Arm_true"):
-		_draw_arm(null, profile.color, true, rng_def, profile.scale, 0, profile.accent)
+		_draw_arm(null, _part_color(profile.color, mech, "arm_l", def_tier), true, rng_def, profile.scale, 0, profile.accent)
 	if not drawn_parts.has("Arm_false"):
-		_draw_arm(null, profile.color, false, rng_def, profile.scale, 0, profile.accent)
+		_draw_arm(null, _part_color(profile.color, mech, "arm_r", def_tier), false, rng_def, profile.scale, 0, profile.accent)
 	if not drawn_parts.has("Leg_true"):
-		_draw_leg(null, profile.color, true, rng_def, profile.scale, 0)
+		_draw_leg(null, _part_color(profile.color, mech, "leg_l", def_tier), true, rng_def, profile.scale, 0)
 	if not drawn_parts.has("Leg_false"):
-		_draw_leg(null, profile.color, false, rng_def, profile.scale, 0)
+		_draw_leg(null, _part_color(profile.color, mech, "leg_r", def_tier), false, rng_def, profile.scale, 0)
 	if not drawn_parts.has("Head"):
-		_draw_head(null, profile.color, rng_def, profile.scale, 0, profile.accent, is_boss)
+		_draw_head(null, _part_color(profile.color, mech, "head", def_tier), rng_def, profile.scale, 0, profile.accent, is_boss)
 
 	_finalize_particles()
 
@@ -190,6 +192,39 @@ func _finalize_particles():
 # SHAPE DEFINITIONS
 # -----------------------------------------------------------------------------
 
+# Parts-bin surplus palette for grunt mechs (design ruling: "mismatch
+# grunts!!"): early-wave practice bots are assembled from whatever colors
+# the shop bin had, each PART its own material - exactly the S/T/U
+# reference-sheet look. Coherence rises with the wave counter (the
+# Director fields better-maintained units as the game escalates) until
+# ~wave 50 grunts wear clean role colors again. Heroes/bosses always
+# coordinated.
+const SURPLUS_COLORS = [
+	Color(0.45, 0.47, 0.32), # olive drab
+	Color(0.62, 0.55, 0.38), # khaki tan
+	Color(0.45, 0.47, 0.52), # gunship grey
+	Color(0.38, 0.31, 0.26), # rust brown
+	Color(0.36, 0.44, 0.38), # drab green
+	Color(0.52, 0.48, 0.42), # dust beige
+]
+
+func _part_color(base_color: Color, mech, slot_key: String, tier: String) -> Color:
+	if tier != "grunt":
+		return base_color
+	var wave = 1
+	var scene = get_tree().current_scene if is_inside_tree() else null
+	if scene and "current_wave" in scene:
+		wave = scene.current_wave
+	var coherence = clamp((wave - 5.0) / 45.0, 0.0, 1.0)
+	if coherence >= 1.0:
+		return base_color
+	var seed_base = mech.visual_seed if (mech and "visual_seed" in mech) else 0
+	var crng = RandomNumberGenerator.new()
+	crng.seed = hash(str(seed_base) + "|paint|" + slot_key)
+	var surplus = SURPLUS_COLORS[crng.randi() % SURPLUS_COLORS.size()]
+	# Keep a faint role-hue floor so a sniper still reads as a sniper.
+	return surplus.lerp(base_color, 0.15 + 0.85 * coherence)
+
 # Shared tier rule for the module vocabulary (see MechModuleLibrary).
 func _tier_of(mech) -> String:
 	if mech and mech.get("is_player") == true:
@@ -211,6 +246,8 @@ func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = "", is_b
 		_attach_part_hitbox(part.container, hitbox_pts, body_slot)
 	else:
 		part = _render_mechanical_part(pts, color, Vector2.ZERO, "Torso", body_slot, rarity)
+	# Layering ruling: torso in front of limbs/backpack, behind the head.
+	part.container.z_index = 1
 
 	# Core Reactor Glow - was its own Polygon2D child, now just another fill
 	# layer on the part's single draw node.
@@ -351,11 +388,10 @@ func _draw_arm(tile, color, is_left, rng, scale_mult, rarity, accent: String = "
 	_draw_conduit_glows(glow_comp, part, rng, scale_mult)
 	part.renderer.finish()
 
-	# Arms/weapons draw ON TOP of the torso and legs (they hold hardware in
-	# front of the body) - containers are added in slot order, so without
-	# this the default torso/leg parts, added later, painted right over the
-	# arm modules leaving only shoulder nubs visible.
-	part.container.z_index = 1
+	# Layering ruling: backpack(-1) < limbs(0) < torso(1) < head(2). Arms
+	# sit wide enough (x offset 28) that the weapon hardware clears the
+	# torso silhouette while the shoulder tucks behind it.
+	part.container.z_index = 0
 
 	# Rotate weapons slightly outward
 	part.container.rotation = deg_to_rad(15.0 * sign)
@@ -438,6 +474,8 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 			Vector2(w*0.6, h*0.6), Vector2(-w*0.6, h*0.6)
 		])
 		part.renderer.add_fill(visor, visor_color)
+	# Layering ruling: head on top of everything.
+	part.container.z_index = 2
 
 	if accent == "hero":
 		# Low, wide brow crest instead of a single tall spike - a tall

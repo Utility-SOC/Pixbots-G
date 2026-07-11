@@ -435,6 +435,12 @@ func _setup_player():
 			player_scrap = load_data["scrap"]
 		if load_data.has("modifier_chips"):
 			player_modifier_chips = load_data["modifier_chips"]
+		# Resume the RUN, not just the gear - the wave counter was never in
+		# the save format (play report: "game save is still not saving
+		# wave"), so every load silently restarted at wave 1.
+		if load_data.has("current_wave"):
+			current_wave = max(1, int(load_data["current_wave"]))
+			last_garage_wave = current_wave
 	else:
 
 		_initialize_starter_inventory()

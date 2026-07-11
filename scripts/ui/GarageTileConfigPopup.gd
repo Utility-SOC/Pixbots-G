@@ -316,7 +316,7 @@ func on_tile_clicked(tile: HexTile):
 			var cycle_method = ""
 			match tile.tile_type:
 				"Weapon Mount":
-					mode_names = ["Normal", "Shotgun", "Radial Burst", "Beam"]
+					mode_names = ["Normal", "Shotgun", "Radial Burst", "Beam", "Mortar"]
 					prop = "mythic_pattern"
 					cycle_method = "cycle_mythic_pattern"
 				"Jumpjet":

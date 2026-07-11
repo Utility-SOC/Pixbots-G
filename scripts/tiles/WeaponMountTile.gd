@@ -5,11 +5,14 @@ extends HexTile
 
 # MYTHIC ability: alternate firing patterns (see HexTile._fire_combined_projectile).
 # 0 = normal, 1 = shotgun spread (5 pellets, 40% each), 2 = 360-degree
-# radial burst (8 shots, 50% each), 3 = concentrated beam (faster, piercing).
-@export_enum("Normal", "Shotgun", "Radial Burst", "Beam") var mythic_pattern: int = 0
+# radial burst (8 shots, 50% each), 3 = concentrated beam (faster, piercing),
+# 4 = mortar (remote payload: lobbed shell delivering elemental AoE at the
+# aim point with travel time + ground telegraph - fourth-review ruling; the
+# dedicated MissileRackTile is stubbed for the full weapon-variety pass).
+@export_enum("Normal", "Shotgun", "Radial Burst", "Beam", "Mortar") var mythic_pattern: int = 0
 
 func cycle_mythic_pattern():
-	mythic_pattern = (mythic_pattern + 1) % 4
+	mythic_pattern = (mythic_pattern + 1) % 5
 
 var pending_packets: Array = [] # Stores dictionary: { "packet": packet, "step": step }
 var current_charge: float = 0.0 # Used by Mech to track accumulator charging

@@ -152,6 +152,10 @@ func save_game(save_name: String, mech: Node, inventory: Array):
 		data["scrap"] = main.player_scrap
 	if main and "player_modifier_chips" in main:
 		data["modifier_chips"] = main.player_modifier_chips
+	# The run's wave counter - was never serialized, so loading a save
+	# silently restarted the run at wave 1 while keeping the gear.
+	if main and "current_wave" in main:
+		data["current_wave"] = main.current_wave
 
 	# Serialize Components
 	for slot in mech.components.keys():
@@ -224,6 +228,8 @@ func load_game(save_name: String) -> Dictionary:
 		result["scrap"] = json["scrap"]
 	if json.has("modifier_chips"):
 		result["modifier_chips"] = json["modifier_chips"]
+	if json.has("current_wave"):
+		result["current_wave"] = int(json["current_wave"])
 
 	
 	var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")

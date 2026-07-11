@@ -61,9 +61,12 @@ func _ready():
 	print("PASS: contact sheet written to ", out)
 	get_tree().quit()
 
+var _case_counter := 0
+
 func _build_case_mech(tier: String, role: String, arm_spec: String) -> Node:
 	var mech = MechScript.new()
-	mech.visual_seed = 1234
+	_case_counter += 1
+	mech.visual_seed = 1000 * _case_counter # distinct seeds so leg/head variety shows
 	mech.is_player = (tier == "hero")
 	mech.is_boss = (tier == "boss") # set BEFORE add_child so _ready sees it
 	mech.combat_role = role if role != "player" else "brawler"

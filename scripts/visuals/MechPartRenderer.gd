@@ -123,6 +123,16 @@ func _rasterize_polygon(img: Image, polygon: PackedVector2Array, color: Color):
 			var p := _cell_to_local(gx, gy)
 			if Geometry2D.is_point_in_polygon(p, polygon):
 				var t: float = clamp((p - center).dot(light) / half_extent, -1.0, 1.0)
+				# Quantize the gradient to 3 flat tone bands (lit / base /
+				# shadow) - pixel-art materials read as toon-shaded plastic,
+				# not airbrushed metal. Thresholds at +/-0.33 keep the base
+				# band dominant. Mirrored EXACTLY in part_rasterizer.rs.
+				if t > 0.33:
+					t = 1.0
+				elif t < -0.33:
+					t = -1.0
+				else:
+					t = 0.0
 				var shaded := color.lightened(SHADE_STRENGTH * t) if t > 0.0 else color.darkened(SHADE_STRENGTH * -t)
 				img.set_pixel(gx, gy, shaded)
 

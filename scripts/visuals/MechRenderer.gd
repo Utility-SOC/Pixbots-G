@@ -190,22 +190,27 @@ func _finalize_particles():
 # SHAPE DEFINITIONS
 # -----------------------------------------------------------------------------
 
+# Shared tier rule for the module vocabulary (see MechModuleLibrary).
+func _tier_of(mech) -> String:
+	if mech and mech.get("is_player") == true:
+		return "hero"
+	if mech and mech.get("is_boss") == true:
+		return "boss"
+	return "grunt"
+
 func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = "", is_boss: bool = false, glow_comp = null):
+	var body_slot = tile.body_slot if tile else HexTile.BodySlot.TORSO
+	var part: PartHandle
 	var pts = _get_component_polygon(tile, scale_mult)
 	if pts.is_empty():
-		var w = 18.0 * scale_mult
-		var h = 22.0 * scale_mult
-		pts = PackedVector2Array([
-			Vector2(-w*0.8, -h), Vector2(w*0.8, -h),
-			Vector2(w, -h*0.3), Vector2(w*0.6, h),
-			Vector2(-w*0.6, h), Vector2(-w, -h*0.3)
-		])
-		var jitter = 3.0 * scale_mult # proportional so small chassis don't jitter into a self-intersecting mess
-		for i in range(pts.size()):
-			pts[i] += Vector2(rng.randf_range(-jitter, jitter), rng.randf_range(-jitter, jitter))
-
-	var body_slot = tile.body_slot if tile else HexTile.BodySlot.TORSO
-	var part = _render_mechanical_part(pts, color, Vector2.ZERO, "Torso", body_slot, rarity)
+		# Vocabulary path: stacked beveled boxes in the role color (the
+		# reference sheets' colored-plastic chassis). Reactor glow,
+		# pauldrons, and role/boss accents layer on top below, unchanged.
+		part = _begin_part("Torso", Vector2.ZERO)
+		var hitbox_pts = ModuleLib.draw_torso_module(part.renderer, color, scale_mult, rng)
+		_attach_part_hitbox(part.container, hitbox_pts, body_slot)
+	else:
+		part = _render_mechanical_part(pts, color, Vector2.ZERO, "Torso", body_slot, rarity)
 
 	# Core Reactor Glow - was its own Polygon2D child, now just another fill
 	# layer on the part's single draw node.
@@ -355,29 +360,42 @@ func _draw_arm(tile, color, is_left, rng, scale_mult, rarity, accent: String = "
 	# Rotate weapons slightly outward
 	part.container.rotation = deg_to_rad(15.0 * sign)
 
+# Locomotion kind for one side: same seeded roll for both sides (so a mech
+# is normally symmetric), with a low grunt-only chance that the LEFT side
+# swaps to a track - the reference sheets' asymmetric leg+track surplus
+# look (S2/T2).
+func _leg_kind_for_side(mech, is_left: bool, tier: String, role: String) -> String:
+	var leg_rng = RandomNumberGenerator.new()
+	var seed_base = mech.visual_seed if (mech and "visual_seed" in mech) else 0
+	leg_rng.seed = hash(str(seed_base) + "|legs")
+	var kind = ModuleLib.pick_leg_module(role, tier, leg_rng)
+	if tier == "grunt" and kind != "tread" and leg_rng.randf() < 0.12 and is_left:
+		return "tread"
+	return kind
+
 func _draw_leg(tile, color, is_left, rng, scale_mult, rarity, glow_comp = null):
 	var sign = -1.0 if is_left else 1.0
 	var offset = Vector2(14.0 * sign, 20.0)
 
-	var pts = _get_component_polygon(tile, scale_mult)
-	if pts.is_empty():
-		var w = 10.0 * scale_mult
-		var h = 24.0 * scale_mult
-		pts = PackedVector2Array([
-			Vector2(-w*0.8, -h*0.5), Vector2(w*0.8, -h*0.5),
-			Vector2(w, h*0.5), Vector2(w*1.2, h),
-			Vector2(-w*1.2, h), Vector2(-w, h*0.5)
-		])
-		if is_left:
-			for i in range(pts.size()):
-				pts[i].x *= -1
-		var jitter = 2.0 * scale_mult
-		for i in range(pts.size()):
-			pts[i] += Vector2(rng.randf_range(-jitter, jitter), rng.randf_range(-jitter, jitter))
-
 	var slot = HexTile.BodySlot.LEG_L if is_left else HexTile.BodySlot.LEG_R
 	var body_slot = tile.body_slot if tile else slot
-	var part = _render_mechanical_part(pts, color, offset, "Leg_" + str(is_left), body_slot, rarity)
+	var part_name = "Leg_" + str(is_left)
+	var part: PartHandle
+
+	var pts = _get_component_polygon(tile, scale_mult)
+	if pts.is_empty():
+		var mech = get_parent()
+		var tier = _tier_of(mech)
+		var role = mech.combat_role if (mech and "combat_role" in mech) else ""
+		var kind = _leg_kind_for_side(mech, is_left, tier, role)
+		part = _begin_part(part_name, offset)
+		var hitbox_pts = ModuleLib.draw_leg_module(kind, part.renderer, color, scale_mult, sign, rng)
+		_attach_part_hitbox(part.container, hitbox_pts, body_slot)
+		# animate_legs reads this: treads/hover don't swing like knees do.
+		part.container.set_meta("locomotion", kind)
+	else:
+		part = _render_mechanical_part(pts, color, offset, part_name, body_slot, rarity)
+
 	_draw_conduit_glows(glow_comp, part, rng, scale_mult)
 	part.renderer.finish()
 
@@ -387,20 +405,7 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 	var w = 12.0 * scale_mult
 	var h = 10.0 * scale_mult
 
-	if pts.is_empty():
-		pts = PackedVector2Array([
-			Vector2(-w*0.6, -h), Vector2(w*0.6, -h),
-			Vector2(w, h), Vector2(-w, h)
-		])
-		var jitter = 1.5 * scale_mult
-		for i in range(pts.size()):
-			pts[i] += Vector2(rng.randf_range(-jitter, jitter), rng.randf_range(-jitter, jitter))
-
-	var body_slot = tile.body_slot if tile else HexTile.BodySlot.HEAD
-	var part = _render_mechanical_part(pts, color, offset, "Head", body_slot, rarity)
-
-	# Visor - was its own Polygon2D child, now a fill layer. Doubles as the
-	# practice bots' "mono-eye" - a single glowing slit is a core Zaku cue.
+	# Visor/eye color - doubles as the mono-eye and the skull's socket glow.
 	var visor_color = color * 1.5
 	if accent == "ambusher":
 		visor_color = Color(0.6, 0.05, 0.05) # single glowing red slit reads as sneaky/predatory
@@ -414,11 +419,25 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 		visor_color = Color(0.3, 0.8, 1.0) # cool cyan "hero visor", not just a tinted mono-eye
 	elif accent == "commander":
 		visor_color = Color(0.9, 0.7, 0.2) # imperial gold, reads as "the one giving orders"
-	var visor = PackedVector2Array([
-		Vector2(-w*0.8, h*0.2), Vector2(w*0.8, h*0.2),
-		Vector2(w*0.6, h*0.6), Vector2(-w*0.6, h*0.6)
-	])
-	part.renderer.add_fill(visor, visor_color)
+
+	var body_slot = tile.body_slot if tile else HexTile.BodySlot.HEAD
+	var part: PartHandle
+	var head_kind = "template"
+	if pts.is_empty():
+		# Vocabulary path: head type by role/tier (skull for bosses, sensor
+		# mast for jammers/scouts, glass dome for support/divers, mono-eye
+		# default). Role accents below layer on top.
+		head_kind = ModuleLib.pick_head_module(accent, _tier_of(get_parent()), rng)
+		part = _begin_part("Head", offset)
+		var hitbox_pts = ModuleLib.draw_head_module(head_kind, part.renderer, color, scale_mult, visor_color, rng)
+		_attach_part_hitbox(part.container, hitbox_pts, body_slot)
+	else:
+		part = _render_mechanical_part(pts, color, offset, "Head", body_slot, rarity)
+		var visor = PackedVector2Array([
+			Vector2(-w*0.8, h*0.2), Vector2(w*0.8, h*0.2),
+			Vector2(w*0.6, h*0.6), Vector2(-w*0.6, h*0.6)
+		])
+		part.renderer.add_fill(visor, visor_color)
 
 	if accent == "hero":
 		# Low, wide brow crest instead of a single tall spike - a tall
@@ -436,9 +455,10 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 			part.renderer.add_fill(PackedVector2Array([
 				Vector2(w * 0.85 * side, -h * 0.55), Vector2(w * 1.25 * side, -h * 0.7), Vector2(w * 0.85 * side, -h * 0.85)
 			]), color.darkened(0.1))
-	else:
-		# V-fin antenna - the classic mass-production mobile suit silhouette,
-		# shared by every practice bot regardless of role.
+	elif head_kind in ["template", "mono_eye"]:
+		# V-fin antenna - the classic mass-production mobile suit silhouette.
+		# Only on the boxy mono-eye heads: domes, sensor masts, and skulls
+		# have their own toppers and a V-fin on them reads as clutter.
 		var fin_h = h + 9.0 * (1.0 + rarity * 0.08)
 		part.renderer.add_fill(PackedVector2Array([
 			Vector2(0, -h * 0.4), Vector2(-w * 0.75, -fin_h), Vector2(-w * 0.35, -h * 0.5)
@@ -447,8 +467,9 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 			Vector2(0, -h * 0.4), Vector2(w * 0.75, -fin_h), Vector2(w * 0.35, -h * 0.5)
 		]), color.darkened(0.15))
 
-	if accent == "scout":
+	if accent == "scout" and head_kind in ["template", "mono_eye"]:
 		# Thin whip antenna on top of the V-fin, reinforces "fast recon"
+		# (the sensor head already carries its own mast).
 		part.renderer.add_line(Vector2(0, -h), Vector2(0, -h - 10.0 * (1.0 + rarity * 0.1)), color.lightened(0.4), 1.0)
 
 	# Boss-only silhouette accents for the two archetypes whose tell reads
@@ -768,18 +789,20 @@ func rotate_arms(target_global_pos: Vector2, mech_global_pos: Vector2):
 
 func animate_legs(velocity: Vector2, time: float):
 	var speed = velocity.length()
-	if speed < 10.0:
-		# Return to idle
-		if drawn_parts.has("Leg_true"):
-			drawn_parts["Leg_true"].rotation = lerp_angle(drawn_parts["Leg_true"].rotation, 0.0, 0.1)
-		if drawn_parts.has("Leg_false"):
-			drawn_parts["Leg_false"].rotation = lerp_angle(drawn_parts["Leg_false"].rotation, 0.0, 0.1)
-		return
-
-	# Swing legs back and forth based on time and speed
-	var swing = sin(time * speed * 0.02) * 0.4
-
-	if drawn_parts.has("Leg_true"):
-		drawn_parts["Leg_true"].rotation = swing
-	if drawn_parts.has("Leg_false"):
-		drawn_parts["Leg_false"].rotation = -swing
+	# Treads and hover skirts don't have knees: they bob subtly instead of
+	# swinging (a rotating tank track looks broken). Kind comes from the
+	# locomotion meta the vocabulary path stamps on each leg container.
+	for leg_name in ["Leg_true", "Leg_false"]:
+		if not drawn_parts.has(leg_name):
+			continue
+		var leg = drawn_parts[leg_name]
+		var kind = leg.get_meta("locomotion", "biped")
+		var mirror = -1.0 if leg_name == "Leg_false" else 1.0
+		if kind == "tread" or kind == "hover":
+			leg.rotation = lerp_angle(leg.rotation, 0.0, 0.2)
+			var bob = sin(time * clamp(speed, 0.0, 300.0) * 0.015) * 1.2 if speed >= 10.0 else 0.0
+			leg.position.y = 20.0 + bob
+		elif speed < 10.0:
+			leg.rotation = lerp_angle(leg.rotation, 0.0, 0.1)
+		else:
+			leg.rotation = sin(time * speed * 0.02) * 0.4 * mirror

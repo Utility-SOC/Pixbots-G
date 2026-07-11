@@ -161,7 +161,17 @@ impl PartRasterizer {
                 for gx in 0..GRID_DIM {
                     let p = cell_to_local(gx, gy);
                     if point_in_polygon(p, poly_slice) {
-                        let t = (((p - center).dot(light)) / half_extent).clamp(-1.0, 1.0);
+                        let mut t = (((p - center).dot(light)) / half_extent).clamp(-1.0, 1.0);
+                        // Quantize to 3 flat tone bands (lit / base / shadow)
+                        // - mirrors MechPartRenderer.gd exactly; see its
+                        // comment for the design rationale.
+                        t = if t > 0.33 {
+                            1.0
+                        } else if t < -0.33 {
+                            -1.0
+                        } else {
+                            0.0
+                        };
                         let shaded = if t > 0.0 {
                             lightened(color, SHADE_STRENGTH * t)
                         } else {

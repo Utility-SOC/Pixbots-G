@@ -131,15 +131,75 @@ static func _ngon(center: Vector2, radius: float, sides: int = 10) -> PackedVect
 		pts.append(center + Vector2(cos(a), sin(a)) * radius)
 	return pts
 
+# ------------------------------------------------- shaded primitives -------
+# The reference sheets' "injection-molded plastic" read comes from one rule
+# applied to EVERY part: a light band on the top face, a dark band on the
+# bottom, hard edges (the rasterizer's outline supplies the 1px dark rim).
+# These primitives bake that rule in, so recipes get the style by
+# construction. Bands are one bake cell (4.5px) - the smallest unit that
+# survives rasterization - and are skipped entirely on shapes too small to
+# afford them.
+
+const BEVEL = 4.5 # one bake cell
+
+# Beveled box: body + top highlight band + bottom shade band.
+static func box(r, x: float, y: float, w: float, h: float, color: Color):
+	r.add_fill(_rect(x, y, w, h), color)
+	if h >= BEVEL * 3.0 and w >= BEVEL * 2.0:
+		r.add_fill(_rect(x, y, w, BEVEL), color.lightened(0.22))
+		r.add_fill(_rect(x, y + h - BEVEL, w, BEVEL), color.darkened(0.28))
+
+# Beveled capsule segment (limbs): add_line already rasterizes a true
+# capsule (distance-to-segment), so this is a body stroke + a thinner
+# highlight stroke offset toward the light.
+static func capsule(r, a: Vector2, b: Vector2, radius: float, color: Color):
+	r.add_line(a, b, color, radius * 2.0)
+	if radius >= BEVEL * 1.4:
+		var light_off = Vector2(-0.45, -0.7) * (radius * 0.45)
+		r.add_line(a + light_off, b + light_off, color.lightened(0.2), radius * 0.8)
+
+# Ball joint: dark sphere with a top-left glint.
+static func joint(r, center: Vector2, radius: float, color: Color):
+	r.add_fill(_ngon(center, radius, 8), color.darkened(0.25))
+	if radius >= BEVEL:
+		r.add_fill(_ngon(center + Vector2(-radius, -radius) * 0.3, radius * 0.35, 6), color.lightened(0.15))
+
+# Dome: hemisphere read - body, inner highlight crescent, specular dot.
+# glass=true tints toward the classic blue observation bubble (S3/U3).
+static func dome(r, center: Vector2, radius: float, color: Color, glass: bool = false):
+	var body = Color(0.45, 0.75, 0.95) if glass else color
+	r.add_fill(_ngon(center, radius, 12), body)
+	r.add_fill(_ngon(center + Vector2(-radius * 0.25, -radius * 0.3), radius * 0.55, 10), body.lightened(0.25))
+	if radius >= BEVEL * 2.0:
+		r.add_fill(_ngon(center + Vector2(-radius * 0.35, -radius * 0.45), radius * 0.18, 6), Color(1, 1, 1, 0.9))
+
+# Tread unit: dark rounded block, road wheels, light top run.
+static func tread(r, x: float, y: float, w: float, h: float, color: Color):
+	r.add_fill(_rect(x, y, w, h), GUN_D)
+	r.add_fill(_rect(x, y, w, BEVEL), GUN_M) # top run
+	var wheel_r = h * 0.28
+	var count = max(2, int(w / (wheel_r * 2.6)))
+	for i in range(count):
+		var wx = x + wheel_r * 1.4 + (w - wheel_r * 2.8) * (float(i) / max(1, count - 1))
+		r.add_fill(_ngon(Vector2(wx, y + h - wheel_r * 1.2), wheel_r, 8), color.darkened(0.1))
+
+# Greebles ---------------------------------------------------------------
+static func vents(r, x: float, y: float, w: float, count: int, color: Color):
+	for i in range(count):
+		r.add_fill(_rect(x, y + i * BEVEL * 1.4, w, BEVEL * 0.7), color.darkened(0.35))
+
+static func sensor_dot(r, pos: Vector2, accent: Color, size: float = 3.0):
+	r.add_fill(_rect(pos.x, pos.y, size, size), accent)
+
 # Shared shoulder + upper-arm segment every recipe starts from, in the role's
 # chassis color so the arm still reads as part of THIS mech before the
 # neutral hardware takes over. Deliberately COMPACT (the module is the star,
 # and the 32-cell bake canvas caps total reach). Returns the y where the
 # module should start.
 static func _draw_upper_arm(r, role_color: Color, s: float, sign: float) -> float:
-	r.add_fill(_rect(-8.0 * s, -12.0 * s, 16.0 * s, 7.0 * s), role_color.darkened(0.2)) # shoulder block
-	r.add_fill(_rect(-5.0 * s, -6.0 * s, 10.0 * s, 9.0 * s), role_color)                # upper arm
-	r.add_fill(_ngon(Vector2(0, 3.0 * s), 4.0 * s, 8), role_color.darkened(0.3))        # elbow joint
+	box(r, -8.0 * s, -12.0 * s, 16.0 * s, 7.0 * s, role_color.darkened(0.2)) # shoulder block
+	box(r, -5.0 * s, -6.0 * s, 10.0 * s, 9.0 * s, role_color)                # upper arm
+	joint(r, Vector2(0, 3.0 * s), 4.0 * s, role_color)                       # elbow
 	return 3.0 * s
 
 # ---------------------------------------------------------------- recipes --
@@ -152,11 +212,11 @@ static func _draw_upper_arm(r, role_color: Color, s: float, sign: float) -> floa
 
 static func arm_gatling(r, role_color: Color, s: float, sign: float, rng: RandomNumberGenerator, accent: Color, detailed: bool = true) -> PackedVector2Array:
 	var y = _draw_upper_arm(r, role_color, s, sign)
-	r.add_fill(_rect(-8.0 * s, y, 16.0 * s, 11.0 * s), GUN_D)                    # receiver
+	box(r, -8.0 * s, y, 16.0 * s, 11.0 * s, GUN_D)                               # receiver
 	if detailed:
 		r.add_fill(_rect(-8.0 * s, y + 2.0 * s, 16.0 * s, 2.5 * s), GUN_M)       # vent band
 	var blen = (12.0 + rng.randf_range(0.0, 3.0)) * s
-	r.add_fill(_rect(-5.5 * s, y + 11.0 * s, 11.0 * s, blen), GUN_M)             # barrel housing
+	box(r, -5.5 * s, y + 11.0 * s, 11.0 * s, blen, GUN_M)                        # barrel housing
 	r.add_line(Vector2(0, y + 12.0 * s), Vector2(0, y + 10.0 * s + blen), GUN_D, 2.0) # barrel slit
 	r.add_fill(_rect(-5.5 * s, y + 9.0 * s + blen, 11.0 * s, 3.5 * s), GUN_L)    # muzzle band
 	if detailed:
@@ -168,12 +228,12 @@ static func arm_gatling(r, role_color: Color, s: float, sign: float, rng: Random
 # one wide receiver. A grunt never fields this.
 static func arm_twin_gatling(r, role_color: Color, s: float, sign: float, rng: RandomNumberGenerator, accent: Color, detailed: bool = true) -> PackedVector2Array:
 	var y = _draw_upper_arm(r, role_color, s, sign)
-	r.add_fill(_rect(-11.0 * s, y, 22.0 * s, 11.0 * s), GUN_D)                   # wide receiver
+	box(r, -11.0 * s, y, 22.0 * s, 11.0 * s, GUN_D)                              # wide receiver
 	r.add_fill(_rect(-11.0 * s, y + 2.0 * s, 22.0 * s, 2.5 * s), GUN_M)          # vent band
 	var blen = (11.0 + rng.randf_range(0.0, 3.0)) * s
 	for side in [-1.0, 1.0]:
 		var bx = 5.8 * s * side
-		r.add_fill(_rect(bx - 4.2 * s, y + 11.0 * s, 8.4 * s, blen), GUN_M)      # twin housings
+		box(r, bx - 4.2 * s, y + 11.0 * s, 8.4 * s, blen, GUN_M)                 # twin housings
 		r.add_fill(_rect(bx - 4.2 * s, y + 9.0 * s + blen, 8.4 * s, 3.5 * s), GUN_L) # muzzles
 	r.add_fill(_ngon(Vector2(12.0 * s * sign, y + 4.0 * s), 5.0 * s, 8), GUN_L)  # drum
 	r.add_fill(_rect(-1.7 * s, y + 4.0 * s, 3.4 * s, 3.4 * s), accent)           # center sensor
@@ -181,7 +241,7 @@ static func arm_twin_gatling(r, role_color: Color, s: float, sign: float, rng: R
 
 static func arm_sniper(r, role_color: Color, s: float, sign: float, rng: RandomNumberGenerator, accent: Color, detailed: bool = true) -> PackedVector2Array:
 	var y = _draw_upper_arm(r, role_color, s, sign)
-	r.add_fill(_rect(-6.0 * s, y, 12.0 * s, 9.0 * s), GUN_M)                     # receiver
+	box(r, -6.0 * s, y, 12.0 * s, 9.0 * s, GUN_M)                                # receiver
 	var blen = (20.0 + rng.randf_range(0.0, 4.0)) * s
 	r.add_fill(_rect(-2.8 * s, y + 7.0 * s, 5.6 * s, blen), GUN_D)               # long barrel
 	r.add_fill(_rect(-4.2 * s, y + 5.0 * s + blen, 8.4 * s, 4.0 * s), GUN_M)     # muzzle brake
@@ -198,7 +258,7 @@ static func arm_missile_pod(r, role_color: Color, s: float, sign: float, rng: Ra
 		rows = 2 + (1 if (detailed and rng.randf() < 0.4) else 0)
 	var box_w = (4.0 + cols * 9.5) * s
 	var box_h = (5.0 + rows * 8.0) * s
-	r.add_fill(_rect(-box_w / 2.0, y, box_w, box_h), box_color)                  # pod box
+	box(r, -box_w / 2.0, y, box_w, box_h, box_color)                             # pod box
 	if detailed:
 		r.add_fill(_rect(-box_w / 2.0, y, box_w, 2.0 * s), box_color.lightened(0.2)) # top lip
 	for row in range(rows):
@@ -217,7 +277,7 @@ static func arm_siege_pod(r, role_color: Color, s: float, sign: float, rng: Rand
 
 static func arm_projector(r, role_color: Color, s: float, sign: float, rng: RandomNumberGenerator, accent: Color, detailed: bool = true) -> PackedVector2Array:
 	var y = _draw_upper_arm(r, role_color, s, sign)
-	r.add_fill(_rect(-8.0 * s, y, 16.0 * s, 10.0 * s), role_color.lerp(GUN_M, 0.4)) # fuel tank
+	box(r, -8.0 * s, y, 16.0 * s, 10.0 * s, role_color.lerp(GUN_M, 0.4))        # fuel tank
 	if detailed:
 		r.add_line(Vector2(7.0 * s * sign, y + 2.0 * s), Vector2(4.0 * s * sign, y + 13.0 * s), GUN_D, 2.0) # hose
 	r.add_fill(_rect(-5.0 * s, y + 10.0 * s, 10.0 * s, 7.0 * s), GUN_M)          # throat
@@ -230,7 +290,7 @@ static func arm_projector(r, role_color: Color, s: float, sign: float, rng: Rand
 
 static func arm_claw(r, role_color: Color, s: float, sign: float, rng: RandomNumberGenerator, accent: Color, detailed: bool = true) -> PackedVector2Array:
 	var y = _draw_upper_arm(r, role_color, s, sign)
-	r.add_fill(_rect(-4.5 * s, y, 9.0 * s, 8.0 * s), GUN_M)                      # wrist
+	box(r, -4.5 * s, y, 9.0 * s, 8.0 * s, GUN_M)                                 # wrist
 	for side in [-1.0, 1.0]:                                                     # two curved prongs
 		r.add_fill(PackedVector2Array([
 			Vector2(3.0 * s * side, y + 6.0 * s),
@@ -259,7 +319,7 @@ static func arm_shield(r, role_color: Color, s: float, sign: float, rng: RandomN
 
 static func arm_manipulator(r, role_color: Color, s: float, sign: float, rng: RandomNumberGenerator, accent: Color, detailed: bool = true) -> PackedVector2Array:
 	var y = _draw_upper_arm(r, role_color, s, sign)
-	r.add_fill(_rect(-3.5 * s, y, 7.0 * s, 14.0 * s), role_color.darkened(0.05)) # forearm
+	box(r, -3.5 * s, y, 7.0 * s, 14.0 * s, role_color.darkened(0.05))            # forearm
 	r.add_fill(_rect(-4.5 * s, y + 14.0 * s, 4.5 * s, 7.0 * s), GUN_M)           # two chunky fingers
 	r.add_fill(_rect(0.5 * s, y + 14.0 * s, 4.5 * s, 5.5 * s), GUN_M)
 	return _rect(-6.0 * s, -16.0 * s, 12.0 * s, y + 21.0 * s + 16.0 * s)
@@ -300,3 +360,162 @@ static func draw_arm_module(kind: String, r, role_color: Color, s: float, sign: 
 		"shield": return arm_shield(r, role_color, s, sign, rng, accent, detailed)
 		"beam_blade": return arm_beam_blade(r, role_color, s, sign, rng, accent, detailed)
 		_: return arm_manipulator(r, role_color, s, sign, rng, accent, detailed)
+
+
+# =================================================================== chassis
+# Head / locomotion / torso vocabulary (task: chassis anatomy). Same rules
+# as the arm recipes: bake-cell-sized features, shaded primitives, hitbox
+# polygon returned. Part-local coordinates (the container carries the
+# offset), sign mirrors left/right where relevant.
+
+# --- heads -----------------------------------------------------------------
+# kind by role/tier: boss -> skull (the references put skulls on the scary
+# ones), hero -> mono_eye (the crest accent layers on top), jammer/scout ->
+# sensor mast, support/diver -> dome, everyone else mono_eye with a small
+# seeded chance of dome/sensor so grunt waves aren't uniform.
+static func pick_head_module(role: String, tier: String, rng: RandomNumberGenerator) -> String:
+	if tier == "boss":
+		return "skull"
+	if tier == "hero":
+		return "mono_eye"
+	match role:
+		"jammer", "piercing_jammer", "scout":
+			return "sensor"
+		"support", "diver":
+			return "dome"
+		_:
+			var roll = rng.randf()
+			if roll < 0.12:
+				return "dome"
+			elif roll < 0.2:
+				return "sensor"
+			return "mono_eye"
+
+# Every head recipe: (r, role_color, s, visor_color, rng) -> hitbox rect.
+# Baseline footprint matches the old template head (w=12s, h=10s) so the
+# existing V-fin / whip / boss accents in MechRenderer keep lining up.
+
+static func head_mono_eye(r, color: Color, s: float, visor: Color, rng: RandomNumberGenerator) -> PackedVector2Array:
+	box(r, -8.0 * s, -9.0 * s, 16.0 * s, 15.0 * s, color)
+	r.add_fill(_rect(-6.5 * s, -2.0 * s, 13.0 * s, 4.5 * s), GUN_D)  # visor slot
+	var eye_x = rng.randf_range(-3.0, 3.0) * s
+	r.add_fill(_rect(eye_x - 2.2 * s, -1.2 * s, 4.4 * s, 3.0 * s), visor) # the mono-eye
+	return _rect(-8.0 * s, -9.0 * s, 16.0 * s, 15.0 * s)
+
+static func head_dome(r, color: Color, s: float, visor: Color, rng: RandomNumberGenerator) -> PackedVector2Array:
+	box(r, -7.0 * s, -1.0 * s, 14.0 * s, 6.0 * s, color) # collar
+	dome(r, Vector2(0, -4.0 * s), 8.0 * s, color, true)  # glass bubble
+	return _rect(-8.0 * s, -12.0 * s, 16.0 * s, 17.0 * s)
+
+static func head_sensor(r, color: Color, s: float, visor: Color, rng: RandomNumberGenerator) -> PackedVector2Array:
+	box(r, -5.5 * s, -7.0 * s, 11.0 * s, 13.0 * s, color)
+	r.add_fill(_rect(-4.0 * s, -3.0 * s, 8.0 * s, 3.0 * s), GUN_D)
+	sensor_dot(r, Vector2(-1.5 * s, -2.5 * s), visor, 3.0 * s)
+	r.add_line(Vector2(0, -7.0 * s), Vector2(0, -15.0 * s), GUN_L, 2.0)          # mast
+	r.add_line(Vector2(-4.0 * s, -13.0 * s), Vector2(4.0 * s, -13.0 * s), GUN_L, 2.0) # crossbar
+	r.add_fill(_ngon(Vector2(3.5 * s, -11.0 * s), 3.0 * s, 8), GUN_M)            # side dish blob
+	return _rect(-6.0 * s, -16.0 * s, 12.0 * s, 22.0 * s)
+
+const BONE = Color(0.86, 0.84, 0.76)
+
+static func head_skull(r, color: Color, s: float, visor: Color, rng: RandomNumberGenerator) -> PackedVector2Array:
+	r.add_fill(_ngon(Vector2(0, -4.0 * s), 8.0 * s, 10), BONE)                   # cranium
+	r.add_fill(_ngon(Vector2(-2.5 * s, -7.0 * s), 3.0 * s, 8), BONE.lightened(0.15)) # brow highlight
+	box(r, -5.0 * s, 1.0 * s, 10.0 * s, 5.0 * s, BONE.darkened(0.12))            # jaw
+	for side in [-1.0, 1.0]:                                                     # eye sockets
+		r.add_fill(_rect(4.0 * s * side - 2.2 * s, -6.5 * s, 4.4 * s, 4.0 * s), Color(0.05, 0.05, 0.07))
+		r.add_fill(_rect(4.0 * s * side - 1.1 * s, -5.5 * s, 2.2 * s, 2.0 * s), visor) # glow
+	for i in range(3):                                                           # teeth gaps
+		r.add_fill(_rect(-3.5 * s + i * 3.0 * s, 3.0 * s, 1.2 * s, 3.0 * s), Color(0.05, 0.05, 0.07))
+	return _rect(-8.0 * s, -12.0 * s, 16.0 * s, 18.0 * s)
+
+static func draw_head_module(kind: String, r, color: Color, s: float, visor: Color, rng: RandomNumberGenerator) -> PackedVector2Array:
+	match kind:
+		"dome": return head_dome(r, color, s, visor, rng)
+		"sensor": return head_sensor(r, color, s, visor, rng)
+		"skull": return head_skull(r, color, s, visor, rng)
+		_: return head_mono_eye(r, color, s, visor, rng)
+
+# --- locomotion --------------------------------------------------------------
+# Role-weighted, per-SIDE (asymmetric mixes like the S2 reference sheet
+# leg+track are allowed for grunts at a low seeded chance - see
+# MechRenderer._leg_kind_for_side). Heroes stay biped - the protagonist
+# silhouette is humanoid.
+static func pick_leg_module(role: String, tier: String, rng: RandomNumberGenerator) -> String:
+	if tier == "hero":
+		return "biped"
+	var roll = rng.randf()
+	match role:
+		"brawler", "commander":
+			return "tread" if roll < 0.4 else "biped"
+		"flamethrower":
+			return "tread" if roll < 0.55 else "biped"
+		"sniper":
+			if roll < 0.55: return "spider"
+			return "tread" if roll < 0.7 else "biped"
+		"scout":
+			if roll < 0.3: return "spider"
+			return "hover" if roll < 0.6 else "biped"
+		"diver":
+			return "hover" if roll < 0.7 else "spider"
+		"jammer", "piercing_jammer", "support":
+			if roll < 0.3: return "spider"
+			return "tread" if roll < 0.5 else "biped"
+		_:
+			return "biped"
+
+# Every leg recipe: (r, role_color, s, sign, rng) -> hitbox rect.
+# Leg-local frame, container at (+/-14, +20); +Y down. animate_legs swings
+# biped/spider containers only (see MechRenderer).
+
+static func leg_biped(r, color: Color, s: float, sign: float, rng: RandomNumberGenerator) -> PackedVector2Array:
+	capsule(r, Vector2(0, -10.0 * s), Vector2(2.0 * s * sign, 3.0 * s), 4.5 * s, color)      # thigh
+	joint(r, Vector2(2.0 * s * sign, 4.0 * s), 3.5 * s, color)                               # knee
+	capsule(r, Vector2(2.0 * s * sign, 5.0 * s), Vector2(1.0 * s * sign, 15.0 * s), 3.6 * s, color.darkened(0.08)) # shin
+	box(r, -5.0 * s + 2.0 * s * sign, 15.0 * s, 11.0 * s, 6.0 * s, color.darkened(0.2))      # foot
+	return _rect(-8.0 * s, -14.0 * s, 16.0 * s, 36.0 * s)
+
+static func leg_tread(r, color: Color, s: float, sign: float, rng: RandomNumberGenerator) -> PackedVector2Array:
+	box(r, -5.0 * s, -10.0 * s, 10.0 * s, 10.0 * s, color)   # suspension pylon
+	tread(r, -9.0 * s, 0.0, 18.0 * s, 13.0 * s, color)       # track unit
+	return _rect(-9.5 * s, -12.0 * s, 19.0 * s, 26.0 * s)
+
+static func leg_spider(r, color: Color, s: float, sign: float, rng: RandomNumberGenerator) -> PackedVector2Array:
+	# two chitin legs per side: out-and-down, then a thinner lower segment
+	for leg in [[0.0, 9.0], [4.0, 5.0]]:
+		var hip = Vector2(leg[0] * s * sign * 0.4, -8.0 * s + leg[0] * s * 0.5)
+		var knee_pt = hip + Vector2(leg[1] * s * sign, 6.0 * s)
+		var foot_pt = knee_pt + Vector2(-2.0 * s * sign, 14.0 * s)
+		capsule(r, hip, knee_pt, 3.2 * s, color)
+		capsule(r, knee_pt, foot_pt, 2.4 * s, color.darkened(0.12))
+		joint(r, knee_pt, 2.6 * s, color)
+	return _rect(-12.0 * s, -12.0 * s, 26.0 * s, 34.0 * s)
+
+static func leg_hover(r, color: Color, s: float, sign: float, rng: RandomNumberGenerator) -> PackedVector2Array:
+	box(r, -4.0 * s, -10.0 * s, 8.0 * s, 8.0 * s, color)                       # strut
+	box(r, -8.0 * s, -2.0 * s, 16.0 * s, 8.0 * s, color.darkened(0.1))         # skirt
+	r.add_fill(PackedVector2Array([                                            # skirt taper
+		Vector2(-8.0 * s, 6.0 * s), Vector2(8.0 * s, 6.0 * s),
+		Vector2(5.0 * s, 10.0 * s), Vector2(-5.0 * s, 10.0 * s)
+	]), color.darkened(0.25))
+	r.add_fill(_rect(-4.5 * s, 10.0 * s, 9.0 * s, 2.5 * s), Color(0.45, 0.85, 1.0)) # lift glow
+	return _rect(-8.5 * s, -12.0 * s, 17.0 * s, 26.0 * s)
+
+static func draw_leg_module(kind: String, r, color: Color, s: float, sign: float, rng: RandomNumberGenerator) -> PackedVector2Array:
+	match kind:
+		"tread": return leg_tread(r, color, s, sign, rng)
+		"spider": return leg_spider(r, color, s, sign, rng)
+		"hover": return leg_hover(r, color, s, sign, rng)
+		_: return leg_biped(r, color, s, sign, rng)
+
+# --- torso -------------------------------------------------------------------
+# Stacked beveled boxes in the ROLE color (the references show colored-
+# plastic chassis) instead of the old energy-blob + slate armor treatment.
+# Returns the hitbox rect; MechRenderer layers the reactor glow, pauldrons,
+# and all role/boss accents on top exactly as before.
+static func draw_torso_module(r, color: Color, s: float, rng: RandomNumberGenerator) -> PackedVector2Array:
+	box(r, -13.0 * s, -6.0 * s, 26.0 * s, 16.0 * s, color.darkened(0.12)) # hips/abdomen
+	box(r, -16.0 * s, -22.0 * s, 32.0 * s, 18.0 * s, color)               # chest
+	r.add_fill(_rect(-7.0 * s, -24.0 * s, 14.0 * s, 3.0 * s), color.darkened(0.3)) # collar
+	vents(r, 9.0 * s, -14.0 * s, 5.0 * s, 2, color)                        # side vents
+	return _rect(-16.0 * s, -24.0 * s, 32.0 * s, 34.0 * s)

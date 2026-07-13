@@ -1,15 +1,23 @@
 extends PanelContainer
 
-# Hover a Weapon Mount in the Garage -> a live mini firing range showing
-# the EXACT projectile that mount will spit out with the grid as currently
-# wired. The shot on the little stage is a REAL Projectile instance built
-# from the simulated packet (same _build_visuals code that runs in combat -
-# arrows, deltas, crystals, mines, trails and all), neutered of physics/
-# collision and animated along the mount's firing pattern (normal /
-# shotgun / radial / beam / mortar). Honest numbers underneath: damage
-# after the mount's own multipliers, element split, charge time, bank tag.
-# Fed straight from Mech.precalculated_weapons - what you see here is what
-# leaves the barrel on deploy, by construction.
+# Hover a Weapon Mount in the Garage -> a mini firing-range preview showing
+# the pattern/element/damage that mount will produce with the grid as
+# currently wired. Fed straight from Mech.precalculated_weapons - what you
+# see here is what leaves the barrel on deploy, by construction.
+#
+# Previously this spawned REAL Projectile instances (full _ready()/
+# _build_visuals() - particles, materials, polygons) and rebuilt the whole
+# pool on every hover-hex-transition, which was the actual freeze (a fast
+# mouse sweep across several tiles fired several full Projectile builds in
+# quick succession) - and the live shot's shape was whatever dominant-
+# synergy silhouette _build_visuals() picked, which for a Beam mount often
+# just looked like a generic (e.g. lightning-bolt-shaped) blob rather than
+# reading as "a beam" (Utility-SOC: "the graphic still is not quite
+# accurate - it shows an icon of the dominant, but... lightning beams it is
+# deceptive"). Replaced with cheap static per-pattern glyphs drawn directly
+# here: zero node instantiation, and each pattern (Normal/Shotgun/Radial/
+# Beam/Mortar) gets its own honest shape instead of borrowing whichever
+# element's silhouette happens to dominate.
 
 var _packet = null            # EnergyPacket (sim output) or null = unpowered
 var _pattern: int = 0         # WeaponMountTile.mythic_pattern (0 when not Mythic)
@@ -19,8 +27,6 @@ var _charge_time: float = 0.0
 var _t: float = 0.0
 
 var canvas: Control
-var stage: Node2D             # scaled world-space holder for the live projectiles
-var _pool: Array = []         # the neutered Projectile instances being animated
 var info: Label
 
 const CYCLE = 1.4 # seconds per animation loop
@@ -36,11 +42,9 @@ func _init():
 	canvas = Control.new()
 	canvas.custom_minimum_size = Vector2(190, 86)
 	canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	canvas.clip_contents = true # big charged shots have deliberately oversized glow
+	canvas.clip_contents = true
 	canvas.draw.connect(_draw_canvas)
 	vbox.add_child(canvas)
-	stage = Node2D.new()
-	canvas.add_child(stage)
 	info = Label.new()
 	info.add_theme_font_size_override("font_size", 11)
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -49,70 +53,10 @@ func _init():
 func _process(delta: float):
 	if visible:
 		_t += delta
-		_animate_pool()
 		canvas.queue_redraw()
 
 func hide_preview():
 	visible = false
-	_clear_pool()
-
-func _clear_pool():
-	for p in _pool:
-		if is_instance_valid(p):
-			p.queue_free()
-	_pool.clear()
-
-# A REAL Projectile built from the simulated packet, with everything that
-# makes it a weapon turned off: no physics, no collision, no flight-math
-# registration - just the living visual (_build_visuals + its trails).
-func _make_preview_projectile() -> Node2D:
-	var proj = load("res://scripts/entities/Projectile.gd").new()
-	proj.synergies = _packet.synergies.duplicate()
-	proj.damage = _damage
-	proj.fired_by_player = true
-	proj.direction = Vector2.RIGHT
-	stage.add_child(proj) # _ready builds the real combat visuals
-	ProjectileManager.unregister(proj)
-	proj.set_physics_process(false)
-	proj.monitoring = false
-	proj.monitorable = false
-	proj.collision_layer = 0
-	proj.collision_mask = 0
-	proj.remove_from_group("projectile") # invisible to magnet reflection etc.
-	proj.rotation = 0.0
-	# Cage the visuals inside the window: combat trails/particles emit in
-	# WORLD space (top_level / local_coords=false), which let the shot's
-	# effects escape the popup and paint over the hex grid. Convert
-	# particles to local space and drop world-space trail lines entirely.
-	_cage(proj)
-	return proj
-
-func _cage(node: Node):
-	for child in node.get_children():
-		if child is CPUParticles2D or child is GPUParticles2D:
-			child.set("local_coords", true)
-		if child is Line2D:
-			child.visible = false # world-space trail - meaningless in here
-		if "top_level" in child and child.top_level:
-			child.top_level = false
-		_cage(child)
-
-func _rebuild_pool():
-	_clear_pool()
-	if _packet == null:
-		stage.scale = Vector2.ONE
-		return
-	var count = 1
-	if _pattern == 1 or _pattern == 2: # shotgun / radial show a small volley
-		count = 3
-	for i in range(count):
-		_pool.append(_make_preview_projectile())
-	# Fit the stage: combat projectiles are world-sized (a big charged shot's
-	# shape alone is ~20px x visual_scale before its oversized glow) - zoom
-	# so the shot reads at ~24px inside the 86px-tall range.
-	var proj = _pool[0]
-	var vs = max(1.0, float(proj.get("visual_scale") if "visual_scale" in proj else 1.0)) * max(0.25, proj.scale.x)
-	stage.scale = Vector2.ONE * clamp(24.0 / (20.0 * vs), 0.25, 1.2)
 
 # mount: the hovered WeaponMountTile; entries: every precalculated_weapons
 # dict for this mount (possibly several traversal steps + a bank);
@@ -151,7 +95,7 @@ func show_for(mount, entries: Array, fire_rate: float, screen_pos: Vector2):
 	var vp = get_viewport_rect().size if is_inside_tree() else Vector2(1152, 648)
 	global_position = Vector2(vp.x - 214, 8)
 	visible = true
-	_rebuild_pool()
+	_t = 0.0
 
 func _top_elements(synergies: Dictionary, count: int) -> String:
 	var total = 0.0
@@ -170,52 +114,20 @@ func _top_elements(synergies: Dictionary, count: int) -> String:
 		bits.append("%s %d%%" % [EnergyPacket.element_name(pairs[i][0]), int(round(100.0 * pairs[i][1] / total))])
 	return " / ".join(bits)
 
-# Moves the LIVE projectile instances along the firing pattern's paths.
-# Positions are in canvas space, converted to the (possibly zoomed) stage.
-func _animate_pool():
-	if _pool.is_empty():
-		return
-	var size = canvas.size
-	var muzzle = Vector2(16, size.y * 0.5)
-	var reach = size.x - 34.0
-	var t = fmod(_t, CYCLE) / CYCLE
-	var inv = 1.0 / max(0.01, stage.scale.x)
+# A small filled dart/arrowhead, oriented along `dir` - the shared glyph
+# shape for Normal/Shotgun/Radial pellets (a discrete travelling shot).
+func _draw_dart(pos: Vector2, dir: Vector2, color: Color):
+	var fwd = dir.normalized() if dir != Vector2.ZERO else Vector2.RIGHT
+	var side = Vector2(-fwd.y, fwd.x)
+	var pts = PackedVector2Array([
+		pos + fwd * 6.0,
+		pos - fwd * 4.0 + side * 3.5,
+		pos - fwd * 4.0 - side * 3.5,
+	])
+	canvas.draw_colored_polygon(pts, color)
 
-	match _pattern:
-		1: # shotgun fan (3 representative pellets of the volley)
-			for i in range(_pool.size()):
-				var ang = deg_to_rad(-18.0 + 18.0 * i)
-				var dir = Vector2.RIGHT.rotated(ang)
-				_place(_pool[i], (muzzle + dir * reach * t) * inv, ang)
-		2: # radial burst from a point downrange
-			var center = muzzle + Vector2(reach * 0.45, 0)
-			for i in range(_pool.size()):
-				var ang = TAU * i / _pool.size() + 0.4
-				var dir = Vector2.RIGHT.rotated(ang)
-				_place(_pool[i], (center + dir * reach * 0.4 * t) * inv, ang)
-		3: # beam: the shot crosses near-instantly, then holds at the far end
-			var sweep = clamp(t * 3.0, 0.0, 1.0)
-			_place(_pool[0], (muzzle + Vector2(reach * sweep, 0)) * inv, 0.0)
-		4: # mortar: lobbed arc into the telegraph, hidden during the flash
-			if t < 0.75:
-				var ft = t / 0.75
-				var p = muzzle.lerp(muzzle + Vector2(reach, 6), ft) + Vector2(0, -sin(ft * PI) * 26.0)
-				_pool[0].visible = true
-				_place(_pool[0], p * inv, lerp(-0.5, 1.1, ft))
-			else:
-				_pool[0].visible = false
-		_: # normal single shot downrange
-			_place(_pool[0], (muzzle + Vector2(reach * t, 0)) * inv, 0.0)
-
-func _place(proj, pos: Vector2, angle: float):
-	if is_instance_valid(proj):
-		proj.position = pos
-		proj.rotation = angle
-
-# Underlays only - the projectile itself is the real instance on the stage.
 func _draw_canvas():
 	var size = canvas.size
-	# range floor + muzzle block
 	canvas.draw_rect(Rect2(Vector2.ZERO, size), Color(0.07, 0.075, 0.1, 0.95))
 	canvas.draw_line(Vector2(6, size.y - 8), Vector2(size.x - 6, size.y - 8), Color(0.25, 0.27, 0.32), 1.0)
 	var muzzle = Vector2(16, size.y * 0.5)
@@ -227,12 +139,40 @@ func _draw_canvas():
 
 	var color = EnergyPacket.get_color_blend(_packet.synergies)
 	var t = fmod(_t, CYCLE) / CYCLE
+	var reach = size.x - 34.0
 
-	if _pattern == 3: # beam pattern: the piercing streak behind the shot
-		var sweep = clamp(t * 3.0, 0.0, 1.0)
-		canvas.draw_line(muzzle, muzzle + Vector2((size.x - 34.0) * sweep, 0), Color(color.r, color.g, color.b, 0.5), 3.0)
-	elif _pattern == 4: # mortar telegraph ring + impact flash
-		var target = muzzle + Vector2(size.x - 34.0, 6)
+	match _pattern:
+		1: # shotgun fan: 3 darts diverging at fixed angles
+			for i in range(3):
+				var ang = deg_to_rad(-18.0 + 18.0 * i)
+				var dir = Vector2.RIGHT.rotated(ang)
+				_draw_dart(muzzle + dir * reach * t, dir, color)
+		2: # radial burst: darts racing outward in a full ring from a point downrange
+			var center = muzzle + Vector2(reach * 0.45, 0)
+			var shard_count = 6
+			for i in range(shard_count):
+				var ang = TAU * i / shard_count + 0.4
+				var dir = Vector2.RIGHT.rotated(ang)
+				_draw_dart(center + dir * reach * 0.4 * t, dir, color)
+		3: # Beam: a dense, bright, near-instant single stream - the glyph
+			# IS the beam (no separate riding shape), addressing the old
+			# "looks like a generic dominant-synergy blob" complaint head-on.
+			var sweep = clamp(t * 3.0, 0.0, 1.0)
+			var tip = muzzle + Vector2(reach * sweep, 0)
+			canvas.draw_line(muzzle, tip, Color(color.r, color.g, color.b, 0.95), 4.0)
+			canvas.draw_line(muzzle, tip, Color(1, 1, 1, 0.55), 1.5) # bright hot core
+			if sweep >= 1.0:
+				canvas.draw_circle(tip, 3.0, Color(1, 1, 1, 0.8))
+		4: # mortar: lobbed shell arc into the telegraph, then impact flash
+			if t < 0.75:
+				var ft = t / 0.75
+				var p = muzzle.lerp(muzzle + Vector2(reach, 6), ft) + Vector2(0, -sin(ft * PI) * 26.0)
+				canvas.draw_circle(p, 3.0, color)
+		_: # normal single shot downrange
+			_draw_dart(muzzle + Vector2(reach * t, 0), Vector2.RIGHT, color)
+
+	if _pattern == 4: # mortar telegraph ring + impact flash
+		var target = muzzle + Vector2(reach, 6)
 		canvas.draw_arc(target, 13.0, 0, TAU, 16, Color(color.r, color.g, color.b, 0.5), 1.5)
 		if t >= 0.75:
 			var ft = (t - 0.75) / 0.25

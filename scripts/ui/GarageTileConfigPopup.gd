@@ -365,3 +365,72 @@ func on_tile_clicked(tile: HexTile):
 		garage.add_child(popup)
 		popup.popup_centered(Vector2(300, 120))
 		popup.popup_hide.connect(func(): popup.queue_free())
+
+	elif tile.tile_type == "Jammer Module":
+		# Deliberately its own branch, NOT folded into the Mythic-gated
+		# block above - jam_mode/target_synergy are base stats every Jammer
+		# Module has (previously only ever randomly rolled once at _init()
+		# with no way to change them), not an unlocked Mythic ability, so
+		# this stays available at any rarity.
+		var popup = PopupPanel.new()
+		var vbox = VBoxContainer.new()
+		popup.add_child(vbox)
+
+		var label = Label.new()
+		label.text = "Configure Jammer Module"
+		vbox.add_child(label)
+
+		var mode_names = ["Vision", "Synergy"]
+		var mode_btn = Button.new()
+		mode_btn.text = "Mode: %s (click to cycle)" % mode_names[tile.jam_mode]
+		mode_btn.pressed.connect(func():
+			tile.cycle_jam_mode()
+			mode_btn.text = "Mode: %s (click to cycle)" % mode_names[tile.jam_mode]
+			garage._mark_player_grid_dirty()
+		)
+		vbox.add_child(mode_btn)
+
+		var synergy_btn = Button.new()
+		synergy_btn.text = "Synergy target: %s (click to cycle)" % EnergyPacket.SYNERGY_NAMES[tile.target_synergy]
+		synergy_btn.tooltip_text = "Only matters in Synergy mode - mutes this element in the player's damage while jammed."
+		synergy_btn.pressed.connect(func():
+			tile.cycle_target_synergy()
+			synergy_btn.text = "Synergy target: %s (click to cycle)" % EnergyPacket.SYNERGY_NAMES[tile.target_synergy]
+			garage._mark_player_grid_dirty()
+		)
+		vbox.add_child(synergy_btn)
+
+		garage.add_child(popup)
+		popup.popup_centered(Vector2(300, 140))
+		popup.popup_hide.connect(func(): popup.queue_free())
+
+	elif tile.tile_type == "Drone Bay":
+		# Cosmetic choice, not a power spike - ungated by rarity like the
+		# Jammer Module branch above. Utility-SOC: "I'd also like to be able
+		# to choose drone design from the drone bay tile."
+		var popup = PopupPanel.new()
+		var vbox = VBoxContainer.new()
+		popup.add_child(vbox)
+
+		var label = Label.new()
+		label.text = "Configure Drone Bay"
+		vbox.add_child(label)
+
+		var class_names = ["Quad-Rotor", "Hover-Orb", "Spider", "Flyer", "Recon Plane", "Chinook"]
+		tile.get_or_build_loadout() # ensures visual_class is assigned, not still -1
+		var class_btn = Button.new()
+		class_btn.text = "Design: %s (click to cycle)" % class_names[tile.visual_class]
+		class_btn.pressed.connect(func():
+			tile.cycle_visual_class()
+			class_btn.text = "Design: %s (click to cycle)" % class_names[tile.visual_class]
+		)
+		vbox.add_child(class_btn)
+
+		var hint = Label.new()
+		hint.text = "Recon Plane: much longer engagement range, loiters in a slow figure-eight. Chinook: carries a Heal Beacon, pulses heals to nearby allies."
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+		vbox.add_child(hint)
+
+		garage.add_child(popup)
+		popup.popup_centered(Vector2(320, 160))
+		popup.popup_hide.connect(func(): popup.queue_free())

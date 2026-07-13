@@ -102,20 +102,43 @@ func maybe_introduce_experimental_template():
 		director.register_template(new_template)
 		print("[DIRECTOR] New experimental template on trial: '", new_template.template_name, "' roles=", new_template.required_roles)
 
+# Below this water fraction the bias is a no-op - most maps have a pond
+# here and there and that shouldn't perturb squad selection at all.
+const WATER_BIAS_THRESHOLD = 0.15
+# Never fully zero out a non-diver template even on an all-water map - a
+# starved-to-zero weight can stall spawning if every registered template
+# happens to lack "diver" (e.g. early game before one's ever been rolled).
+const WATER_BIAS_FLOOR = 0.15
+
 func select_template_weighted() -> SquadTemplate:
 	if director.templates.is_empty():
 		return null
 
+	var water_frac: float = director.get_map_water_fraction() if director.has_method("get_map_water_fraction") else 0.0
+	var apply_bias = water_frac > WATER_BIAS_THRESHOLD
+
 	var total_weight = 0.0
+	var effective_weights: Dictionary = {} # SquadTemplate -> float, keyed by instance
 	for t in director.templates:
-		total_weight += t.spawn_weight
+		var w = t.spawn_weight
+		if apply_bias:
+			# Water-capable templates get proportionally more likely to spawn
+			# the wetter the map is; templates with zero water-capable
+			# members get proportionally suppressed (never to zero - see
+			# WATER_BIAS_FLOOR) instead of drowning on arrival.
+			if t.required_roles.has("diver"):
+				w *= 1.0 + water_frac
+			else:
+				w *= max(WATER_BIAS_FLOOR, 1.0 - water_frac)
+		effective_weights[t] = w
+		total_weight += w
 
 	var roll = randf() * total_weight
 	var current_weight = 0.0
 	var selected_template: SquadTemplate = director.templates[0]
 
 	for t in director.templates:
-		current_weight += t.spawn_weight
+		current_weight += effective_weights[t]
 		if roll <= current_weight:
 			selected_template = t
 			break

@@ -20,7 +20,7 @@ func _init():
 func get_weight() -> float:
 	return 6.0 # heavy - a lot of hardware to boost a packet this much
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var mult = amplification * _get_power_multiplier()
 	if rarity == Rarity.MYTHIC:
 		match mythic_focus:

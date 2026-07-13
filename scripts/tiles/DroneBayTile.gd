@@ -40,7 +40,7 @@ func get_weight() -> float:
 # get_or_build_loadout/create_starter_drone), so it keeps fighting even if
 # the main mech's backpack circuit is unpowered or jammed. Pass energy
 # straight through rather than swallowing it like a dead-end tile would.
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	return [packet]
 
 # Guarantees drone_loadout is populated and sized for the CURRENT rarity,
@@ -51,9 +51,9 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 # constructors) - i.e. AFTER _init() already ran - so eagerly building in
 # _init() would silently lock in a Common-sized grid regardless of the
 # rarity the caller sets a moment later.
-# Kept in sync with DroneRenderer.DRONE_CLASSES.size() by hand (tiles don't
-# preload visuals code) - bump this if a chassis archetype is added/removed.
-const VISUAL_CLASS_COUNT = 4
+# Kept in sync with DroneRenderer.CLASS_COUNT by hand (tiles don't preload
+# visuals code) - bump this if a chassis archetype is added/removed.
+const VISUAL_CLASS_COUNT = 6
 
 func get_or_build_loadout() -> ComponentEquipmentClass:
 	if drone_loadout == null:
@@ -61,6 +61,12 @@ func get_or_build_loadout() -> ComponentEquipmentClass:
 	if visual_class < 0:
 		visual_class = randi() % VISUAL_CLASS_COUNT
 	return drone_loadout
+
+# Manual override (Utility-SOC: "I'd also like to be able to choose drone
+# design from the drone bay tile") - the config popup calls this directly;
+# the random rolls above only ever apply once, at first creation.
+func cycle_visual_class():
+	visual_class = (visual_class + 1) % VISUAL_CLASS_COUNT
 
 # Explicit (re)build, used right after setting .rarity when a caller wants a
 # fresh default loadout at that rarity rather than whatever (if anything)

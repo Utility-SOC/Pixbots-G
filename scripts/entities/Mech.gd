@@ -118,6 +118,10 @@ var jumpjet_blink_mode: bool = false  # Mythic Jumpjet set to Blink
 var actuator_school: int = -1 # Mythic Actuator "school" (-1 = no Mythic actuator equipped); 0=Velocity, 1=Ember, 2=Balanced - see ActuatorTile.gd
 var shield_mythic_mode: int = -1 # Mythic Shield Generator mode (-1 = no Mythic shield equipped); 0=Aegis (tank), 1=Deflector (overflow eject) - see ShieldTile.gd/ShieldGeneratorTile.gd
 var jumpjet_rarity: int = -1
+# -1 = no Maneuvering Thruster equipped, otherwise the highest-rarity one's
+# rarity tier - read by PlayerController.gd's accel calc (see
+# ManeuveringThrusterTile.gd).
+var thruster_accel_bonus: int = -1
 var jumpjet_energy = null
 var actuator_energy = null
 
@@ -227,6 +231,12 @@ var fire_rate: float = 0.25 # 4 shots per second
 var components: Dictionary = {} # Dict of HexTile.BodySlot -> ComponentEquipment
 var is_grid_dirty: bool = true
 var precalculated_weapons: Array = []
+# Every LanceMountTile found across all equipped components this recalc -
+# collected here (not folded into precalculated_weapons, which assumes the
+# WeaponMountTile bank/normal-split model) since Lance fires itself
+# automatically once fed+off-cooldown rather than being mouse/key-triggered
+# - see _tick_weapon_charges.
+var lance_mounts: Array = []
 var _renderer: Node2D = null # cached MechRenderer child, set in _ready()
 
 var is_drowning: bool = false
@@ -742,6 +752,13 @@ func _refresh_water_state():
 		var grid_pos = Vector2i(int(floor(global_position.x / map.tile_size)), int(floor(global_position.y / map.tile_size)))
 		if grid_pos.x >= 0 and grid_pos.x < map.width and grid_pos.y >= 0 and grid_pos.y < map.height:
 			is_over_water = map.terrain[grid_pos.y][grid_pos.x] == map.BiomeType.WATER
+		# FightShovel corn trampling (Utility-SOC: "corn-fields that leave
+		# trails when walked through") - same per-mech-per-tick terrain
+		# lookup this function already does, one dictionary check further.
+		# No-ops instantly on any map without corn (see MapGenerator.
+		# trample_corn's own guard).
+		if map.map_type == "FightShovel" and map.has_method("trample_corn"):
+			map.trample_corn(grid_pos)
 	_in_water = is_over_water
 
 # Prevents enemies from just walking straight into water and drowning.
@@ -875,6 +892,7 @@ func _tick_weapon_charges(delta: float):
 				# AI never clicks a mouse: auto-release the bank when full.
 				if not is_player:
 					var packet_to_fire = data.packet.copy()
+					packet_to_fire.is_banked_shot = true
 					packet_to_fire.magnitude *= current_jammer_debuff
 					for k in packet_to_fire.synergies:
 						packet_to_fire.synergies[k] *= current_jammer_debuff
@@ -885,6 +903,14 @@ func _tick_weapon_charges(delta: float):
 		else:
 			if mount.current_charge < required:
 				mount.current_charge = min(required, mount.current_charge + delta / max(0.01, fire_rate))
+
+	# Lance mounts fire themselves - no mouse/key trigger, see
+	# LanceMountTile.gd's own header comment.
+	for lance in lance_mounts:
+		if lance.cooldown_timer > 0.0:
+			lance.cooldown_timer -= delta
+		elif lance.ready_to_fire:
+			lance.fire(self)
 
 func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, delta: float = 0.0):
 	last_aim_position = target_pos
@@ -1048,12 +1074,14 @@ var _heat_arc_timer: float = 0.0
 
 func _recalculate_grid():
 	precalculated_weapons.clear()
+	lance_mounts.clear()
 	max_shield_hp = 0.0 # Reset shield HP
 	has_shield_generator = false
 	shield_recharge_delay = 3.0
 	shield_recharge_rate = 0.0
 	base_move_speed = 150.0 # Reset base speed for Jumpjets to calculate
 	jumpjet_rarity = -1
+	thruster_accel_bonus = -1
 	magnet_repel_mode = false
 	jumpjet_blink_mode = false
 	actuator_school = -1
@@ -1187,12 +1215,13 @@ func _recalculate_grid():
 			pkts.append_array(peripheral_transfer[slot])
 			_route_to_peripheral(pkts, comp)
 			
-		for coord in comp.hex_grid.grid.keys():
-			var t = comp.hex_grid.get_tile(coord)
+		# get_all_tiles() (not raw .grid.keys()) - footprint-safe, see
+		# HexGridComponent.get_all_tiles's own comment.
+		for t in comp.hex_grid.get_all_tiles():
 			if t.has_method("generate_energy"):
 				var generated = t.generate_energy(comp.hex_grid)
 				for p in generated:
-					p.position = HexCoord.new(coord.x, coord.y)
+					p.position = t.grid_position
 				pkts.append_array(generated)
 				
 		_simulate_grid(comp.hex_grid, pkts)
@@ -1288,7 +1317,12 @@ func _recalculate_grid():
 							"slot_type": comp.slot_type
 						})
 				tile.clear_pending()
-				
+
+			if tile.tile_type == "Lance Mount" and tile.has_method("check_face_gate"):
+				tile.check_face_gate()
+				lance_mounts.append(tile)
+				tile.clear_pending()
+
 			if tile.has_method("get_speed_bonus"):
 				base_move_speed += tile.get_speed_bonus()
 				
@@ -1410,7 +1444,53 @@ func _recalculate_grid():
 			else:
 				data.mount.current_charge = data.packet.charge_required * frac
 
+	for comp in components.values():
+		_sync_contiguous_accumulator_shortcuts(comp.hex_grid)
+
 	is_grid_dirty = false
+
+# Every Accumulator in a hex-contiguous cluster shares one bank/shortcut
+# feel: manually keying each one individually was the actual friction (place
+# 3 Accumulators, set the same key 3 times) rather than a meaningful
+# choice, so a cluster now auto-adopts whichever explicit key (if any) one
+# of its members already has. "Lowest" key wins on a conflicting cluster
+# (two different keys placed in one contiguous group) so the outcome is
+# deterministic rather than depending on flood-fill visit order.
+func _sync_contiguous_accumulator_shortcuts(grid: HexGridComponent):
+	var visited: Dictionary = {}
+	for coord_v in grid.grid.keys():
+		if visited.has(coord_v):
+			continue
+		var tile = grid.grid[coord_v]
+		if tile.tile_type != "Accumulator":
+			continue
+
+		var cluster: Array = []
+		var queue = [coord_v]
+		visited[coord_v] = true
+		while queue.size() > 0:
+			var cur_v = queue.pop_back()
+			cluster.append(grid.grid[cur_v])
+			var cur_coord = HexCoord.new(cur_v.x, cur_v.y)
+			for d in range(6):
+				var n = cur_coord.neighbor(d)
+				var nv = Vector2i(n.q, n.r)
+				if visited.has(nv) or not grid.grid.has(nv):
+					continue
+				if grid.grid[nv].tile_type == "Accumulator":
+					visited[nv] = true
+					queue.append(nv)
+
+		if cluster.size() <= 1:
+			continue
+
+		var best_key = "None"
+		for t in cluster:
+			if t.trigger_key != "None" and (best_key == "None" or t.trigger_key < best_key):
+				best_key = t.trigger_key
+		if best_key != "None":
+			for t in cluster:
+				t.trigger_key = best_key
 
 var _spawn_primed: bool = false
 
@@ -1476,7 +1556,7 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array):
 					p.traversal_steps += tile.sync_adjustment
 					p.traversal_steps = max(0, p.traversal_steps)
 					
-				var out_pkts = tile.process_energy(p, (dir + 3) % 6, grid)
+				var out_pkts = tile.process_energy(p, (dir + 3) % 6, grid, next_pos)
 				for out in out_pkts:
 					out.position = next_pos
 					out.traversal_steps = p.traversal_steps

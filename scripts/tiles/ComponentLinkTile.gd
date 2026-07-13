@@ -57,7 +57,7 @@ func get_exit_directions(entry_direction: int = 0) -> Array[int]:
 		return active_faces
 	return []
 
-func process_energy(packet: EnergyPacket, from_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, from_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if is_disabled:
 		return [packet] # Passes through if disabled
 

@@ -128,6 +128,7 @@ func build():
 
 	var auto_button = Button.new()
 	auto_button.text = "Auto-Equip"
+	auto_button.tooltip_text = "Fills empty cells on this part from your tile inventory - prioritizes routing/output tiles and tunes any Elemental Infusers it places toward your build's favored element."
 	auto_button.custom_minimum_size = Vector2(120, 50)
 	auto_button.pressed.connect(garage._on_auto_equip_pressed)
 	bottom_bar.add_child(auto_button)
@@ -198,11 +199,13 @@ func build():
 
 	var loadout_lbl = Label.new()
 	loadout_lbl.text = "Loadouts: "
+	loadout_lbl.tooltip_text = "Manual full-build save slots, separate from the automatic run save (Deploy to Battlefield autosaves your progress) - use these to keep favorite builds around across runs."
 	loadout_bar.add_child(loadout_lbl)
 
 	for i in range(1, 4):
 		var btn = Button.new()
 		btn.text = "Load " + str(i)
+		btn.tooltip_text = "Replace your ENTIRE equipped mech with whatever was saved to slot %d. Outgoing parts are not refunded to inventory." % i
 		btn.pressed.connect(func():
 			var main = garage.get_parent()
 			if main and main.get("player") != null:
@@ -214,6 +217,7 @@ func build():
 
 		var save_btn = Button.new()
 		save_btn.text = "Save " + str(i)
+		save_btn.tooltip_text = "Save your current full equipped mech into slot %d, overwriting whatever was there." % i
 		save_btn.pressed.connect(func():
 			var main = garage.get_parent()
 			if main and main.get("player") != null:
@@ -232,11 +236,13 @@ func build():
 
 	var part_lbl = Label.new()
 	part_lbl.text = "This part: "
+	part_lbl.tooltip_text = "Save/load slots scoped to whichever tab is open right now (Torso, Left Arm, ...) - separate per slot type, so \"Part Load 1\" on the Torso tab is a different save from \"Part Load 1\" on the Left Arm tab."
 	part_loadout_bar.add_child(part_lbl)
 
 	for i in range(1, 4):
 		var p_load = Button.new()
 		p_load.text = "Load " + str(i)
+		p_load.tooltip_text = "Replace ONLY this tab's part with slot %d's saved version. The outgoing part is not refunded to inventory." % i
 		p_load.pressed.connect(func():
 			var main = garage.get_parent()
 			if not garage.active_component or not main or main.get("player") == null:
@@ -260,6 +266,7 @@ func build():
 
 		var p_save = Button.new()
 		p_save.text = "Save " + str(i)
+		p_save.tooltip_text = "Save this tab's current part into slot %d, overwriting whatever was there." % i
 		p_save.pressed.connect(func():
 			if garage.active_component:
 				SaveManager.save_component_loadout(i, garage.active_component)
@@ -320,6 +327,13 @@ func build():
 	market_btn.tooltip_text = "Experimental oversized parts with severe drawbacks. Stock rotates every 10 real-time minutes."
 	market_btn.pressed.connect(garage._open_black_market)
 	feature5_bar.add_child(market_btn)
+
+	var shop_btn = Button.new()
+	shop_btn.text = "SHOP"
+	shop_btn.modulate = Color(0.4, 0.9, 1.0)
+	shop_btn.tooltip_text = "Spend massive amounts of scrap on full bots, components, and rare tiles - always in stock, no drawbacks."
+	shop_btn.pressed.connect(garage._open_shop)
+	feature5_bar.add_child(shop_btn)
 
 	# Right Side: Inventory & Stats
 	garage.inventory_panel = PanelContainer.new()

@@ -49,6 +49,13 @@
       "requires_garage": true
     },
     {
+      "id": "black_market_and_chips",
+      "text": "Two more before I let you loose. Extract a modifier off a spare part and it becomes a chip - stack a few into one component and it runs hot on that stat. And that case in the back is the Black Market: rotating oversized experimental gear, no refunds, restock every ten minutes. Corp doesn't officially endorse it. I don't officially discourage it.",
+      "anchor": "",
+      "wait_for": "manual",
+      "requires_garage": true
+    },
+    {
       "id": "the_ai",
       "text": "Now - about the house bots. The Corp's trainer AI learns. Every match you play, it studies you, breeds new squads, holds a little grudge. Hit TAB anytime to see the War Room - that's its homework on YOU. Know your enemy. It absolutely knows you.",
       "anchor": "",

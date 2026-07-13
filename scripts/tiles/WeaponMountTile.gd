@@ -36,7 +36,7 @@ func get_weight() -> float:
 func clear_pending():
 	pending_packets.clear()
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var step = 0
 	if "traversal_steps" in packet:
 		step = packet.traversal_steps

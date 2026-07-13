@@ -12,7 +12,7 @@ func _init():
 func get_weight() -> float:
 	return 4.0 # moderate - an elemental conversion processor
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	# RAW = unconfigured: pure pass-through. Without this guard the
 	# add_synergy below would mint free RAW magnitude out of nothing.
 	if secondary_synergy == EnergyPacket.SynergyType.RAW:

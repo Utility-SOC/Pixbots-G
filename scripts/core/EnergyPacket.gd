@@ -40,6 +40,16 @@ var position: HexCoord = null
 var direction: int = 0
 var is_active: bool = true
 var trigger_key: String = "None"
+# Set true only at the two bank-charge-dump fire sites (Mech._tick_weapon_
+# charges' AI auto-release, PlayerController.fire_charged's hold-1/2/3) -
+# the projectile reads this for an exclusive bonus a same-magnitude
+# mixed-splitter shot can't reach any other way (see Projectile.gd), so
+# Accumulator banking is a real categorical choice, not just a flat
+# magnitude buff achievable by piling packets into a splitter. Deliberately
+# NOT carried through copy() - set explicitly at the fire site on the
+# already-copied packet, since it describes how THIS shot is being
+# released, not a property of the packet's own composition.
+var is_banked_shot: bool = false
 # 1.0 = no penalty. Set below 1.0 by AccumulatorTile.process_energy():
 # normal (mouse) fire of an accumulator-fed weapon pays this small
 # convenience tax, which shrinks as accumulator rarity/level rises.

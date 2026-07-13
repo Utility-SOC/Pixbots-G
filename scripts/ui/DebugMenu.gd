@@ -121,6 +121,20 @@ func _ready():
 	_btn(tab_inv, "Give GOD Inventory (50x All Legendary)", _on_give_god_inventory)
 	_btn(tab_inv, "Give MYTHIC Inventory (50x All Mythic)", func(): _on_give_god_inventory(true))
 	_btn(tab_inv, "Give Mythic Components (1 Set)", _on_give_mythic_components)
+	_btn(tab_inv, "Give Lance Mount x5", func():
+		var main = get_tree().current_scene
+		if not main or main.get("player_inventory") == null:
+			return
+		var script = load("res://scripts/tiles/LanceMountTile.gd")
+		for i in range(5):
+			var tile = script.new()
+			tile.rarity = HexTile.Rarity.MYTHIC
+			main.player_inventory.append(tile)
+			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
+				if main.garage_ui.inventory != main.player_inventory:
+					main.garage_ui.inventory.append(tile)
+		print("[Debug] Gave 5x Mythic Lance Mount - drag one from the Garage inventory onto 3 in-line arm hexes to place it.")
+	)
 
 	# --- Tab: World ---------------------------------------------------------
 	var tab_world = _tab(tabs, "World")
@@ -141,8 +155,8 @@ func _ready():
 	map_grid.columns = 3
 	tab_world.add_child(map_grid)
 
-	var map_types = ["Normal", "Arena", "Open Field", "Desert", "Forest", "Tundra", "Volcano", "Dungeon", "Water", "Tabletop"]
-	var map_colors = [Color(0.4, 0.8, 0.4), Color(0.15, 0.1, 0.2), Color(0.4, 0.8, 0.4), Color(0.9, 0.8, 0.5), Color(0.1, 0.5, 0.2), Color(0.8, 0.9, 0.9), Color(0.3, 0.1, 0.1), Color(0.15, 0.1, 0.2), Color(0.2, 0.4, 0.9), Color(0.85, 0.7, 0.45)]
+	var map_types = ["Normal", "Arena", "Open Field", "Desert", "Forest", "Tundra", "Volcano", "Dungeon", "Water", "Tabletop", "FightShovel"]
+	var map_colors = [Color(0.4, 0.8, 0.4), Color(0.15, 0.1, 0.2), Color(0.4, 0.8, 0.4), Color(0.9, 0.8, 0.5), Color(0.1, 0.5, 0.2), Color(0.8, 0.9, 0.9), Color(0.3, 0.1, 0.1), Color(0.15, 0.1, 0.2), Color(0.2, 0.4, 0.9), Color(0.85, 0.7, 0.45), Color(0.62, 0.53, 0.36)]
 
 	for i in range(map_types.size()):
 		var map_type = map_types[i]
@@ -430,7 +444,9 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		"res://scripts/tiles/CatalystTile.gd",
 		"res://scripts/tiles/InfuserTile.gd",
 		"res://scripts/tiles/JumpjetTile.gd",
+		"res://scripts/tiles/ManeuveringThrusterTile.gd",
 		"res://scripts/tiles/WeaponMountTile.gd",
+		"res://scripts/tiles/LanceMountTile.gd",
 		"res://scripts/tiles/AccumulatorTile.gd",
 		"res://scripts/tiles/ActuatorTile.gd",
 		"res://scripts/tiles/DirectionalConduitTile.gd",

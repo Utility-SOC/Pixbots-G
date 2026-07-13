@@ -289,10 +289,7 @@ func _draw():
 
 func _draw_tile(tile: HexTile):
 	if not tile.grid_position: return
-	
-	# Dark solid base instead of base_color
-	_draw_hex_filled(tile.grid_position, Color(0.15, 0.15, 0.15, 0.95))
-	
+
 	# Rarity Outline
 	var rarity_color = Color.WHITE
 	match tile.rarity:
@@ -300,13 +297,25 @@ func _draw_tile(tile: HexTile):
 		HexTile.Rarity.UNCOMMON: rarity_color = Color(0.4, 0.8, 1.0)
 		HexTile.Rarity.RARE: rarity_color = Color(0.4, 1.0, 0.4)
 		HexTile.Rarity.LEGENDARY: rarity_color = Color(1.0, 0.5, 0.0)
-	
+
+	# Dark solid base + rarity outline at the anchor AND every other cell
+	# this tile's footprint occupies (Lance - see HexTile.footprint_offsets)
+	# - so a multi-cell tile reads as one connected shape spanning all its
+	# cells, not just occupying its anchor with its other cells looking
+	# empty. The icon/static-paths overlay below is deliberately drawn only
+	# ONCE, at the anchor - three duplicate icons would be clutter, not
+	# clarity.
+	_draw_hex_filled(tile.grid_position, Color(0.15, 0.15, 0.15, 0.95))
 	_draw_hex_outline(tile.grid_position, rarity_color, 2.0)
-	
+	for off in tile.footprint_offsets:
+		var cell = HexCoord.new(tile.grid_position.q + off.x, tile.grid_position.r + off.y)
+		_draw_hex_filled(cell, Color(0.15, 0.15, 0.15, 0.95))
+		_draw_hex_outline(cell, rarity_color, 2.0)
+
 	var center = _hex_to_pixel(tile.grid_position)
-	
+
 	_draw_descriptive_icon(tile, center)
-	
+
 	if show_static_paths:
 		_draw_static_paths(tile, center)
 

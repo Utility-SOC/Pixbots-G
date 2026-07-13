@@ -15,7 +15,7 @@ var stored_energy: float = 0.0
 func get_weight() -> float:
 	return 4.5 # a med-bay beacon emitter, moderately complex hardware
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []
 
 	packet.is_active = false

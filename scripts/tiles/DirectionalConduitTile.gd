@@ -50,7 +50,7 @@ func can_enter_from(direction: int) -> bool:
 	var allowed2 = (rotation_steps + 3) % 6
 	return direction == allowed1 or direction == allowed2
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	last_dominant_synergy = packet.get_dominant_synergy()
 	if is_disabled:
 		return [packet] # degraded: straight pass-through, same convention as HexTile's base case

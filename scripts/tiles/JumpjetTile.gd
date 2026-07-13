@@ -21,7 +21,7 @@ func _init():
 func get_weight() -> float:
 	return 7.0 # propulsion hardware - heavy, ironic given what it does
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []
 
 	packet.is_active = false

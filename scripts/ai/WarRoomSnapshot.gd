@@ -21,6 +21,7 @@ var bot_element_usage: Dictionary = {}
 var total_bot_damage_dealt: float = 0.0
 var player_kill_methods: Dictionary = {}
 var total_player_kills: int = 0
+var captured_loadouts: Dictionary = {}
 
 const LEARNED_STATE_NAME = "learned_state"
 
@@ -52,4 +53,8 @@ static func load_from_disk():
 	if telemetry.get("player_kill_methods") is Dictionary:
 		snap.player_kill_methods = telemetry["player_kill_methods"]
 	snap.total_player_kills = int(telemetry.get("total_player_kills", 0))
+
+	var captures = mgr.load_telemetry(LEARNED_STATE_NAME + "_captures")
+	if not captures.is_empty():
+		snap.captured_loadouts = captures
 	return snap

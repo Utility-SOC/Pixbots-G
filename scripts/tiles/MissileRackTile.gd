@@ -21,5 +21,5 @@ func get_weight() -> float:
 	return 7.0
 
 # Pass-through until the salvo model lands - see header.
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	return [packet]

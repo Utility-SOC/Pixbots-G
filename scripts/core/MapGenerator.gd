@@ -16,7 +16,60 @@ var main_continent_tiles: Dictionary = {}
 var astar_grid: AStarGrid2D = AStarGrid2D.new()
 var map_type: String = "Normal" # Can be "Arena"
 
+# Fraction of tiles that came out BiomeType.WATER on this generation -
+# "Water" map_type floods the whole map with this, but "Normal" maps can
+# also roll a big lake from the elevation noise (_get_biome), so this is
+# computed from the actual terrain grid rather than inferred from map_type.
+# Consumed by SquadDirector/TemplateEvolution to bias squad composition
+# toward water-capable roles instead of spawning e.g. an all-flamethrower
+# squad that just drowns chasing the player across a lake.
+var water_fraction: float = 0.0
+
+const MOSTLY_WATER_THRESHOLD = 0.5
+
+# Read by Mech.build_loadout_for_role: on a map this wet, every enemy
+# loadout gets a guaranteed Jumpjet fed to the solver rather than leaving
+# water survival to the "diver" role alone (see also TemplateEvolution's
+# softer water_fraction bias, which only shifts which SQUAD spawns).
+func is_mostly_water() -> bool:
+	return water_fraction > MOSTLY_WATER_THRESHOLD
+
 enum BiomeType { GRASSLAND, WATER, DESERT, FOREST, TUNDRA, VOLCANO, DUNGEON }
+
+# --- FightShovel 1920: corn fields + trampled trails (Utility-SOC) --------
+# Vector2i -> true for every tile marked as corn during generation (see the
+# FightShovel branch in the per-tile loop below). Walkable, distinct
+# texture (see _paint_textured_tile), and tracked by a separate always-on-
+# top overlay node (CornTrailOverlay) rather than mutating the baked ground
+# chunk textures - those are deliberately baked ONCE at load and never
+# touched again (see _draw_map_to_texture's own comment on that).
+var corn_field_cells: Dictionary = {}
+var corn_trail_overlay: Node2D = null
+const CORN_COLOR = Color(0.55, 0.62, 0.18)
+# Threshold against moisture_noise (already computed per-tile for the
+# Normal-map biome dispatch, just repurposed here) - high enough that corn
+# reads as a handful of real contiguous fields, not a wall-to-wall crop.
+const CORN_FIELD_THRESHOLD = 0.32
+
+func _ensure_corn_trail_overlay():
+	if corn_field_cells.is_empty():
+		corn_trail_overlay = null
+		return
+	var overlay = load("res://scripts/core/CornTrailOverlay.gd").new()
+	overlay.name = "CornTrailOverlay"
+	overlay.tile_size = float(tile_size)
+	add_child(overlay)
+	corn_trail_overlay = overlay
+
+# Called by Mech._refresh_water_state (same per-mech-per-tick terrain-lookup
+# precedent that function already established) whenever a mech's current
+# tile is corn - marks it permanently trampled for the rest of the run (no
+# regrowth timer, simplest reading of "leaves a trail").
+func trample_corn(cell: Vector2i):
+	if not corn_field_cells.has(cell):
+		return
+	if corn_trail_overlay:
+		corn_trail_overlay.trample(cell)
 
 func _ready():
 	add_to_group("map_generator")
@@ -189,6 +242,8 @@ func _generate_map():
 		terrain.clear()
 		obstacles.clear()
 		ruin_specs.clear()
+		corn_field_cells.clear()
+		var water_tile_count = 0
 		
 		# Generate a new seed on each retry
 		noise.seed = randi()
@@ -232,13 +287,25 @@ func _generate_map():
 					# Plywood reads as desert-tan; the blue outer walls are
 					# already the "firring strips tacked to the edges".
 					biome = BiomeType.DESERT
+				elif map_type == "FightShovel":
+					# Dust Bowl farmland - see _get_biome_color/
+					# _get_textured_pixel_color for the palette/texture
+					# override and _get_obstacle_name for the fence-line
+					# obstacle. Reuses DESERT as the base biome, same as
+					# Tabletop reusing it for the plywood mat.
+					biome = BiomeType.DESERT
 				else:
 					var elev = noise.get_noise_2d(x, y)
 					var moist = moisture_noise.get_noise_2d(x, y)
 					biome = _get_biome(elev, moist)
 					
 				row.append(biome)
-				
+				if biome == BiomeType.WATER:
+					water_tile_count += 1
+
+				if map_type == "FightShovel" and biome == BiomeType.DESERT and moisture_noise.get_noise_2d(x, y) > CORN_FIELD_THRESHOLD:
+					corn_field_cells[Vector2i(x, y)] = true
+
 				if map_type not in ["Arena", "Open Field", "Tabletop"] and _should_spawn_obstacle(biome, randf(), x, y):
 					if not _is_near_existing_mech(x, y):
 						obstacles[Vector2i(x, y)] = _get_obstacle_name(biome)
@@ -248,7 +315,9 @@ func _generate_map():
 		# real game-shop table setup (see the reference photo in design
 		# notes - grey plastic ruins on a flocked mat). Also available on
 		# any other map type via force_ruins (debug menu toggle).
-		if map_type == "Tabletop" or force_ruins:
+		if map_type == "FightShovel":
+			_place_fightshovel_structures()
+		elif map_type == "Tabletop" or force_ruins:
 			_place_tabletop_ruins()
 
 		# Connectivity guarantee (play report: "no meaningful gaps - easy to
@@ -261,6 +330,7 @@ func _generate_map():
 		main_continent_tiles = _analyze_connectivity()
 		if map_type != "Normal" or main_continent_tiles.size() >= required_size:
 			map_valid = true
+			water_fraction = float(water_tile_count) / float(width * height)
 
 # A walkable pocket this size or bigger MUST be reachable from the main
 # continent without crossing obstacles. Smaller slivers aren't worth a
@@ -474,6 +544,61 @@ func _place_tabletop_ruins():
 				obstacles[Vector2i(x, y)] = "RuinPart"
 		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h})
 
+# Barns and farmhouses for FightShovel 1920 (Utility-SOC: "tractors, corn-
+# fields... barns and farmhouses in the shovelfight terrain"). Deliberately
+# near-identical to _place_tabletop_ruins() above (same overlap-rejection/
+# spawn-clearance logic, same "RuinPart" obstacle tag so every other system
+# that already treats RuinPart as solid - minimap, corridor-carving,
+# connectivity checks - needs zero changes) - reuses ruin_specs/
+# RuinObstacle wholesale rather than a parallel structure/class, just with
+# a "type" tag so RuinObstacle._draw() paints a farm building instead of a
+# grey ruin shell, and smaller farm-scale footprints instead of a ruined
+# cathedral.
+func _place_fightshovel_structures():
+	ruin_specs.clear()
+	var density_scale = sqrt(float(width * height) / 2048.0)
+	var target_count = min(40, int((3 + randi() % 3) * density_scale))
+	var attempts = 0
+	var max_attempts = max(150, target_count * 30)
+	var center = Vector2(width / 2.0, height / 2.0)
+	while ruin_specs.size() < target_count and attempts < max_attempts:
+		attempts += 1
+		var structure_type = "barn" if randf() < 0.5 else "farmhouse"
+		var w: int
+		var h: int
+		if structure_type == "barn":
+			w = 5 + randi() % 3 # 5-7 tiles wide
+			h = 4 + randi() % 3 # 4-6 tiles deep
+		else:
+			w = 3 + randi() % 3 # 3-5 tiles wide
+			h = 3 + randi() % 2 # 3-4 tiles deep
+		var ox = 3 + randi() % max(1, width - w - 6)
+		var oy = 3 + randi() % max(1, height - h - 6)
+
+		var closest_x = clamp(center.x, ox, ox + w - 1)
+		var closest_y = clamp(center.y, oy, oy + h - 1)
+		if Vector2(closest_x, closest_y).distance_to(center) < RUIN_CENTER_CLEARANCE_TILES:
+			continue
+
+		var area_clear = true
+		for y in range(oy - 2, oy + h + 2):
+			for x in range(ox - 2, ox + w + 2):
+				if x < 0 or x >= width or y < 0 or y >= height:
+					area_clear = false
+					break
+				if obstacles.has(Vector2i(x, y)) or terrain[y][x] == BiomeType.WATER:
+					area_clear = false
+					break
+			if not area_clear:
+				break
+		if not area_clear:
+			continue
+
+		for y in range(oy, oy + h):
+			for x in range(ox, ox + w):
+				obstacles[Vector2i(x, y)] = "RuinPart"
+		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h, "type": structure_type})
+
 # Tendril-clustered obstacles (design ruling): instead of uniform random
 # scatter dense enough to wall off movement, obstacles concentrate along
 # the thin winding zero-bands of obstacle_noise - reading as hedgerows,
@@ -498,6 +623,13 @@ func _should_spawn_obstacle(biome: BiomeType, roll: float, x: int = 0, y: int = 
 	return roll < 0.15 # Grassland
 
 func _get_obstacle_name(biome: BiomeType) -> String:
+	# FightShovel 1920 reuses the DESERT biome (see the map_type dispatch
+	# above), but a dust-bowl farm scattering cacti would read as wrong -
+	# fence-lines (mostly) and the occasional abandoned tractor instead.
+	# Checked before the biome match since this is a map_type override, not
+	# a biome one.
+	if map_type == "FightShovel":
+		return "Tractor" if randf() < 0.12 else "Fence"
 	match biome:
 		BiomeType.FOREST: return "Tree"
 		BiomeType.DESERT: return "Cactus"
@@ -590,14 +722,24 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 			var biome = terrain[ty][tx]
 			var local_x = (tx - tile_x0) * tile_size
 			var local_y = (ty - tile_y0) * tile_size
-			_paint_textured_tile(img, local_x, local_y, biome)
-
 			var pos = Vector2i(tx, ty)
+			_paint_textured_tile(img, local_x, local_y, biome, pos)
+
 			# Trees and RuinParts have real scene nodes drawing them - only
-			# flat obstacle types get the painted grey square.
+			# flat obstacle types get a painted square (name-specific color
+			# for FightShovel's Tractor so it reads as distinct rusted farm
+			# equipment rather than the generic grey clutter block).
 			if obstacles.has(pos) and obstacles[pos] != "Tree" and obstacles[pos] != "RuinPart":
 				var obs_rect = Rect2i(local_x + 8, local_y + 8, tile_size - 16, tile_size - 16)
-				img.fill_rect(obs_rect, Color(0.2, 0.2, 0.2))
+				var obs_color = Color(0.2, 0.2, 0.2)
+				if obstacles[pos] == "Tractor":
+					obs_color = Color(0.55, 0.28, 0.12) # rusted orange-red
+					img.fill_rect(obs_rect, obs_color)
+					# Two darker "wheel" accents at the front/back corners.
+					img.fill_rect(Rect2i(local_x + 6, local_y + tile_size - 12, 8, 8), Color(0.15, 0.13, 0.12))
+					img.fill_rect(Rect2i(local_x + tile_size - 14, local_y + tile_size - 12, 8, 8), Color(0.15, 0.13, 0.12))
+				else:
+					img.fill_rect(obs_rect, obs_color)
 
 	# Paint whichever outer-wall strip(s) this chunk touches
 	if tile_y0 == 0:
@@ -691,18 +833,22 @@ func _build_collisions_and_obstacles():
 		if obstacle_start_x != -1:
 			_create_merged_collision(obstacle_start_x, y, width - obstacle_start_x, 1)
 
-	# One destructible terrain-kit node per placed ruin (Tabletop, or any
-	# other map type with force_ruins on - ruin_specs is simply empty
-	# otherwise, so this loop is a no-op on maps without ruins).
+	# One destructible terrain-kit node per placed ruin/farm building
+	# (Tabletop ruins, FightShovel barns/farmhouses, or any other map type
+	# with force_ruins on - ruin_specs is simply empty otherwise, so this
+	# loop is a no-op on maps without either). structure_type defaults to
+	# "ruin" for pre-existing specs that never set a "type" key.
 	for spec in ruin_specs:
 		var ruin = load("res://scripts/core/RuinObstacle.gd").new()
 		ruin.size_tiles = Vector2i(spec.w, spec.h)
 		ruin.origin_tile = Vector2i(spec.x, spec.y)
 		ruin.footprint = Vector2(spec.w * tile_size, spec.h * tile_size)
 		ruin.map_ref = self
+		ruin.structure_type = spec.get("type", "ruin")
 		ruin.global_position = Vector2(spec.x * tile_size, spec.y * tile_size) + ruin.footprint / 2.0
 		add_child(ruin)
 
+	_ensure_corn_trail_overlay()
 	_scatter_oil_slicks()
 
 # Sparse, walkable environmental hazard - dark puddles scattered on
@@ -788,6 +934,11 @@ func _get_biome_color(biome: BiomeType) -> Color:
 	# here so the minimap bake picks up the mat color for free.
 	if map_type == "Tabletop" and biome == BiomeType.DESERT:
 		return Color(0.52, 0.24, 0.16)
+	# FightShovel 1920: parched, sun-bleached dust-bowl earth - drier and
+	# greyer than raw desert sand (0.9, 0.8, 0.5), distinct from Tabletop's
+	# rust-red painted mat.
+	if map_type == "FightShovel" and biome == BiomeType.DESERT:
+		return Color(0.62, 0.53, 0.36)
 	match biome:
 		BiomeType.GRASSLAND: return Color(0.4, 0.8, 0.4)
 		BiomeType.WATER: return Color(0.2, 0.4, 0.9)
@@ -808,13 +959,23 @@ const GROUND_PIXEL_SIZE = 8
 # "fat pixel" blocks, so grass/sand/etc. actually have texture instead of
 # being a flat color swatch. Purely a load-time cost (baked into the chunk
 # Image once, never touched again), not a per-frame one.
-func _paint_textured_tile(img: Image, local_x: int, local_y: int, biome: BiomeType):
-	var base = _get_biome_color(biome)
+func _paint_textured_tile(img: Image, local_x: int, local_y: int, biome: BiomeType, pos: Vector2i = Vector2i.ZERO):
+	var is_corn = map_type == "FightShovel" and corn_field_cells.has(pos)
+	var base = CORN_COLOR if is_corn else _get_biome_color(biome)
 	var blocks_per_side = max(1, tile_size / GROUND_PIXEL_SIZE)
 
 	for by in range(blocks_per_side):
 		for bx in range(blocks_per_side):
-			var color = _get_textured_pixel_color(base, biome)
+			var color: Color
+			if is_corn:
+				# Alternating vertical stalk rows read as a planted field
+				# instead of a flat color patch; the odd bright block is a
+				# ripe/dry stalk catching the light.
+				color = base.lightened(0.15) if bx % 2 == 0 else base.darkened(0.12)
+				if randf() < 0.08:
+					color = Color(0.85, 0.72, 0.25)
+			else:
+				color = _get_textured_pixel_color(base, biome)
 			img.fill_rect(Rect2i(local_x + bx * GROUND_PIXEL_SIZE, local_y + by * GROUND_PIXEL_SIZE, GROUND_PIXEL_SIZE, GROUND_PIXEL_SIZE), color)
 
 func _get_textured_pixel_color(base: Color, biome: BiomeType) -> Color:
@@ -827,6 +988,15 @@ func _get_textured_pixel_color(base: Color, biome: BiomeType) -> Color:
 		elif flock_roll < 0.22: return Color(0.42, 0.33, 0.26).lerp(base, 0.4) # grit
 		elif flock_roll < 0.27: return base.lightened(0.12 + randf() * 0.1)
 		return base.darkened(randf() * 0.06)
+	# FightShovel 1920: cracked, wind-scoured dust-bowl earth - darker
+	# cracked-soil veins, pale sun-bleached patches, and a fine dust haze
+	# rather than Tabletop's flock texture.
+	if map_type == "FightShovel":
+		var dust_roll = randf()
+		if dust_roll < 0.10: return base.darkened(0.25 + randf() * 0.2) # cracked soil vein
+		elif dust_roll < 0.24: return base.lightened(0.14 + randf() * 0.12) # sun-bleached patch
+		elif dust_roll < 0.30: return Color(0.7, 0.63, 0.5).lerp(base, 0.35) # drifted dust
+		return base.darkened(randf() * 0.05)
 	match biome:
 		BiomeType.GRASSLAND:
 			# Darker flecks read as little grass tufts, occasional lighter

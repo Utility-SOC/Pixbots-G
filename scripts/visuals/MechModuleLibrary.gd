@@ -58,11 +58,17 @@ static func pick_arm_module(comp, mech, slot: int, tier: String = "grunt") -> Di
 
 	var has_mount = false
 	var has_shield = false
+	var has_lance = false
 	for t in comp.hex_grid.get_all_tiles():
 		if t.tile_type == "Weapon Mount":
 			has_mount = true
+		elif t.tile_type == "Lance Mount":
+			has_lance = true
 		elif t.tile_type == "Shield Generator":
 			has_shield = true
+
+	if has_lance:
+		return {"kind": "lance", "synergy": _dominant_arm_synergy(comp, mech, slot)}
 
 	if not has_mount:
 		if has_shield:
@@ -251,6 +257,47 @@ static func arm_sniper(r, role_color: Color, s: float, sign: float, rng: RandomN
 		r.add_fill(_rect(scope_x - 1.7 * s, y + 3.0 * s, 3.4 * s, 3.4 * s), accent) # lens glint
 	return _rect(-8.5 * s, -12.0 * s, 17.0 * s, y + 11.0 * s + blen + 12.0 * s)
 
+# Lance Mount (Utility-SOC: "bolt on to the side of the arm, be
+# rectangular, long, and look like it has heat sinks on it") - a long
+# rectangular housing riding OUTBOARD of the arm (offset by `sign`, not
+# inline with the normal barrel axis), pinned on with two mounting
+# brackets back to the forearm, with alternating light/dark perpendicular
+# heat-sink fins running its length and a glowing emitter tip.
+static func arm_lance(r, role_color: Color, s: float, sign: float, rng: RandomNumberGenerator, accent: Color, detailed: bool = true) -> PackedVector2Array:
+	var y = _draw_upper_arm(r, role_color, s, sign)
+	var mount_x = 8.5 * s * sign
+	var lance_w = 6.0 * s
+	var lance_len = (32.0 + rng.randf_range(0.0, 6.0)) * s
+	var top = y - 3.0 * s
+	var left = mount_x - lance_w / 2.0
+
+	# Mounting brackets: span from the arm centerline out to the housing's
+	# near edge, whichever direction `sign` points.
+	var bracket_x = min(0.0, left)
+	var bracket_w = abs(left)
+	r.add_fill(_rect(bracket_x, top + 2.0 * s, bracket_w, 3.0 * s), GUN_D)
+	r.add_fill(_rect(bracket_x, top + lance_len - 6.0 * s, bracket_w, 3.0 * s), GUN_D)
+
+	box(r, left, top, lance_w, lance_len, GUN_M) # main housing
+
+	# Heat sink fins: short perpendicular ridges, alternating shade so they
+	# read as separate plates rather than a stripe pattern.
+	var fin_spacing = 3.4 * s
+	var fin_count = max(0, int(lance_len / fin_spacing) - 1)
+	for i in range(fin_count):
+		var fy = top + 5.0 * s + i * fin_spacing
+		var shade = GUN_L if i % 2 == 0 else GUN_D
+		r.add_line(Vector2(left - 1.5 * s, fy), Vector2(left + lance_w + 1.5 * s, fy), shade, 1.4)
+
+	r.add_fill(_rect(left + 1.0 * s, top + lance_len - 3.5 * s, lance_w - 2.0 * s, 3.5 * s), accent) # emitter tip
+	if detailed:
+		r.add_fill(_rect(left + 1.5 * s, top + lance_len * 0.45, lance_w - 3.0 * s, 4.0 * s), accent.lightened(0.15)) # power-cell glow
+
+	var min_x = min(-8.5 * s, left - 1.5 * s)
+	var max_x = max(8.5 * s, left + lance_w + 1.5 * s)
+	var max_y = top + lance_len + 6.0 * s
+	return _rect(min_x, -12.0 * s, max_x - min_x, max_y + 12.0 * s)
+
 static func arm_missile_pod(r, role_color: Color, s: float, sign: float, rng: RandomNumberGenerator, accent: Color, detailed: bool = true, cols: int = 2, rows: int = -1) -> PackedVector2Array:
 	var y = _draw_upper_arm(r, role_color, s, sign)
 	var box_color = role_color.lerp(GUN_M, 0.55).darkened(0.1)
@@ -353,6 +400,7 @@ static func draw_arm_module(kind: String, r, role_color: Color, s: float, sign: 
 		"gatling": return arm_gatling(r, role_color, s, sign, rng, accent, detailed)
 		"twin_gatling": return arm_twin_gatling(r, role_color, s, sign, rng, accent, detailed)
 		"sniper": return arm_sniper(r, role_color, s, sign, rng, accent, detailed)
+		"lance": return arm_lance(r, role_color, s, sign, rng, accent, detailed)
 		"missile_pod": return arm_missile_pod(r, role_color, s, sign, rng, accent, detailed)
 		"siege_pod": return arm_siege_pod(r, role_color, s, sign, rng, accent, detailed)
 		"projector": return arm_projector(r, role_color, s, sign, rng, accent, detailed)

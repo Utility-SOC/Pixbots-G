@@ -23,6 +23,7 @@ var threat_vbox: VBoxContainer
 var tree_view: DendrogramView
 var doctrine_vbox: VBoxContainer
 var boss_vbox: VBoxContainer
+var captures_vbox: VBoxContainer
 var status_label: Label
 
 # profile_name -> bool, remembers which boss rows are expanded across a
@@ -107,6 +108,14 @@ func _ready():
 	boss_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	boss_scroll.add_child(boss_vbox)
 
+	# --- Tab: Captured Loadouts --------------------------------------------
+	var captures_scroll = ScrollContainer.new()
+	captures_scroll.name = "Captured Loadouts"
+	tabs.add_child(captures_scroll)
+	captures_vbox = VBoxContainer.new()
+	captures_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	captures_scroll.add_child(captures_vbox)
+
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_TAB:
@@ -169,6 +178,7 @@ func _refresh():
 	_clear(threat_vbox)
 	_clear(doctrine_vbox)
 	_clear(boss_vbox)
+	_clear(captures_vbox)
 
 	if not director:
 		_lbl(threat_vbox, "No combat data yet - the Director deploys with the first wave.", COL_DIM)
@@ -179,6 +189,7 @@ func _refresh():
 	tree_view.set_templates(director.templates)
 	_build_doctrines(director)
 	_build_bosses(director)
+	_build_captures(director)
 
 # --- Threat Board ------------------------------------------------------------
 
@@ -394,6 +405,55 @@ func _build_doctrines(director):
 	)
 	champ_bar.add_child(btn_card_import)
 	status_label = _lbl(doctrine_vbox, "", COL_DIM, 11)
+
+# --- Captured Loadouts -------------------------------------------------------
+# Utility-SOC: "save the actual tile inventory/layout of the most effective
+# individual enemies so I can see it in the war room." One entry per
+# combat_role, replaced only when a new individual enemy beats the stored
+# fitness high score for that role - see SquadDirector._maybe_capture_loadout.
+# Text/summary cards (tile count + rarity breakdown), not a live mini
+# hex-grid render - there's no lightweight preview widget to reuse yet
+# (GarageGridRenderer is a heavyweight Garage-only Control wrapping a real
+# HexGridComponent node).
+const RARITY_NAMES = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
+
+func _build_captures(director):
+	_lbl(captures_vbox, "CAPTURED ENEMY LOADOUTS", COL_SECTION, 15)
+	_lbl(captures_vbox, "The single highest-fitness enemy build seen per role - a real snapshot of what actually worked against you.", COL_DIM, 11)
+
+	var captured: Dictionary = director.get("captured_loadouts") if "captured_loadouts" in director else {}
+	if captured.is_empty():
+		_lbl(captures_vbox, "\n(no captures yet - defeat enemies to start building this list)", COL_DIM, 12)
+		return
+
+	var role_order: Array = SquadTemplateMutator.ALL_ROLES.duplicate()
+	for r in captured:
+		if not role_order.has(r):
+			role_order.append(r)
+
+	for role in role_order:
+		if not captured.has(role):
+			continue
+		var entry = captured[role]
+		var rarity_idx = clamp(int(entry.get("rarity", 0)), 0, RARITY_NAMES.size() - 1)
+		var components: Dictionary = entry.get("components", {})
+
+		var tile_count = 0
+		var rarity_counts: Dictionary = {}
+		for slot in components:
+			var comp_data = components[slot]
+			for tile_data in comp_data.get("tiles", []):
+				tile_count += 1
+				var tr = int(tile_data.get("rarity", 0))
+				rarity_counts[tr] = rarity_counts.get(tr, 0) + 1
+
+		var breakdown: Array[String] = []
+		for tr in range(RARITY_NAMES.size() - 1, -1, -1):
+			if rarity_counts.has(tr):
+				breakdown.append("%dx %s" % [rarity_counts[tr], RARITY_NAMES[tr]])
+
+		_lbl(captures_vbox, "\n%s  [%s]" % [str(role).capitalize(), RARITY_NAMES[rarity_idx]], COL_CORE, 14)
+		_lbl(captures_vbox, "   fitness %.0f | %d components | %d tiles | %s" % [float(entry.get("fitness", 0.0)), components.size(), tile_count, ", ".join(breakdown)], COL_GOOD, 12)
 
 # --- Bosses ------------------------------------------------------------------
 # Readable labels for BossProfile's raw ability/style id strings.

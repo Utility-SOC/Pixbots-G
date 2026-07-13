@@ -18,6 +18,11 @@ extends Node2D
 #   1 - Hover-orb: round body, pulsing anti-grav halo, no rotors.
 #   2 - Spider-drone: angular body, jointed legs radiating outward/down.
 #   3 - Wing/flyer: elongated delta silhouette, twin engine glow trails.
+#   4 - Recon plane: high-aspect-ratio glider wing (U-2-style) - see
+#       RECON_CLASS's behavior override in Drone.gd (long leash, languid
+#       figure-eight loiter instead of a tight orbit).
+#   5 - Chinook: twin-rotor cargo-heli silhouette - see CHINOOK_CLASS's
+#       behavior override in Drone.gd (equips/pulses a Heal Beacon).
 
 const MechStatusBars = preload("res://scripts/visuals/MechStatusBars.gd")
 
@@ -33,7 +38,9 @@ const RARITY_COLORS = [
 	Color(0.95, 0.7, 0.15),  # Mythic - gold
 ]
 
-const CLASS_COUNT = 4
+const CLASS_COUNT = 6
+const RECON_CLASS = 4
+const CHINOOK_CLASS = 5
 
 func _get_rarity() -> int:
 	if drone_ref and "base_rarity" in drone_ref:
@@ -70,6 +77,10 @@ func _draw():
 			_draw_spider(col)
 		3:
 			_draw_flyer(col)
+		RECON_CLASS:
+			_draw_recon_plane(col)
+		CHINOOK_CLASS:
+			_draw_chinook(col)
 		_:
 			_draw_quad_rotor(col)
 
@@ -148,3 +159,51 @@ func _draw_flyer(col: Color):
 		draw_line(engine_pos, engine_pos + Vector2(0, 6.0), Color(1.0, 0.6, 0.2, flicker * 0.5), 2.0)
 
 	draw_circle(Vector2(0, -4), 2.5, Color(1.0, 0.95, 0.6, 0.9))
+
+# High-aspect-ratio glider wing (U-2-style recon plane): a slender fuselage
+# with long, thin, slightly swept wings - the widest silhouette in the
+# vocabulary but the thinnest, reading as "built for loitering at range,"
+# not combat mass. See Drone.gd's RECON_CLASS for the long-leash/figure-
+# eight loiter behavior this visual pairs with.
+func _draw_recon_plane(col: Color):
+	var fuselage = PackedVector2Array([
+		Vector2(0, -16), Vector2(2.5, -6), Vector2(2.5, 10), Vector2(0, 15), Vector2(-2.5, 10), Vector2(-2.5, -6)
+	])
+	draw_colored_polygon(fuselage, col)
+	draw_polyline(fuselage + PackedVector2Array([fuselage[0]]), col.darkened(0.4), 1.2)
+
+	# Long thin wings, swept back very slightly - the defining silhouette.
+	for side in [-1, 1]:
+		var wing = PackedVector2Array([
+			Vector2(side * 2.0, -1.0), Vector2(side * 26.0, 2.0), Vector2(side * 26.0, 4.0), Vector2(side * 2.0, 4.0)
+		])
+		draw_colored_polygon(wing, col.darkened(0.15))
+		draw_polyline(wing + PackedVector2Array([wing[0]]), col.darkened(0.45), 1.0)
+
+	# Small T-tail.
+	draw_line(Vector2(0, 10), Vector2(0, 15), col.darkened(0.3), 1.5)
+	draw_line(Vector2(-6, 15), Vector2(6, 15), col.darkened(0.3), 1.5)
+
+	draw_circle(Vector2(0, -12), 2.0, Color(1.0, 0.95, 0.6, 0.85)) # sensor nose
+
+# Twin-rotor cargo-heli silhouette (Chinook-style): a long boxy fuselage
+# with two independently-spinning rotor discs, front and back. See Drone.gd's
+# CHINOOK_CLASS for the equipped-Heal-Beacon support behavior this visual
+# pairs with.
+func _draw_chinook(col: Color):
+	var body_pts = PackedVector2Array([
+		Vector2(-6, -14), Vector2(6, -14), Vector2(8, -4), Vector2(8, 10),
+		Vector2(-8, 10), Vector2(-8, -4)
+	])
+	draw_colored_polygon(body_pts, col)
+	draw_polyline(body_pts + PackedVector2Array([body_pts[0]]), col.darkened(0.4), 1.5)
+
+	for rotor_y in [-14.0, 10.0]:
+		var ang = _spin * 3.0 if rotor_y < 0 else -_spin * 3.0 # counter-rotating
+		for i in range(2): # 2-blade rotor, drawn as a spinning line pair
+			var a = ang + i * PI
+			var tip = Vector2(rotor_y * 0.0, rotor_y) + Vector2(cos(a), sin(a) * 0.35) * 13.0
+			draw_line(Vector2(0, rotor_y), tip, Color(1, 1, 1, 0.5), 1.5)
+		draw_arc(Vector2(0, rotor_y), 13.0, 0, TAU, 16, Color(col.r, col.g, col.b, 0.2), 1.0)
+
+	draw_circle(Vector2(0, -2), 2.5, Color(0.2, 0.9, 0.5, 0.9)) # medic-green core, not the usual amber

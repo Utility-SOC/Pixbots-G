@@ -54,38 +54,39 @@ Cost: a few floats per mech per frame. Gets ~80% of the feel for ~10% of the rew
 Superseded by the lightweight spec above. Full live-packet accumulators (siphoning 10% of passing packets, real packet counts) remain a possible far-future rework — do not start it until the derived-heat version proves the fantasy is fun.
 
 ### 2. Tabletop-Themed Environments
-- **Aesthetic reskin:** cheap — `MapGenerator._get_biome_color()` / `_paint_textured_tile()` already do procedural texturing. Foam-mat palette + terrain-bit sprites.
-- **Destructible pillars/blockades:** feasible now — extend the `TreeObstacle` per-node pattern with HP + LoS/projectile blocking.
-- **Elevation:** shading-fake only, if at all (see Decision Log). No LoS/projectile/pathfinding height logic.
-- **Oil slicks / water hazards:** slot into existing systems (`FireResidue`, water collision layer 2, frozen status). Small.
+- **Aesthetic reskin:** *(unclear if the specific foam-mat palette/terrain-bit sprite pass landed - the Tabletop map type itself exists and is in the per-run rotation double-weighted, but the visual reskin detail is unconfirmed. Worth a quick look before assuming either way.)*
+- ~~**Destructible pillars/blockades**~~ (Done — obstacle demolition shipped: obstacles have HP + element weaknesses, EXPLOSION/ramming carve paths, with guaranteed baseline connectivity corridors.)
+- **Elevation:** shading-fake only, if at all (see Decision Log). No LoS/projectile/pathfinding height logic. *(Deferred indefinitely by design, not a real backlog item.)*
+- ~~**Oil slicks / water hazards**~~ (Done — oil slick hazards shipped alongside water divers.)
 
 ### 3. Directional Damage & Grid Sabotage
 - **Shield protection: already done** — `_apply_shield_mitigation()` fully absorbs part damage while shields hold.
-- **Angle-based tile hits:** replace the random-tile pick in `apply_part_damage()` with impact-point → hex mapping via `PartHitbox`.
-- **Permanent destruction:** deliberate change from the current disable/reboot model (`HexTile.process_durability`). Decide "destroyed for the run" vs "until repair" before building. (Repair is a natural scrap sink — see economy.)
-- **Cascading failures:** per-component sims are already isolated; arm-loss disabling its mounts falls out of the `ComponentLink` structure.
-- **Armor stat:** new; fits naturally as a tradeoff inside `ComponentEquipment`'s procedural shape budget.
+- **Angle-based tile hits:** replace the random-tile pick in `apply_part_damage()` with impact-point → hex mapping via `PartHitbox`. *(Still open - medium; no evidence this has shipped.)*
+- ~~**Permanent destruction:** deliberate change from the current disable/reboot model. Decide "destroyed for the run" vs "until repair" before building.~~ (Resolved via the Decision Log: **ruled against, shipped the other way** — no permanent destruction. Combat damage disables tiles (auto-reboot) or, on grave hits, fries them (`power_lost`) until repaired for scrap in the Garage. `power_lost` persists in saves.)
+- **Cascading failures:** per-component sims are already isolated; arm-loss disabling its mounts falls out of the `ComponentLink` structure. *(Unclear if formally verified/tested as intended - the plumbing exists, worth a quick playtest check rather than assuming.)*
+- **Armor stat:** new; fits naturally as a tradeoff inside `ComponentEquipment`'s procedural shape budget. *(Still open - medium.)*
 
 ### 4. Evolving AI & Squad Tactics
 Largely already built (`SquadDirector`, `SquadTemplateMutator`, `SolverProfile` — templates, weighted selection, mutation, fitness culling, reactive counter-profiles).
-- **New: Commanders** — new role, up to 5 support modules (vs. the 2-cap for standard support bots). Small.
-- **New: config borrowing from successful past buildouts** — medium; fitness signal already exists.
-- **Prerequisite:** instantiate `SquadProfileManager` — it's fully written but never wired, so learning currently resets every restart.
-- **New: pierce-execution counterplay.** Extend the existing `log_player_damage()` tracking to log *kill methods*. When pierce-execution ("cut in half") kills exceed a share threshold, up-weight squad templates containing Piercing Jammers. Combined with the aura exemption, over-reliance on the execute build gets countered automatically — if everything goes as planned.
+- ~~**New: Commanders**~~ (Done — the `commander` role exists with a Command Suite backpack stacking up to 5 support modules, and now always includes a Drone Bay by default.)
+- **New: config borrowing from successful past buildouts** — medium; fitness signal already exists. *(Still open.)*
+- ~~**Prerequisite:** instantiate `SquadProfileManager`~~ (Done — `SquadDirector.gd` instantiates it; template/profile learning persists across restarts via `user://ai_profiles/`.)
+- ~~**New: pierce-execution counterplay.**~~ (Done — kill-method tracking + Piercing Jammer up-weighting on over-reliance is built, alongside the full pierce cut-in-half execution system with its exemption list.)
 
 ### 5. Upgrade Paths, Infusion & Black Market
-- **Scrap economy first** — `player_scrap` is saved but unpriced anywhere. One economy serves: tile/component upgrades, repair costs, infusion, Black Market. Build it once.
-- **Manual hex placement on upgrade:** a Garage editor mode on top of `GarageGridRenderer` + `ComponentEquipment.generate_procedural_shape` foundations. Requires the drop-rate increase to feed salvage.
-- **Modifier infusion:** `_roll_stat_modifier()` exists; extraction/stacking is inventory + UI. **Cap stack count** — `amplify()` already needed a 150k magnitude ceiling; unbounded stacking will hit it instantly.
-- **Mythic toggles:** ship 3–4 per patch. Already existing: Mythic Splitter (6-face + x2), Mythic Magnet rarity filter, Catalyst `cycle_synergy()`. Magnet Attract/Repel **joins** the filter. Resonator sync is feasible now — cross-component transfer plumbing exists (`_collect_transfers` / `_route_to_peripheral`). Accumulator threshold slider waits for the (maybe-never) live-packet rework.
-- **Black Market:** trivial once the economy exists; 10-min real-time rotation is a timer.
+- ~~**Scrap economy first**~~ (Done — 5+ spend sites in `GarageMenu.gd`: upgrades, repair, infusion, rarity tier-up, Black Market.)
+- **Manual hex placement on upgrade:** a Garage editor mode on top of `GarageGridRenderer` + `ComponentEquipment.generate_procedural_shape` foundations. *(Done per the "Feature 5 phase 2" status note below — manual-hex component upgrades shipped.)*
+- **Modifier infusion:** *(Done per the same status note — extraction/stacking-infusion shipped, chip system exists.)*
+- **Mythic toggles:** ship 3–4 per patch. *(Batch 1 done per the status note below: Core native element, Catalyst invert, Weapon Mount patterns, Magnet repel, Jumpjet blink, Amplifier focus. Resonator sync and Conduit valve modes remain open, blocked on the melee/mass pillar's parent-system decisions.)*
+- ~~**Black Market**~~ (Done — 10-min deterministic rotation, forbidden-tile drawbacks.)
 
 ### 6. Melee Actuators & Mass Physics
-Least-supported feature — zero weight/mass/melee code exists. Scope as its own pillar, build last.
-- Weight value on every tile; mass-based movement rebalance (will change the README's beloved Kinetic "Speed Demon" builds — intentional, but flag it in patch notes).
-- Ramming = contact damage from `mass × speed`.
-- Shield-element ram synergies are the cheap part (`dominant_shield_synergy` exists).
-- **Piercing cut-in-half:** percentage chance, with the exemption list from the Decision Log (bosses, Commanders, Piercing Jammers, units in a Piercing Jammer aura) + the AI counter loop from §4.
+*(Status update: this is no longer "zero code exists" — weight/mass/ramming groundwork landed in the second-review pass. Every tile has weight, movement speed scales with total mass, ramming damage is `mass × speed`, and pierce cut-in-half executions exist with the full exemption list (bosses/Commanders/Piercing Jammers/aura) plus the AI counter-play from §4. What's still genuinely unbuilt is dedicated Melee Actuator weapon behavior itself — see `mythic_mode` on `ActuatorTile.gd`, which has "Schools" defined but the underlying melee-weapon mount mode is still blocked on this pillar's own remaining scope.)*
+- ~~Weight value on every tile; mass-based movement rebalance~~ (Done.)
+- ~~Ramming = contact damage from `mass × speed`~~ (Done.)
+- Shield-element ram synergies (`dominant_shield_synergy` exists) — *(unclear if wired into ramming specifically, worth a quick check.)*
+- ~~**Piercing cut-in-half:** percentage chance, with the exemption list~~ (Done.)
+- **Dedicated Melee Actuator weapon mode** — *(still the real open item here - large, was scoped "build last" for a reason.)*
 
 ### 7. Elemental VFX & Instant Arcing
 - `LightningChain` already arcs instantly between enemies; remove the flying bolt sprite for lightning-dominant shots, flash impact VFX directly. Modest.
@@ -96,24 +97,23 @@ Least-supported feature — zero weight/mass/melee code exists. Scope as its own
 
 ## Follow-up Items
 
-- **Minimap + UI audit:** nothing exists; U-key toggle, resizable/zoomable/movable. Feed from existing node groups. Cheap win.
-- **Synergy threshold effects (remaining 8):** impact statuses today are only frozen/burning; projectile-side threshold checks already exist to hang new ones off. Vampiric corpse-obstacle is the only one adding a new system (corpse collision bodies — watch perf at 80 enemies). Lightning→paralyze and Vampiric→bleed/immobilize already spec'd.
-- **Cloak redesign:** `Mech.gd:1244` comment already tracks this — replace alpha fade with a screen-UV distortion-circle shader. Small.
-- **War Room UI:** pure new UI over existing data (template weights, fitness, lineage in `SquadDirector`/`SolverProfile`). Solves the "invisible learning loop" problem. Procedural Stargate-style low-collision names: trivial generator.
-- **Persistent/shareable/breedable AI profiles:** `SquadProfileManager` has save/load AND `export_to_clipboard` written — just wire it up. Breeding = crossover function in `SquadTemplateMutator`.
-- **Per-component loadout profiles:** `SaveManager._serialize_component()` already handles single components; add per-component slots + UI.
-- **Water enemies + jumpjet logic:** water is collision layer 2 with drowning; add swim-capable movement flag + water spawn placement. `AutoEquipSolver` rule: near-water roles include jumpjets. **Player rule (locked):** jumpjets auto-activate and stay on when on water — hook into `_check_drowning()`: if `jumpjet_energy > 0`, no drown timer, force jumpjet-active state.
-- **Tutorials/onboarding:** highest UX value, but written *after* heat/upgrades/melee stabilize, or it gets rewritten.
+- ~~**Minimap + UI audit**~~ (Done — `MinimapOverlay.gd`, U-key toggle, resizable/zoomable/movable, feeds from existing node groups.)
+- **Synergy threshold effects (remaining 8):** impact statuses today are only frozen/burning; projectile-side threshold checks already exist to hang new ones off. Vampiric corpse-obstacle is the only one adding a new system (corpse collision bodies — watch perf at 80 enemies). Lightning→paralyze and Vampiric→bleed/immobilize already spec'd. *(Still open - medium.)*
+- ~~**Cloak redesign**~~ (Done — `Mech.gd` has `CLOAK_SHADER_CODE`, a real screen-UV distortion effect replacing the old alpha fade.)
+- ~~**War Room UI**~~ (Done — template weights/fitness/lineage, a "YOUR MECH" power-estimate card, procedural rival/AI designation names.)
+- ~~**Persistent/shareable/breedable AI profiles**~~ (Done — `SquadProfileManager` is instantiated and wired; crossover functions exist in both `SquadTemplateMutator.crossover()` and `ProfileEvolution._crossover_profiles()`.)
+- ~~**Per-component loadout profiles**~~ (Done — `SaveManager.save_component_loadout()`/`load_component_loadout()`, with "This part" Load/Save slots in the Garage UI, scoped per body-slot type.)
+- ~~**Water enemies + jumpjet logic**~~ (Done — water divers shipped with flow-field pathing; `_check_drowning()` grants jumpjet-holders immunity while `jumpjet_energy > 0`.)
+- ~~**Tutorials/onboarding**~~ (Done — see below.)
 
 ## Tutorial, Story & UX (promoted to its own workstream)
 
-- **Tutorial:** first-run guided flow — "here's a Core, here's a Weapon Mount, connect them, watch the packet flow, now fire." The Garage's Simulate Energy Flow is the natural teaching tool; a scripted first loadout walk-through covers 80% of the learning cliff. Follow with contextual tooltips (hover a tile type anywhere → what it does) and an in-game codex for synergies/counters, which currently live only in code and the README.
+- ~~**Tutorial:** first-run guided flow~~ (Done — `TutorialManager.gd` + `tutorial.json`, a full guided flow in Evan's voice: Core → tiles → weapon mounts → Simulate → accumulators → heat → repairs → Black Market/chips → the AI/War Room → minimap. Contextual tile-hover tooltips now also carry a one-line "what does this do" per tile type, and the Synergy Codex covers all 9 synergies + shield counters — though it still skips biome interactions, worth extending.)
 - **Story (canon premise, per Natalia):** You spend every day after school at the game shop brawling AI bots in a new game — *PixBots*. You got a base bot for your birthday and want to earn more components. The shop runs a standing competition: defeat the AI and earn merchandise (in-fiction, every match helps train the AI that PixBots fields against all players — which is literally what the SquadDirector's learning loop does). `campaign.json` + `Main._load_campaign()` already exist as the delivery hook; tell it through intermission text and environment dressing, no cutscene tech needed. The Black Market is the shop's glass case; the War Room is your opponent studying your plays.
-  - **Rival challenges:** sometimes another player challenges you — a specialized match where the enemy mech is built to counter your play to date, directly or within ±15% of directly. Rival loadout quality is equivalent to yours (the reactive SolverProfile system is most of this already; it needs an "equivalent budget" constraint and a named-rival wrapper).
-  - **PvP via profile swap (stretch goal):** two players exchange AI profiles (clipboard export already works) and each fights the other's evolved AI as a "Travelling Champion" in the arena — counted like any game-shop challenger, same rewards. Each player has a local rank stored in an encrypted file; when two players fight, relative ranks are assessed and rebalanced from wins/losses.
-  - **Confidence & milestone rewards:** the player character grows more confident as the story progresses. Beat 10 bosses/enemy champions → 1 Legendary component + 2 Legendary tiles. Reach level 100 → 1 random Mythic tile + 1 Mythic component.
-- **UX pass:** the audit bundled with the minimap — HUD legibility, damage-number noise, menu key consistency (`, TAB, U, Esc all live on different layers now), garage discoverability (Auto-Equip is invisible), and save/loadout-slot clarity flagged in GAME_IMPROVEMENT_SUGGESTIONS.md.
-- Sequencing: tooltips + codex can land anytime; the scripted tutorial and story framing should land *after* the scrap economy and heat v1 stabilize, so they teach the real systems, not soon-to-change ones.
+  - ~~**Rival challenges**~~ (Done — `SquadDirector.gd` has `all_rival_profiles`, `get_next_rival()`, rivals-fought tracking, and named-rival wrapper via `RivalProfilesFactory.gd`.)
+  - ~~**PvP via profile swap**~~ (Done, and taken further than the stretch goal described — shipped as Traveling Champions: Champion Card PNGs carry the full build via PNG steganography, doubling as importable Blueprints.)
+  - **Confidence & milestone rewards:** the player character grows more confident as the story progresses. Beat 10 bosses/enemy champions → 1 Legendary component + 2 Legendary tiles. Reach level 100 → 1 random Mythic tile + 1 Mythic component. *(Still open - medium: the milestone counter/flag scaffolding exists per CLAUDE_CODE_HANDOFF.md, but nothing sets it true yet.)*
+- **UX pass:** the audit bundled with the minimap — HUD legibility, damage-number noise, menu key consistency (`, TAB, U, Esc all live on different layers now), garage discoverability, and save/loadout-slot clarity. *(Garage discoverability and save/loadout-slot clarity are now Done — see GAME_IMPROVEMENT_SUGGESTIONS.md's UX/onboarding section. HUD legibility, damage-number noise, and menu-key consistency remain open - small-medium each.)*
 
 ---
 
@@ -227,8 +227,4 @@ These are concepts to flesh out the mid-to-late game progression, meta-game, and
     - **Out-of-Game:** Relies on an external web service or community hub (like Discord) for players to host, share, and track the clan territory map.
 
 ### Aesthetics & Rendering
-- **"Dead Cells" 3D-to-2D Pixelation (Visual Rework) [Difficulty: Very High]:** Shift from pure 2D point-in-polygon rasterization to rendering low-poly 3D modular components through an orthographic camera. Apply quantization and edge-detection post-processing shaders to generate isometric pixel art with dynamic lighting and procedural modularity. This matches the high-fidelity aesthetic references without needing massive hand-drawn spritesheets.
-  - **Implementation:**
-    - **Asset Pipeline:** Replace 2D vector generation with simple low-poly 3D models for components (chassis, weapons, joints).
-    - **Rendering:** Set up a Godot SubViewport with an Orthographic camera running at a low internal resolution (e.g., 320x180).
-    - **Shaders:** Apply a posterization/cel-shader for limited color palettes and a Sobel edge-detection shader for crisp black outlines.
+- ~~**"Dead Cells" 3D-to-2D Pixelation (Visual Rework)**~~ **REJECTED** per the Decision Log above (2026-07-10 visual pipeline ruling): needs modeled assets, viewport-bake management for 80 concurrent mechs, and obsoletes the Rust part rasterizer. The chosen path instead was staying purely procedural 2D - shaded-primitive layer + the `MechModuleLibrary` module vocabulary, which shipped. Left here only as a record of what was considered and passed on; do not pick this back up without a fresh decision.

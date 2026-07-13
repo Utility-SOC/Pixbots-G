@@ -83,6 +83,8 @@ func handle_input(delta: float):
 	var accel = 600.0
 	if mech.jumpjet_rarity >= 0:
 		accel += (mech.jumpjet_rarity * 150.0)
+	if mech.thruster_accel_bonus >= 0:
+		accel += (mech.thruster_accel_bonus * 200.0)
 
 	if target_vel == Vector2.ZERO:
 		mech.velocity = mech.velocity.move_toward(Vector2.ZERO, accel * delta)
@@ -169,6 +171,7 @@ func fire_charged(key: String, target_pos: Vector2):
 			continue
 
 		var packet_to_fire = data.packet.copy()
+		packet_to_fire.is_banked_shot = true
 		packet_to_fire.magnitude *= mech.current_jammer_debuff
 		for k in packet_to_fire.synergies:
 			packet_to_fire.synergies[k] *= mech.current_jammer_debuff

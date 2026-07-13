@@ -16,6 +16,12 @@ var map_ref: Node = null
 var hp: float = 0.0
 var max_hp: float = 0.0
 var _visual_seed: int = 0
+# "ruin" (default, Tabletop's grey gothic shell) | "barn" | "farmhouse" -
+# FightShovel 1920's farm buildings (Utility-SOC), same destructible multi-
+# tile machinery, just a different _draw() paint job. Set by MapGenerator
+# from ruin_specs' "type" key before add_child, same convention as
+# size_tiles/origin_tile/footprint below.
+var structure_type: String = "ruin"
 
 func _ready():
 	collision_layer = 1 # blocks movement, projectiles, and line of fire
@@ -35,6 +41,15 @@ func _ready():
 	add_child(shape)
 
 func _draw():
+	match structure_type:
+		"barn":
+			_draw_barn()
+		"farmhouse":
+			_draw_farmhouse()
+		_:
+			_draw_ruin()
+
+func _draw_ruin():
 	var rng = RandomNumberGenerator.new()
 	rng.seed = _visual_seed
 	var half = footprint / 2.0
@@ -67,6 +82,64 @@ func _draw():
 			# Window/arch slots on interior wall faces
 			if not is_edge and r % 3 == 1 and c % 3 == 1 and r < col_rows - 1:
 				shade = slot
+			draw_rect(Rect2(Vector2(c * PIX, y) - half, Vector2(PIX, PIX)), shade)
+
+# FightShovel 1920 farm buildings (Utility-SOC) - same PIX-chunk procedural
+# style as _draw_ruin, different paint job. Red gambrel-roofed barn with a
+# big central door.
+func _draw_barn():
+	var rng = RandomNumberGenerator.new()
+	rng.seed = _visual_seed
+	var half = footprint / 2.0
+	var cols = int(footprint.x / PIX)
+	var rows = int(footprint.y / PIX)
+
+	var wall = Color(0.62, 0.16, 0.14)
+	var wall_dark = Color(0.48, 0.11, 0.10)
+	var trim = Color(0.92, 0.9, 0.85)
+	var roof = Color(0.28, 0.24, 0.22)
+
+	var roof_rows = max(1, int(rows * 0.32))
+	for c in range(cols):
+		for r in range(rows):
+			var y = r * PIX
+			var shade: Color
+			if r < roof_rows:
+				shade = roof.lightened(0.1) if abs(c - cols / 2) <= 1 else roof.darkened(rng.randf() * 0.08)
+			elif r == roof_rows:
+				shade = trim # eave trim line
+			else:
+				shade = wall if (c % 5 < 4) else wall_dark # vertical plank seams
+				if r > rows * 0.55 and abs(c - cols / 2) <= max(1, cols / 6):
+					shade = wall_dark.darkened(0.3) # big central door
+			draw_rect(Rect2(Vector2(c * PIX, y) - half, Vector2(PIX, PIX)), shade)
+
+# Weathered white farmhouse with a grey peaked roof and scattered windows.
+func _draw_farmhouse():
+	var rng = RandomNumberGenerator.new()
+	rng.seed = _visual_seed
+	var half = footprint / 2.0
+	var cols = int(footprint.x / PIX)
+	var rows = int(footprint.y / PIX)
+
+	var wall = Color(0.85, 0.8, 0.68)
+	var wall_dark = Color(0.72, 0.68, 0.58)
+	var roof = Color(0.3, 0.28, 0.3)
+	var window = Color(0.35, 0.45, 0.55)
+
+	var roof_peak_rows = max(2, int(rows * 0.4))
+	for c in range(cols):
+		var dist_from_center = abs(c - cols / 2.0)
+		var roof_here = int(roof_peak_rows * (1.0 - dist_from_center / (cols / 2.0 + 0.001)))
+		for r in range(rows):
+			var y = r * PIX
+			var shade: Color
+			if r < roof_here:
+				shade = roof.lightened(0.08) if r == 0 else roof.darkened(rng.randf() * 0.06)
+			else:
+				shade = wall if (c + r) % 3 != 0 else wall_dark
+				if r > roof_peak_rows and r < rows - 2 and c % 4 == 2:
+					shade = window
 			draw_rect(Rect2(Vector2(c * PIX, y) - half, Vector2(PIX, PIX)), shade)
 
 func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false):

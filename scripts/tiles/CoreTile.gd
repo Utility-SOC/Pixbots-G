@@ -68,7 +68,7 @@ func generate_energy(grid: Node) -> Array[EnergyPacket]:
 		packets.append(packet)
 	return packets
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	# The Core takes incoming energy (e.g. from Head return) and redistributes it out its active faces!
 	if is_disabled: return [packet]
 	

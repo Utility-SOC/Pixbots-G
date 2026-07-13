@@ -4,6 +4,10 @@ extends HexTile
 @export var boost_per_remnant: float = 1.3
 var _remnant_magnitudes: Dictionary = {}
 
+# Guaranteed baseline amplify applied on EVERY pass, not just a second pass
+# that consumes remnant memory (see process_energy below).
+const BASELINE_AMPLIFY = 0.15
+
 # --- Resonator Sync (Mythic-only) -------------------------------------------
 # Natalia's design: a Resonator sits at a 3-way crossing of the hex's
 # opposite-face pairs (E/W, NW/SE, SW/NE - see HexCoord.get_directions()).
@@ -31,18 +35,28 @@ func _init():
 func get_weight() -> float:
 	return 3.0 # not too heavy - mostly resonating chambers, not dense hardware
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if rarity == Rarity.MYTHIC:
 		return _process_sync(packet, entry_direction)
 
-	# Simplified remnant logic for Godot translation
-	var mult = 1.0
+	# Baseline resonance (Utility-SOC: "give me a reason to use accumulators
+	# / resonator effects need to be more pronounced - right now I can just
+	# pipe everything into a splitter, mix it up, then push everything into
+	# the weapon mount"). This USED to only pay off on a SECOND pass through
+	# the same tile within one simulation (consuming the remnant left by a
+	# FIRST pass) - on the much more common single-pass build, `mult`
+	# stayed a flat 1.0 and the tile did nothing at all, making a plain
+	# pass-through/Splitter strictly better (identical routing, zero wasted
+	# opportunity cost). A guaranteed baseline amplify now applies on every
+	# pass; the remnant-memory bonus still layers on top for genuinely
+	# repeat/crossed traffic.
+	var mult = 1.0 + (BASELINE_AMPLIFY * _get_power_multiplier())
 	if _remnant_magnitudes.size() > 0:
 		for k in _remnant_magnitudes:
 			packet.add_synergy(k, _remnant_magnitudes[k] * 0.8)
 			_remnant_magnitudes[k] *= 0.2 # consume most of it
-		mult = boost_per_remnant * _get_power_multiplier()
-		packet.amplify(mult)
+		mult += boost_per_remnant * _get_power_multiplier()
+	packet.amplify(mult)
 
 	# Leave a remnant
 	for syn in packet.synergies:

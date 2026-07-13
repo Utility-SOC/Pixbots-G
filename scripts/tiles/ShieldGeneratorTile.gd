@@ -20,7 +20,7 @@ var stored_energy: float = 0.0
 func get_weight() -> float:
 	return 6.5 # substantial shield-generation hardware
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []
 
 	packet.is_active = false # Consume energy

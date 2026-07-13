@@ -223,6 +223,10 @@ func load_learned_state():
 		active_rival_pool = round_state.get("active_rival_pool", [])
 		consecutive_rival_losses = int(round_state.get("consecutive_rival_losses", 0))
 
+	var captures = profile_manager.load_telemetry(LEARNED_STATE_NAME + "_captures")
+	if not captures.is_empty():
+		captured_loadouts = captures
+
 	print("[DIRECTOR] Learned AI state restored: ", loaded_templates.size(), " templates, ", loaded_profiles.size(), " solver profiles, ", loaded_boss_profiles.size(), " boss profiles")
 
 func save_learned_state():
@@ -241,6 +245,7 @@ func save_learned_state():
 			"active_rival_pool": active_rival_pool,
 			"consecutive_rival_losses": consecutive_rival_losses
 		})
+		profile_manager.save_telemetry(LEARNED_STATE_NAME + "_captures", captured_loadouts)
 
 func export_learned_state_to_clipboard():
 	if profile_manager:
@@ -283,6 +288,30 @@ func attempt_squad_assembly() -> Squad:
 	if not selected_template:
 		return null
 	return _assemble_squad(selected_template)
+
+# How much of the current map is water (0.0-1.0) - duck-typed off Main.map
+# since SquadDirector doesn't hold its own map reference. Feeds
+# TemplateEvolution.select_template_weighted()'s biome bias: templates with
+# no water-capable ("diver") role are otherwise just as likely to spawn on a
+# map that's half lake as on dry land, and their non-diver members drown
+# chasing the player across it (see Mech._check_drowning) - a wasted squad,
+# not a real fight.
+func get_map_water_fraction() -> float:
+	var main = get_tree().current_scene
+	if main and "map" in main and main.map and "water_fraction" in main.map:
+		return main.map.water_fraction
+	return 0.0
+
+# Whether the current map crosses MapGenerator.MOSTLY_WATER_THRESHOLD - used
+# by _spawn_bot_for_role to grant every non-diver role real water safety
+# (is_amphibious) instead of just the "diver" role. Delegates to the map's
+# own is_mostly_water() rather than re-comparing get_map_water_fraction()
+# against a duplicated threshold constant here.
+func is_map_mostly_water() -> bool:
+	var main = get_tree().current_scene
+	if main and "map" in main and main.map and main.map.has_method("is_mostly_water"):
+		return main.map.is_mostly_water()
+	return false
 
 # Same assembly logic attempt_squad_assembly() uses, but for a caller-chosen
 # template instead of a weighted-random pick - used by the debug menu's
@@ -418,6 +447,41 @@ var player_element_usage: Dictionary = {}
 var total_damage_taken: float = 0.0
 var bot_element_usage: Dictionary = {}
 var total_bot_damage_dealt: float = 0.0
+
+# combat_role (String) -> {"fitness": float, "rarity": int, "components":
+# Dictionary[BodySlot int -> serialized component]} - the actual hex-grid
+# tile layout of the single highest-fitness enemy seen per role, not an
+# abstract SolverProfile doctrine (Utility-SOC: "save the actual tile
+# inventory/layout of the most effective individual enemies so I can see it
+# in the war room"). Persisted alongside the rest of learned state - see
+# save_learned_state/load_learned_state.
+var captured_loadouts: Dictionary = {}
+
+# Called from credit_bot_death() for EVERY non-player death, deliberately
+# NOT gated behind the spawn_profile/solver_profiles checks that guard the
+# rest of that function - every enemy is eligible to be captured, not just
+# ones with an evolving profile. Replaces the stored entry for this role
+# only if it's a new high score.
+func _maybe_capture_loadout(mech: Node, fitness: float):
+	if not ("combat_role" in mech) or not ("components" in mech):
+		return
+	var role = mech.combat_role
+	if role == "":
+		return
+	var existing = captured_loadouts.get(role)
+	if existing != null and float(existing.get("fitness", 0.0)) >= fitness:
+		return
+
+	var serialized_components: Dictionary = {}
+	for slot in mech.components:
+		serialized_components[slot] = SaveManager._serialize_component(mech.components[slot])
+
+	captured_loadouts[role] = {
+		"fitness": fitness,
+		"rarity": int(mech.base_rarity) if "base_rarity" in mech else 0,
+		"components": serialized_components,
+	}
+	print("[DIRECTOR] New high-fitness '", role, "' loadout captured (fitness %.1f)" % fitness)
 
 func log_player_damage(amount: float, element: String):
 	if not player_element_usage.has(element):
@@ -632,6 +696,13 @@ func _all_roles_filled(roles: Dictionary) -> bool:
 			return false
 	return true
 
+# Roles that stay drown-vulnerable on mostly-water maps even though every
+# other role gets is_amphibious there (see _spawn_bot_for_role below) -
+# Natalia: keep water a real hazard for the standard rank-and-file (sniper's
+# stationary/backline anyway; brawler is the plain melee rusher, i.e. the
+# "grunt") rather than blanket-immunizing the whole roster.
+const WATER_SAFETY_EXCLUDED_ROLES = ["sniper", "brawler"]
+
 func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0) -> Node:
 	var bot
 	if role == "jammer":
@@ -656,6 +727,25 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			jittered.amplify_priority = bot.spawn_profile.amplify_priority
 			bot.spawn_profile = jittered
 	if role == "diver":
+		bot.is_amphibious = true
+	elif is_map_mostly_water() and role not in WATER_SAFETY_EXCLUDED_ROLES:
+		# Mostly-water levels give most roles real water safety, not just
+		# "diver" - a squad chasing the player across a lake used to drown
+		# on arrival regardless of composition (Mech._check_drowning /
+		# _avoid_water_in_velocity only spare is_amphibious/jumpjet mechs).
+		# sniper/brawler are deliberately excluded (WATER_SAFETY_EXCLUDED_
+		# ROLES) so water stays a real hazard for the standard rank-and-file.
+		# Tried routing this through build_loadout_for_role's tile solver
+		# first (feed it a JumpjetTile like any other role tile) - didn't
+		# hold up: JumpjetTile is an OUTPUT/terminal tile, and the solver's
+		# generic "nothing matched, just place inventory[0]" fallback can
+		# park an OUTPUT tile mid-tree, where it silently eats the packet
+		# meant for whatever was downstream (an arm/leg link, the actual
+		# Weapon Mount) instead of forwarding it - and even when placement
+		# was harmless it usually never received a live packet at all.
+		# is_amphibious is the same flag "diver" already relies on: it's
+		# checked directly in code, not dependent on grid routing, so it
+		# can't come up empty or corrupt an unrelated branch.
 		bot.is_amphibious = true
 
 
@@ -931,6 +1021,12 @@ func spawn_squad() -> Squad:
 # nothing was ever credited at all unless the WHOLE squad wiped - a squad
 # that won a fight with survivors taught the director nothing.
 func credit_bot_death(mech: Node):
+	var fitness = mech.get_individual_fitness() if mech.has_method("get_individual_fitness") else 0.0
+	# Loadout capture is deliberately NOT gated behind the spawn_profile
+	# checks below - every enemy is eligible, not just ones with an
+	# evolving profile (see _maybe_capture_loadout's own comment).
+	_maybe_capture_loadout(mech, fitness)
+
 	if not ("spawn_profile" in mech) or not mech.spawn_profile:
 		return
 	# Only credit profiles actually tracked in the evolving pool - the
@@ -939,7 +1035,6 @@ func credit_bot_death(mech: Node):
 	# solver_profiles, so crediting them would just vanish with the bot.
 	if not solver_profiles.has(mech.spawn_profile):
 		return
-	var fitness = mech.get_individual_fitness() if mech.has_method("get_individual_fitness") else 0.0
 	mech.spawn_profile.update_fitness(fitness)
 	profile_evolution.evaluate_experimental_profile(mech.spawn_profile)
 

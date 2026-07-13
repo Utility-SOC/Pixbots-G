@@ -11,6 +11,7 @@ const GarageGridRenderer = preload("res://scripts/ui/GarageGridRenderer.gd")
 const ComponentDiagramView = preload("res://scripts/ui/ComponentDiagramView.gd")
 const GarageSimulationRunner = preload("res://scripts/ui/GarageSimulationRunner.gd")
 const GarageMarket = preload("res://scripts/ui/GarageMarket.gd")
+const GarageShop = preload("res://scripts/ui/GarageShop.gd")
 const SynergyCodexPopup = preload("res://scripts/ui/SynergyCodexPopup.gd")
 const TileActionMenu = preload("res://scripts/ui/TileActionMenu.gd")
 const GarageInventoryPanel = preload("res://scripts/ui/GarageInventoryPanel.gd")
@@ -111,6 +112,7 @@ var sim_button: Button
 var is_simulating: bool = false
 var simulation_runner: GarageSimulationRunner = null
 var garage_market: GarageMarket = null
+var garage_shop: GarageShop = null
 var synergy_codex_popup: SynergyCodexPopup = null
 var tile_action_menu: TileActionMenu = null
 var garage_inventory_panel: GarageInventoryPanel = null
@@ -464,6 +466,11 @@ func _open_black_market():
 		garage_market = GarageMarket.new(self)
 	garage_market.open_popup()
 
+func _open_shop():
+	if not garage_shop:
+		garage_shop = GarageShop.new(self)
+	garage_shop.open_popup()
+
 func _on_sell_all(max_rarity: int):
 	if not garage_market:
 		garage_market = GarageMarket.new(self)
@@ -487,11 +494,18 @@ func _on_tooltip_cleared():
 	if mount_preview:
 		mount_preview.hide_preview()
 
-# --- live weapon-mount projectile preview (see MountPreviewPopup.gd) --------
-# Hovering a Weapon Mount shows the exact projectile + firing pattern that
-# mount will produce with the grid AS CURRENTLY WIRED - the sim is re-run
-# on demand when edits dirtied it, so the preview always tells the truth.
+# --- weapon-mount preview (see MountPreviewPopup.gd) -------------------
+# Hovering a Weapon Mount shows the pattern/damage/element that mount will
+# produce with the grid AS CURRENTLY WIRED - the sim is re-run on demand
+# when edits dirtied it, so the preview always tells the truth.
 var mount_preview = null
+# Debounced, not run on every single hover-hex-transition: a fast mouse
+# sweep across several tiles used to trigger a full _recalculate_grid()
+# each time, which is the actual hover freeze (Utility-SOC: "there is a
+# brief freeze whenever I hover a mount now"). 150ms is well under human
+# hover-dwell time but comfortably collapses a fast sweep into one recalc.
+const MOUNT_PREVIEW_DEBOUNCE_MS = 150
+var _mount_preview_next_recalc_ms: int = 0
 
 func _update_mount_preview(tile: HexTile, screen_pos: Vector2):
 	if tile == null or tile.tile_type != "Weapon Mount":
@@ -506,12 +520,10 @@ func _update_mount_preview(tile: HexTile, screen_pos: Vector2):
 	var main = get_parent()
 	if main and main.get("player") != null:
 		var p = main.player
-		# ALWAYS recalc, don't trust is_grid_dirty: individual garage edit
-		# paths historically forgot to set it (the reason _close_garage
-		# flags it unconditionally on deploy) - a freshly wired mount would
-		# read stale sim data and falsely claim NO ENERGY. Hover-enter is
-		# rare and the sim is a few ms; truth is worth it.
-		p._recalculate_grid()
+		var now_ms = Time.get_ticks_msec()
+		if now_ms >= _mount_preview_next_recalc_ms:
+			_mount_preview_next_recalc_ms = now_ms + MOUNT_PREVIEW_DEBOUNCE_MS
+			p._recalculate_grid()
 		fire_rate = p.fire_rate
 		for d in p.precalculated_weapons:
 			if d.mount == tile:

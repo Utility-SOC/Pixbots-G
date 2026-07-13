@@ -68,6 +68,23 @@ var owner_is_player: bool = false
 var base_radius: float = 300.0
 var lifetime: float = -1.0 # -1 = persistent (freed by owner); >0 = self-timed burst
 
+# --- Multiplicative proximity stacking (Utility-SOC: "if multiple enemy
+# jammers are in range of one another they should scale power
+# multiplicatively, the closer the higher that multiplicative factor") ---
+# Every OTHER same-side field within JAMMER_LINK_RANGE compounds a factor
+# into stack_multiplier, stronger the closer the pair - a handful of fields
+# clustered tight can legitimately cover a huge area, while a single
+# isolated field (or fields spread across the map) stay at baseline. Scanned
+# on a slow throttle (not every frame) via EntityCache, same convention as
+# Projectile.gd's HOMING_QUERY_INTERVAL-style throttled physics/group
+# queries - this is a per-field O(n) group scan, cheap at realistic jammer
+# counts but no reason to pay it every tick.
+const JAMMER_LINK_RANGE := 500.0
+const STACK_FACTOR := 0.6
+const STACK_SCAN_INTERVAL := 0.85
+var stack_multiplier: float = 1.0
+var _stack_scan_timer: float = 0.0
+
 # LOCAL space (relative to this node's own global_position, i.e. the
 # anchor) - is_point_inside() and the minimap renderer both consume this
 # directly, so the visual boundary IS the gameplay hitbox, no mismatch.
@@ -121,6 +138,11 @@ func _process(delta: float):
 	if is_instance_valid(owner_mech):
 		global_position = global_position.lerp(owner_mech.global_position, clamp(ANCHOR_LAG_WEIGHT * delta, 0.0, 1.0))
 
+	_stack_scan_timer -= delta
+	if _stack_scan_timer <= 0.0:
+		_stack_scan_timer = STACK_SCAN_INTERVAL
+		_rescan_stack_multiplier()
+
 	# Smoothed velocity estimate for the directional drag bias below - a
 	# single-frame stutter shouldn't spike the whole boundary.
 	var raw_vel = Vector2.ZERO
@@ -144,7 +166,7 @@ func _process(delta: float):
 		_reroll_timer[i] -= delta
 		if _reroll_timer[i] <= 0.0:
 			_reroll_timer[i] = randf_range(REROLL_MIN, REROLL_MAX)
-			_radius_target[i] = base_radius * randf_range(WOBBLE_MIN_MULT, WOBBLE_MAX_MULT)
+			_radius_target[i] = base_radius * stack_multiplier * randf_range(WOBBLE_MIN_MULT, WOBBLE_MAX_MULT)
 		_radius_current[i] = lerp(_radius_current[i], _radius_target[i], clamp(WOBBLE_EASE_SPEED * delta, 0.0, 1.0))
 
 		# Directional drag bias: trailing-side points (opposite movement)
@@ -166,6 +188,26 @@ func _process(delta: float):
 
 	_rebuild_boundary_points()
 	_update_distortion()
+
+# Compounds a closeness-weighted factor for every OTHER same-side field
+# within JAMMER_LINK_RANGE - e.g. 5 tightly clustered fields each near the
+# max factor compound to roughly (1+STACK_FACTOR)^4 on top of each other's
+# baseline, which is how a handful of clustered enemy jammers can credibly
+# blanket a large chunk of the map, while a lone or well-spread-out field
+# stays at 1.0 (no change from before this feature).
+func _rescan_stack_multiplier():
+	var factor = 1.0
+	for other in EntityCache.get_group("jammer_field"):
+		if other == self or not is_instance_valid(other):
+			continue
+		if other.owner_is_player != owner_is_player:
+			continue
+		var dist = global_position.distance_to(other.global_position)
+		if dist >= JAMMER_LINK_RANGE:
+			continue
+		var closeness = 1.0 - (dist / JAMMER_LINK_RANGE)
+		factor *= 1.0 + STACK_FACTOR * closeness
+	stack_multiplier = factor
 
 func _rebuild_boundary_points():
 	boundary_points.resize(POINT_COUNT)
@@ -223,4 +265,10 @@ func _ensure_distortion():
 func _update_distortion():
 	if not _distortion:
 		return
+	# Resized every call (not just once at creation) so the visible
+	# distortion patch actually grows when stack_multiplier grows - cheap
+	# (a Vector2 set on an existing ColorRect, no reallocation).
+	var target_size = Vector2.ONE * (base_radius * stack_multiplier * 3.0)
+	if _distortion.size != target_size:
+		_distortion.size = target_size
 	_distortion.position = -_distortion.size / 2.0

@@ -35,6 +35,12 @@ var grid_position: HexCoord = null
 var base_color: Color = Color.GRAY
 var sync_adjustment: int = 0
 
+# Multi-cell footprint (relative to grid_position, the tile's "anchor")
+# - empty for every tile except LanceMountTile, the first (and so far only)
+# tile to ever span more than one hex. See HexGridComponent.add_tile/
+# remove_tile/get_all_tiles for how this gets stored/deduped.
+var footprint_offsets: Array = []
+
 func _roll_sync_adjustment():
 	sync_adjustment = 0
 	if rarity == Rarity.RARE:
@@ -109,7 +115,7 @@ func _init(_type: String = "Base", _category: TileCategory = TileCategory.CONDUI
 	tile_type = _type
 	category = _category
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if is_disabled:
 		# Degraded capacity: acts as a straight pass-through, ignoring the tile's special logic
 		return [packet]
@@ -246,11 +252,32 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	proj.set("weapon_rarity", rarity)
 	if "aoe_bonus" in proj:
 		proj.aoe_bonus = packet.aoe_bonus
-	# Beam pattern: concentrated - faster, piercing, modest damage bonus
-	if not _pattern_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC and int(get("mythic_pattern")) == 3:
+	if "is_banked_shot" in proj and "is_banked_shot" in packet:
+		proj.is_banked_shot = packet.is_banked_shot
+	# Per-mount visual signature (Utility-SOC: "easier to tell which
+	# projectile is coming from which weapon mount") - a stable hash of
+	# this mount's own (body_slot, grid_position), NOT anything about the
+	# packet/synergy, so the same mount always reads the same accent color
+	# shot after shot regardless of what's flowing through it.
+	if "mount_signature_hue" in proj and grid_position:
+		var sig_hash = (int(body_slot) * 97 + grid_position.q * 31 + grid_position.r * 17)
+		proj.mount_signature_hue = float(((sig_hash % 360) + 360) % 360) / 360.0
+	# Beam pattern: concentrated - faster, piercing, modest damage bonus, and
+	# now real extended range (previously got no range advantage at all
+	# despite being the piercing sniper mode). is_beam also forces
+	# angle_offset to 0 below - a Beam is supposed to ALWAYS go dead-on at
+	# the mouse; it was inheriting the same entry_dir-vs-forward_dir spread
+	# offset every other pattern uses (meant to simulate multi-barrel firing
+	# angles), which could aim it anywhere from 15 to a full 180 degrees off
+	# depending on how the mount happened to be wired into the grid - that
+	# was the actual "unreliable" bug, not RNG.
+	var is_beam = not _pattern_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC and int(get("mythic_pattern")) == 3
+	if is_beam:
 		proj.damage *= 1.2
 		proj.base_speed *= 2.5
 		proj.pierce_count = max(proj.pierce_count, 4)
+		if "is_beam_shot" in proj:
+			proj.is_beam_shot = true
 	proj.global_position = get_muzzle_position(mech)
 
 	var aim_pos = mech.get("last_aim_position") if "last_aim_position" in mech else mech.global_position + Vector2(0, -100)
@@ -276,11 +303,12 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	var diff = (entry_dir - forward_dir + 6) % 6
 	var angle_offset = 0.0
 
-	if diff == 1: angle_offset = deg_to_rad(15)
-	elif diff == 5: angle_offset = deg_to_rad(-15)
-	elif diff == 2: angle_offset = deg_to_rad(35)
-	elif diff == 4: angle_offset = deg_to_rad(-35)
-	elif diff == 3: angle_offset = deg_to_rad(180)
+	if not is_beam:
+		if diff == 1: angle_offset = deg_to_rad(15)
+		elif diff == 5: angle_offset = deg_to_rad(-15)
+		elif diff == 2: angle_offset = deg_to_rad(35)
+		elif diff == 4: angle_offset = deg_to_rad(-35)
+		elif diff == 3: angle_offset = deg_to_rad(180)
 
 	proj.direction = base_direction.rotated(angle_offset + _extra_angle)
 
@@ -333,7 +361,22 @@ func _fire_mortar(mech, packet: EnergyPacket):
 		return
 	var target_pos: Vector2 = mech.get("last_aim_position") if "last_aim_position" in mech else mech.global_position + Vector2(0, -100)
 	var muzzle = get_muzzle_position(mech)
-	var flight_time = clamp(muzzle.distance_to(target_pos) / MORTAR_SPEED, 0.35, 2.2)
+	# Pierce payoff: a full-pierce shell arrives ~3x faster than a RAW one
+	# over the same distance - previously flight_time was purely a function
+	# of distance, so no synergy investment had any effect on how fast a
+	# mortar actually landed (elemental impact effects already fire for
+	# real on landing via _detonate()'s reused Projectile._handle_hit()
+	# pipeline - that part didn't need building). PIERCE, not KINETIC - it's
+	# already the velocity stat everywhere else (see Projectile.gd's
+	# _calculate_stats: "PIERCE is the velocity stat... KINETIC's whole
+	# budget moved to range instead"), so a "zoomy mortar" is a pierce
+	# build's payoff, matching that existing identity split.
+	var total_mag = 0.0
+	for k in packet.synergies:
+		total_mag += packet.synergies[k]
+	var pierce_ratio = (packet.synergies.get(EnergyPacket.SynergyType.PIERCE, 0.0) / total_mag) if total_mag > 0.0 else 0.0
+	var effective_mortar_speed = MORTAR_SPEED * (1.0 + pierce_ratio * 2.0)
+	var flight_time = clamp(muzzle.distance_to(target_pos) / effective_mortar_speed, 0.12, 2.2)
 	var dmg = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
 	var shell = load("res://scripts/attacks/MortarShell.gd").new()
 	shell.setup(muzzle, target_pos, flight_time, dmg, packet.synergies.duplicate(), mech.get("is_player") == true, mech)

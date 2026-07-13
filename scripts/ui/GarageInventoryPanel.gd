@@ -422,7 +422,14 @@ func _on_inventory_item_down(_tile: HexTile):
 	pass # Deprecated in favor of gui_input
 
 func _drop_tile(pos: Vector2):
-	if garage.fill_mode and garage.grid_renderer.fill_preview_hexes.size() > 1:
+	# Multi-cell tiles (Lance - see HexTile.footprint_offsets) never use the
+	# fill-line paint path: that path places several SEPARATE copies of a
+	# single-cell tile along a drag, and a footprint tile compounding that
+	# (each "copy" needing its OWN valid 3-cell line) is both nonsensical
+	# and not something any player would actually want - always fall
+	# through to the normal single-drop path instead.
+	var is_footprint_tile = garage.dragged_tile and garage.dragged_tile.footprint_offsets.size() > 0
+	if garage.fill_mode and garage.grid_renderer.fill_preview_hexes.size() > 1 and not is_footprint_tile:
 		_drop_fill_line()
 	elif garage.grid_renderer.get_global_rect().has_point(pos):
 		var local_pos = garage.grid_renderer.get_global_transform().affine_inverse() * pos
@@ -440,7 +447,9 @@ func _drop_tile(pos: Vector2):
 			garage.inventory.append(garage.dragged_tile)
 			garage._refresh_inventory_ui()
 		elif garage.grid_renderer.hex_grid:
-			if not garage.grid_renderer.hex_grid.has_tile(hex):
+			if is_footprint_tile:
+				_drop_footprint_tile(hex)
+			elif not garage.grid_renderer.hex_grid.has_tile(hex):
 				garage.grid_renderer.hex_grid.add_tile(hex, garage.dragged_tile)
 				garage.inventory.erase(garage.dragged_tile)
 				garage._refresh_inventory_ui()
@@ -456,6 +465,42 @@ func _drop_tile(pos: Vector2):
 	garage.fill_origin_hex = null
 	garage.drag_hover_hex = null
 	garage.grid_renderer.fill_preview_hexes = []
+
+# Tries all 6 directions from the dropped hex for a straight 3-in-a-row
+# line, taking the first one where all 3 cells are in-bounds and empty -
+# "defaulting to whichever axis has room" per the design call, rather than
+# a full interactive orientation-picker UI (a bigger, separate feature).
+# The dropped hex itself becomes the anchor/first cell.
+func _drop_footprint_tile(hex: HexCoord):
+	if garage.grid_renderer.hex_grid.has_tile(hex):
+		print("Slot occupied!")
+		garage.inventory.append(garage.dragged_tile)
+		garage._refresh_inventory_ui()
+		return
+
+	for d in range(6):
+		var c1 = hex.neighbor(d)
+		var c2 = c1.neighbor(d)
+		if not garage.active_component.can_place_tile(c1) or not garage.active_component.can_place_tile(c2):
+			continue
+		if garage.grid_renderer.hex_grid.has_tile(c1) or garage.grid_renderer.hex_grid.has_tile(c2):
+			continue
+
+		garage.dragged_tile.footprint_offsets = [
+			Vector2i(c1.q - hex.q, c1.r - hex.r),
+			Vector2i(c2.q - hex.q, c2.r - hex.r),
+		]
+		garage.grid_renderer.hex_grid.add_tile(hex, garage.dragged_tile)
+		garage.inventory.erase(garage.dragged_tile)
+		garage._refresh_inventory_ui()
+		garage.grid_renderer.queue_redraw()
+		garage._tutorial_notify("tile_placed:any")
+		garage._tutorial_notify("tile_placed:" + garage.dragged_tile.tile_type)
+		return
+
+	garage._show_scrap_float("No room for a 3-in-a-row mount here", Color(1.0, 0.4, 0.4))
+	garage.inventory.append(garage.dragged_tile)
+	garage._refresh_inventory_ui()
 
 # Places dragged_tile at the first valid cell in the paused-then-dragged
 # line, then keeps placing additional matching copies (same tile_type +
@@ -509,6 +554,35 @@ func add_to_inventory(tile: HexTile):
 	garage.inventory.append(tile)
 	garage._refresh_inventory_ui()
 
+# One-line "what does this actually do" per tile type - previously the
+# inventory tooltip only ever showed stat numbers (power multiplier, sync
+# shift, ...), which tells a new player nothing if they don't already know
+# what a Resonator or a Filter IS. Kept short on purpose - full mechanics
+# still live in the Synergy Codex / tutorial, this is just the "why would I
+# place this" one-liner at a glance.
+const TILE_TYPE_BLURBS = {
+	"Splitter": "Splits one incoming packet across multiple output faces.",
+	"Amplifier": "Boosts a packet's magnitude - the core damage-scaling tile.",
+	"Reflector": "Redirects a packet's flow direction (rotatable with E).",
+	"Catalyst": "Converts a packet's synergy toward one chosen element.",
+	"Elemental Infuser": "Blends in a secondary synergy alongside whatever's already flowing.",
+	"Filter": "Passes one chosen synergy through in full; everything else gets partly converted back to RAW.",
+	"Jumpjet": "Grants mobility (jump or, at Mythic, blink) - powers movement, not weapons.",
+	"Maneuvering Thruster": "Kills inertia faster and turns more responsively at speed - agility, not raw movement power.",
+	"Weapon Mount": "Fires accumulated energy as a projectile - this is where damage actually leaves the mech.",
+	"Lance Mount": "3-hex capital weapon. Fires itself once 6 of its faces are each fed 10,000+ energy - a long-range beam that leaves a lingering damage field, then a 10s cooldown.",
+	"Accumulator": "Banks energy for one big charged shot on a trigger key (1/2/3) instead of firing immediately.",
+	"Actuator": "Drives melee/ramming behavior and movement speed bonuses.",
+	"Directional Conduit": "A wire - passes energy through, rotatable to bias flow direction.",
+	"Magnet": "Pulls loot toward the mech - Mythic adds a rarity filter and can flip to reflecting enemy shots.",
+	"Microcore": "A smaller Core Reactor variant for outside the Torso - generates energy on backpack/peripheral grids.",
+	"Resonator": "Amplifies every packet that crosses it, and lets crossing paths trade elemental status procs (bigger payoff at Mythic).",
+	"Shield Generator": "Generates a damage-absorbing shield with an elemental counter-type.",
+	"Drone Bay": "Deploys an independent companion Drone with its own small hex-grid loadout.",
+	"Missile Rack": "(Stub - not fully implemented yet) planned dedicated indirect-fire weapon mount.",
+	"Component Link": "Internal routing tile connecting one component's grid to another - not normally placed by hand.",
+}
+
 func on_tooltip_requested(tile: HexTile, screen_pos: Vector2):
 	if garage.dragged_tile: return
 	garage.tooltip_label.show()
@@ -516,6 +590,8 @@ func on_tooltip_requested(tile: HexTile, screen_pos: Vector2):
 	var mult = 1.0 + (tile.rarity * 0.15)
 	var rarity_name = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"][tile.rarity]
 	var text = "[ %s ] %s\nPower Multiplier: x%s" % [rarity_name, tile.tile_type, str(snapped(mult, 0.01))]
+	if TILE_TYPE_BLURBS.has(tile.tile_type):
+		text += "\n" + TILE_TYPE_BLURBS[tile.tile_type]
 	if "sync_adjustment" in tile and tile.sync_adjustment != 0:
 		text += "\nSync Shift: " + ("+" if tile.sync_adjustment > 0 else "") + str(tile.sync_adjustment)
 	if "amplification" in tile:

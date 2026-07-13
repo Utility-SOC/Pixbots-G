@@ -36,7 +36,7 @@ func _init():
 func get_weight() -> float:
 	return 5.0 # substantial electromagnet hardware
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var p = packet.copy()
 	# Power determines the pull strength
 	current_magnetic_power += p.magnitude

@@ -414,7 +414,7 @@ func _setup_environment():
 	# Per-run map rotation (design ruling). Tabletop is weighted double -
 	# it's the game's eventual identity; long-term every biome here becomes
 	# a themed tabletop mat (grass mat, tundra mat...) rather than "terrain".
-	var map_rotation = ["Tabletop", "Tabletop", "Normal", "Open Field", "Forest", "Desert", "Tundra", "Volcano", "Dungeon", "Water"]
+	var map_rotation = ["Tabletop", "Tabletop", "Normal", "Open Field", "Forest", "Desert", "Tundra", "Volcano", "Dungeon", "Water", "FightShovel"]
 	map.map_type = map_rotation[randi() % map_rotation.size()]
 	map.name = "GameMap"
 	world.add_child(map)
@@ -729,8 +729,9 @@ var _wave_spawned_any: bool = false
 # mechs, each running the grid solver AND baking six pixel-art parts, all
 # in one frame - the "game freezes when a wave spawns" hitch. Now ONE
 # squad deploys per beat, spreading that cost across frames. It also reads
-# better: squads arrive at the table edges in sequence, like minis being
-# set down one handful at a time.
+# better: squads arrive in the central region one handful at a time, like
+# minis being set down mid-table rather than marched in from the edges
+# (see _pick_spawn_anchor).
 func _spawn_wave_async(director, target_enemy_count: int) -> void:
 	_spawning_wave = true
 	var safety_break = 0

@@ -30,7 +30,7 @@ func cycle_synergy():
 func cycle_synergy_backward():
 	target_synergy = (target_synergy + 9) % 10
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0: return [packet]
 
 	if inverted and rarity == Rarity.MYTHIC:

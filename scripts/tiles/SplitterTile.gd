@@ -38,7 +38,7 @@ func toggle_output(direction: int):
 func get_exit_directions(entry_direction: int = 0) -> Array[int]:
 	return active_faces
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	# Mythic upgrade: doubles total throughput and behaves like a Resonator
 	# too (remnant energy from the last packet boosts the next one).
 	if rarity == Rarity.MYTHIC:

@@ -11,7 +11,7 @@ func _init():
 func get_weight() -> float:
 	return 2.0 # a simple, light processor
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var new_synergies = {}
 	var removed_mag = 0.0
 	

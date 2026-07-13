@@ -71,6 +71,28 @@ var direction: Vector2 = Vector2.ZERO
 var target_direction: Vector2 = Vector2.ZERO
 var synergies: Dictionary = {}
 var weapon_rarity: int = 0
+# Set by HexTile._fire_combined_projectile before add_child (same pre-ready
+# convention as weapon_rarity above) when fired from a Mythic Beam mount -
+# _calculate_stats() below reads this to grant real extended range, since
+# max_range is a full overwrite there (unlike damage/speed, which multiply/
+# add onto whatever was pre-set) and a plain `proj.max_range *= X` set
+# before _ready() would otherwise get silently clobbered.
+var is_beam_shot: bool = false
+# Set by HexTile._fire_combined_projectile when the firing EnergyPacket came
+# off an Accumulator bank-charge dump (hold-1/2/3, or AI auto-release) -
+# see EnergyPacket.is_banked_shot. Grants an exclusive damage/scale bonus
+# in _calculate_stats()/_build_visuals() that a same-magnitude mixed-
+# splitter shot has no way to reach, so charging a bank is a real
+# categorical choice, not just a slower way to get the same numbers.
+var is_banked_shot: bool = false
+# Set by HexTile._fire_combined_projectile from a deterministic hash of the
+# firing mount's (body_slot, grid_position) - a thin hue-tinted ring drawn
+# in _build_visuals() so the SAME mount always reads the same accent color
+# shot after shot, letting a player visually tell which of their mounts a
+# given projectile came from at a glance (Utility-SOC: "easier to tell
+# which projectile is coming from which weapon mount"). -1.0 = unset (no
+# ring drawn) - only weapon-mount fire sites populate this.
+var mount_signature_hue: float = -1.0
 # Resonator Sync procs carried over from the firing EnergyPacket - see
 # EnergyPacket.proc_synergies and _apply_synergy_status_effects() below.
 var proc_synergies: Dictionary = {}
@@ -361,8 +383,12 @@ func _calculate_stats():
 
 	# Range: generous baseline (BASE_RANGE) for every shot, plus an explicit
 	# Kinetic bonus on top - see the field comment above for why this is
-	# KINETIC's whole identity now.
+	# KINETIC's whole identity now. Beam gets a further flat multiplier -
+	# it's the piercing sniper mode and previously got no range advantage
+	# at all despite that identity.
 	max_range = BASE_RANGE + KINETIC_RANGE_BONUS * r_kin
+	if is_beam_shot:
+		max_range *= 1.6
 
 	# Lightning blink hops (see the BLINK_INTERVAL block comment): extra
 	# targets beyond the first, 4 at full lightning.
@@ -387,7 +413,14 @@ func _calculate_stats():
 	# so that converting RAW into elements doesn't cripple your DPS.
 	var base_mult = 1.0 + (r_raw * 1.5) + ((1.0 - r_raw) * 1.0)
 	damage *= base_mult
-	
+
+	# Banked-dump exclusive bonus (see is_banked_shot's field comment) -
+	# categorically bigger, not reachable by piling packets into a splitter
+	# at the same magnitude.
+	if is_banked_shot:
+		damage *= 1.15
+
+
 	# Pierce Count (PIERCE sets base to high, otherwise 1)
 	if r_prc > 0.0:
 		pierce_count = 1 + int(4.0 * r_prc)
@@ -472,6 +505,11 @@ func _build_visuals():
 	p_scale = min(p_scale, 5.0)
 	# Mythic AoE-focused Amplifiers physically grow the projectile
 	p_scale *= (1.0 + 0.5 * aoe_bonus)
+	# Banked-dump exclusive bonus (see is_banked_shot's field comment) -
+	# reads as visibly, not just numerically, bigger/scarier than a same-
+	# magnitude mixed-splitter shot.
+	if is_banked_shot:
+		p_scale *= 1.35
 	p_scale = min(p_scale, 8.0)
 	visual_scale = p_scale # so _ready()'s CollisionShape2D can match this
 
@@ -666,6 +704,22 @@ func _build_visuals():
 		glow.polygon = pts
 		glow.color = Color(0.2, 1.0, 1.0, 0.2)
 		visual_node.add_child(glow)
+
+	# Per-mount signature ring - deliberately independent of dominant-
+	# synergy shape/color above, so it stays legible as "which mount"
+	# regardless of what element is flowing through it this shot.
+	if mount_signature_hue >= 0.0:
+		var sig_color = Color.from_hsv(mount_signature_hue, 0.8, 1.0, 0.6)
+		var ring_pts = PackedVector2Array()
+		for i in range(12):
+			var a = i * TAU / 12.0
+			ring_pts.append(Vector2(cos(a), sin(a)) * 11.0)
+		var ring = Line2D.new()
+		ring.name = "MountSignatureRing"
+		ring.points = ring_pts + PackedVector2Array([ring_pts[0]])
+		ring.width = 1.4
+		ring.default_color = sig_color
+		visual_node.add_child(ring)
 
 
 func _process(delta):
@@ -953,9 +1007,17 @@ func _update_blink(delta: float):
 		return
 	_blink_timer = BLINK_INTERVAL
 
+	# Kinetic identity extends here too, not just max_range: a heavy
+	# lightning+kinetic build's real reach was gated by "is there a target
+	# within a fixed 420px of the last hop," not by the generous
+	# kinetic-scaled max_range budget above - a full-kinetic lightning shot
+	# now hunts up to 2x as far per hop (Utility-SOC: "run through a crowd
+	# guns blazing... doesn't feel as fun as it should at these power
+	# levels").
+	var r_kin_blink = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
 	var pool = EntityCache.get_group("enemy") if fired_by_player else EntityCache.get_group("player")
 	var best = null
-	var best_dist = BLINK_ACQUIRE_RANGE
+	var best_dist = BLINK_ACQUIRE_RANGE * (1.0 + r_kin_blink)
 	for v in pool:
 		if not is_instance_valid(v) or v.get("is_dead"):
 			continue
@@ -1169,31 +1231,46 @@ func _find_homing_target(space_state, r_kin: float, r_vamp: float, r_ltg: float)
 					closest = col
 	return closest
 
+# Magnitude-driven multiplier (Utility-SOC: "if I'm pumping 120,000 units
+# of energy into it every tick... I should be pulling enemies in from far
+# and wide") - previously pull radius/strength were pure synergy-RATIO
+# functions with total_power never entering the formula at all, so a huge
+# Vortex blast pulled exactly as hard as a trivial one at the same ratio.
+# Same log-scaled shape as _build_visuals()'s p_scale (self-limiting,
+# hard-capped) so a massive combined shot genuinely reaches "far and wide"
+# without an unbounded pull radius. Split out as its own function (rather
+# than inlined in _pull_nearby_items) so it's unit-testable without a live
+# physics query.
+func _get_vortex_magnitude_pull_mult() -> float:
+	return min(1.0 + log(1.0 + total_power / 200.0) * 0.4, 3.0)
+
 func _pull_nearby_items(delta: float):
 	var space_state = get_world_2d().direct_space_state
 	var query = PhysicsShapeQueryParameters2D.new()
 	var shape = CircleShape2D.new()
-	shape.radius = 150.0 + 100.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
+	var magnitude_pull_mult = _get_vortex_magnitude_pull_mult()
+
+	shape.radius = (150.0 + 100.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)) * magnitude_pull_mult
 	query.shape = shape
 	query.transform = global_transform
-	
+
 	# Always pull Loot (16), Enemies (4), and Player (8)
 	query.collision_mask = 16 | 4 | 8
-		
+
 	var results = space_state.intersect_shape(query)
 	for res in results:
 		var col = res["collider"]
 		if col == self: continue
-		
+
 		var pull_mult = 3.0 # Targets get pulled 300% as hard
 		if "is_player" in col:
 			if fired_by_player and col.is_player:
 				pull_mult = 0.05 # Shooter is barely affected
 			elif not fired_by_player and not col.is_player:
 				pull_mult = 0.05 # Shooter is barely affected
-				
-		var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) * pull_mult
-		
+
+		var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) * pull_mult * magnitude_pull_mult
+
 		if col.has_method("pull_towards"):
 			col.pull_towards(global_position, delta, pull_strength)
 		elif col is CharacterBody2D: # Fallback

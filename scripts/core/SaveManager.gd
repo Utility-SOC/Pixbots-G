@@ -274,8 +274,11 @@ func _serialize_component(comp) -> Dictionary:
 		comp_data["valid_hexes"].append({"q": h.q, "r": h.r})
 	for h in comp.fixed_sinks:
 		comp_data["fixed_sinks"].append({"q": h.q, "r": h.r})
-	for h in comp.hex_grid.grid.keys():
-		var tile = comp.hex_grid.grid[h]
+	# get_all_tiles() (not raw .grid.keys()) - a multi-cell tile (Lance -
+	# see HexTile.footprint_offsets) occupies several grid keys but is one
+	# logical tile; the raw keys loop this replaced would have serialized
+	# it once per occupied key, producing duplicate tile resources on load.
+	for tile in comp.hex_grid.get_all_tiles():
 		comp_data["tiles"].append(_serialize_tile(tile))
 	return comp_data
 
@@ -358,7 +361,11 @@ func _serialize_tile(tile) -> Dictionary:
 		"q": tile.grid_position.q if tile.grid_position else 0,
 		"r": tile.grid_position.r if tile.grid_position else 0
 	}
-	
+	if tile.footprint_offsets.size() > 0:
+		data["footprint_offsets"] = []
+		for off in tile.footprint_offsets:
+			data["footprint_offsets"].append({"x": off.x, "y": off.y})
+
 	if tile.tile_type == "Splitter":
 		data["active_faces"] = tile.active_faces
 	elif tile.tile_type == "Core Reactor" or tile.tile_type == "Microcore":
@@ -410,7 +417,11 @@ func _deserialize_tile(data: Dictionary):
 	tile.body_slot = int(data.get("body_slot", 0))
 	tile.level = int(data.get("level", 1))
 	tile.grid_position = HexCoord.new(int(data.get("q", 0)), int(data.get("r", 0)))
-	
+	if data.has("footprint_offsets"):
+		tile.footprint_offsets = []
+		for off in data["footprint_offsets"]:
+			tile.footprint_offsets.append(Vector2i(int(off.x), int(off.y)))
+
 	if tile.tile_type == "Splitter":
 		tile.active_faces.clear()
 		var faces = data.get("active_faces", [])

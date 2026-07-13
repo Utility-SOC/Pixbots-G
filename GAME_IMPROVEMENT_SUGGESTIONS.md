@@ -17,6 +17,8 @@ reuses the player yardstick), and regressions from the big feature push have
 been getting fixed at the root. The items below are what's left, grouped and
 roughly ordered by impact within each group.
 
+*(Currency pass, 2026-07-12: struck through everything confirmed shipped by reading the actual code, not just trusting prior doc claims - several items below had drifted stale.)*
+
 ## A. Requested but still outstanding
 
 1. ~~**Mythic Magnet "Repel" still shoves enemies; the requested behavior is
@@ -30,10 +32,10 @@ roughly ordered by impact within each group.
    mostly fire the same element. Cheap fix: in `_spawn_bot_for_role`, ~35%
    chance to clone the profile with a random `favored_synergy` (per-bot
    jitter); role loadouts already add some variety, this finishes it.~~ (Fixed in second review pass)
-3. **Heat has zero player-facing UI.** The whole system (generation, siphon
-   venting, ice cooling, lightning arcing, overheat knockouts) is invisible
-   until the OVERHEAT float text. Minimum: a slim HUD heat bar; ideal: also
-   a per-circuit heat rate readout in the Garage stats panel.
+3. ~~**Heat has zero player-facing UI.**~~ (Superseded, not a gap: the thermal
+   system itself is fully commented out per an explicit design ruling - see
+   `CLAUDE_CODE_HANDOFF.md`/`FEATURE_ROADMAP.md`'s Decision Log. Nothing to
+   build a UI for. Don't re-enable thermal without asking first.)
 
 ## B. Bugs / correctness risks
 
@@ -42,9 +44,9 @@ roughly ordered by impact within each group.
    difficulty + control scheme will silently fail to persist for players.
    Migrate all settings IO to `user://settings.cfg` in one pass (with a
    one-time res:// -> user:// migration read).~~ (Fixed)
-5. **`bank_primed` is written but never read** - vestige of the pre-siphon
-   gate model; its old comment claimed it "unlocks normal auto-fire," which
-   is no longer true (comment fixed this pass, flagged for removal).
+5. ~~**`bank_primed` is written but never read**~~ (Fixed: field removed
+   from `WeaponMountTile.gd`, replaced with a comment explaining why - it
+   was never serialized, so nothing broke.)
 6. ~~**Near-peer power estimate ignores `stat_modifiers`.** Chip-stacked
    builds (+50% per stat) read as weaker than they are to WWYDTTY scaling -
    exactly the clown-shoes build the mode exists for. Fold modifier sums
@@ -92,24 +94,34 @@ roughly ordered by impact within each group.
     dominant_str match, Mech's shield id mapping. Add static
     `EnergyPacket.element_name(id)` / `element_id(name)` beside the color
     helpers and delete the local copies.
-15. **Comment debt**: several comments still describe removed systems (the
-    old dump-modifier keys, pre-siphon gating). Worth a sweep whenever a
-    file is touched anyway.
+15. ~~**Comment debt**: several comments still describe removed systems (the
+    old dump-modifier keys, pre-siphon gating).~~ (Checked: the specific
+    pre-siphon/`bank_primed` comment is already accurate - it correctly
+    documents the field's removal, not a leftover description of dead
+    behavior. No other stale "describes a removed system" comments turned
+    up in a targeted pass. General guidance stands as ongoing practice, not
+    a one-time item: sweep a file's comments whenever it's touched anyway.)
 
 ## E. Systems that should be connected but aren't
 
 16. ~~**Difficulty x map size**: enemy count formula doesn't know the Tabletop
     is 1/50th the area of the default map - same 80-cap mosh pit. Scale
     `target_enemy_count` by a map-area ratio.~~ (Fixed)
-17. **War Room lacks a "YOUR MECH" card**: the director already computes
-    your power score, dominant rarity, and kill-method profile - showing
-    the player the same numbers the AI uses to hunt them is both UX gold
-    and free (all data exists).
-18. **Tutorial coverage vs new systems**: tutorial.json predates hold-key
-    dumps, heat, chips, the Black Market, and difficulty selection - verify
-    steps exist for each or add them.
-19. **MODDING.md drift**: no mention of the `boss_profiles` key (format
-    v1.2), the commander role, or the Tabletop map type. Quick refresh.
+17. ~~**War Room lacks a "YOUR MECH" card**~~ (Fixed: `WarRoomMenu.gd` has a
+    "YOUR MECH: POWER ESTIMATE" section reading the director's own power
+    score / dominant rarity data.)
+18. ~~**Tutorial coverage vs new systems**~~ (Checked against the actual
+    `tutorial.json`: hold-key accumulator dumps and heat were already
+    covered ("accumulators"/"heat" steps) - the doc's claim they were
+    missing was itself stale. Black Market + modifier chips genuinely
+    weren't mentioned; added a `black_market_and_chips` step in Evan's
+    voice. Difficulty selection isn't Garage-tutorial-scoped - it's chosen
+    before a run starts, not from here.)
+19. ~~**MODDING.md drift**~~ (Checked: `boss_profiles` (format v1.2+) and the
+    `commander` role are both already documented. Tabletop map type was
+    never actually in scope for this doc - it only covers moddable JSON
+    formats (AI profiles/squad templates), not map types, so there was
+    nothing to add.)
 20. ~~**FEATURE_ROADMAP.md status block is far behind reality** - rivals,
     drones, boss evolution, shield modes, Piercing Jammers, oil slicks, and
     mass/ramming groundwork have all landed since it was written. Refresh
@@ -121,44 +133,41 @@ The README already flags that formal progression is "under construction," so thi
 
 - ~~**Wave scaling runs on a pure `pow(1.10, wave-1)` HP multiplier with no ceiling.** By wave 50 that's a ~106x multiplier; by wave 100 it's ~11,700x.~~ (Fixed: Soft-knee exponential added in recent commit, compounds to wave 25 then goes linear)
 - **Bosses are always a scaled-up Brawler** (`Main._spawn_boss` hardcodes `director._spawn_bot_for_role("brawler")`). With sniper, scout, ambusher, jammer, flamethrower, and now support archetypes all in the roster, boss fights would read very differently if the boss role were chosen per-fight (or a genuine "boss-only" kit existed - bigger hitbox, phase changes, etc.) rather than just being a Brawler at 2x/3x/5x/25x scale.
-- **The starter inventory looks like debug leftovers**: `Main._initialize_starter_inventory()` hands the player 20 Legendary Splitters outright, on top of 3-of-each-rarity Splitters/Reflectors/Amplifiers. That's a lot of high-value gear with zero play required to earn it - worth deciding whether that's an intentional "sandbox mode" default (matches the README's sandbox framing) or should be gated behind actual progression once a campaign exists.
-- **Scrap economy is thin.** `player_scrap` exists and is saved/loaded, but nothing in the read code prices anything in scrap - there's no shop, no scrap-for-reroll, no scrap-for-repair. It's plumbing without a payoff yet.
+- **The starter inventory looks like debug leftovers**: `Main._initialize_starter_inventory()` hands the player 20 Legendary Splitters outright, on top of 3-of-each-rarity Splitters/Reflectors/Amplifiers. That's a lot of high-value gear with zero play required to earn it - **still open, needs a design call** (intentional "sandbox mode" default vs. gated behind progression), not something to change unilaterally.
+- ~~**Scrap economy is thin.**~~ (Superseded: the scrap economy is fully built - 5+ spend sites in `GarageMenu.gd` covering upgrades, repair, infusion, rarity tier-up, and the Black Market.)
 
 ## AI & enemy variety
 
-- The new mutation/culling system (this session) makes squad *composition* evolve, but individual mech loadouts within a role are still fixed by `build_loadout_for_role`. A natural follow-up: let component loadouts themselves get variant "builds" per role (e.g. three different Sniper wiring patterns) and let the fitness signal pick winners the same way it now does for squad composition.
-- **Reactive resistance profiling only tracks the player's offense** (`SquadDirector.player_element_usage`). There's no equivalent tracking of what the player's *shield* dominant synergy is doing to counter incoming damage beyond the one-time counter-element roll at spawn. A director that adapts mid-fight (not just at spawn) would read as noticeably smarter.
-- **Squad composition has no idea what map biome it's spawning into.** A flamethrower squad in a Water biome or an ambusher squad with no obstacles to hide behind are both currently possible. Feeding biome/obstacle density into template selection weighting would make squads feel place-appropriate.
-- Consider surfacing the AI's learning state to the player somehow (even just a debug-menu readout of current template weights) - right now the reinforcement loop is invisible, so a player has no way to notice "the game is adapting to me," which is one of the more interesting things it's doing under the hood.
-- **`SquadProfileManager` (save/load AI templates to `user://ai_profiles/`) is fully written but never instantiated anywhere** - the template weight learning currently resets every time the game restarts. Wiring it up (even just save-on-squad-defeat, load-on-boot) would let the evolutionary system actually accumulate across sessions instead of relearning from scratch every run.
+- The new mutation/culling system (this session) makes squad *composition* evolve, but individual mech loadouts within a role are still fixed by `build_loadout_for_role`. A natural follow-up: let component loadouts themselves get variant "builds" per role (e.g. three different Sniper wiring patterns) and let the fitness signal pick winners the same way it now does for squad composition. *(Still open - medium-large.)*
+- **Reactive resistance profiling only tracks the player's offense** (`SquadDirector.player_element_usage`). There's no equivalent tracking of what the player's *shield* dominant synergy is doing to counter incoming damage beyond the one-time counter-element roll at spawn. A director that adapts mid-fight (not just at spawn) would read as noticeably smarter. *(Still open - medium.)*
+- ~~**Squad composition has no idea what map biome it's spawning into.**~~ (Fixed 2026-07-12 — water only: `MapGenerator.water_fraction` tracks the actual terrain grid's water tile ratio (not just `map_type`, since "Normal" maps can roll a big lake from elevation noise too); `TemplateEvolution.select_template_weighted()` now weights templates with a `"diver"` role up and non-water-capable templates down, proportional to how wet the map is, above a 15% threshold. On top of that, past `MapGenerator.MOSTLY_WATER_THRESHOLD` (50% water), `SquadDirector._spawn_bot_for_role` grants most roles real water safety (`is_amphibious = true`), not just "diver" - so even the squad that does spawn isn't gambling per-member on drowning mid-chase. Per Natalia: `sniper`/`brawler` (`WATER_SAFETY_EXCLUDED_ROLES`) are deliberately left out - the standard rank-and-file stays drown-vulnerable so water remains a real hazard, not blanket-immunized. (First attempt fed a JumpjetTile into the tile solver instead, matching how other role tiles work - reverted: JumpjetTile is an OUTPUT/terminal tile, and the solver's "nothing matched, just place inventory[0]" fallback could park it mid-tree and silently eat the packet meant for something downstream, and even when placement was harmless it usually never received a live packet at all. `is_amphibious` is checked directly in code, not grid routing, so it can't come up empty.) Obstacle-density awareness for ambusher squads is a separate, still-open follow-up.)
+- ~~Consider surfacing the AI's learning state to the player~~ (Superseded: War Room UI already exists, showing template weights/fitness/lineage - the reinforcement loop is visible.)
+- ~~**`SquadProfileManager` is fully written but never instantiated anywhere**~~ (Fixed: `SquadDirector.gd` instantiates `profile_manager = SquadProfileManager.new()` - learning persists across restarts.)
 
 ## Combat depth
 
-- **Elemental synergies are a lot to learn with no in-game reference.** Ten synergy types, six shield counter-relationships, biome interactions (Lightning+Water, Fire+Forest) - all of this currently lives only in code and the README. An in-game codex/tooltip (even a simple paged menu) would help a lot, especially once cloak/jammer/heal-beacon add three more systems to learn.
-- **No minimap.** The only spatial guidance is the extraction arrow once the timer expires; finding loot drops, avoiding a jammer's aura, or regrouping after a chaotic fight all currently rely on either being on-screen or not existing as a concern.
-- **Status effects are limited to frozen/burning** (`Mech.update_status_effects`). Poison and Vortex synergies exist as damage/knockback but don't have a corresponding lingering status the way Fire and Ice do - worth deciding if that's intentional or a gap.
-- Now that Cloak, Jammer Modules, and Heal Beacons exist, it'd be worth a balance pass specifically on **counterplay**: can the player detect an about-to-decloak ambusher (audio cue, faint outline)? Can a heal beacon be focus-fired down before it heals its squad back up? Right now all three are "fire and forget" from the AI side with no player-facing tell beyond the visual pulse ring.
+- ~~**Elemental synergies are a lot to learn with no in-game reference.**~~ (Fixed: an in-game Synergy Codex exists, reachable from the Garage - covers all 9 synergies + shield counters. Doesn't cover biome interactions yet - worth extending.)
+- ~~**No minimap.**~~ (Fixed: `MinimapOverlay.gd` - U to toggle, draggable, zoomable, resizable.)
+- **Status effects are limited to frozen/burning** (`Mech.update_status_effects`). Poison and Vortex synergies exist as damage/knockback but don't have a corresponding lingering status the way Fire and Ice do - worth deciding if that's intentional or a gap. *(Still open - medium; Lightning->paralyze and Vampiric->bleed/immobilize are already spec'd in FEATURE_ROADMAP.md, just not built. Watch perf on the Vampiric corpse-obstacle piece specifically at 80 enemies.)*
+- Now that Cloak, Jammer Modules, and Heal Beacons exist, it'd be worth a balance pass specifically on **counterplay**: can the player detect an about-to-decloak ambusher (audio cue, faint outline)? Can a heal beacon be focus-fired down before it heals its squad back up? Right now all three are "fire and forget" from the AI side with no player-facing tell beyond the visual pulse ring. *(Still open - medium, design-heavy.)*
 
 ## UX / onboarding
 
-- There's no tutorial or first-run guidance found anywhere in the scripts - a new player is dropped straight into the hex-grid routing puzzle, which the README itself describes as a fairly deep engineering sandbox. Even a lightweight "here's a Core, here's a Weapon Mount, connect them" prompt on first Garage entry would lower the barrier a lot.
-- Auto-Equip (`AutoEquipSolver`) is powerful but invisible - a player who never opens the debug menu may not know it exists or what it's optimizing for. Surfacing "why did it place this tile here" (e.g. a hover explanation) would make the manual tinkering the game is clearly built around more approachable.
-- Save/load only has one autosave slot for the active run, though loadouts have their own separate slot system (`save_loadout`/`load_loadout`). Worth clarifying that distinction in-UI so players don't lose a run expecting a manual-save safety net.
+- ~~There's no tutorial or first-run guidance~~ (Fixed: `TutorialManager.gd` + `tutorial.json` - a guided first-run flow in Evan's voice, covering Core -> tiles -> weapon mounts -> accumulators -> heat -> repairs -> Black Market/chips -> the AI -> minimap.)
+- ~~Auto-Equip (`AutoEquipSolver`) is powerful but invisible~~ (Fixed: added a tooltip on the Auto-Equip button explaining what it prioritizes; hex-tile inventory hover tooltips now also carry a one-line "what does this tile do" description per tile type, not just stat numbers.)
+- ~~Save/load only has one autosave slot... clarifying that distinction in-UI~~ (Fixed: added tooltips distinguishing the automatic run-save (Deploy to Battlefield) from the manual full-build Loadout slots and the per-part "This part" slots, including a warning that Load replaces without refunding outgoing parts to inventory.)
 
 ## Performance (beyond what's already fixed this session)
 
-- **Off-screen AI still runs at full simulation rate.** Every enemy mech re-paths every ~0.5s and runs full `_physics_process` regardless of whether it's anywhere near the camera. At the upper end of wave scaling (up to 80 concurrent enemies), a simple "reduce AI tick rate for mechs far outside the camera frustum" LOD system would be a meaningful win that compounds with the fixes already made this session.
-- **`get_tree().get_nodes_in_group(...)` calls in hot paths** (magnet pull, jammer/heal pulses, AI target acquisition) scale linearly with group size. Fine at current enemy counts; if wave sizes grow further, a spatial hash/grid for "nearby entities" queries would keep this from becoming the next bottleneck.
-- The hex-grid energy simulation (`Mech._simulate_grid`) rebuilds from scratch on every loadout change, which is correct but means a Legendary "closed loop" build (as described in the README's own limit-testing section) does a real BFS over up to 100 steps - worth a periodic profiling pass once players start building the loop configurations the README explicitly encourages.
+- ~~**Off-screen AI still runs at full simulation rate.**~~ (Superseded: AI LOD shipped - `_execute_ai_tactics` runs at a distance-tiered tick divider, 4Hz beyond 1400px of the target, full rate near. See `Mech.gd`'s `_lod_ai_timer`.)
+- ~~**`get_tree().get_nodes_in_group(...)` calls in hot paths**~~ (Superseded: `EntityCache` autoload now serves per-frame cached group snapshots; magnet, drone targeting, sight checks, minimap, and projectile-impact scans all route through it. A separate audit this pass found one remaining unthrottled hot path outside this list - `Main._update_player_blind_state()` was walking the whole "enemy" group every frame regardless of state change - now fixed to only touch it on an actual blind-state transition.)
+- **The hex-grid energy simulation (`Mech._simulate_grid`) rebuilds from scratch on every loadout change.** *(In progress, not unstarted: `rust_ext/src/hexgrid_sim.rs` is a deliberate stub seeding an engine-agnostic `pixbots_core` Rust port of this exact workload - BFS packet routing, then sync-deviation merge, accumulator banks, and cross-component link transfers, each phase verified against the GDScript sim before moving to the next. This is real, hard, worth-doing-carefully work - see the Rust Architecture section of `FEATURE_ROADMAP.md`.)*
 
 ## Modding
 
-The presence of `mod_guide_text.txt` and `config/` JSON-loadable AI profiles suggests modding is a design goal. If so:
-
-- Consider formalizing what's actually moddable today (tile scripts? squad templates via JSON? map biomes?) into a short reference doc alongside the existing mod guide.
-- The new procedural shape primitives (block/line/hook) and squad mutation system are both good candidates for mod-exposed parameters (e.g. a modder-defined role's archetype weights) if that fits the modding vision.
+~~The presence of `mod_guide_text.txt` and `config/` JSON-loadable AI profiles suggests modding is a design goal.~~ (Superseded: `mod_guide_text.txt` was deleted - it was scraped content from an unrelated game, not real documentation. `MODDING.md` now documents what's actually moddable (AI profiles/squad templates via JSON), and `FEATURE_ROADMAP.md`'s Modding section has the full phased plan for the rest - data-driven tile stats next, then custom bot types, then custom tile types via script registration. Still real, still open work at phases 2-4; see FEATURE_ROADMAP.md's ranking rather than duplicating it here.)
 
 ## Smaller items noticed along the way
 
-- `apply_damage`/`apply_part_damage` had duplicated shield-mitigation logic (fixed this session by extracting a shared helper) - worth a quick scan for other duplicated blocks like it, since duplicated logic is exactly the kind of thing that causes silent balance drift when only one copy gets updated.
-- Enemy mechs weren't in a Godot group at all before this session, which had silently broken enemy cleanup on player death and the lightning-arc secondary-target effect. Worth a broader pass checking that every `get_nodes_in_group(...)` call in the codebase has a corresponding `add_to_group(...)` somewhere, since that class of bug doesn't show up as an error - it just silently does nothing.
+- ~~`apply_damage`/`apply_part_damage` had duplicated shield-mitigation logic... worth a quick scan for other duplicated blocks like it~~ (Checked: the various `apply_damage(amount, element, source, was_reflected)` overrides on `TreeObstacle`/`RuinObstacle`/`CorpseHusk`/`PartHitbox` share a signature but are legitimately different per-object logic, not copy-pasted duplication - each obstacle type has its own distinct element-weakness/threshold behavior. Nothing further to extract here.)
+- ~~Enemy mechs weren't in a Godot group at all before this session... worth a broader pass checking every `get_nodes_in_group(...)` call has a matching `add_to_group(...)`~~ (Checked during this pass's `get_nodes_in_group` audit - no other silently-missing group registrations turned up.)

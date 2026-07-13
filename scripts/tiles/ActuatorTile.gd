@@ -27,7 +27,7 @@ func _init():
 func get_weight() -> float:
 	return 7.0 # motor hardware - heavy
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var p = packet.copy()
 	# Calculate speed bonus based on energy
 	current_speed_bonus = p.magnitude * base_speed_multiplier

@@ -35,10 +35,25 @@ func _init(forced_synergy: int = -1):
 
 var stored_energy: float = 0.0
 
+# Player-facing config (Utility-SOC: "I need to be able to configure the
+# jammers I install") - jam_mode/target_synergy were previously only ever
+# rolled once at _init() with no way to change them after the fact.
+# Deliberately NOT Mythic-gated like GarageTileConfigPopup's other cycle-
+# mode tiles (Weapon Mount/Jumpjet/etc.) - these are base stats a jammer
+# always has, not an unlocked mythic ability.
+func cycle_jam_mode():
+	jam_mode = JamMode.SYNERGY if jam_mode == JamMode.VISION else JamMode.VISION
+
+func cycle_target_synergy():
+	# Skip RAW (index 0), same as the random roll in _init() does - jamming
+	# "no element" is a no-op.
+	var count = EnergyPacket.SynergyType.size()
+	target_synergy = 1 + (target_synergy % (count - 1))
+
 func get_weight() -> float:
 	return 4.0 # a pulse-jammer emitter, moderate hardware
 
-func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null) -> Array[EnergyPacket]:
+func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []
 
 	packet.is_active = false

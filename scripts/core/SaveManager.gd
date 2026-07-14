@@ -500,24 +500,27 @@ func save_loadout(slot_index: int, mech: Node):
 		file.close()
 
 func load_loadout(slot_index: int, mech: Node, inventory: Array) -> bool:
-	var path = SAVE_DIR + "loadout_" + str(slot_index) + ".json"
+	return load_loadout_file(SAVE_DIR + "loadout_" + str(slot_index) + ".json", mech)
+
+# Shared by the legacy numbered quick-slots and the named-slot system below.
+func load_loadout_file(path: String, mech: Node) -> bool:
 	if not FileAccess.file_exists(path):
 		return false
-		
+
 	var file = FileAccess.open(path, FileAccess.READ)
 	var json = JSON.parse_string(file.get_as_text())
 	file.close()
-	
+
 	if not json or typeof(json) != TYPE_DICTIONARY or not json.has("components"):
 		return false
-		
+
 	var components = json["components"]
 	# Load new components
 	var new_comps = {}
 	for slot_str in components.keys():
 		var slot = int(slot_str)
 		new_comps[slot] = _deserialize_component(components[slot_str])
-		
+
 	# Swap them onto the mech PROPERLY - through unequip/equip, not a raw
 	# dict assignment. The old assignment left the previous component nodes
 	# parented to the mech forever (leak + ghost grids) and never
@@ -533,6 +536,104 @@ func load_loadout(slot_index: int, mech: Node, inventory: Array) -> bool:
 			mech.equip_component(new_comps[slot])
 	mech.is_grid_dirty = true
 	return true
+
+# --- Named, unlimited build/part slots (design ruling: "a wider variety of
+# builds ... not just 3 slots") ---------------------------------------------
+# One file per slot under user://loadouts/. Full builds are the same JSON
+# shape as the numbered quick-slots (which still work and are listed as
+# "Quick Slot N"); parts carry their body-slot type so a saved arm can
+# never land on a torso.
+const NAMED_LOADOUT_DIR = "user://loadouts/"
+
+func _slot_filename(display_name: String) -> String:
+	var s = display_name.validate_filename().replace(" ", "_").to_lower()
+	return s if s != "" else "unnamed"
+
+func save_named_loadout(display_name: String, mech: Node) -> bool:
+	DirAccess.make_dir_recursive_absolute(NAMED_LOADOUT_DIR)
+	var data = {
+		"version": SAVE_FORMAT_VERSION,
+		"display_name": display_name,
+		"components": {},
+	}
+	for slot in mech.components.keys():
+		data["components"][str(slot)] = _serialize_component(mech.components[slot])
+	var f = FileAccess.open(NAMED_LOADOUT_DIR + "full_" + _slot_filename(display_name) + ".json", FileAccess.WRITE)
+	if not f:
+		return false
+	f.store_string(JSON.stringify(data, "\t"))
+	f.close()
+	return true
+
+# [{name, path}] - named slots plus any legacy numbered quick-slots.
+func list_named_loadouts() -> Array:
+	var out: Array = []
+	var dir = DirAccess.open(NAMED_LOADOUT_DIR)
+	if dir:
+		for file in dir.get_files():
+			if file.begins_with("full_") and file.ends_with(".json"):
+				var f = FileAccess.open(NAMED_LOADOUT_DIR + file, FileAccess.READ)
+				if not f:
+					continue
+				var json = JSON.parse_string(f.get_as_text())
+				f.close()
+				if json is Dictionary and json.has("components"):
+					out.append({"name": str(json.get("display_name", file)), "path": NAMED_LOADOUT_DIR + file})
+	for i in range(1, 4):
+		var legacy = SAVE_DIR + "loadout_" + str(i) + ".json"
+		if FileAccess.file_exists(legacy):
+			out.append({"name": "Quick Slot " + str(i), "path": legacy})
+	return out
+
+func delete_named_loadout(path: String) -> bool:
+	# Only files our two loadout systems own - never arbitrary paths.
+	if not (path.begins_with(NAMED_LOADOUT_DIR) or (path.begins_with(SAVE_DIR) and path.get_file().begins_with("loadout_"))):
+		return false
+	return DirAccess.remove_absolute(path) == OK
+
+func save_named_component(display_name: String, comp) -> bool:
+	if not comp:
+		return false
+	DirAccess.make_dir_recursive_absolute(NAMED_LOADOUT_DIR)
+	var data = {
+		"version": 1,
+		"display_name": display_name,
+		"slot_type": comp.slot_type,
+		"component": _serialize_component(comp),
+	}
+	var f = FileAccess.open(NAMED_LOADOUT_DIR + "part_%d_%s.json" % [comp.slot_type, _slot_filename(display_name)], FileAccess.WRITE)
+	if not f:
+		return false
+	f.store_string(JSON.stringify(data, "\t"))
+	f.close()
+	return true
+
+func list_named_components(slot_type: int) -> Array:
+	var out: Array = []
+	var dir = DirAccess.open(NAMED_LOADOUT_DIR)
+	if dir:
+		var prefix = "part_%d_" % slot_type
+		for file in dir.get_files():
+			if file.begins_with(prefix) and file.ends_with(".json"):
+				var f = FileAccess.open(NAMED_LOADOUT_DIR + file, FileAccess.READ)
+				if not f:
+					continue
+				var json = JSON.parse_string(f.get_as_text())
+				f.close()
+				if json is Dictionary and json.has("component"):
+					out.append({"name": str(json.get("display_name", file)), "path": NAMED_LOADOUT_DIR + file})
+	return out
+
+# Returns a fresh ComponentEquipment or null; slot_type must match.
+func load_named_component(path: String, slot_type: int):
+	if not FileAccess.file_exists(path):
+		return null
+	var f = FileAccess.open(path, FileAccess.READ)
+	var json = JSON.parse_string(f.get_as_text())
+	f.close()
+	if not (json is Dictionary) or int(json.get("slot_type", -1)) != slot_type:
+		return null
+	return _deserialize_component(json["component"])
 
 # --- Per-component loadout slots (FEATURE_ROADMAP.md group 1) --------------
 # Full-build loadouts (above) snapshot the entire mech; these snapshot ONE

@@ -825,6 +825,136 @@ func _apply_demo_build(data: Dictionary):
 	_refresh_inventory_ui()
 	_show_warning("Demo kit '%s' equipped!\nYour previous parts are in the component inventory (Swap Component to get them back)." % data.get("demo_name", "?"))
 
+# --- Named build/part slots ----------------------------------------------
+# Unlimited named save slots for full builds and single parts (playtest
+# ruling: "a wider variety of builds ... not just 3 slots"). One popup
+# manager for both: a save-as row on top, then a Load/Delete row per saved
+# slot. Files live in user://loadouts/ via SaveManager; the old numbered
+# quick-slots still appear in the Builds list as "Quick Slot N".
+func _on_builds_pressed():
+	_open_slot_manager(true)
+
+func _on_parts_pressed():
+	if not active_component:
+		_show_warning("Open a component tab first - part slots save whichever part is on screen.")
+		return
+	_open_slot_manager(false)
+
+func _open_slot_manager(full_build: bool):
+	var main = get_parent()
+	if not main or main.get("player") == null:
+		return
+	var slot_type: int = -1 if full_build else active_component.slot_type
+
+	var popup = PopupPanel.new()
+	var vbox = VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(420, 0)
+	popup.add_child(vbox)
+
+	var title = Label.new()
+	if full_build:
+		title.text = "Full builds - loading replaces your WHOLE mech (no refunds)"
+	else:
+		title.text = "Saved parts for this slot type - loading replaces ONLY this tab's part"
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(title)
+
+	var save_row = HBoxContainer.new()
+	vbox.add_child(save_row)
+	var name_edit = LineEdit.new()
+	name_edit.placeholder_text = "New slot name..."
+	if not full_build:
+		name_edit.text = active_component.component_name
+	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_row.add_child(name_edit)
+	var save_btn = Button.new()
+	save_btn.text = "Save as"
+	save_row.add_child(save_btn)
+
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, 280)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+	var list_vbox = VBoxContainer.new()
+	list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list_vbox)
+
+	# A lambda can't reference itself by name in GDScript (the capture is
+	# taken before the assignment completes) - route the delete-refresh
+	# through a one-slot array filled in after creation.
+	var rebuild_holder: Array = [null]
+	var rebuild = func():
+		for child in list_vbox.get_children():
+			child.queue_free()
+		var entries = SaveManager.list_named_loadouts() if full_build else SaveManager.list_named_components(slot_type)
+		if entries.is_empty():
+			var empty = Label.new()
+			empty.text = "(nothing saved yet)"
+			list_vbox.add_child(empty)
+		for entry in entries:
+			var row = HBoxContainer.new()
+			list_vbox.add_child(row)
+			var lbl = Label.new()
+			lbl.text = str(entry.name)
+			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(lbl)
+			var load_btn = Button.new()
+			load_btn.text = "Load"
+			load_btn.pressed.connect(func():
+				popup.hide()
+				if full_build:
+					if SaveManager.load_loadout_file(entry.path, main.player):
+						_refresh_component_ui()
+						_refresh_inventory_ui()
+						_show_warning("Build '%s' loaded." % entry.name)
+				else:
+					var loaded = SaveManager.load_named_component(entry.path, slot_type)
+					if not loaded:
+						_show_warning("Couldn't load '%s' - wrong slot type or corrupt file." % entry.name)
+						return
+					# Same replace semantics as the old numbered part slots:
+					# swap just this component, outgoing part is not refunded.
+					var old = main.player.unequip_component(slot_type)
+					if old:
+						old.queue_free()
+					main.player.equip_component(loaded)
+					_refresh_component_ui()
+					_on_tab_changed(component_tabs.current_tab)
+					_show_warning("Part '%s' loaded onto this slot." % entry.name)
+			)
+			row.add_child(load_btn)
+			var del_btn = Button.new()
+			del_btn.text = "Delete"
+			del_btn.modulate = Color(1.0, 0.6, 0.6)
+			del_btn.pressed.connect(func():
+				SaveManager.delete_named_loadout(entry.path)
+				rebuild_holder[0].call()
+			)
+			row.add_child(del_btn)
+
+	rebuild_holder[0] = rebuild
+	rebuild.call()
+
+	save_btn.pressed.connect(func():
+		var slot_name = name_edit.text.strip_edges()
+		if slot_name == "":
+			return
+		var ok: bool
+		if full_build:
+			ok = SaveManager.save_named_loadout(slot_name, main.player)
+		else:
+			ok = SaveManager.save_named_component(slot_name, active_component)
+		if ok:
+			rebuild.call()
+		else:
+			_show_warning("Couldn't write the save file for '%s'." % slot_name)
+	)
+	name_edit.text_submitted.connect(func(_t): save_btn.pressed.emit())
+
+	add_child(popup)
+	popup.popup_centered(Vector2(440, 400))
+	popup.popup_hide.connect(func(): popup.queue_free())
+
 func _apply_blueprint(payload: Dictionary):
 	var main = get_parent()
 	if not main or main.get("player") == null:

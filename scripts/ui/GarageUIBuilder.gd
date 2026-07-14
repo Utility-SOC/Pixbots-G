@@ -193,85 +193,27 @@ func build():
 	)
 	bottom_bar.add_child(deploy_button)
 
-	# Loadouts Bar
+	# Loadouts Bar - named, unlimited slots (playtest ruling: "a wider
+	# variety of builds (Component and full bot) not just 3 slots"). Both
+	# buttons open a popup manager in GarageMenu with save-as / load /
+	# delete rows; legacy numbered quick-slots still show up in the Builds
+	# list as "Quick Slot N".
 	var loadout_bar = HBoxContainer.new()
 	left_vbox.add_child(loadout_bar)
 
-	var loadout_lbl = Label.new()
-	loadout_lbl.text = "Loadouts: "
-	loadout_lbl.tooltip_text = "Manual full-build save slots, separate from the automatic run save (Deploy to Battlefield autosaves your progress) - use these to keep favorite builds around across runs."
-	loadout_bar.add_child(loadout_lbl)
+	var builds_btn = Button.new()
+	builds_btn.text = "Builds..."
+	builds_btn.custom_minimum_size = Vector2(120, 40)
+	builds_btn.tooltip_text = "Save and load full equipped-mech builds under any name, unlimited slots. Separate from the automatic run save (Deploy to Battlefield autosaves your progress). Loading replaces your ENTIRE mech; outgoing parts are not refunded."
+	builds_btn.pressed.connect(garage._on_builds_pressed)
+	loadout_bar.add_child(builds_btn)
 
-	for i in range(1, 4):
-		var btn = Button.new()
-		btn.text = "Load " + str(i)
-		btn.tooltip_text = "Replace your ENTIRE equipped mech with whatever was saved to slot %d. Outgoing parts are not refunded to inventory." % i
-		btn.pressed.connect(func():
-			var main = garage.get_parent()
-			if main and main.get("player") != null:
-				if SaveManager.load_loadout(i, main.player, garage.inventory):
-					garage._refresh_component_ui()
-					garage._refresh_inventory_ui()
-		)
-		loadout_bar.add_child(btn)
-
-		var save_btn = Button.new()
-		save_btn.text = "Save " + str(i)
-		save_btn.tooltip_text = "Save your current full equipped mech into slot %d, overwriting whatever was there." % i
-		save_btn.pressed.connect(func():
-			var main = garage.get_parent()
-			if main and main.get("player") != null:
-				SaveManager.save_loadout(i, main.player)
-		)
-		loadout_bar.add_child(save_btn)
-
-	# Per-component loadout bar (FEATURE_ROADMAP.md group 1): same idea as
-	# the full-build slots above, but scoped to whichever component tab is
-	# currently open - lets a favorite arm/torso wiring be reused across
-	# otherwise different builds. Slots are keyed per body-slot type in
-	# SaveManager, so "Part Load 1" on the Torso tab is a different file
-	# from "Part Load 1" on the Left Arm tab.
-	var part_loadout_bar = HBoxContainer.new()
-	left_vbox.add_child(part_loadout_bar)
-
-	var part_lbl = Label.new()
-	part_lbl.text = "This part: "
-	part_lbl.tooltip_text = "Save/load slots scoped to whichever tab is open right now (Torso, Left Arm, ...) - separate per slot type, so \"Part Load 1\" on the Torso tab is a different save from \"Part Load 1\" on the Left Arm tab."
-	part_loadout_bar.add_child(part_lbl)
-
-	for i in range(1, 4):
-		var p_load = Button.new()
-		p_load.text = "Load " + str(i)
-		p_load.tooltip_text = "Replace ONLY this tab's part with slot %d's saved version. The outgoing part is not refunded to inventory." % i
-		p_load.pressed.connect(func():
-			var main = garage.get_parent()
-			if not garage.active_component or not main or main.get("player") == null:
-				return
-			var slot_type = garage.active_component.slot_type
-			var loaded = SaveManager.load_component_loadout(i, slot_type)
-			if not loaded:
-				return
-			# Swap just this one component on the mech, then re-point the
-			# garage at the fresh instance via the normal tab-change path.
-			# (Same replace semantics as the full-build loadout slots: the
-			# outgoing part and its tiles are not refunded to inventory.)
-			var old = main.player.unequip_component(slot_type)
-			if old:
-				old.queue_free()
-			main.player.equip_component(loaded)
-			garage._refresh_component_ui()
-			garage._on_tab_changed(garage.component_tabs.current_tab)
-		)
-		part_loadout_bar.add_child(p_load)
-
-		var p_save = Button.new()
-		p_save.text = "Save " + str(i)
-		p_save.tooltip_text = "Save this tab's current part into slot %d, overwriting whatever was there." % i
-		p_save.pressed.connect(func():
-			if garage.active_component:
-				SaveManager.save_component_loadout(i, garage.active_component)
-		)
-		part_loadout_bar.add_child(p_save)
+	var parts_btn = Button.new()
+	parts_btn.text = "Parts..."
+	parts_btn.custom_minimum_size = Vector2(120, 40)
+	parts_btn.tooltip_text = "Save and load single parts under any name, unlimited slots - scoped to whichever tab is open (a saved arm only lists on arm tabs). Loading replaces ONLY this tab's part; the outgoing part is not refunded."
+	parts_btn.pressed.connect(garage._on_parts_pressed)
+	loadout_bar.add_child(parts_btn)
 
 	# Scrap sinks (FEATURE_ROADMAP.md group 2): repair and infusion give
 	# scrap something to buy beyond the tile-upgrade middle-click.

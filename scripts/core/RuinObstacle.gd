@@ -24,7 +24,7 @@ var _visual_seed: int = 0
 var structure_type: String = "ruin"
 
 func _ready():
-	collision_layer = 1 # blocks movement, projectiles, and line of fire
+	collision_layer = 32 # terrain-obstacle layer: blocks movement/shots, but jets fly over (see Mech.OBSTACLE_LAYER)
 	collision_mask = 0
 	# 150/tile (was 60) - Natalia wanted ruins to read as genuinely tough
 	# terrain, not something that melts in a couple of hits like a Tree

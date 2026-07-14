@@ -49,7 +49,7 @@ func update(delta: float):
 				if proj.global_position.distance_to(mech.global_position) > pull_radius:
 					continue
 				proj.fired_by_player = true
-				proj.collision_mask = 4 | 1 # now hunts enemies + world
+				proj.collision_mask = 4 | 1 | 32 # now hunts enemies + world + obstacles
 				proj.source_mech = mech # damage credit / lifesteal to us
 				if "was_reflected" in proj:
 					proj.was_reflected = true

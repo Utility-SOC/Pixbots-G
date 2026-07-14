@@ -440,7 +440,7 @@ func _setup_player():
 	
 	# Player is Layer 4 (bit 3). 
 	player.collision_layer = 8
-	player.collision_mask = 1 | 2 | 4 # Collides with environment, water, enemies
+	player.collision_mask = 1 | 2 | 4 | 32 # environment, water, enemies, obstacles
 	
 	player.global_position = map.get_valid_spawn_position(Vector2(map.width * map.tile_size / 2.0, map.height * map.tile_size / 2.0))
 
@@ -777,7 +777,7 @@ func _spawn_wave_async(director, target_enemy_count: int) -> void:
 			mech.target = player
 			mech.died.connect(_on_enemy_died)
 			mech.collision_layer = 4 # Enemies are Layer 3 (bit 2)
-			mech.collision_mask = 1 | 2 | 8 # Hit env, water, player
+			mech.collision_mask = 1 | 2 | 8 | 32 # Hit env, water, player, obstacles
 			active_enemies += 1
 			_wave_spawned_any = true
 
@@ -890,7 +890,7 @@ func _spawn_boss(director, is_mega: bool):
 	boss.target = player
 	boss.died.connect(_on_boss_died.bind(boss))
 	boss.collision_layer = 4
-	boss.collision_mask = 1 | 2 | 8
+	boss.collision_mask = 1 | 2 | 8 | 32
 	active_enemies += 1
 	# NOT world.add_child(boss) - director._spawn_bot_for_role() already
 	# parented it under SquadDirector (which itself lives under world), same
@@ -1051,7 +1051,7 @@ func _spawn_rival(director, force_rarity = -1, force_name = ""):
 		rival.target = player
 		rival.died.connect(_on_rival_defeated.bind(rival))
 		rival.collision_layer = 4
-		rival.collision_mask = 1 | 2 | 8
+		rival.collision_mask = 1 | 2 | 8 | 32
 		active_enemies += 1
 		# NOT world.add_child(rival) - director._spawn_bot_for_role() already
 		# parented it under SquadDirector (itself already inside world), same
@@ -1115,7 +1115,7 @@ func _spawn_traveling_champion(ghost: Dictionary):
 	champ.set_meta("ghost_id", str(ghost.get("ghost_id", "")))
 	champ.target = player
 	champ.collision_layer = 4
-	champ.collision_mask = 1 | 2 | 8
+	champ.collision_mask = 1 | 2 | 8 | 32
 
 	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
 	if randf() > 0.5: offset.x *= -1

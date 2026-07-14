@@ -299,7 +299,7 @@ func _on_spawn_enemy():
 		var mech = director._spawn_bot_for_role(role, false, rand_rarity)
 		mech.global_position = Vector2(randf_range(200, 1000), randf_range(200, 1000))
 		mech.collision_layer = 4
-		mech.collision_mask = 1 | 2 | 8
+		mech.collision_mask = 1 | 2 | 8 | 32
 		var player = get_tree().get_nodes_in_group("player")
 		if player.size() > 0:
 			mech.target = player[0]

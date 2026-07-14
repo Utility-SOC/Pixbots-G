@@ -133,10 +133,10 @@ func _ready():
 	# for a full mech they need to track.
 	if is_player:
 		collision_layer = 8 # Player layer
-		collision_mask = 1 | 2 | 4 # Env, Water, Enemy
+		collision_mask = 1 | 2 | 4 # Env, Water, Enemy - NO 32: drones fly over terrain obstacles
 	else:
 		collision_layer = 4 # Enemy layer
-		collision_mask = 1 | 2 | 8 # Env, Water, Player
+		collision_mask = 1 | 2 | 8 # Env, Water, Player - NO 32: drones fly over terrain obstacles
 
 	# Projectile._on_body_entered deliberately skips any CharacterBody2D that
 	# has apply_part_damage (see PartHitbox.gd's comment) - every regular

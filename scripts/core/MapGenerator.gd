@@ -814,7 +814,7 @@ func _build_collisions_and_obstacles():
 					# (TreeObstacle / RuinObstacle) - exclude them from the
 					# merged flat-collision run.
 					if obstacle_start_x != -1:
-						_create_merged_collision(obstacle_start_x, y, x - obstacle_start_x, 1)
+						_create_merged_collision(obstacle_start_x, y, x - obstacle_start_x, 32)
 						obstacle_start_x = -1
 					if obs_name == "Tree":
 						_spawn_tree(Vector2(x * tile_size, y * tile_size))
@@ -823,7 +823,7 @@ func _build_collisions_and_obstacles():
 						obstacle_start_x = x
 			else:
 				if obstacle_start_x != -1:
-					_create_merged_collision(obstacle_start_x, y, x - obstacle_start_x, 1)
+					_create_merged_collision(obstacle_start_x, y, x - obstacle_start_x, 32)
 					obstacle_start_x = -1
 
 		if water_start_x != -1:
@@ -831,7 +831,7 @@ func _build_collisions_and_obstacles():
 		if dungeon_start_x != -1:
 			_create_merged_collision(dungeon_start_x, y, width - dungeon_start_x, 1)
 		if obstacle_start_x != -1:
-			_create_merged_collision(obstacle_start_x, y, width - obstacle_start_x, 1)
+			_create_merged_collision(obstacle_start_x, y, width - obstacle_start_x, 32)
 
 	# One destructible terrain-kit node per placed ruin/farm building
 	# (Tabletop ruins, FightShovel barns/farmhouses, or any other map type

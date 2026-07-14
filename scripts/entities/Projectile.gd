@@ -245,9 +245,9 @@ func _ready():
 
 	collision_layer = 0
 	if fired_by_player:
-		collision_mask = 4 | 1 # Enemy (Layer 3) + World (Layer 1)
+		collision_mask = 4 | 1 | 32 # Enemy + World + Obstacles
 	else:
-		collision_mask = 8 | 1 # Player (Layer 4) + World (Layer 1)
+		collision_mask = 8 | 1 | 32 # Player + World + Obstacles
 	
 	body_entered.connect(_on_body_entered)
 	area_entered.connect(_on_area_entered)

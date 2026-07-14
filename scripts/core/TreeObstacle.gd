@@ -9,7 +9,7 @@ var map_ref: Node = null
 var cell: Vector2i = Vector2i(-1, -1)
 
 func _ready():
-	collision_layer = 1
+	collision_layer = 32 # terrain-obstacle layer (jets fly over it - see Mech.OBSTACLE_LAYER)
 	collision_mask = 0
 	
 	var poly = Polygon2D.new()

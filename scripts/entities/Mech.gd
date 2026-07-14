@@ -440,10 +440,10 @@ func _ready():
 	
 	if is_player:
 		collision_layer = 8 # Layer 4 (Player)
-		collision_mask = 1 | 2 | 4 | 16 # Env, Water, Enemy, Loot
+		collision_mask = 1 | 2 | 4 | 16 | 32 # Env, Water, Enemy, Loot, Obstacles
 	else:
 		collision_layer = 4 # Layer 3 (Enemy)
-		collision_mask = 1 | 2 | 8 # Env, Water, Player
+		collision_mask = 1 | 2 | 8 | 32 # Env, Water, Player, Obstacles
 		# NOTE: this was previously missing entirely, which silently broke
 		# every system that looks up get_nodes_in_group("enemy"): Main.gd's
 		# enemy cleanup on player death, Projectile.gd's lightning-arc
@@ -548,10 +548,34 @@ func unequip_component(slot: HexTile.BodySlot) -> ComponentEquipment:
 		return comp
 	return null
 
+# Terrain obstacles live on their own physics layer (design ruling:
+# "jumpjets go over all terrain obstacles") - merged obstacle runs, trees,
+# ruins, and corpse husks are all layer 32; map border/dungeon walls stay
+# layer 1 (jets never leave the table). While the jets are visibly firing
+# (sprint or water-hover both light the trail emitters), the obstacle bit
+# drops out of the mask and the mech flies clean over.
+const OBSTACLE_LAYER = 32
+
+func _jets_firing() -> bool:
+	if _water_hover_active:
+		return true
+	if jumpjet_trail:
+		for p in jumpjet_trail.get_children():
+			if p.emitting:
+				return true
+	return false
+
+func _update_obstacle_phasing():
+	if _has_jumpjets() and _jets_firing():
+		collision_mask &= ~OBSTACLE_LAYER
+	else:
+		collision_mask |= OBSTACLE_LAYER
+
 func _physics_process(delta: float):
 	_own_time_alive += delta
 	current_jammer_debuff = 1.0 # Reset every frame, JammerMech will re-apply it before we shoot if near
 	_refresh_water_state()
+	_update_obstacle_phasing()
 
 	if is_drowning:
 		drown_timer -= delta
@@ -2600,7 +2624,7 @@ func _spawn_corpse_obstacle():
 
 	var husk = load("res://scripts/entities/CorpseHusk.gd").new() # destructible by anything (playtest ruling)
 	husk.add_to_group("corpse_obstacle")
-	husk.collision_layer = 1 # world obstacle: blocks movement and shots
+	husk.collision_layer = 32 # terrain-obstacle layer: blocks movement and shots, jets fly over
 	husk.collision_mask = 0
 
 	var shape = CollisionShape2D.new()

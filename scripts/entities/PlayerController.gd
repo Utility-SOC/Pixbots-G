@@ -93,9 +93,9 @@ func handle_input(delta: float):
 
 	# JumpJets automatically hover over Water (Mask 2) and some obstacles
 	if mech.jumpjet_rarity >= 0:
-		mech.collision_mask = 1 | 4 | 16 # Only collide with walls/obstacles, Enemy, Loot
+		mech.collision_mask = 1 | 4 | 16 | 32 # walls, Enemy, Loot, Obstacles (32 dropped while jets fire - see Mech._update_obstacle_phasing)
 	else:
-		mech.collision_mask = 1 | 2 | 4 | 16 # Collide with water too
+		mech.collision_mask = 1 | 2 | 4 | 16 | 32 # Collide with water too
 
 	# Mouse Aiming
 	var mouse_pos = mech.get_global_mouse_position()

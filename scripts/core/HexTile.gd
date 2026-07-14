@@ -38,8 +38,19 @@ var sync_adjustment: int = 0
 # Multi-cell footprint (relative to grid_position, the tile's "anchor")
 # - empty for every tile except LanceMountTile, the first (and so far only)
 # tile to ever span more than one hex. See HexGridComponent.add_tile/
-# remove_tile/get_all_tiles for how this gets stored/deduped.
+# remove_tile/get_all_tiles for how this gets stored/deduped. Only ever
+# populated AT PLACEMENT time (see GarageInventoryPanel._drop_footprint_tile)
+# - a tile sitting in inventory always has this empty, which is why "is this
+# a multi-cell tile TYPE" checks must use get_footprint_size() below, never
+# this array's current size.
 var footprint_offsets: Array = []
+
+# How many hexes this tile's class occupies once placed. 1 for every normal
+# tile; overridden by LanceMountTile to 3. Checked BEFORE placement (e.g. to
+# decide drag/drop behavior for a tile still sitting in inventory), when
+# footprint_offsets above is always still empty.
+func get_footprint_size() -> int:
+	return 1
 
 func _roll_sync_adjustment():
 	sync_adjustment = 0

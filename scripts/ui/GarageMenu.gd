@@ -104,6 +104,12 @@ var drag_hover_since: float = 0.0
 var fill_mode: bool = false
 var fill_origin_hex: HexCoord = null
 
+# Orientation (0-5, a hex direction index) a multi-cell tile like the Lance
+# Mount would be placed in if dropped right now - see GarageGridRenderer.
+# _gui_input's wheel handling (scroll rotates instead of zooms while
+# dragging a footprint tile) and GarageInventoryPanel._drop_footprint_tile.
+var footprint_rotation: int = 0
+
 var inventory: Array = []
 var search_input: LineEdit
 var rarity_filter: OptionButton

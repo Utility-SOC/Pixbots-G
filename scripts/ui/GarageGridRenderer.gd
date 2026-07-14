@@ -154,9 +154,15 @@ func _gui_input(event: InputEvent):
 				is_panning = false
 		
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_zoom(1.1, event.position)
+			if menu_parent and menu_parent.dragged_tile and menu_parent.dragged_tile.get_footprint_size() > 1:
+				menu_parent.footprint_rotation = (menu_parent.footprint_rotation + 1) % 6
+			else:
+				_zoom(1.1, event.position)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_zoom(0.9, event.position)
+			if menu_parent and menu_parent.dragged_tile and menu_parent.dragged_tile.get_footprint_size() > 1:
+				menu_parent.footprint_rotation = (menu_parent.footprint_rotation + 5) % 6
+			else:
+				_zoom(0.9, event.position)
 			
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:

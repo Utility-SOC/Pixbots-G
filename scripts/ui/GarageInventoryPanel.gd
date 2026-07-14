@@ -382,6 +382,17 @@ func handle_process(_delta):
 	var local_pos = garage.grid_renderer.get_global_transform().affine_inverse() * pos
 	var hex = garage.grid_renderer._pixel_to_hex(local_pos)
 
+	if garage.dragged_tile.get_footprint_size() > 1:
+		# Footprint tiles skip the pause-to-fill-mode tracking entirely -
+		# always preview the 3 cells the current rotation would occupy so
+		# scrolling to rotate reads as immediate feedback.
+		garage.drag_hover_hex = hex
+		var c1 = hex.neighbor(garage.footprint_rotation)
+		var c2 = c1.neighbor(garage.footprint_rotation)
+		garage.grid_renderer.fill_preview_hexes = [hex, c1, c2]
+		garage.grid_renderer.queue_redraw()
+		return
+
 	if garage.drag_hover_hex == null or not hex.equals(garage.drag_hover_hex):
 		garage.drag_hover_hex = hex
 		garage.drag_hover_since = Time.get_ticks_msec() / 1000.0
@@ -408,6 +419,7 @@ func _on_inventory_item_gui_input(event: InputEvent, tile: HexTile):
 			garage.drag_hover_hex = null
 			garage.fill_mode = false
 			garage.fill_origin_hex = null
+			garage.footprint_rotation = 0
 			garage.grid_renderer.fill_preview_hexes = []
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			if not garage.tile_action_menu:
@@ -428,7 +440,7 @@ func _drop_tile(pos: Vector2):
 	# (each "copy" needing its OWN valid 3-cell line) is both nonsensical
 	# and not something any player would actually want - always fall
 	# through to the normal single-drop path instead.
-	var is_footprint_tile = garage.dragged_tile and garage.dragged_tile.footprint_offsets.size() > 0
+	var is_footprint_tile = garage.dragged_tile and garage.dragged_tile.get_footprint_size() > 1
 	if garage.fill_mode and garage.grid_renderer.fill_preview_hexes.size() > 1 and not is_footprint_tile:
 		_drop_fill_line()
 	elif garage.grid_renderer.get_global_rect().has_point(pos):
@@ -466,11 +478,11 @@ func _drop_tile(pos: Vector2):
 	garage.drag_hover_hex = null
 	garage.grid_renderer.fill_preview_hexes = []
 
-# Tries all 6 directions from the dropped hex for a straight 3-in-a-row
-# line, taking the first one where all 3 cells are in-bounds and empty -
-# "defaulting to whichever axis has room" per the design call, rather than
-# a full interactive orientation-picker UI (a bigger, separate feature).
-# The dropped hex itself becomes the anchor/first cell.
+# Tries garage.footprint_rotation first (the direction the player scrolled
+# to while dragging - see GarageGridRenderer._gui_input's wheel handling),
+# then falls back through the other 5 directions in order so a placement
+# still usually succeeds even if the chosen orientation doesn't fit. The
+# dropped hex itself becomes the anchor/first cell.
 func _drop_footprint_tile(hex: HexCoord):
 	if garage.grid_renderer.hex_grid.has_tile(hex):
 		print("Slot occupied!")
@@ -478,7 +490,8 @@ func _drop_footprint_tile(hex: HexCoord):
 		garage._refresh_inventory_ui()
 		return
 
-	for d in range(6):
+	for i in range(6):
+		var d = (garage.footprint_rotation + i) % 6
 		var c1 = hex.neighbor(d)
 		var c2 = c1.neighbor(d)
 		if not garage.active_component.can_place_tile(c1) or not garage.active_component.can_place_tile(c2):

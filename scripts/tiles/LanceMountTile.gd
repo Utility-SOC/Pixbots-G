@@ -44,6 +44,9 @@ func _init():
 func get_weight() -> float:
 	return 14.0 # a three-hex capital weapon - heaviest tile in the game after the Core
 
+func get_footprint_size() -> int:
+	return 3
+
 # Called once per _recalculate_grid() after simulation, mirroring
 # WeaponMountTile.clear_pending()'s "consume, then reset for next time"
 # pattern (see Mech._recalculate_grid).

@@ -1,0 +1,109 @@
+extends Node
+
+# Regression harness for the pixel-art cutscene framework
+# (scripts/cutscene/CutscenePlayer.gd): plays the bundled sample scene
+# end-to-end by driving _process manually through every command type,
+# verifies say-steps advance, actors enter/exit, finished fires exactly
+# once, the tree pause state is restored, and skip() ends a scene
+# instantly. Also checks the manifest factory's once-per-session gate.
+
+const CutscenePlayer = preload("res://scripts/cutscene/CutscenePlayer.gd")
+
+const DT := 1.0 / 30.0
+const SAMPLE := "res://config/cutscenes/evan_scrap_pitch.json"
+
+var _finished_count := 0
+
+func _on_finished():
+	_finished_count += 1
+
+func _drive(player, seconds: float):
+	for i in range(int(seconds / DT)):
+		if not is_instance_valid(player) or player._done:
+			return
+		player._process(DT)
+
+func _ready():
+	var failures = 0
+
+	# --- 1. Full playthrough of the sample scene -------------------------
+	var player = CutscenePlayer.create_from_file(SAMPLE)
+	if player == null:
+		push_error("FAIL: create_from_file couldn't load the sample scene")
+		get_tree().quit(1)
+		return
+	player.finished.connect(_on_finished)
+	add_child(player) # _ready pauses the tree and starts step 0
+
+	if not get_tree().paused:
+		push_error("FAIL: cutscene didn't pause the tree")
+		failures += 1
+	var evan = player._actors.get("evan")
+	if evan == null or evan.texture == null:
+		push_error("FAIL: actor missing or placeholder texture not generated")
+		failures += 1
+	else:
+		print("1) scene loaded, tree paused, placeholder actor built (%dx%d)" % [evan.texture.get_width(), evan.texture.get_height()])
+
+	# enter (1.1s) finishes, then the scene sits on a say step
+	_drive(player, 1.5)
+	if str(player._step.get("cmd", "")) != "say" or not evan.visible:
+		push_error("FAIL: expected to be on the first say with actor visible, on '%s'" % str(player._step))
+		failures += 1
+	else:
+		print("2) enter completed, first say active")
+
+	# advance() must finish typing first, then a second advance() moves on
+	player.advance()
+	if player._text_label.text != str(player._step.get("text", "")):
+		push_error("FAIL: first advance() didn't complete the typewriter text")
+		failures += 1
+	var say_step_i = player._step_i
+	player.advance()
+	if player._step_i != say_step_i + 1:
+		push_error("FAIL: second advance() didn't leave the say step")
+		failures += 1
+	else:
+		print("3) advance() finishes typing, then advances")
+
+	# Drive the rest (shake, say w/ auto, flip, exit) to natural completion.
+	_drive(player, 12.0)
+	if _finished_count != 1:
+		push_error("FAIL: finished fired %d times, expected exactly 1" % _finished_count)
+		failures += 1
+	elif get_tree().paused:
+		push_error("FAIL: tree still paused after the scene ended")
+		failures += 1
+	elif evan.visible:
+		push_error("FAIL: exit step didn't hide the actor")
+		failures += 1
+	else:
+		print("4) played to the end: finished once, pause restored, actor exited")
+
+	# --- 2. skip() ends a fresh scene instantly ---------------------------
+	_finished_count = 0
+	var player2 = CutscenePlayer.create_from_file(SAMPLE)
+	add_child(player2)
+	player2.finished.connect(_on_finished)
+	player2.skip()
+	if _finished_count != 1 or get_tree().paused:
+		push_error("FAIL: skip() didn't end the scene cleanly (finished=%d paused=%s)" % [_finished_count, get_tree().paused])
+		failures += 1
+	else:
+		print("5) skip() ends the scene instantly, pause restored")
+
+	# --- 3. Manifest factory: mapped wave plays once per session ----------
+	CutscenePlayer._seen_this_session.clear()
+	var from_manifest = CutscenePlayer.maybe_create_for_wave(2)
+	var second_time = CutscenePlayer.maybe_create_for_wave(2)
+	var unmapped = CutscenePlayer.maybe_create_for_wave(999)
+	if from_manifest == null or second_time != null or unmapped != null:
+		push_error("FAIL: manifest gate wrong (first=%s second=%s unmapped=%s)" % [from_manifest, second_time, unmapped])
+		failures += 1
+	else:
+		print("6) manifest: wave 2 maps once per session, unmapped waves are null")
+		from_manifest.free()
+
+	if failures == 0:
+		print("PASS: cutscene framework - load, act, say, advance, skip, manifest gate")
+	get_tree().quit(0 if failures == 0 else 1)

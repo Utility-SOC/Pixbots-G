@@ -1,0 +1,20 @@
+{
+	"_comment": "Sample scene demonstrating the framework: Evan uses a procedural placeholder sprite until assets/cutscenes/evan.png exists - drop the PNG in and set hframes/vframes/fps and it becomes a real flipbook, no other changes.",
+	"background": { "color": "#101018" },
+	"actors": {
+		"evan": {
+			"texture": "res://assets/cutscenes/evan.png",
+			"hframes": 4, "vframes": 1, "fps": 6,
+			"scale": 5,
+			"placeholder_color": "#4d8bd4"
+		}
+	},
+	"steps": [
+		{ "cmd": "enter", "actor": "evan", "from": [-0.08, 0.62], "to": [0.28, 0.62], "duration": 1.1 },
+		{ "cmd": "say", "actor": "evan", "name": "Evan", "text": "One wave in and you're still bolted together. I respect that.", "auto": 4.0 },
+		{ "cmd": "shake", "actor": "evan", "duration": 0.35, "strength": 4 },
+		{ "cmd": "say", "actor": "evan", "name": "Evan", "text": "Scrap's worth more than sentiment out here. Anything that isn't shooting, sell it to me.", "auto": 4.5 },
+		{ "cmd": "flip", "actor": "evan" },
+		{ "cmd": "exit", "actor": "evan", "to": [1.1, 0.62], "duration": 0.9 }
+	]
+}

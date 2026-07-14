@@ -5,6 +5,7 @@ const Mech = preload("res://scripts/entities/Mech.gd")
 const WeaponMountTile = preload("res://scripts/tiles/WeaponMountTile.gd")
 const DroneBayTile = preload("res://scripts/tiles/DroneBayTile.gd")
 const ChampionCardScript = preload("res://scripts/pvp/ChampionCard.gd")
+const CutscenePlayer = preload("res://scripts/cutscene/CutscenePlayer.gd")
 
 # Companion Drones (see Drone.gd/DroneBayTile.gd): one spawned alongside the
 # player per Drone Bay tile installed anywhere in their Backpack on deploy -
@@ -1337,7 +1338,16 @@ func _on_wave_cleared():
 	current_wave += 1
 	if current_wave > SaveManager.max_wave_reached:
 		SaveManager.max_wave_reached = current_wave
-	_start_intermission()
+	# Pixel-art cutscene beat, if the manifest maps one to the upcoming
+	# wave (config/cutscenes/manifest.json). Plays once per session,
+	# pauses the tree itself, and hands off to the normal intermission
+	# when it finishes or gets skipped - no scene mapped means zero change.
+	var cutscene = CutscenePlayer.maybe_create_for_wave(current_wave)
+	if cutscene:
+		cutscene.finished.connect(_start_intermission)
+		add_child(cutscene)
+	else:
+		_start_intermission()
 
 func _open_garage():
 	print("Opening Garage Menu...")

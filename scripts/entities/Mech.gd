@@ -2393,19 +2393,34 @@ func _update_jammer_module(delta: float):
 	else:
 		_release_jammer_field()
 
-	if has_jammer_module and jammer_mode == 1: # SYNERGY, unchanged pulse timer
+	if has_jammer_module and jammer_mode == 1: # SYNERGY
 		jammer_pulse_timer -= delta
-		if jammer_pulse_timer <= 0.0:
+		if is_player:
+			# Module-keybind ruling: the player's synergy jam is a BUTTON
+			# (J, registered in Main._ready), fired when charged.
+			if jammer_pulse_timer <= 0.0 and InputMap.has_action("jam_pulse") and Input.is_action_just_pressed("jam_pulse"):
+				jammer_pulse_timer = jammer_pulse_interval
+				_emit_synergy_jam_pulse()
+		elif jammer_pulse_timer <= 0.0:
 			jammer_pulse_timer = jammer_pulse_interval
 			_emit_synergy_jam_pulse()
 
 func _emit_synergy_jam_pulse():
-	var p = _get_player_ref()
-	if not p:
-		return
-	if global_position.distance_to(p.global_position) <= jammer_pulse_radius:
-		if p.has_method("apply_synergy_jam"):
-			p.apply_synergy_jam(jammer_target_synergy, jammer_effect_duration)
+	# Side-aware: an AI jammer jams the player; the PLAYER's jammer jams
+	# every enemy in the pulse radius. (Previously this always targeted
+	# _get_player_ref() - a player-owned synergy jammer jammed its owner.)
+	var victims: Array = []
+	if is_player:
+		victims = EntityCache.get_group("enemy")
+	else:
+		var p = _get_player_ref()
+		if p:
+			victims = [p]
+	for v in victims:
+		if not is_instance_valid(v):
+			continue
+		if global_position.distance_to(v.global_position) <= jammer_pulse_radius and v.has_method("apply_synergy_jam"):
+			v.apply_synergy_jam(jammer_target_synergy, jammer_effect_duration)
 
 	var visual_class = load("res://scripts/attacks/PulseRingVisual.gd")
 	if visual_class:
@@ -2475,15 +2490,30 @@ func _apply_synergy_jamming(packet: EnergyPacket):
 # --- Heal Beacon (Support ability) --------------------------------------
 
 func _update_healer(delta: float):
-	if not has_healer or is_player:
+	if not has_healer:
 		return
 	heal_pulse_timer -= delta
-	if heal_pulse_timer <= 0.0:
+	if is_player:
+		# Module-keybind ruling ("I need to be able to use every type of
+		# module"): the player's Heal Beacon is a BUTTON, not an autocast -
+		# press H (registered in Main._ready) when the pulse is charged.
+		if heal_pulse_timer <= 0.0 and InputMap.has_action("heal_pulse") and Input.is_action_just_pressed("heal_pulse"):
+			heal_pulse_timer = heal_pulse_interval
+			_emit_heal_pulse()
+	elif heal_pulse_timer <= 0.0:
 		heal_pulse_timer = heal_pulse_interval
 		_emit_heal_pulse()
 
 func _emit_heal_pulse():
-	var allies = EntityCache.get_group("enemy")
+	# Allies by side: AI beacons heal their squad (the "enemy" group);
+	# the player's beacon heals their companion drones.
+	var allies: Array = []
+	if is_player:
+		var main = get_tree().current_scene
+		if main and "drone_nodes" in main:
+			allies = main.drone_nodes.values()
+	else:
+		allies = EntityCache.get_group("enemy")
 	for ally in allies:
 		if ally == self or not is_instance_valid(ally) or not ("hp" in ally):
 			continue
@@ -2494,7 +2524,10 @@ func _emit_heal_pulse():
 		if healed >= 1.0 and ally.has_method("_show_floating_text"):
 			ally._show_floating_text("+%d" % int(round(healed)), Color(0.3, 1.0, 0.4))
 
-	var self_healed = min(max_hp, hp + heal_pulse_power * 0.5) - hp
+	# AI beacons self-heal at half strength (the squad is the point); the
+	# player's manual pulse self-heals at full - it's their button.
+	var self_mult = 1.0 if is_player else 0.5
+	var self_healed = min(max_hp, hp + heal_pulse_power * self_mult) - hp
 	hp += self_healed
 	if self_healed >= 1.0:
 		_show_floating_text("+%d" % int(round(self_healed)), Color(0.3, 1.0, 0.4))

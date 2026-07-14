@@ -131,6 +131,20 @@ func _ready():
 		var cloak_key = InputEventKey.new()
 		cloak_key.physical_keycode = KEY_C
 		InputMap.action_add_event("cloak", cloak_key)
+	# Heal Beacon pulse (module-keybind ruling: every active module gets a
+	# button; shields stay passive). Press H when charged - see
+	# Mech._update_healer's player branch.
+	if not InputMap.has_action("heal_pulse"):
+		InputMap.add_action("heal_pulse")
+		var heal_key = InputEventKey.new()
+		heal_key.physical_keycode = KEY_H
+		InputMap.action_add_event("heal_pulse", heal_key)
+	# Synergy jam pulse (J) - see Mech's SYNERGY jammer player branch.
+	if not InputMap.has_action("jam_pulse"):
+		InputMap.add_action("jam_pulse")
+		var jam_key = InputEventKey.new()
+		jam_key.physical_keycode = KEY_J
+		InputMap.action_add_event("jam_pulse", jam_key)
 
 	# Per Natalia: every game start (new game or loaded save) should land in
 	# the Garage first, not straight into combat - the player deploys

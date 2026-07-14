@@ -153,6 +153,9 @@ const AMBUSH_MULTIPLIER = 2.5
 # --- Jammer Module (equippable pulse ability - distinct from the JammerMech
 # role, which is a whole separate continuous-aura mech class) ---
 var has_jammer_module: bool = false
+# Every equipped Jammer Module tile (rebuilt each _recalculate_grid) -
+# drained of routed packet energy every frame to power-scale the field.
+var _jammer_tiles: Array = []
 var jammer_pulse_radius: float = 0.0
 var jammer_pulse_interval: float = 8.0
 var jammer_effect_duration: float = 2.0
@@ -1123,6 +1126,7 @@ func _recalculate_grid():
 	cloak_recharge_rate = 0.0
 	cloak_recharge_delay = 1.0
 	has_jammer_module = false
+	_jammer_tiles.clear()
 	has_healer = false
 	heal_pulse_power = 0.0
 
@@ -1409,9 +1413,12 @@ func _recalculate_grid():
 				cloak_recharge_rate += max_cloak_charge / max(0.1, recharge_time)
 
 			if tile.tile_type == "Jammer Module" and tile.has_method("get_jam_energy"):
+				# All modules are kept so _update_jammer_module can drain their
+				# routed packet energy every frame (feeds the field's power
+				# scaling) - no consume-and-discard here anymore.
+				_jammer_tiles.append(tile)
 				if not has_jammer_module: # first module found sets the profile
 					has_jammer_module = true
-					tile.get_jam_energy() # consume so it doesn't pile up unread
 					jammer_pulse_radius = tile.get_pulse_radius()
 					jammer_pulse_interval = tile.get_pulse_interval()
 					jammer_effect_duration = tile.get_effect_duration()
@@ -2410,8 +2417,18 @@ func _get_ambush_multiplier() -> float:
 # (jammer_mode == 1) is UNCHANGED - still the old pulse-timer/duration mute.
 
 func _update_jammer_module(delta: float):
+	# Drain routed packet energy from every equipped Jammer Module each
+	# frame regardless of mode (nothing may pile up unread across a mode
+	# switch); in VISION mode it feeds the field's power scaling ("jammer
+	# field should increase with more power pushed into it").
+	var jam_energy = 0.0
+	for tile in _jammer_tiles:
+		jam_energy += tile.get_jam_energy()
+
 	if has_jammer_module and jammer_mode == 0: # VISION
 		_ensure_jammer_field()
+		if jammer_field and jam_energy > 0.0:
+			jammer_field.feed_power(jam_energy)
 		if is_player:
 			_tick_jammer_broadcast(delta)
 	else:

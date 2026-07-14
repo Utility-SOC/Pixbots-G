@@ -141,9 +141,13 @@ class MinimapView:
 			# plain circle, distinctly colored player-blue vs. enemy-red.
 			# Shows every active field unconditionally, matching the
 			# no-fog-of-war precedent the enemy dots below already set.
+			# Hostile fields are also collected for the secrecy pass below.
+			var hostile_fields: Array = []
 			for field in EntityCache.get_group("jammer_field"):
 				if not is_instance_valid(field):
 					continue
+				if not field.owner_is_player:
+					hostile_fields.append(field)
 				var col = Color(0.3, 0.6, 1.0, 0.35) if field.owner_is_player else Color(0.85, 0.25, 0.3, 0.35)
 				var pts := PackedVector2Array()
 				for local_pt in field.boundary_points:
@@ -157,9 +161,30 @@ class MinimapView:
 				if is_instance_valid(loot):
 					draw_circle(_world_to_px(loot.global_position, center), 2.0, Color(1.0, 0.85, 0.2))
 
+			# Jammer secrecy (playtest ruling: "their dot should be just a
+			# swirl inside the jammer blob on the minimap, I shouldn't be
+			# able to get numbers"): enemies standing inside a HOSTILE
+			# jammer field get no individual dot - the field draws one
+			# anonymous static-swirl instead (below), whether it hides one
+			# enemy or twenty. is_point_inside is the same live-boundary
+			# polygon test the blind/sight gameplay checks already use, so
+			# what the minimap conceals exactly matches what the field jams.
 			for enemy in EntityCache.get_group("enemy"):
-				if is_instance_valid(enemy):
+				if not is_instance_valid(enemy):
+					continue
+				var concealed = false
+				for field in hostile_fields:
+					if field.is_point_inside(enemy.global_position):
+						concealed = true
+						break
+				if not concealed:
 					draw_circle(_world_to_px(enemy.global_position, center), 3.0, Color(1.0, 0.25, 0.2))
+
+			# One rotating static-swirl per hostile field, always on -
+			# drawn whether or not anyone is hiding inside, so its mere
+			# presence never leaks "someone is in there" either.
+			for field in hostile_fields:
+				_draw_jam_swirl(_world_to_px(field.global_position, center), field.base_radius * field.stack_multiplier * field.power_multiplier * zoom)
 
 			var main = get_tree().current_scene
 			if main and main.get("extraction_marker") != null and is_instance_valid(main.extraction_marker):
@@ -175,6 +200,20 @@ class MinimapView:
 		var g = size - Vector2(GRIP, GRIP)
 		draw_line(g + Vector2(GRIP * 0.3, GRIP), g + Vector2(GRIP, GRIP * 0.3), Color(0.6, 0.65, 0.7), 1.5)
 		draw_line(g + Vector2(GRIP * 0.65, GRIP), g + Vector2(GRIP, GRIP * 0.65), Color(0.6, 0.65, 0.7), 1.5)
+
+	# Anonymous "jamming static" marker: a slowly rotating spiral centered
+	# on the blob. Sized to the field but clamped so it stays readable at
+	# whole-map zoom and doesn't dominate at tactical zoom.
+	func _draw_jam_swirl(px_center: Vector2, px_field_radius: float):
+		var r_max = clamp(px_field_radius * 0.45, 5.0, 16.0)
+		var spin = Time.get_ticks_msec() / 600.0
+		var pts := PackedVector2Array()
+		var segs := 26
+		for i in range(segs + 1):
+			var t = float(i) / segs
+			var ang = spin + t * TAU * 2.2
+			pts.append(px_center + Vector2.RIGHT.rotated(ang) * (t * r_max))
+		draw_polyline(pts, Color(1.0, 0.5, 0.45, 0.9), 1.5, true)
 
 	func _gui_input(event):
 		if event is InputEventMouseButton:

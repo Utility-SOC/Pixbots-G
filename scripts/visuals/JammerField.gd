@@ -68,6 +68,25 @@ var owner_is_player: bool = false
 var base_radius: float = 300.0
 var lifetime: float = -1.0 # -1 = persistent (freed by owner); >0 = self-timed burst
 
+# --- Power scaling (playtest ruling: "jammer field should increase with
+# more power pushed into it") ---------------------------------------------
+# The owner drains its Jammer Module tiles' stored packet energy every frame
+# and feeds it here (Mech._update_jammer_module). Charge decays with a short
+# half-life, so the field's size tracks CURRENT power investment - reroute
+# your grid away from the jammer and it shrinks back within seconds. The
+# radius bonus saturates (never past 1 + POWER_MAX_BONUS) so even an
+# absurdly overfed jammer can't blanket the whole map by itself - clustering
+# multiple jammers (stack_multiplier above) stays the way to do that.
+const POWER_DECAY_HALF_LIFE := 3.0
+const POWER_HALF_SAT := 250.0 # charge at which half the max bonus is reached
+const POWER_MAX_BONUS := 1.0  # +100% radius at full saturation
+var power_charge: float = 0.0
+var power_multiplier: float = 1.0
+
+func feed_power(amount: float) -> void:
+	if amount > 0.0:
+		power_charge += amount
+
 # --- Multiplicative proximity stacking (Utility-SOC: "if multiple enemy
 # jammers are in range of one another they should scale power
 # multiplicatively, the closer the higher that multiplicative factor") ---
@@ -143,6 +162,15 @@ func _process(delta: float):
 		_stack_scan_timer = STACK_SCAN_INTERVAL
 		_rescan_stack_multiplier()
 
+	# Power charge: exponential decay + saturating radius bonus (see the
+	# POWER_* block up top). Applied through the same wobble-target path as
+	# stack_multiplier so growth eases in organically instead of popping.
+	if power_charge > 0.0:
+		power_charge *= pow(0.5, delta / POWER_DECAY_HALF_LIFE)
+		if power_charge < 0.5:
+			power_charge = 0.0
+	power_multiplier = 1.0 + POWER_MAX_BONUS * (power_charge / (power_charge + POWER_HALF_SAT))
+
 	# Smoothed velocity estimate for the directional drag bias below - a
 	# single-frame stutter shouldn't spike the whole boundary.
 	var raw_vel = Vector2.ZERO
@@ -166,7 +194,7 @@ func _process(delta: float):
 		_reroll_timer[i] -= delta
 		if _reroll_timer[i] <= 0.0:
 			_reroll_timer[i] = randf_range(REROLL_MIN, REROLL_MAX)
-			_radius_target[i] = base_radius * stack_multiplier * randf_range(WOBBLE_MIN_MULT, WOBBLE_MAX_MULT)
+			_radius_target[i] = base_radius * stack_multiplier * power_multiplier * randf_range(WOBBLE_MIN_MULT, WOBBLE_MAX_MULT)
 		_radius_current[i] = lerp(_radius_current[i], _radius_target[i], clamp(WOBBLE_EASE_SPEED * delta, 0.0, 1.0))
 
 		# Directional drag bias: trailing-side points (opposite movement)
@@ -266,9 +294,10 @@ func _update_distortion():
 	if not _distortion:
 		return
 	# Resized every call (not just once at creation) so the visible
-	# distortion patch actually grows when stack_multiplier grows - cheap
-	# (a Vector2 set on an existing ColorRect, no reallocation).
-	var target_size = Vector2.ONE * (base_radius * stack_multiplier * 3.0)
+	# distortion patch actually grows when stack_multiplier or the power
+	# charge grows - cheap (a Vector2 set on an existing ColorRect, no
+	# reallocation).
+	var target_size = Vector2.ONE * (base_radius * stack_multiplier * power_multiplier * 3.0)
 	if _distortion.size != target_size:
 		_distortion.size = target_size
 	_distortion.position = -_distortion.size / 2.0

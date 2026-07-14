@@ -1,0 +1,1236 @@
+{
+	"components": {
+		"1": {
+			"component_name": "Torso",
+			"fixed_sinks": [
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": -3,
+					"r": 0
+				},
+				{
+					"q": 3,
+					"r": 0
+				},
+				{
+					"q": 0,
+					"r": -2
+				},
+				{
+					"q": -1,
+					"r": 3
+				},
+				{
+					"q": 1,
+					"r": 3
+				},
+				{
+					"q": -1,
+					"r": 0
+				},
+				{
+					"q": 0,
+					"r": 1
+				},
+				{
+					"q": 1,
+					"r": 0
+				}
+			],
+			"forbidden_tile_types": [],
+			"infusion_level": 0,
+			"infusion_xp": 0,
+			"rarity": 1,
+			"slot_type": 1,
+			"stat_modifiers": {
+
+			},
+			"tiles": [
+				{
+					"active_faces": [
+						0
+					],
+					"body_slot": 1,
+					"category": 4,
+					"face_outputs": {
+						"0": 7,
+						"1": 7,
+						"2": 7,
+						"3": 7,
+						"4": 7,
+						"5": 7
+					},
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/CoreTile.gd",
+					"tile_type": "Core Reactor"
+				},
+				{
+					"body_slot": 1,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": -3,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Left Arm Link"
+				},
+				{
+					"body_slot": 1,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 3,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Right Arm Link"
+				},
+				{
+					"body_slot": 1,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": -2,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Head Link"
+				},
+				{
+					"body_slot": 1,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": -1,
+					"r": 3,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Left Leg Link"
+				},
+				{
+					"body_slot": 1,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 1,
+					"r": 3,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Right Leg Link"
+				},
+				{
+					"body_slot": 1,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": -1,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Accessory Return"
+				},
+				{
+					"body_slot": 1,
+					"category": 3,
+					"is_fixed": true,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": 1,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"target_slot": 7,
+					"tile_type": "Backpack Link"
+				},
+				{
+					"body_slot": 1,
+					"category": 5,
+					"level": 1,
+					"mythic_pattern": 0,
+					"power_lost": false,
+					"q": 1,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/WeaponMountTile.gd",
+					"tile_type": "Weapon Mount"
+				},
+				{
+					"body_slot": 0,
+					"category": 1,
+					"level": 1,
+					"power_lost": false,
+					"q": -2,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/InfuserTile.gd",
+					"secondary_synergy": 8,
+					"tile_type": "Elemental Infuser"
+				},
+				{
+					"body_slot": 0,
+					"category": 1,
+					"level": 1,
+					"power_lost": false,
+					"q": 2,
+					"r": 0,
+					"rarity": 0,
+					"script_path": "res://scripts/tiles/InfuserTile.gd",
+					"secondary_synergy": 8,
+					"tile_type": "Elemental Infuser"
+				},
+				{
+					"body_slot": 0,
+					"category": 1,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": -1,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/InfuserTile.gd",
+					"secondary_synergy": 8,
+					"tile_type": "Elemental Infuser"
+				}
+			],
+			"valid_hexes": [
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": -1,
+					"r": 0
+				},
+				{
+					"q": 1,
+					"r": 0
+				},
+				{
+					"q": -1,
+					"r": 1
+				},
+				{
+					"q": 0,
+					"r": 1
+				},
+				{
+					"q": 0,
+					"r": -1
+				},
+				{
+					"q": 1,
+					"r": -1
+				},
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": -2,
+					"r": 0
+				},
+				{
+					"q": 2,
+					"r": 0
+				},
+				{
+					"q": -2,
+					"r": 1
+				},
+				{
+					"q": 1,
+					"r": 1
+				},
+				{
+					"q": -2,
+					"r": 2
+				},
+				{
+					"q": 0,
+					"r": 2
+				},
+				{
+					"q": -1,
+					"r": -1
+				},
+				{
+					"q": 2,
+					"r": -1
+				},
+				{
+					"q": -1,
+					"r": 2
+				},
+				{
+					"q": 0,
+					"r": -2
+				},
+				{
+					"q": 2,
+					"r": -2
+				},
+				{
+					"q": 1,
+					"r": -2
+				},
+				{
+					"q": -3,
+					"r": 0
+				},
+				{
+					"q": 3,
+					"r": 0
+				},
+				{
+					"q": -3,
+					"r": 1
+				},
+				{
+					"q": 2,
+					"r": 1
+				},
+				{
+					"q": -3,
+					"r": 2
+				},
+				{
+					"q": 1,
+					"r": 2
+				},
+				{
+					"q": -3,
+					"r": 3
+				},
+				{
+					"q": 0,
+					"r": 3
+				}
+			]
+		},
+		"2": {
+			"component_name": "L. Arm",
+			"fixed_sinks": [
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": -8,
+					"r": -1
+				}
+			],
+			"forbidden_tile_types": [],
+			"infusion_level": 0,
+			"infusion_xp": 0,
+			"rarity": 1,
+			"slot_type": 2,
+			"stat_modifiers": {
+
+			},
+			"tiles": [
+				{
+					"body_slot": 2,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Energy Intake"
+				},
+				{
+					"body_slot": 2,
+					"category": 5,
+					"level": 1,
+					"mythic_pattern": 0,
+					"power_lost": false,
+					"q": -8,
+					"r": -1,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/WeaponMountTile.gd",
+					"tile_type": "Weapon Mount"
+				},
+				{
+					"active_faces": [
+						3
+					],
+					"body_slot": 0,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": -1,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/SplitterTile.gd",
+					"tile_type": "Splitter"
+				},
+				{
+					"body_slot": 0,
+					"category": 0,
+					"level": 1,
+					"mythic_mode": 0,
+					"power_lost": false,
+					"q": -2,
+					"r": 0,
+					"rarity": 1,
+					"rotation_steps": 3,
+					"script_path": "res://scripts/tiles/DirectionalConduitTile.gd",
+					"tile_type": "Directional Conduit"
+				},
+				{
+					"body_slot": 0,
+					"category": 0,
+					"level": 1,
+					"mythic_mode": 0,
+					"power_lost": false,
+					"q": -3,
+					"r": 0,
+					"rarity": 1,
+					"rotation_steps": 3,
+					"script_path": "res://scripts/tiles/DirectionalConduitTile.gd",
+					"tile_type": "Directional Conduit"
+				},
+				{
+					"body_slot": 0,
+					"category": 0,
+					"level": 1,
+					"mythic_mode": 0,
+					"power_lost": false,
+					"q": -4,
+					"r": 0,
+					"rarity": 1,
+					"rotation_steps": 3,
+					"script_path": "res://scripts/tiles/DirectionalConduitTile.gd",
+					"tile_type": "Directional Conduit"
+				},
+				{
+					"body_slot": 0,
+					"category": 0,
+					"level": 1,
+					"mythic_mode": 0,
+					"power_lost": false,
+					"q": -5,
+					"r": 0,
+					"rarity": 1,
+					"rotation_steps": 3,
+					"script_path": "res://scripts/tiles/DirectionalConduitTile.gd",
+					"tile_type": "Directional Conduit"
+				},
+				{
+					"active_faces": [
+						3
+					],
+					"body_slot": 0,
+					"category": 4,
+					"face_outputs": {
+						"0": 7,
+						"1": 7,
+						"2": 7,
+						"3": 7,
+						"4": 7,
+						"5": 7
+					},
+					"level": 1,
+					"power_lost": false,
+					"q": -6,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/MicrocoreTile.gd",
+					"tile_type": "Microcore"
+				},
+				{
+					"body_slot": 0,
+					"category": 0,
+					"level": 1,
+					"mythic_mode": 0,
+					"power_lost": false,
+					"q": -7,
+					"r": 0,
+					"rarity": 1,
+					"rotation_steps": 3,
+					"script_path": "res://scripts/tiles/DirectionalConduitTile.gd",
+					"tile_type": "Directional Conduit"
+				},
+				{
+					"active_faces": [
+						4
+					],
+					"body_slot": 0,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": -8,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/SplitterTile.gd",
+					"tile_type": "Splitter"
+				}
+			],
+			"valid_hexes": [
+				{
+					"q": 0,
+					"r": -1
+				},
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": -1,
+					"r": -1
+				},
+				{
+					"q": -1,
+					"r": 0
+				},
+				{
+					"q": -2,
+					"r": -1
+				},
+				{
+					"q": -2,
+					"r": 0
+				},
+				{
+					"q": -3,
+					"r": -1
+				},
+				{
+					"q": -3,
+					"r": 0
+				},
+				{
+					"q": -4,
+					"r": -1
+				},
+				{
+					"q": -4,
+					"r": 0
+				},
+				{
+					"q": -5,
+					"r": -1
+				},
+				{
+					"q": -5,
+					"r": 0
+				},
+				{
+					"q": -6,
+					"r": -1
+				},
+				{
+					"q": -6,
+					"r": 0
+				},
+				{
+					"q": -7,
+					"r": -1
+				},
+				{
+					"q": -7,
+					"r": 0
+				},
+				{
+					"q": -8,
+					"r": -1
+				},
+				{
+					"q": -8,
+					"r": 0
+				}
+			]
+		},
+		"3": {
+			"component_name": "R. Arm",
+			"fixed_sinks": [
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": 8,
+					"r": -1
+				}
+			],
+			"forbidden_tile_types": [],
+			"infusion_level": 0,
+			"infusion_xp": 0,
+			"rarity": 1,
+			"slot_type": 3,
+			"stat_modifiers": {
+
+			},
+			"tiles": [
+				{
+					"body_slot": 3,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Energy Intake"
+				},
+				{
+					"body_slot": 3,
+					"category": 5,
+					"level": 1,
+					"mythic_pattern": 0,
+					"power_lost": false,
+					"q": 8,
+					"r": -1,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/WeaponMountTile.gd",
+					"tile_type": "Weapon Mount"
+				},
+				{
+					"body_slot": 0,
+					"category": 1,
+					"level": 1,
+					"power_lost": false,
+					"q": 1,
+					"r": 0,
+					"rarity": 0,
+					"script_path": "res://scripts/tiles/InfuserTile.gd",
+					"secondary_synergy": 8,
+					"tile_type": "Elemental Infuser"
+				},
+				{
+					"body_slot": 0,
+					"category": 1,
+					"level": 1,
+					"mythic_focus": 0,
+					"power_lost": false,
+					"q": 2,
+					"r": 0,
+					"rarity": 0,
+					"script_path": "res://scripts/tiles/AmplifierTile.gd",
+					"tile_type": "Amplifier"
+				},
+				{
+					"body_slot": 0,
+					"category": 1,
+					"level": 1,
+					"mythic_focus": 0,
+					"power_lost": false,
+					"q": 3,
+					"r": 0,
+					"rarity": 0,
+					"script_path": "res://scripts/tiles/AmplifierTile.gd",
+					"tile_type": "Amplifier"
+				},
+				{
+					"active_faces": [
+						0
+					],
+					"body_slot": 0,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 4,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/SplitterTile.gd",
+					"tile_type": "Splitter"
+				},
+				{
+					"active_faces": [
+						3
+					],
+					"body_slot": 0,
+					"category": 4,
+					"face_outputs": {
+						"0": 7,
+						"1": 7,
+						"2": 7,
+						"3": 7,
+						"4": 7,
+						"5": 7
+					},
+					"level": 1,
+					"power_lost": false,
+					"q": 5,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/MicrocoreTile.gd",
+					"tile_type": "Microcore"
+				},
+				{
+					"active_faces": [
+						4
+					],
+					"body_slot": 0,
+					"category": 4,
+					"face_outputs": {
+						"0": 7,
+						"1": 7,
+						"2": 7,
+						"3": 7,
+						"4": 7,
+						"5": 7
+					},
+					"level": 1,
+					"power_lost": false,
+					"q": 6,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/MicrocoreTile.gd",
+					"tile_type": "Microcore"
+				},
+				{
+					"active_faces": [
+						5
+					],
+					"body_slot": 0,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 7,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/SplitterTile.gd",
+					"tile_type": "Splitter"
+				}
+			],
+			"valid_hexes": [
+				{
+					"q": 0,
+					"r": -1
+				},
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": 1,
+					"r": -1
+				},
+				{
+					"q": 1,
+					"r": 0
+				},
+				{
+					"q": 2,
+					"r": -1
+				},
+				{
+					"q": 2,
+					"r": 0
+				},
+				{
+					"q": 3,
+					"r": -1
+				},
+				{
+					"q": 3,
+					"r": 0
+				},
+				{
+					"q": 4,
+					"r": -1
+				},
+				{
+					"q": 4,
+					"r": 0
+				},
+				{
+					"q": 5,
+					"r": -1
+				},
+				{
+					"q": 5,
+					"r": 0
+				},
+				{
+					"q": 6,
+					"r": -1
+				},
+				{
+					"q": 6,
+					"r": 0
+				},
+				{
+					"q": 7,
+					"r": -1
+				},
+				{
+					"q": 7,
+					"r": 0
+				},
+				{
+					"q": 8,
+					"r": -1
+				},
+				{
+					"q": 8,
+					"r": 0
+				}
+			]
+		},
+		"4": {
+			"component_name": "L. Leg",
+			"fixed_sinks": [
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": -3,
+					"r": 5
+				}
+			],
+			"forbidden_tile_types": [],
+			"infusion_level": 0,
+			"infusion_xp": 0,
+			"rarity": 1,
+			"slot_type": 4,
+			"stat_modifiers": {
+
+			},
+			"tiles": [
+				{
+					"body_slot": 4,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Energy Intake"
+				},
+				{
+					"body_slot": 4,
+					"category": 5,
+					"is_fixed": null,
+					"level": 1,
+					"mythic_mode": 0,
+					"power_lost": false,
+					"q": -3,
+					"r": 5,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ActuatorTile.gd",
+					"target_slot": null,
+					"tile_type": "Actuator"
+				}
+			],
+			"valid_hexes": [
+				{
+					"q": -1,
+					"r": 0
+				},
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": 1,
+					"r": 0
+				},
+				{
+					"q": -1,
+					"r": 1
+				},
+				{
+					"q": 0,
+					"r": 1
+				},
+				{
+					"q": 1,
+					"r": 1
+				},
+				{
+					"q": -2,
+					"r": 2
+				},
+				{
+					"q": -1,
+					"r": 2
+				},
+				{
+					"q": 0,
+					"r": 2
+				},
+				{
+					"q": -2,
+					"r": 3
+				},
+				{
+					"q": -1,
+					"r": 3
+				},
+				{
+					"q": 0,
+					"r": 3
+				},
+				{
+					"q": -3,
+					"r": 4
+				},
+				{
+					"q": -2,
+					"r": 4
+				},
+				{
+					"q": -1,
+					"r": 4
+				},
+				{
+					"q": -3,
+					"r": 5
+				},
+				{
+					"q": -2,
+					"r": 5
+				},
+				{
+					"q": -1,
+					"r": 5
+				}
+			]
+		},
+		"5": {
+			"component_name": "R. Leg",
+			"fixed_sinks": [
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": -3,
+					"r": 5
+				}
+			],
+			"forbidden_tile_types": [],
+			"infusion_level": 0,
+			"infusion_xp": 0,
+			"rarity": 1,
+			"slot_type": 5,
+			"stat_modifiers": {
+
+			},
+			"tiles": [
+				{
+					"body_slot": 5,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Energy Intake"
+				},
+				{
+					"body_slot": 5,
+					"category": 5,
+					"is_fixed": null,
+					"level": 1,
+					"mythic_mode": 0,
+					"power_lost": false,
+					"q": -3,
+					"r": 5,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ActuatorTile.gd",
+					"target_slot": null,
+					"tile_type": "Actuator"
+				}
+			],
+			"valid_hexes": [
+				{
+					"q": -1,
+					"r": 0
+				},
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": 1,
+					"r": 0
+				},
+				{
+					"q": -1,
+					"r": 1
+				},
+				{
+					"q": 0,
+					"r": 1
+				},
+				{
+					"q": 1,
+					"r": 1
+				},
+				{
+					"q": -2,
+					"r": 2
+				},
+				{
+					"q": -1,
+					"r": 2
+				},
+				{
+					"q": 0,
+					"r": 2
+				},
+				{
+					"q": -2,
+					"r": 3
+				},
+				{
+					"q": -1,
+					"r": 3
+				},
+				{
+					"q": 0,
+					"r": 3
+				},
+				{
+					"q": -3,
+					"r": 4
+				},
+				{
+					"q": -2,
+					"r": 4
+				},
+				{
+					"q": -1,
+					"r": 4
+				},
+				{
+					"q": -3,
+					"r": 5
+				},
+				{
+					"q": -2,
+					"r": 5
+				},
+				{
+					"q": -1,
+					"r": 5
+				}
+			]
+		},
+		"6": {
+			"component_name": "Head",
+			"fixed_sinks": [
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": 0,
+					"r": -3
+				}
+			],
+			"forbidden_tile_types": [],
+			"infusion_level": 0,
+			"infusion_xp": 0,
+			"rarity": 1,
+			"slot_type": 6,
+			"stat_modifiers": {
+
+			},
+			"tiles": [
+				{
+					"body_slot": 6,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Energy Intake"
+				},
+				{
+					"body_slot": 6,
+					"category": 3,
+					"is_fixed": true,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": -3,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"target_slot": 1,
+					"tile_type": "Torso Return"
+				}
+			],
+			"valid_hexes": [
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": 0,
+					"r": -1
+				},
+				{
+					"q": 1,
+					"r": -2
+				},
+				{
+					"q": 1,
+					"r": -3
+				},
+				{
+					"q": -1,
+					"r": -1
+				},
+				{
+					"q": 1,
+					"r": -1
+				},
+				{
+					"q": 0,
+					"r": -2
+				},
+				{
+					"q": 2,
+					"r": -2
+				},
+				{
+					"q": 0,
+					"r": -3
+				},
+				{
+					"q": 2,
+					"r": -3
+				}
+			]
+		},
+		"7": {
+			"component_name": "Cloak Field",
+			"fixed_sinks": [
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": 0,
+					"r": 1
+				}
+			],
+			"forbidden_tile_types": [],
+			"infusion_level": 0,
+			"infusion_xp": 0,
+			"rarity": 1,
+			"slot_type": 7,
+			"stat_modifiers": {
+
+			},
+			"tiles": [
+				{
+					"body_slot": 7,
+					"category": 3,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": 0,
+					"rarity": 0,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"tile_type": "Energy Intake"
+				},
+				{
+					"body_slot": 7,
+					"category": 5,
+					"level": 1,
+					"power_lost": false,
+					"q": 1,
+					"r": 0,
+					"rarity": 1,
+					"script_path": "res://scripts/tiles/CloakTile.gd",
+					"tile_type": "Cloak Generator"
+				},
+				{
+					"body_slot": 7,
+					"category": 3,
+					"is_fixed": true,
+					"level": 1,
+					"power_lost": false,
+					"q": 0,
+					"r": 1,
+					"rarity": 0,
+					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+					"target_slot": 1,
+					"tile_type": "Torso Return"
+				}
+			],
+			"valid_hexes": [
+				{
+					"q": -2,
+					"r": -1
+				},
+				{
+					"q": -2,
+					"r": 0
+				},
+				{
+					"q": -2,
+					"r": 1
+				},
+				{
+					"q": -1,
+					"r": -1
+				},
+				{
+					"q": -1,
+					"r": 0
+				},
+				{
+					"q": -1,
+					"r": 1
+				},
+				{
+					"q": 0,
+					"r": -1
+				},
+				{
+					"q": 0,
+					"r": 0
+				},
+				{
+					"q": 0,
+					"r": 1
+				},
+				{
+					"q": 1,
+					"r": -1
+				},
+				{
+					"q": 1,
+					"r": 0
+				},
+				{
+					"q": 1,
+					"r": 1
+				},
+				{
+					"q": 2,
+					"r": -1
+				},
+				{
+					"q": 2,
+					"r": 0
+				},
+				{
+					"q": 2,
+					"r": 1
+				}
+			]
+		}
+	},
+	"demo_name": "Assassin (cloaked pierce ambusher)",
+	"version": 4
+}

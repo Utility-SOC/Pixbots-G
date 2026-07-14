@@ -587,6 +587,29 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 		var syn_name = EnergyPacket.element_name(dominant_syn)
 		draw_string(font, center + Vector2(-25, 25), "[%s]" % syn_name, HORIZONTAL_ALIGNMENT_CENTER, 50, 10, Color.WHITE)
 		
+	elif type == "Energy Intake":
+		# Power-entry marker (playtest: "unclear where/when power will
+		# enter a limb"): bright green ring + inbound chevrons + IN label.
+		# THIS hex is where the torso's cross-component feed arrives.
+		var glow = Color(0.3, 1.0, 0.5)
+		draw_arc(center, hs * 0.55, 0, TAU, 18, glow, 2.5, true)
+		for i in range(3):
+			var off = hs * (0.95 - i * 0.22)
+			draw_line(center + Vector2(-off, -hs * 0.3), center + Vector2(-off + hs * 0.2, 0), glow, 3.0, true)
+			draw_line(center + Vector2(-off + hs * 0.2, 0), center + Vector2(-off, hs * 0.3), glow, 3.0, true)
+		draw_string(ThemeDB.fallback_font, center + Vector2(-8, 4), "IN", HORIZONTAL_ALIGNMENT_CENTER, 20, 10, glow)
+
+	elif type.ends_with("Return"):
+		# Power-exit marker: this hex sends energy BACK toward the torso
+		# (Torso/Accessory Return) - outbound chevrons, orange.
+		var out_c = Color(1.0, 0.6, 0.2)
+		draw_arc(center, hs * 0.55, 0, TAU, 18, out_c, 2.5, true)
+		for i in range(3):
+			var off = hs * (0.5 + i * 0.22)
+			draw_line(center + Vector2(off - hs * 0.2, -hs * 0.3), center + Vector2(off, 0), out_c, 3.0, true)
+			draw_line(center + Vector2(off, 0), center + Vector2(off - hs * 0.2, hs * 0.3), out_c, 3.0, true)
+		draw_string(ThemeDB.fallback_font, center + Vector2(-14, 4), "OUT", HORIZONTAL_ALIGNMENT_CENTER, 30, 10, out_c)
+
 	elif type.ends_with("Link"):
 
 		var w = hs * 0.3

@@ -47,7 +47,14 @@ const TARGET_RESCAN_INTERVAL = 0.35
 # on a leash, not an independent hunter, and losing the target (or the
 # target leaving leash reach) snaps it back to the owner orbit.
 const ENGAGE_ORBIT_DISTANCE = 180.0
-const LEASH_DISTANCE = 420.0
+# Playtest ("the drones are all in close rather than behaving as expected"):
+# 420 predates central spawns, near-peer squads, and kinetic-range fights -
+# engagements now routinely happen 800-1500px out, so a 420px leash clamped
+# every sortie back to a huddle around the player while the actual battle
+# stayed out of the pets' reach. The leash still exists (a pet, not an
+# independent hunter - losing the target still snaps it home), it just now
+# covers the ranges fights actually happen at.
+const LEASH_DISTANCE = 1000.0
 
 # Recon Plane (DroneRenderer.RECON_CLASS): a scout, not a brawler - much
 # longer reach in both directions (spots/engages from farther out, roams
@@ -56,7 +63,7 @@ const LEASH_DISTANCE = 420.0
 # "languidly figure eight over the map").
 const RECON_TARGET_SEARCH_RADIUS = 1600.0
 const RECON_ENGAGE_ORBIT_DISTANCE = 360.0
-const RECON_LEASH_DISTANCE = 900.0
+const RECON_LEASH_DISTANCE = 2000.0
 const RECON_LOITER_RADIUS = 260.0
 const RECON_LOITER_SPEED = 0.35 # slow - "languid," not a patrol sweep
 

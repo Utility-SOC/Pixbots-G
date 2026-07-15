@@ -204,8 +204,44 @@ func get_muzzle_position(mech) -> Vector2:
 
 	return mech.global_position
 
+# Saturation consolidation state (see ProjectileManager.consolidation_factor):
+# while the screen is past its live-projectile budget, this mount banks every
+# volley's packet here and only actually fires every K-th call, with the
+# banked packets merged in - same total energy delivered downrange, a
+# fraction of the Area2D population. Per-mount state, so different mounts
+# never cross-contaminate elements.
+var _consolidation_buffer: EnergyPacket = null
+var _consolidation_shots: int = 0
+
 func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0):
 	if not _ProjectileClass: return
+
+	# Whole-volley consolidation under saturation (playtest: rational
+	# weaponsfire at high difficulty was hitting 1-3 fps). Applied only to
+	# top-level volleys - pattern children of a volley that DOES fire still
+	# split normally, skipped volleys simply skip their split too.
+	if not _pattern_child:
+		var k = ProjectileManager.consolidation_factor()
+		if k > 1:
+			if _consolidation_buffer == null:
+				_consolidation_buffer = packet.copy()
+			else:
+				for s in packet.synergies:
+					_consolidation_buffer.add_synergy(s, packet.synergies[s])
+			_consolidation_shots += 1
+			if _consolidation_shots < k:
+				return
+			packet = _consolidation_buffer
+			_consolidation_buffer = null
+			_consolidation_shots = 0
+		elif _consolidation_buffer != null:
+			# Saturation just ended: fold the leftover bank into this shot so
+			# banked energy is never silently dropped.
+			for s in packet.synergies:
+				_consolidation_buffer.add_synergy(s, packet.synergies[s])
+			packet = _consolidation_buffer
+			_consolidation_buffer = null
+			_consolidation_shots = 0
 
 	# MYTHIC Weapon Mount firing patterns: split the volley into a shotgun
 	# spread or a 360-degree radial burst by recursively firing scaled-down

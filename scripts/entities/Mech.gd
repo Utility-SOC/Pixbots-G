@@ -343,6 +343,32 @@ func _on_own_took_damage(amount: float, was_reflected: bool):
 	if was_reflected:
 		_own_reflected_damage_taken += amount
 
+# Near-peer evolution rewards (playtest: "now I'm fighting near peer
+# enemies - I'm dying a whole lot more. Could it give extra special bonus
+# for that? Could it also be rewarded for hitting my drones or allied
+# units?"): damage that actually lands on the PLAYER is worth extra fitness
+# beyond the generic damage term, damage on the player's drones/allies a
+# smaller premium, and killing blows a large flat bonus - so evolution
+# selects for bots that genuinely threaten the player's side, not ones that
+# farm safe chip damage. Credited from the VICTIM's apply_damage (it knows
+# both the source and what it itself is), not from the projectile.
+var _own_player_damage: float = 0.0
+var _own_ally_damage: float = 0.0
+var _own_player_kills: int = 0
+var _own_ally_kills: int = 0
+
+func note_priority_target_damage(amount: float, was_the_player: bool):
+	if was_the_player:
+		_own_player_damage += amount
+	else:
+		_own_ally_damage += amount
+
+func note_priority_kill(was_the_player: bool):
+	if was_the_player:
+		_own_player_kills += 1
+	else:
+		_own_ally_kills += 1
+
 # Same formula shape as Squad._calculate_fitness (damage/hits/survival/
 # trade/blind), minus the flee-penalty term - that's a squad-cohesion
 # signal ("the group went quiet"), not meaningful for a single bot whose
@@ -366,7 +392,17 @@ func get_individual_fitness() -> float:
 	var reflection_penalty = _own_reflected_damage_taken * 0.5
 	var blind_score = _own_blind_hits_landed * 4.0
 
-	return max(0.0, damage_score + hit_score + survival_score + trade_score + blind_score - reflection_penalty)
+	# Priority-target premium (see note_priority_target_damage): player
+	# damage counts ON TOP of the generic damage term (so it's worth 2.5x a
+	# hit on nothing in particular), ally/drone damage a smaller premium,
+	# and killing blows are worth a wave's worth of chip damage by
+	# themselves - "extra special bonus" per the playtest ruling.
+	var priority_score = _own_player_damage * 1.5 \
+		+ _own_ally_damage * 0.75 \
+		+ _own_player_kills * 400.0 \
+		+ _own_ally_kills * 80.0
+
+	return max(0.0, damage_score + hit_score + survival_score + trade_score + blind_score + priority_score - reflection_penalty)
 
 var is_dead: bool = false
 
@@ -2044,6 +2080,14 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 	if not is_player and amount > 0:
 		took_damage.emit(amount, was_reflected)
 
+	# Near-peer evolution premium: this victim is on the player's side
+	# (is_player covers the player AND player-owned drones; the "player"
+	# group membership distinguishes which) and the attacker is an enemy
+	# bot - credit it (see note_priority_target_damage / fitness).
+	if is_player and amount > 0 and is_instance_valid(source) \
+			and source.get("is_player") == false and source.has_method("note_priority_target_damage"):
+		source.note_priority_target_damage(amount, is_in_group("player"))
+
 	if is_player and amount > 0:
 		_log_incoming_damage(amount, element, source)
 		var main = get_tree().current_scene
@@ -2058,6 +2102,8 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 		if randf() < PIERCE_EXECUTION_CHANCE:
 			_show_floating_text("EXECUTED", Color(1.0, 0.15, 0.15))
 			hp = 0
+			if is_player and is_instance_valid(source) and source.has_method("note_priority_kill"):
+				source.note_priority_kill(is_in_group("player"))
 			die()
 			return
 
@@ -2070,6 +2116,9 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 
 	hp -= amount
 	if hp <= 0:
+		# Killing-blow premium for near-peer evolution (see note_priority_kill).
+		if is_player and is_instance_valid(source) and source.has_method("note_priority_kill"):
+			source.note_priority_kill(is_in_group("player"))
 		die()
 
 # Appends one entry to recent_damage_log and prunes anything older than
@@ -2116,6 +2165,11 @@ func _show_floating_text(text: String, color: Color):
 	# sibling node under `parent`, not a child of this mech, so it isn't
 	# covered by the .visible toggle there automatically.
 	if not is_player and not visible:
+		return
+	# Global popup budget (see ProjectileManager.request_floater): a bullet
+	# storm shouldn't also spawn hundreds of tweened Labels per second. The
+	# player's own popups always count as high-priority.
+	if not ProjectileManager.request_floater(is_player):
 		return
 	var parent = get_parent()
 	if not parent:

@@ -28,6 +28,57 @@ var _results: Dictionary = {} # instance_id (int) -> Dictionary (this frame's re
 var _flight_checked: bool = false
 var _flight_rasterizer = null
 
+# --- Saturation tiers (playtest: "when this much is on the screen it
+# cripples performance (1-3 fps)") -----------------------------------------
+# Since every live projectile registers here, _active.size() is a free,
+# always-current census of how busy the screen is. Three graduated responses
+# key off it, all of which relax back to zero cost the moment the count
+# drops (nothing latches):
+#   1. lite_visuals(): above ~90 live shots, newly built projectiles skip
+#      their per-shot particle systems / helix orbiters / trail Line2Ds and
+#      keep just the core synergy shape. At that density the ornaments are
+#      unreadable overdraw anyway.
+#   2. consolidation_factor(): above the tiers below, weapon mounts merge
+#      every K volleys into ONE projectile carrying the combined packet
+#      (see HexTile._fire_combined_projectile) - total damage output is
+#      preserved, the shot gets bigger (magnitude already drives visual
+#      scale and hitbox), but the Area2D/broadphase population stops
+#      growing. This is the fix for the actual bottleneck (physics pairs +
+#      per-node dispatch), not just the rendering.
+#   3. request_floater(): global budget for damage/CRIT popups so a bullet
+#      storm doesn't also spawn hundreds of tweened Labels.
+const LITE_VISUALS_THRESHOLD = 90
+const CONSOLIDATE_TIERS = [[350, 8], [240, 4], [150, 2]] # [live count, merge-K]
+
+func live_count() -> int:
+	return _active.size()
+
+func lite_visuals() -> bool:
+	return _active.size() >= LITE_VISUALS_THRESHOLD
+
+func consolidation_factor() -> int:
+	var n = _active.size()
+	for tier in CONSOLIDATE_TIERS:
+		if n >= tier[0]:
+			return tier[1]
+	return 1
+
+const FLOATER_WINDOW_SEC = 0.5
+const FLOATER_CAP_CRIT = 14   # crits get the full budget...
+const FLOATER_CAP_NORMAL = 7  # ...ordinary numbers only the first half
+var _floater_window_start: float = 0.0
+var _floaters_this_window: int = 0
+
+func request_floater(is_crit: bool) -> bool:
+	var now = Time.get_ticks_msec() / 1000.0
+	if now - _floater_window_start > FLOATER_WINDOW_SEC:
+		_floater_window_start = now
+		_floaters_this_window = 0
+	if _floaters_this_window >= (FLOATER_CAP_CRIT if is_crit else FLOATER_CAP_NORMAL):
+		return false
+	_floaters_this_window += 1
+	return true
+
 func _ready():
 	# Lower runs first - see the module comment above for why this matters.
 	process_priority = -1000

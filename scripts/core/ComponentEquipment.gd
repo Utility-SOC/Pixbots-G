@@ -271,15 +271,26 @@ func generate_procedural_shape():
 		HexTile.Rarity.LEGENDARY, HexTile.Rarity.MYTHIC: num_primitives = 4
 
 	var remaining = base_count - 1 # start hex already placed
-	for p in range(num_primitives):
-		if remaining <= 0:
-			break
-		var slots_left = num_primitives - p
+	# num_primitives sets the TARGET silhouette complexity, but must never
+	# cap the hex budget: a line/hook primitive that happens to re-trace
+	# already-placed cells adds almost nothing (duplicates are skipped, not
+	# rerolled), and with a hard N-primitive loop a Mythic boss torso
+	# (budget 100) could legitimately come out under 20 hexes (playtest:
+	# "ostensibly this empty torso is a mythic boss torso... it is many
+	# fewer hexes than it should have"). Keep attaching primitives until
+	# the budget is actually SPENT, with a stall guard so a pathological
+	# fully-boxed-in shape still terminates.
+	var p = 0
+	var stall_guard = num_primitives * 8
+	while remaining > 0 and stall_guard > 0:
+		stall_guard -= 1
+		var slots_left = max(1, num_primitives - p)
 		var budget = max(2, int(ceil(float(remaining) / slots_left)))
 		var attach = valid_hexes[rng.randi() % valid_hexes.size()]
 		var archetype = _pick_weighted_archetype(weights, rng)
 		var added = _grow_primitive(attach, archetype, budget, rng)
 		remaining -= added
+		p += 1
 
 # Role-flavored odds of picking each primitive type. Keys must match the
 # match statement in _grow_primitive().

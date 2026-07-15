@@ -481,6 +481,13 @@ func _build_visuals():
 	var add_mat = CanvasItemMaterial.new()
 	add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	visual_node.material = add_mat
+
+	# Saturation LOD (see ProjectileManager.lite_visuals): past ~90 live
+	# shots, skip the per-shot ornaments (particle systems, helix orbiters,
+	# trail lines) and keep just the core synergy shape + signature ring.
+	# Checked once at build time - a shot is born lite or full and stays
+	# that way; nothing pops mid-flight.
+	var lite = ProjectileManager.lite_visuals()
 	
 	# Determine dominant and secondary synergies for shape generation
 	var sorted_synergies = []
@@ -523,15 +530,26 @@ func _build_visuals():
 		poly.scale = Vector2.ONE * p_scale
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.FIRE:
-		# Spreading fire trail
-		var fire_trail = FireTrail2D.new()
-		fire_trail.scale_amount_min *= p_scale
-		fire_trail.scale_amount_max *= p_scale
-		# Use MIX instead of ADD so the black soot is visible
-		var mix_mat = CanvasItemMaterial.new()
-		mix_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_MIX
-		fire_trail.material = mix_mat
-		visual_node.add_child(fire_trail)
+		if lite:
+			# Saturation stand-in: a simple ember wedge instead of a whole
+			# CPUParticles2D system per bullet.
+			var poly = Polygon2D.new()
+			poly.polygon = PackedVector2Array([
+				Vector2(9, 0), Vector2(-4, 4), Vector2(-6, 0), Vector2(-4, -4)
+			])
+			poly.color = final_color
+			poly.scale = Vector2.ONE * p_scale
+			visual_node.add_child(poly)
+		else:
+			# Spreading fire trail
+			var fire_trail = FireTrail2D.new()
+			fire_trail.scale_amount_min *= p_scale
+			fire_trail.scale_amount_max *= p_scale
+			# Use MIX instead of ADD so the black soot is visible
+			var mix_mat = CanvasItemMaterial.new()
+			mix_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_MIX
+			fire_trail.material = mix_mat
+			visual_node.add_child(fire_trail)
 	elif dominant == EnergyPacket.SynergyType.ICE:
 		# Crystalline, jagged shape
 		var poly = Polygon2D.new()
@@ -597,18 +615,20 @@ func _build_visuals():
 		poly.scale = Vector2.ONE * p_scale
 		visual_node.add_child(poly)
 		
-		# Purple spiral
-		var spiral = Line2D.new()
-		var s_pts = PackedVector2Array()
-		for i in range(30):
-			var a = i * PI / 4.0
-			var r = i * 0.4
-			s_pts.append(Vector2(cos(a), sin(a)) * r)
-		spiral.points = s_pts
-		spiral.width = 1.5
-		spiral.default_color = Color(0.6, 0.2, 0.9) # Bright purple
-		spiral.scale = Vector2.ONE * p_scale
-		visual_node.add_child(spiral)
+		# Purple spiral (skipped under saturation - the diamond core carries
+		# the identity on a crowded screen)
+		if not lite:
+			var spiral = Line2D.new()
+			var s_pts = PackedVector2Array()
+			for i in range(30):
+				var a = i * PI / 4.0
+				var r = i * 0.4
+				s_pts.append(Vector2(cos(a), sin(a)) * r)
+			spiral.points = s_pts
+			spiral.width = 1.5
+			spiral.default_color = Color(0.6, 0.2, 0.9) # Bright purple
+			spiral.scale = Vector2.ONE * p_scale
+			visual_node.add_child(spiral)
 	elif dominant == EnergyPacket.SynergyType.RAW or dominant == -1:
 		# Glowing Raw Energy Sphere
 		var circ = Polygon2D.new()
@@ -621,7 +641,7 @@ func _build_visuals():
 		visual_node.add_child(circ)
 		
 	# Secondary Element modifies properties
-	if secondary == EnergyPacket.SynergyType.POISON:
+	if secondary == EnergyPacket.SynergyType.POISON and not lite:
 		# Toxic trail
 		var trail = GPUParticles2D.new()
 		trail.amount = 20
@@ -645,7 +665,7 @@ func _build_visuals():
 		visual_node.add_child(core)
 		
 	# Setup helix for multi-synergy combos
-	if sorted_synergies.size() >= 2:
+	if sorted_synergies.size() >= 2 and not lite:
 		for k in synergies:
 			if k != EnergyPacket.SynergyType.RAW:
 				var h = Polygon2D.new()
@@ -664,14 +684,14 @@ func _build_visuals():
 				})
 	
 	# Kinetic Trail
-	if ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0) > 0.1:
+	if ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0) > 0.1 and not lite:
 		var trail = Trail2D.new()
 		trail.width = 4.0
 		trail.default_color = final_color * Color(1,1,1,0.5)
 		visual_node.add_child(trail)
 		
 	# Vortex Helix Orbs
-	if ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) > 0.05:
+	if ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) > 0.05 and not lite:
 		for i in range(3):
 			var orb = Polygon2D.new()
 			var pts = PackedVector2Array()
@@ -1324,7 +1344,7 @@ func _handle_hit(target: Node2D):
 			var intensity = clamp(damage / 5000000.0, 1.5, 5.0)
 			cam.shake(intensity, 0.4)
 	
-	if is_crit and target.get_parent():
+	if is_crit and target.get_parent() and ProjectileManager.request_floater(true):
 		var lbl = Label.new()
 		lbl.text = "CRIT!"
 		lbl.modulate = Color(1.0, 0.2, 0.2)

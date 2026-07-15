@@ -98,6 +98,11 @@ func add_member(mech: Node):
 	if "squad" in mech:
 		mech.squad = self
 
+	# A wild bot recruited back into service rejoins the fight - clears the
+	# flee/wild loiter state (see Mech._update_flee_state).
+	if mech.has_method("rejoin_from_wild"):
+		mech.rejoin_from_wild()
+
 	# Listen for when the member dies (exits the tree)
 	mech.tree_exiting.connect(_on_member_died)
 

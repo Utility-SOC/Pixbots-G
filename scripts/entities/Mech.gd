@@ -309,6 +309,37 @@ signal took_damage(amount: float, was_reflected: bool)
 signal died()
 signal fled_to_wild(bot: Node)
 
+# --- Wild-bot flee thresholds (Status.md queue) ----------------------------
+# Role-specific HP fractions below which a regular wave enemy breaks off,
+# sprints away from the player, and goes "wild": it leaves its squad, hands
+# its wave slot back (so a hiding survivor can never stall the wave-clear),
+# emits fled_to_wild, and joins SquadDirector.wild_bots for recruitment into
+# a future squad. Skittish roles bail early; heavy front-line roles fight to
+# the bitter end (0.0 = never). Bosses, rivals, champions, and debug spawns
+# never flee (gated on actually holding a wave slot - see _is_wave_enemy).
+const FLEE_THRESHOLDS = {
+	"ambusher": 0.5,
+	"scout": 0.5,
+	"jammer": 0.45,
+	"sniper": 0.4,
+	"support": 0.35,
+	"piercing_jammer": 0.3,
+	"flamethrower": 0.2,
+	"commander": 0.15,
+	"brawler": 0.0,
+	"melee": 0.0,
+	"tank": 0.0,
+	"drone": 0.0,
+}
+const FLEE_DEFAULT_THRESHOLD = 0.25
+const FLEE_SAFE_DISTANCE = 1400.0
+# Wild bots lick their wounds while loitering - regen keeps a re-recruited
+# bot from instantly re-fleeing at the same threshold it bailed at.
+const WILD_REGEN_PER_SEC_FRACTION = 0.02
+const WILD_REGEN_CAP_FRACTION = 0.75
+var is_fleeing: bool = false
+var _has_gone_wild: bool = false
+
 # --- Individual-bot fitness tracking (Natalia: "individuals in types of
 # roles... tracked/scored") ------------------------------------------------
 # Mirrors Squad._calculate_fitness's inputs but scoped to THIS bot alone,
@@ -1769,7 +1800,106 @@ func _gain_sight(player_pos: Vector2):
 	last_known_player_pos = player_pos
 
 
+# --- Flee/wild state machine (see FLEE_THRESHOLDS block up top) ------------
+func _flee_threshold() -> float:
+	return FLEE_THRESHOLDS.get(combat_role, FLEE_DEFAULT_THRESHOLD)
+
+# Only mechs holding a real wave slot (died wired to Main._on_enemy_died)
+# may flee - rivals, traveling champions, and debug spawns have their own
+# lifecycle accounting that a disappearing combatant would stall or corrupt.
+func _is_wave_enemy() -> bool:
+	for conn in died.get_connections():
+		if conn.callable.get_method() == "_on_enemy_died":
+			return true
+	return false
+
+# Returns true while flee/wild owns this mech's movement (caller returns).
+func _update_flee_state(delta: float) -> bool:
+	if _has_gone_wild:
+		# Wild loiter: out of the fight, licking wounds until the director
+		# recruits it into a fresh squad (Squad.add_member clears the flag).
+		velocity = Vector2.ZERO
+		if hp < max_hp * WILD_REGEN_CAP_FRACTION:
+			hp = min(max_hp * WILD_REGEN_CAP_FRACTION, hp + max_hp * WILD_REGEN_PER_SEC_FRACTION * delta)
+		if _ai_state_label:
+			_ai_state_label.text = "WILD"
+			_ai_state_label.modulate = Color(0.7, 0.7, 0.7)
+		return true
+
+	if not is_fleeing:
+		var threshold = _flee_threshold()
+		if threshold <= 0.0 or max_hp <= 0.0 or hp <= 0.0:
+			return false
+		if hp / max_hp > threshold:
+			return false
+		if not _is_wave_enemy():
+			return false
+		_begin_flee()
+
+	var p = _get_player_ref()
+	if not p or not is_instance_valid(p):
+		_finish_flee()
+		return true
+	var away = global_position - p.global_position
+	if away.length() >= FLEE_SAFE_DISTANCE:
+		_finish_flee()
+		return true
+	if _ai_state_label:
+		_ai_state_label.text = "FLEE"
+		_ai_state_label.modulate = Color(1.0, 1.0, 0.3)
+	velocity = away.normalized() * current_move_speed * speed_modifier
+	return true
+
+func _begin_flee():
+	is_fleeing = true
+	fled_to_wild.emit(self)
+	# Leave the squad cleanly: detach every listener Squad.add_member wired
+	# (so a later death or re-recruitment can't double-count into a squad
+	# it already left) and hand the squad its "member gone" tick - fitness-
+	# wise a deserter reads exactly like a loss, which is the point.
+	if squad and is_instance_valid(squad):
+		for conn in tree_exiting.get_connections():
+			if conn.callable.get_method() == "_on_member_died":
+				tree_exiting.disconnect(conn.callable)
+		for conn in dealt_damage.get_connections():
+			if conn.callable.get_method() == "_on_member_dealt_damage":
+				dealt_damage.disconnect(conn.callable)
+		for conn in took_damage.get_connections():
+			if conn.callable.get_method() == "_on_member_took_damage":
+				took_damage.disconnect(conn.callable)
+		squad._on_member_died()
+		squad = null
+
+func _finish_flee():
+	if _has_gone_wild:
+		return
+	_has_gone_wild = true
+	is_fleeing = false
+	target = null
+	# Hand the wave slot back exactly as if this bot died (and disconnect
+	# so its actual death later can't double-decrement) - a survivor hiding
+	# at the map edge must never stall the wave-clear.
+	for conn in died.get_connections():
+		if conn.callable.get_method() == "_on_enemy_died":
+			died.disconnect(conn.callable)
+			conn.callable.call()
+	var main = get_tree().current_scene
+	if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
+		main.world.get_node("SquadDirector").register_wild_bot(self)
+
+# Called by Squad.add_member when the director recruits this bot into a
+# fresh squad - it rejoins the fight as a regular member.
+func rejoin_from_wild():
+	is_fleeing = false
+	_has_gone_wild = false
+
 func _execute_ai_tactics(delta):
+	# Flee/wild states override everything below for regular wave enemies -
+	# checked BEFORE target re-acquisition, or a wild bot would immediately
+	# re-target the player it just escaped from.
+	if not is_boss and not is_player and _update_flee_state(delta):
+		return
+
 	if not target:
 		target = _get_player_ref()
 

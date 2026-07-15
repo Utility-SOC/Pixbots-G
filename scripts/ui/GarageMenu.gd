@@ -454,12 +454,12 @@ var _market_sold: Dictionary = {}
 # raw enum int (which is what "Black Market 3" used to mean - a real bug that
 # made purchased parts basically unrecognizable in the spare-parts list).
 const SLOT_DISPLAY_NAMES = {
-	HexTile.BodySlot.TORSO: "Torso",
+	HexTile.BodySlot.TORSO: "Main Chassis",
 	HexTile.BodySlot.ARM_L: "Left Arm",
 	HexTile.BodySlot.ARM_R: "Right Arm",
 	HexTile.BodySlot.LEG_L: "Left Leg",
 	HexTile.BodySlot.LEG_R: "Right Leg",
-	HexTile.BodySlot.HEAD: "Head",
+	HexTile.BodySlot.HEAD: "Sensor Head",
 	HexTile.BodySlot.BACKPACK: "Backpack",
 	HexTile.BodySlot.DRONE: "Drone",
 }
@@ -627,10 +627,15 @@ func _on_swap_component_pressed():
 		return
 		
 	var popup = PopupMenu.new()
+	var rarity_names = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
 	for item in compatible:
-		var name_str = item.comp.component_name
-		if item.comp.rarity > 0: name_str += " (Rarity %d)" % item.comp.rarity
-		if item.comp.infusion_level > 0: name_str += " [Lv%d]" % item.comp.infusion_level
+		var name_str = "[%s] %s" % [_slot_display_name(item.comp.slot_type), item.comp.component_name]
+		if item.comp.rarity >= 0: 
+			var r_name = rarity_names[item.comp.rarity] if item.comp.rarity < rarity_names.size() else str(item.comp.rarity)
+			name_str += " (%s)" % r_name
+		var tiles = item.comp.hex_grid.get_all_tiles().size() if item.comp.hex_grid else 0
+		name_str += " [%d tiles]" % tiles
+		if item.comp.infusion_level > 0: name_str += " [+%d XP]" % item.comp.infusion_level
 		popup.add_item(name_str, item.index)
 		
 	popup.id_pressed.connect(func(id):
@@ -665,12 +670,17 @@ func _on_infuse_component_pressed():
 		return
 		
 	var popup = PopupMenu.new()
+	var rarity_names = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
 	for i in range(main.player_component_inventory.size()):
 		var comp = main.player_component_inventory[i]
-		var name_str = comp.component_name
-		if comp.rarity > 0: name_str += " (Rarity %d)" % comp.rarity
-		if comp.infusion_level > 0: name_str += " [Lv%d]" % comp.infusion_level
-		popup.add_item("Dismantle " + name_str, i)
+		var name_str = "[%s] %s" % [_slot_display_name(comp.slot_type), comp.component_name]
+		if comp.rarity >= 0: 
+			var r_name = rarity_names[comp.rarity] if comp.rarity < rarity_names.size() else str(comp.rarity)
+			name_str += " (%s)" % r_name
+		var tiles = comp.hex_grid.get_all_tiles().size() if comp.hex_grid else 0
+		name_str += " [%d tiles]" % tiles
+		if comp.infusion_level > 0: name_str += " [+%d XP]" % comp.infusion_level
+		popup.add_item("Salvage " + name_str, i)
 		
 	popup.id_pressed.connect(func(id):
 		var junk = main.player_component_inventory[id]
@@ -686,7 +696,7 @@ func _on_infuse_component_pressed():
 		var xp_gain = 100 + (junk.rarity * 150)
 		if active_component.has_method("add_infusion_xp"):
 			active_component.add_infusion_xp(xp_gain)
-			_show_warning("Infused %s! +%d XP to %s" % [junk.component_name, xp_gain, active_component.component_name])
+			_show_warning("Salvaged %s! +%d XP to %s" % [junk.component_name, xp_gain, active_component.component_name])
 		else:
 			_show_warning("ComponentEquipment missing Infusion Logic!")
 			
@@ -824,6 +834,18 @@ func _apply_demo_build(data: Dictionary):
 	_refresh_component_ui()
 	_refresh_inventory_ui()
 	_show_warning("Demo kit '%s' equipped!\nYour previous parts are in the component inventory (Swap Component to get them back)." % data.get("demo_name", "?"))
+
+# Test Range (see GarageTestRange.gd): live-fire popup with its own
+# physics world - the garage's paused tree doesn't apply inside it.
+func _on_test_range_pressed():
+	var main = get_parent()
+	if not main or main.get("player") == null:
+		_show_warning("No active mech to test-fire.")
+		return
+	var range_popup = load("res://scripts/ui/GarageTestRange.gd").new()
+	range_popup.setup(main.player)
+	add_child(range_popup)
+	range_popup.popup_centered(Vector2(940, 540))
 
 # --- Named build/part slots ----------------------------------------------
 # Unlimited named save slots for full builds and single parts (playtest

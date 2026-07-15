@@ -84,7 +84,7 @@ func build():
 	action_vbox.add_child(swap_btn)
 
 	var infuse_btn = Button.new()
-	infuse_btn.text = "Infuse (Destroy part)"
+	infuse_btn.text = "Salvage for XP"
 	infuse_btn.pressed.connect(garage._on_infuse_component_pressed)
 	action_vbox.add_child(infuse_btn)
 
@@ -156,6 +156,15 @@ func build():
 	drone_copy_button.custom_minimum_size = Vector2(100, 50)
 	drone_copy_button.pressed.connect(garage._on_drone_copy_all_pressed)
 	bottom_bar.add_child(drone_copy_button)
+
+	# Test Range (Status.md queue): live-fire any armed mount's REAL energy
+	# feed at a dummy mech in a private physics world - see GarageTestRange.
+	var test_range_button = Button.new()
+	test_range_button.text = "Test Range"
+	test_range_button.custom_minimum_size = Vector2(100, 50)
+	test_range_button.tooltip_text = "Fire your actual weapon mounts at a target dummy - real projectiles, real spread, real damage numbers."
+	test_range_button.pressed.connect(garage._on_test_range_pressed)
+	bottom_bar.add_child(test_range_button)
 
 	var sep_fire_toggle = CheckButton.new()
 	sep_fire_toggle.text = "Separate L/R Firing"
@@ -232,8 +241,8 @@ func build():
 	# function scope as a compile error, which silently killed the whole
 	# garage (GDScript::reload fails -> _open_garage gets a scriptless class).
 	var infuse_xp_btn = Button.new()
-	infuse_xp_btn.text = "Infuse This Part (+100 XP / 100 scrap)"
-	infuse_xp_btn.tooltip_text = "500 XP per infusion level. Legendary+ parts roll a random stat modifier each level."
+	infuse_xp_btn.text = "Upgrade This Part (+100 XP / -100 scrap)"
+	infuse_xp_btn.tooltip_text = "500 XP per level. Legendary+ parts roll a random stat modifier each level."
 	infuse_xp_btn.pressed.connect(garage._on_infuse_part)
 	scrap_sink_bar.add_child(infuse_xp_btn)
 
@@ -254,7 +263,7 @@ func build():
 	feature5_bar.add_child(extract_btn)
 
 	var chip_btn = Button.new()
-	chip_btn.text = "Infuse Chip"
+	chip_btn.text = "Apply Mod Chip"
 	chip_btn.tooltip_text = "Applies your oldest extracted modifier chip to the current part. Chips stack, capped at +50% per stat."
 	chip_btn.pressed.connect(garage._on_infuse_chip)
 	feature5_bar.add_child(chip_btn)

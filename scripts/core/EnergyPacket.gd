@@ -65,6 +65,11 @@ var aoe_bonus: float = 0.0
 # fires only via its 1/2/3 key. See Mech._recalculate_grid.
 var acc_charge_mult: float = 1.0
 var acc_damage_mult: float = 1.0
+# Accumulator auto-dump (tile config): highest threshold stamped by any
+# Accumulator this packet routed through. 0 = manual key fire only; > 0 =
+# the banked shot auto-releases at that fraction of full charge (payload
+# scaled to the charge actually banked) - see Mech._tick_weapon_charges.
+var auto_dump_threshold: float = 0.0
 var traversal_steps: int = 0
 var charge_required: float = 1.0 :
 	set(val):
@@ -164,6 +169,7 @@ func copy() -> EnergyPacket:
 	new_packet.aoe_bonus = aoe_bonus
 	new_packet.acc_charge_mult = acc_charge_mult
 	new_packet.acc_damage_mult = acc_damage_mult
+	new_packet.auto_dump_threshold = auto_dump_threshold
 	return new_packet
 
 func merge(other: EnergyPacket):
@@ -174,6 +180,7 @@ func merge(other: EnergyPacket):
 	# Strongest accumulator stack on any merged path defines the big shot
 	acc_charge_mult = max(acc_charge_mult, other.acc_charge_mult)
 	acc_damage_mult = max(acc_damage_mult, other.acc_damage_mult)
+	auto_dump_threshold = max(auto_dump_threshold, other.auto_dump_threshold)
 	for k in other.synergies:
 		synergies[k] = synergies.get(k, 0.0) + other.synergies[k]
 	for k in other.proc_synergies:

@@ -5,6 +5,14 @@ extends HexTile
 @export var damage_boost: float = 4.5 # The multiplier applied to the magnitude when fired
 @export_enum("None", "1", "2", "3") var trigger_key: String = "None"
 
+# Auto-dump threshold (tile config, Status.md re-imaginings): 0.0 = the
+# banked shot fires only on its 1/2/3 key (unchanged default); 0.25-1.0 =
+# it releases ITSELF the moment the bank reaches that fraction of full
+# charge, payload scaled to what was actually banked - a fully automated
+# burst-fire rhythm with a real tradeoff (lower threshold = faster but
+# weaker automated volleys). See Mech._tick_weapon_charges.
+@export_range(0.0, 1.0, 0.25) var auto_dump_threshold: float = 0.0
+
 func _init():
 	tile_type = "Accumulator"
 	category = TileCategory.STORAGE
@@ -22,6 +30,7 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	# charged shot from them - fired exclusively by this tile's 1/2/3 key.
 	packet.acc_charge_mult *= (charge_multiplier / mult) # higher rarity = less extra charge time for the same boost
 	packet.acc_damage_mult *= (damage_boost * mult)
+	packet.auto_dump_threshold = max(packet.auto_dump_threshold, auto_dump_threshold)
 	if trigger_key != "None":
 		packet.set("trigger_key", trigger_key)
 	# The "almost": normal mouse fire pays a small quality tax

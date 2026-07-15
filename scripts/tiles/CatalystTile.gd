@@ -13,6 +13,17 @@ extends HexTile
 # downstream components. Garage popup toggle; ignored below Mythic.
 @export var inverted: bool = false
 
+# Gated injection (Status.md re-imaginings): packets that fail either gate
+# pass through UNCONVERTED (no efficiency gain, no element change) - the
+# catalyst just lets them by. Both default to "no gate" so every existing
+# build behaves exactly as before.
+#   gate_min_magnitude - only catalyze packets at/above this magnitude
+#   gate_every_n       - only catalyze every Nth qualifying packet (a
+#                        rhythmic elemental pulse; 1 = every packet)
+@export var gate_min_magnitude: float = 0.0
+@export_range(1, 6) var gate_every_n: int = 1
+var _gate_counter: int = 0
+
 func toggle_inverted():
 	if rarity == Rarity.MYTHIC:
 		inverted = not inverted
@@ -32,6 +43,17 @@ func cycle_synergy_backward():
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0: return [packet]
+
+	# Gated injection: a packet that fails either gate passes through
+	# untouched (see the gate fields' comment). The counter only advances
+	# on packets that cleared the magnitude gate, so "every 3rd packet"
+	# means every 3rd QUALIFYING packet, not every 3rd dribble.
+	if gate_min_magnitude > 0.0 and packet.magnitude < gate_min_magnitude:
+		return [packet]
+	if gate_every_n > 1:
+		_gate_counter = (_gate_counter + 1) % gate_every_n
+		if _gate_counter != 0:
+			return [packet]
 
 	if inverted and rarity == Rarity.MYTHIC:
 		# Filter mode: keep only the chosen element, void the rest outright

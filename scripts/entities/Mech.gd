@@ -994,6 +994,28 @@ func _tick_weapon_charges(delta: float):
 					mount._fire_combined_projectile(self, packet_to_fire, data.step)
 					mount.bank_current_charge = 0.0
 					heat = max(0.0, heat - required * 0.6) # AI vents on auto-release too
+
+			# Player auto-dump (Accumulator config, see auto_dump_threshold's
+			# field comments): the bank releases ITSELF at its configured
+			# fraction of full charge, payload scaled to the charge actually
+			# banked - a lower threshold buys a faster automated rhythm at
+			# proportionally lower per-volley payoff. Threshold 0 (default)
+			# means this never runs and the 1/2/3 key stays the only trigger.
+			var auto_t = data.packet.auto_dump_threshold
+			if is_player and auto_t > 0.0 and mount.bank_current_charge >= required * auto_t:
+				var banked_frac = clamp(mount.bank_current_charge / max(0.001, required), 0.0, 1.0)
+				var auto_packet = data.packet.copy()
+				auto_packet.is_banked_shot = true
+				auto_packet.magnitude *= banked_frac * current_jammer_debuff
+				for k in auto_packet.synergies:
+					auto_packet.synergies[k] *= banked_frac * current_jammer_debuff
+				_apply_synergy_jamming(auto_packet)
+				auto_packet.magnitude *= _get_ambush_multiplier()
+				if is_cloaked:
+					_break_cloak()
+				mount._fire_combined_projectile(self, auto_packet, data.step)
+				mount.bank_current_charge = 0.0
+				heat = max(0.0, heat - required * banked_frac * 0.6)
 		else:
 			if mount.current_charge < required:
 				mount.current_charge = min(required, mount.current_charge + delta / max(0.01, fire_rate))
@@ -1340,11 +1362,13 @@ func _recalculate_grid():
 				var bank_charge = 0.0
 				var bank_amplify = 0.0
 				var bank_quality = 1.0
+				var bank_auto_dump = 0.0
 				if tile.tile_type == "Weapon Mount" and tile.grid_position:
 					var bank = _get_adjacent_accumulator_bonus(comp.hex_grid, tile.grid_position)
 					bank_charge = bank.charge
 					bank_amplify = bank.amplify
 					bank_quality = bank.quality
+					bank_auto_dump = bank.auto_dump
 
 				# Detect routed-through accumulators via the recorded mults
 				var probe = tile.pending_packets[0].packet
@@ -1372,6 +1396,10 @@ func _recalculate_grid():
 					enhanced.amplify(combined.acc_damage_mult * (1.0 + bank_amplify))
 					enhanced.charge_required = combined.charge_required * combined.acc_charge_mult + bank_charge
 					enhanced.trigger_key = combined.trigger_key if combined.trigger_key != "None" else "1"
+					# Auto-dump: routed-through accumulators stamped the packet
+					# already (copy/merge carry it); adjacent bank accumulators
+					# contribute theirs here - highest threshold wins.
+					enhanced.auto_dump_threshold = max(enhanced.auto_dump_threshold, bank_auto_dump)
 
 					# Normal-fire entry: the base (unamplified) packet, at
 					# whatever charge_required routing naturally gave it.
@@ -1599,6 +1627,7 @@ func _get_adjacent_accumulator_bonus(grid: HexGridComponent, coord: HexCoord) ->
 	var total_charge = 0.0
 	var total_amplify = 0.0
 	var worst_quality = 1.0
+	var max_auto_dump = 0.0
 	for d in range(6):
 		var n = coord.neighbor(d)
 		if grid.has_tile(n):
@@ -1608,7 +1637,8 @@ func _get_adjacent_accumulator_bonus(grid: HexGridComponent, coord: HexCoord) ->
 				total_amplify += neighbor_tile.get_bank_amplify()
 				if neighbor_tile.has_method("get_quality_factor"):
 					worst_quality = min(worst_quality, neighbor_tile.get_quality_factor())
-	return {"charge": total_charge, "amplify": total_amplify, "quality": worst_quality}
+				max_auto_dump = max(max_auto_dump, float(neighbor_tile.get("auto_dump_threshold")))
+	return {"charge": total_charge, "amplify": total_amplify, "quality": worst_quality, "auto_dump": max_auto_dump}
 
 func _collect_transfers(comp) -> Dictionary:
 	var result = {}

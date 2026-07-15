@@ -25,8 +25,26 @@ const BASELINE_AMPLIFY = 0.15
 # is only ever simulated once per loadout change (_recalculate_grid), not
 # live during combat (see FEATURE_ROADMAP.md's key architectural fact) -
 # packet.traversal_steps is the only clock that actually exists here.
-const SYNC_DROPOFF_STEPS = 3
+const SYNC_DROPOFF_DEFAULT = 3
+const SYNC_DROPOFF_MIN = 1
+const SYNC_DROPOFF_MAX = 9
+# Player-tunable dropoff PER TRAVERSAL PATH (Status.md queue: "manually
+# tweak the Sync Dropoff independently for all three paths") - indexed by
+# path id 0/1/2 (E/W, SE/NW, SW/NE). An Array rather than an int-keyed
+# Dictionary so SaveManager's generic tile-prop sweep JSON round-trips it
+# losslessly (JSON turns int dict keys into strings).
+var sync_dropoff_per_path: Array = [SYNC_DROPOFF_DEFAULT, SYNC_DROPOFF_DEFAULT, SYNC_DROPOFF_DEFAULT]
 var _path_residue: Dictionary = {} # path_id (0/1/2) -> {"synergy": int, "steps_left": int}
+
+func get_sync_dropoff(path_id: int) -> int:
+	if path_id < 0 or path_id >= sync_dropoff_per_path.size():
+		return SYNC_DROPOFF_DEFAULT
+	return clamp(int(sync_dropoff_per_path[path_id]), SYNC_DROPOFF_MIN, SYNC_DROPOFF_MAX)
+
+func adjust_sync_dropoff(path_id: int, delta: int):
+	if path_id < 0 or path_id >= sync_dropoff_per_path.size():
+		return
+	sync_dropoff_per_path[path_id] = clamp(get_sync_dropoff(path_id) + delta, SYNC_DROPOFF_MIN, SYNC_DROPOFF_MAX)
 
 func _init():
 	tile_type = "Resonator"
@@ -93,7 +111,7 @@ func _process_sync(packet: EnergyPacket, entry_direction: int) -> Array[EnergyPa
 	# same path - a RAW pass-through shouldn't erase a live proc source).
 	var dom = packet.get_dominant_synergy()
 	if dom != EnergyPacket.SynergyType.RAW:
-		_path_residue[this_path] = {"synergy": dom, "steps_left": SYNC_DROPOFF_STEPS}
+		_path_residue[this_path] = {"synergy": dom, "steps_left": get_sync_dropoff(this_path)}
 
 	return [packet]
 

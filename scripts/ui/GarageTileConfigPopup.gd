@@ -102,6 +102,54 @@ func on_tile_clicked(tile: HexTile):
 			)
 			vbox.add_child(btn)
 
+		# MYTHIC Splitter: ratio tuning - per-face weights replace the forced
+		# equal split (weights normalize across active faces, so toggling a
+		# face never needs a manual rebalance).
+		if tile.tile_type == "Splitter":
+			if tile.rarity < HexTile.Rarity.MYTHIC:
+				var ratio_hint = Label.new()
+				ratio_hint.text = "Output ratio tuning is a Mythic ability - upgrade to unlock."
+				ratio_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+				vbox.add_child(ratio_hint)
+			else:
+				var ratio_title = Label.new()
+				ratio_title.text = "MYTHIC output ratios (weights - shares shown live):"
+				vbox.add_child(ratio_title)
+				var ratio_labels: Array = []
+				var refresh_ratios = func():
+					for f in range(6):
+						var lbl: Label = ratio_labels[f]
+						if tile.active_faces.has(f):
+							lbl.text = "%s: weight %d  (%d%%)" % [directions[f], int(tile.get_ratio_weight(f)), int(round(tile.get_ratio_percent(f)))]
+							lbl.modulate = Color.WHITE
+						else:
+							lbl.text = "%s: (face off)" % directions[f]
+							lbl.modulate = Color(0.5, 0.5, 0.5)
+				for f in range(6):
+					var row = HBoxContainer.new()
+					var minus = Button.new()
+					minus.text = "-"
+					var val_lbl = Label.new()
+					val_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+					ratio_labels.append(val_lbl)
+					var plus = Button.new()
+					plus.text = "+"
+					minus.pressed.connect(func():
+						tile.adjust_ratio_weight(f, -1.0)
+						refresh_ratios.call()
+						garage._mark_player_grid_dirty()
+					)
+					plus.pressed.connect(func():
+						tile.adjust_ratio_weight(f, 1.0)
+						refresh_ratios.call()
+						garage._mark_player_grid_dirty()
+					)
+					row.add_child(minus)
+					row.add_child(val_lbl)
+					row.add_child(plus)
+					vbox.add_child(row)
+				refresh_ratios.call()
+
 		garage.add_child(popup)
 		popup.popup_centered(Vector2(250, 300))
 		popup.popup_hide.connect(func(): popup.queue_free())
@@ -152,6 +200,36 @@ func on_tile_clicked(tile: HexTile):
 				garage.grid_renderer.queue_redraw()
 		)
 		vbox.add_child(btn)
+
+		# Catalyst gated injection (any rarity, same convention as the
+		# Jammer Module's base-stat config): magnitude gate + every-Nth
+		# cadence. Packets that fail a gate pass through unconverted.
+		if tile.tile_type == "Catalyst":
+			var mag_steps = [0.0, 25.0, 50.0, 100.0, 200.0, 400.0]
+			var mag_btn = Button.new()
+			var describe_mag = func() -> String:
+				return "Magnitude gate: off (click to cycle)" if tile.gate_min_magnitude <= 0.0 else "Magnitude gate: >= %d (click to cycle)" % int(tile.gate_min_magnitude)
+			mag_btn.text = describe_mag.call()
+			mag_btn.tooltip_text = "Packets below this magnitude pass through unconverted."
+			mag_btn.pressed.connect(func():
+				var idx = mag_steps.find(tile.gate_min_magnitude)
+				tile.gate_min_magnitude = mag_steps[(idx + 1) % mag_steps.size()] if idx >= 0 else 0.0
+				mag_btn.text = describe_mag.call()
+				garage._mark_player_grid_dirty()
+			)
+			vbox.add_child(mag_btn)
+
+			var cadence_btn = Button.new()
+			var describe_cadence = func() -> String:
+				return "Cadence: every packet (click to cycle)" if tile.gate_every_n <= 1 else "Cadence: every %d packets (click to cycle)" % tile.gate_every_n
+			cadence_btn.text = describe_cadence.call()
+			cadence_btn.tooltip_text = "Only every Nth qualifying packet gets catalyzed - a rhythmic elemental pulse. The rest pass through unconverted."
+			cadence_btn.pressed.connect(func():
+				tile.gate_every_n = (tile.gate_every_n % 6) + 1
+				cadence_btn.text = describe_cadence.call()
+				garage._mark_player_grid_dirty()
+			)
+			vbox.add_child(cadence_btn)
 
 		# MYTHIC Catalyst: Inverted mode - a purity filter instead of a
 		# converter (voids everything except the chosen element).
@@ -255,8 +333,28 @@ func on_tile_clicked(tile: HexTile):
 		)
 		vbox.add_child(opt)
 
+		# Auto-dump threshold (any rarity): the banked shot releases itself
+		# at this fraction of full charge, payload scaled to what was
+		# actually banked - automated burst-fire rhythms. Off = key only.
+		var dump_lbl = Label.new()
+		dump_lbl.text = "Auto-dump (fires itself at this charge):"
+		vbox.add_child(dump_lbl)
+
+		var dump_opt = OptionButton.new()
+		dump_opt.add_item("Off (key fire only)")
+		dump_opt.add_item("25% charge (fast, light volleys)")
+		dump_opt.add_item("50% charge")
+		dump_opt.add_item("75% charge")
+		dump_opt.add_item("100% charge (full auto-release)")
+		dump_opt.select(clampi(int(round(tile.auto_dump_threshold * 4.0)), 0, 4))
+		dump_opt.item_selected.connect(func(index):
+			tile.auto_dump_threshold = index * 0.25
+			garage._mark_player_grid_dirty()
+		)
+		vbox.add_child(dump_opt)
+
 		garage.add_child(popup)
-		popup.popup_centered(Vector2(250, 100))
+		popup.popup_centered(Vector2(280, 160))
 		popup.popup_hide.connect(func(): popup.queue_free())
 
 	elif tile.tile_type == "Magnet":
@@ -402,6 +500,58 @@ func on_tile_clicked(tile: HexTile):
 
 		garage.add_child(popup)
 		popup.popup_centered(Vector2(300, 140))
+		popup.popup_hide.connect(func(): popup.queue_free())
+
+	elif tile.tile_type == "Resonator":
+		# Per-path Sync Dropoff tuning (Status.md queue item 1) - how many
+		# simulation steps each traversal path's residue survives. The sync
+		# system itself is Mythic-only (see ResonatorTile._process_sync), so
+		# below Mythic this just explains the lock.
+		var popup = PopupPanel.new()
+		var vbox = VBoxContainer.new()
+		popup.add_child(vbox)
+
+		var label = Label.new()
+		label.text = "Configure Resonator Sync Dropoff"
+		vbox.add_child(label)
+
+		if tile.rarity < HexTile.Rarity.MYTHIC:
+			var hint = Label.new()
+			hint.text = "Resonator Sync (path residue + per-path dropoff) is a Mythic ability - upgrade this tile to unlock."
+			hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+			vbox.add_child(hint)
+		else:
+			var path_names = ["East-West", "SE-NW", "SW-NE"]
+			var explain = Label.new()
+			explain.text = "Steps a path's residue survives before fading (leaves procs for the OTHER two paths to pick up):"
+			explain.autowrap_mode = TextServer.AUTOWRAP_WORD
+			vbox.add_child(explain)
+			for path_id in range(3):
+				var row = HBoxContainer.new()
+				var minus = Button.new()
+				minus.text = "-"
+				var val_lbl = Label.new()
+				val_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				val_lbl.text = "%s: %d steps" % [path_names[path_id], tile.get_sync_dropoff(path_id)]
+				var plus = Button.new()
+				plus.text = "+"
+				minus.pressed.connect(func():
+					tile.adjust_sync_dropoff(path_id, -1)
+					val_lbl.text = "%s: %d steps" % [path_names[path_id], tile.get_sync_dropoff(path_id)]
+					garage._mark_player_grid_dirty()
+				)
+				plus.pressed.connect(func():
+					tile.adjust_sync_dropoff(path_id, 1)
+					val_lbl.text = "%s: %d steps" % [path_names[path_id], tile.get_sync_dropoff(path_id)]
+					garage._mark_player_grid_dirty()
+				)
+				row.add_child(minus)
+				row.add_child(val_lbl)
+				row.add_child(plus)
+				vbox.add_child(row)
+
+		garage.add_child(popup)
+		popup.popup_centered(Vector2(300, 200))
 		popup.popup_hide.connect(func(): popup.queue_free())
 
 	elif tile.tile_type == "Drone Bay":

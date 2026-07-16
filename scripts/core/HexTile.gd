@@ -94,7 +94,7 @@ func get_disable_risk() -> float:
 	match tile_type:
 		"Splitter":
 			return 1.0
-		"Reflector", "Resonator", "Amplifier":
+		"Reflector", "Resonator", "Amplifier", "Heal Beacon":
 			return 0.55
 		_:
 			return 0.2

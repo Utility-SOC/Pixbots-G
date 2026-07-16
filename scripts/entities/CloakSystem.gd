@@ -142,12 +142,31 @@ func _update_distortion(delta: float):
 	_cloak_distortion.global_position = mech.global_position - _cloak_distortion.size / 2.0
 	_cloak_distortion.material.set_shader_parameter("strength", _cloak_distortion_strength)
 
+const DECLOAK_BURST_RADIUS = 70.0
+
 func break_cloak() -> void:
 	if not mech.is_cloaked:
 		return
 	mech.is_cloaked = false
 	time_since_cloak_break = 0.0
 	_ambush_window_timer = AMBUSH_WINDOW_DURATION
+	_show_decloak_tell()
+
+# Counterplay tell (Status.md backlog): the shimmer bubble above only tells a
+# player "something cloaked is nearby" while it's still hidden - there was no
+# distinct cue for the reveal MOMENT itself, so an Ambusher's opening hit
+# landed with zero warning beyond the shimmer a player had to already be
+# watching for. A quick bright ring snapping outward at the exact instant of
+# decloak (reusing the same BossTelegraphRing.burst() pattern Mech's Deflector
+# shield overflow already uses) gives a sharper, unmissable "it's HERE now"
+# moment distinct from the slow ongoing shimmer.
+func _show_decloak_tell():
+	if not mech.get_parent():
+		return
+	var ring = load("res://scripts/visuals/BossTelegraphRing.gd").new()
+	mech.get_parent().add_child(ring)
+	ring.global_position = mech.global_position
+	ring.burst(10.0, DECLOAK_BURST_RADIUS, 0.25, Color(0.75, 0.95, 1.0, 1.0))
 
 # Ambush multiplier for whatever damage is about to be dealt. True while
 # still cloaked (covers the shot that's actively breaking cloak this call)

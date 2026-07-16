@@ -2443,6 +2443,11 @@ func _roll_component_disable(comp, amount: float, element: String):
 
 # Priority search for the disable roll's target - independent of which tile
 # happened to take the direct structural damage in apply_part_damage above.
+# "Heal Beacon" joins the secondary tier (Status.md counterplay-tells backlog
+# item, "make Heal Beacons targetable"): it used to fall into the unpriorized
+# `other` bucket alongside filler like Magnet/Jumpjet, so focused fire on an
+# enemy healer's backpack almost never actually knocked the beacon itself
+# offline. Matches HexTile.get_disable_risk()'s tiering for the same tile.
 func _find_disable_priority_tile(comp):
 	var tiles = comp.hex_grid.get_all_tiles()
 	if tiles.is_empty():
@@ -2456,7 +2461,7 @@ func _find_disable_priority_tile(comp):
 			continue
 		if t.tile_type == "Splitter":
 			splitters.append(t)
-		elif t.tile_type in ["Reflector", "Resonator", "Amplifier"]:
+		elif t.tile_type in ["Reflector", "Resonator", "Amplifier", "Heal Beacon"]:
 			secondary.append(t)
 		else:
 			other.append(t)

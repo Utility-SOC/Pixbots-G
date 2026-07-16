@@ -117,14 +117,18 @@ func _ready():
 	captures_scroll.add_child(captures_vbox)
 
 func _input(event):
-	if event is InputEventKey and event.pressed and not event.echo:
-		if event.physical_keycode == KEY_TAB:
-			if not is_open and get_tree().paused:
-				return # don't fight other paused UIs
-			_toggle()
-		elif event.physical_keycode == KEY_ESCAPE and is_open:
-			_toggle()
-			get_viewport().set_input_as_handled()
+	# Unify menu keys (Status.md HUD/UX backlog): routed through InputMap
+	# actions like every other menu (ui_cancel, plus the same
+	# runtime-registered-action pattern cloak/heal_pulse/jam_pulse use in
+	# Main.gd) instead of raw physical_keycode checks, so War Room's keys
+	# aren't the one menu's bindings the InputMap doesn't know about.
+	if event.is_action_pressed("toggle_war_room"):
+		if not is_open and get_tree().paused:
+			return # don't fight other paused UIs
+		_toggle()
+	elif event.is_action_pressed("ui_cancel") and is_open:
+		_toggle()
+		get_viewport().set_input_as_handled()
 
 func _toggle():
 	is_open = not is_open

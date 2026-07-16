@@ -146,6 +146,17 @@ func _ready():
 		var jam_key = InputEventKey.new()
 		jam_key.physical_keycode = KEY_J
 		InputMap.action_add_event("jam_pulse", jam_key)
+	# War Room toggle (Tab) - unify menu keys (Status.md HUD/UX backlog):
+	# WarRoomMenu used to check raw physical_keycode == KEY_TAB/KEY_ESCAPE
+	# directly, the only menu in the game that didn't go through an
+	# InputMap action (every other menu's close key is "ui_cancel", same
+	# as this file's cloak/heal_pulse/jam_pulse are real actions rather
+	# than hardcoded keys). Registered here so it follows the same pattern.
+	if not InputMap.has_action("toggle_war_room"):
+		InputMap.add_action("toggle_war_room")
+		var war_room_key = InputEventKey.new()
+		war_room_key.physical_keycode = KEY_TAB
+		InputMap.action_add_event("toggle_war_room", war_room_key)
 
 	# Per Natalia: every game start (new game or loaded save) should land in
 	# the Garage first, not straight into combat - the player deploys
@@ -199,13 +210,22 @@ func _setup_hud():
 	hud_canvas = CanvasLayer.new()
 	hud_canvas.layer = 5
 	
+	# Legibility pass (Status.md HUD/UX backlog): these two sit directly over
+	# the battlefield with no background panel behind them (unlike the boss
+	# health bar / dialogue box below, which both get one) - a black outline
+	# keeps the text readable against bright tiles, explosions, and pixel-art
+	# terrain instead of washing out to illegible white-on-white.
 	wave_label = Label.new()
 	wave_label.add_theme_font_size_override("font_size", 32)
+	wave_label.add_theme_constant_override("outline_size", 6)
+	wave_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	wave_label.position = Vector2(20, 20)
 	hud_canvas.add_child(wave_label)
-	
+
 	timer_label = Label.new()
 	timer_label.add_theme_font_size_override("font_size", 24)
+	timer_label.add_theme_constant_override("outline_size", 5)
+	timer_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	timer_label.position = Vector2(20, 60)
 	hud_canvas.add_child(timer_label)
 	

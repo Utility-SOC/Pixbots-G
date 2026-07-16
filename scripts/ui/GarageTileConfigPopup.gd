@@ -76,12 +76,24 @@ func on_tile_clicked(tile: HexTile):
 
 	elif tile.tile_type == "Splitter" or tile.tile_type == "Accessory Return":
 		var popup = PopupPanel.new()
-		var vbox = VBoxContainer.new()
-		popup.add_child(vbox)
+		var outer_vbox = VBoxContainer.new()
+		popup.add_child(outer_vbox)
 
 		var label = Label.new()
 		label.text = "Configure Outputs (Max %d)" % tile.get_max_faces()
-		vbox.add_child(label)
+		outer_vbox.add_child(label)
+
+		# Scrollable body (title stays fixed above it) - a Mythic Splitter's
+		# ratio-tuning rows below can add up to 14+ total rows, which used to
+		# silently overflow the popup's old fixed 300px height with no way
+		# to reach the lower face checkboxes at all ("I cannot edit splitter
+		# directions anymore" - playtest report).
+		var scroll = ScrollContainer.new()
+		scroll.custom_minimum_size = Vector2(0, 340)
+		outer_vbox.add_child(scroll)
+		var vbox = VBoxContainer.new()
+		vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		scroll.add_child(vbox)
 
 		var directions = ["East", "South-East", "South-West", "West", "North-West", "North-East"]
 
@@ -94,7 +106,7 @@ func on_tile_clicked(tile: HexTile):
 				tile.toggle_output(i)
 				garage.grid_renderer.queue_redraw()
 				for j in range(6):
-					var child_btn = vbox.get_child(j + 1)
+					var child_btn = vbox.get_child(j)
 					if child_btn is CheckButton:
 						child_btn.set_block_signals(true)
 						child_btn.button_pressed = tile.active_faces.has(j)
@@ -151,7 +163,7 @@ func on_tile_clicked(tile: HexTile):
 				refresh_ratios.call()
 
 		garage.add_child(popup)
-		popup.popup_centered(Vector2(250, 300))
+		popup.popup_centered(Vector2(280, 400))
 		popup.popup_hide.connect(func(): popup.queue_free())
 
 	elif tile.tile_type == "Reflector":

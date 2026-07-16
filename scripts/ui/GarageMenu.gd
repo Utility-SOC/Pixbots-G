@@ -104,6 +104,14 @@ var drag_hover_hex: HexCoord = null
 var drag_hover_since: float = 0.0
 var fill_mode: bool = false
 var fill_origin_hex: HexCoord = null
+# Set when fill_mode kicks in AND the origin hex already holds a tile of the
+# SAME type as what's being dragged (playtest: "if I hover over a splitter,
+# before I hover a blank space then fill, it will match the first
+# splitter") - every tile placed for the rest of this fill line has its
+# config stamped from this one via HexTile.copy_config_from. Null means
+# "no template, place with whatever config each inventory copy already had"
+# (unchanged legacy behavior).
+var fill_template_tile: HexTile = null
 
 # Orientation (0-5, a hex direction index) a multi-cell tile like the Lance
 # Mount would be placed in if dropped right now - see GarageGridRenderer.
@@ -131,6 +139,10 @@ var garage_packet_inspector: GaragePacketInspector = null
 # GarageSimulationRunner.seek_to_step/_update_scrubber_range.
 var sim_scrubber: HSlider = null
 var sim_step_label: Label = null
+# Opt-in switch for what a tile click does while the scrubber is visible -
+# OFF by default so simulating never silently blocks normal editing (see
+# _on_tile_clicked's field comment for the regression this fixes).
+var sim_inspect_toggle: CheckButton = null
 # Set true only while the scrubber's own code moves .value programmatically
 # (syncing to live auto-play) - guards _on_sim_scrubber_changed so that
 # doesn't misread a programmatic move as a user drag and re-seek redundantly.
@@ -300,6 +312,8 @@ func _on_tab_changed(index: int):
 	# than scrubbing a stale/invisible sim.
 	if sim_scrubber:
 		sim_scrubber.visible = false
+	if sim_inspect_toggle:
+		sim_inspect_toggle.visible = false
 
 	if meta is Dictionary and meta.get("slot") == HexTile.BodySlot.DRONE:
 		var drone_bay = meta.get("bay")
@@ -556,11 +570,15 @@ func _update_mount_preview(tile: HexTile, screen_pos: Vector2):
 	mount_preview.show_for(tile, entries, fire_rate, screen_pos)
 
 func _on_tile_clicked(tile: HexTile):
-	# While the Timeline Scrubber is live (a simulation has run for this
-	# grid), clicking a tile opens the Packet Inspector instead of the
-	# normal edit-config popup - "configuring" a tile mid-preview doesn't
-	# make sense, but inspecting what just flowed through it does.
-	if sim_scrubber and sim_scrubber.visible:
+	# Packet Inspector is opt-in (see sim_inspect_toggle) - playtest report:
+	# gating this purely on "the scrubber is visible" meant ANY click on
+	# ANY tile, forever after the first Simulate press that run, opened the
+	# inspector instead of the edit popup ("I cannot edit splitters
+	# directions anymore" - the scrubber stays visible on purpose so you can
+	# review a finished run, but that must never silently disable editing).
+	# Default OFF so normal editing is always the default click behavior;
+	# the toggle only appears once the scrubber itself is visible.
+	if sim_inspect_toggle and sim_inspect_toggle.button_pressed:
 		if not garage_packet_inspector:
 			garage_packet_inspector = GaragePacketInspector.new(self)
 		garage_packet_inspector.on_tile_clicked(tile)
@@ -633,6 +651,8 @@ func _on_clear_grid_pressed():
 	# grid the same way switching tabs does (see _on_tab_changed).
 	if sim_scrubber:
 		sim_scrubber.visible = false
+	if sim_inspect_toggle:
+		sim_inspect_toggle.visible = false
 
 	var tiles = grid_renderer.hex_grid.get_all_tiles()
 	var cleared = 0

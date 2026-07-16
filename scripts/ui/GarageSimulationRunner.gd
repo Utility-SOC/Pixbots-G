@@ -339,6 +339,12 @@ func _update_scrubber_range() -> void:
 	if garage.sim_scrubber:
 		garage.sim_scrubber.max_value = total_steps
 		garage.sim_scrubber.visible = total_steps > 0
+	if garage.sim_inspect_toggle:
+		garage.sim_inspect_toggle.visible = total_steps > 0
+		# Every fresh Simulate press starts back in normal-editing mode -
+		# Inspect is a deliberate per-session opt-in, never a sticky default
+		# that could surprise the next click.
+		garage.sim_inspect_toggle.button_pressed = false
 	_sync_scrubber_ui(0)
 
 # Called from the live auto-play loop so the slider tracks playback without

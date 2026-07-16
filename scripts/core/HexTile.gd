@@ -161,6 +161,13 @@ func record_packet_history(entry_direction: int, packet: EnergyPacket) -> void:
 		"magnitude": packet.magnitude,
 		"synergies": packet.synergies.duplicate(),
 		"dominant": packet.get_dominant_synergy(),
+		# Whether this packet is ALREADY carrying a picked-up status-effect
+		# proc (see EnergyPacket.proc_synergies / ResonatorTile._process_sync)
+		# as it enters this tile - the Packet Inspector's "what it picked up"
+		# visualization. Read at record time, upstream of this tile's own
+		# processing, so it reflects residue picked up anywhere earlier on
+		# the packet's path, not just at this exact tile.
+		"picked_up": not packet.proc_synergies.is_empty(),
 	}
 	if not packet_history.has(entry_direction):
 		packet_history[entry_direction] = []
@@ -181,6 +188,18 @@ func reset_simulation_state() -> void:
 		var pp = get("pending_packets")
 		if pp is Array:
 			pp.clear()
+
+# --- Fill-paint template stamping (playtest: "if I hover over a splitter,
+# before I hover a blank space then fill, it will match the first
+# splitter") -----------------------------------------------------------
+# Virtual, no-op by default. Overridden by tile types with meaningful
+# player-configured state (SplitterTile's active_faces/output_ratios, ...)
+# so that dragging a paint-fill line starting from an EXISTING placed tile
+# of the same type stamps its configuration onto every newly placed copy,
+# instead of each one keeping whatever config it happened to roll as loot.
+# See GarageInventoryPanel.handle_process/_drop_fill_line.
+func copy_config_from(_other: HexTile) -> void:
+	pass
 
 # --- Shared "acts as a weapon mount" behavior -----------------------------
 # Both WeaponMountTile and ComponentLinkTile (when it's wired as an

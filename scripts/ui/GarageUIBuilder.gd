@@ -231,6 +231,12 @@ func build():
 	garage.sim_step_label.custom_minimum_size = Vector2(100, 0)
 	scrubber_bar.add_child(garage.sim_step_label)
 
+	garage.sim_inspect_toggle = CheckButton.new()
+	garage.sim_inspect_toggle.text = "Inspect"
+	garage.sim_inspect_toggle.tooltip_text = "OFF (default): clicking a tile opens its normal edit popup, same as always. ON: clicking a tile opens the Packet Inspector instead - see what flowed through it at this step."
+	garage.sim_inspect_toggle.visible = false
+	scrubber_bar.add_child(garage.sim_inspect_toggle)
+
 	# Loadouts Bar - named, unlimited slots (playtest ruling: "a wider
 	# variety of builds (Component and full bot) not just 3 slots"). Both
 	# buttons open a popup manager in GarageMenu with save-as / load /

@@ -401,6 +401,14 @@ func handle_process(_delta):
 		if paused_for >= garage.FILL_PAUSE_THRESHOLD:
 			garage.fill_mode = true
 			garage.fill_origin_hex = hex
+			# Template stamping (see GarageMenu.fill_template_tile's field
+			# comment): if the hex you paused/hovered on already holds a
+			# tile of the same type you're dragging, every tile placed for
+			# the rest of this fill line inherits ITS configuration.
+			if garage.grid_renderer.hex_grid and garage.grid_renderer.hex_grid.has_tile(hex):
+				var origin_tile = garage.grid_renderer.hex_grid.get_tile(hex)
+				if origin_tile and origin_tile.tile_type == garage.dragged_tile.tile_type:
+					garage.fill_template_tile = origin_tile
 
 	if garage.fill_mode:
 		var line = HexCoord.hex_line(garage.fill_origin_hex, hex)
@@ -419,6 +427,7 @@ func _on_inventory_item_gui_input(event: InputEvent, tile: HexTile):
 			garage.drag_hover_hex = null
 			garage.fill_mode = false
 			garage.fill_origin_hex = null
+			garage.fill_template_tile = null
 			garage.footprint_rotation = 0
 			garage.grid_renderer.fill_preview_hexes = []
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
@@ -475,6 +484,7 @@ func _drop_tile(pos: Vector2):
 	garage.drag_preview.hide()
 	garage.fill_mode = false
 	garage.fill_origin_hex = null
+	garage.fill_template_tile = null
 	garage.drag_hover_hex = null
 	garage.grid_renderer.fill_preview_hexes = []
 
@@ -538,6 +548,8 @@ func _drop_fill_line():
 			garage.grid_renderer.hex_grid.add_tile(hex, garage.dragged_tile)
 			garage.inventory.erase(garage.dragged_tile)
 			placed_first = true
+			if garage.fill_template_tile:
+				garage.dragged_tile.copy_config_from(garage.fill_template_tile)
 		else:
 			var match_idx = _find_matching_inventory_index(garage.dragged_tile)
 			if match_idx < 0:
@@ -545,6 +557,8 @@ func _drop_fill_line():
 			var next_tile = garage.inventory[match_idx]
 			garage.inventory.remove_at(match_idx)
 			garage.grid_renderer.hex_grid.add_tile(hex, next_tile)
+			if garage.fill_template_tile:
+				next_tile.copy_config_from(garage.fill_template_tile)
 
 	if not placed_first:
 		# Even the origin cell was blocked/invalid - give the tile back

@@ -45,6 +45,16 @@ func reset_simulation_state() -> void:
 	super.reset_simulation_state()
 	_remnant_magnitudes.clear()
 
+# Fill-paint template stamping (see HexTile.copy_config_from) - a newly
+# placed Splitter inherits the origin's output faces AND ratio weights, so
+# painting a line of Splitters from an existing configured one gives you a
+# whole matched set instead of N separately-rolled random configs.
+func copy_config_from(other: HexTile) -> void:
+	if not (other is SplitterTile):
+		return
+	active_faces = other.active_faces.duplicate()
+	output_ratios = other.output_ratios.duplicate()
+
 func get_weight() -> float:
 	return 2.0 # light - just a routing junction
 

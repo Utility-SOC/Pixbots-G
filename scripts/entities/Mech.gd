@@ -1186,7 +1186,30 @@ var _heat_arc_timer: float = 0.0
 # crossed its 10% floor - the "shooting randomly" playtest bug. Partial
 # releases are now exclusively the hold-1/2/3 dump in _shoot().
 
+## _recalculate_grid() (Mech.gd tech-debt pass): this was one 394-line
+## function - by far the largest in the file, and central enough (public
+## entry point called from equip/unequip, GarageSimulationRunner,
+## GarageTestRange, and many debug checks) that moving it to a composed
+## RefCounted helper the way CloakSystem/JammerModuleSystem/HealBeaconSystem
+## were would just relocate ~25 fields' worth of cross-subsystem coupling to
+## a different file without reducing it, at real risk to the single most
+## safety-critical function in the game. This is a pure extract-method
+## refactor instead - same class, zero field-access changes, phases split
+## into named private helpers below with NO behavior change. Diff this
+## against git history if you ever need to confirm nothing moved wrong.
 func _recalculate_grid():
+	_reset_grid_state()
+	_compute_mass_and_stat_modifiers()
+
+	if not components.has(HexTile.BodySlot.TORSO):
+		return
+
+	var torso = components[HexTile.BodySlot.TORSO]
+	_simulate_energy_flow(torso)
+	_collect_weapon_mounts_and_tile_capabilities()
+	_finalize_grid_state()
+
+func _reset_grid_state():
 	precalculated_weapons.clear()
 	lance_mounts.clear()
 	max_shield_hp = 0.0 # Reset shield HP
@@ -1221,6 +1244,7 @@ func _recalculate_grid():
 	min_loot_attract_rarity = -1
 	stat_modifiers.clear()
 
+func _compute_mass_and_stat_modifiers():
 	# Melee/mass physics pillar: total mass drives the movement-speed
 	# penalty/bonus below (see update_status_effects) and the ramming
 	# damage formula (see _process_ramming). Recomputed here rather than
@@ -1240,12 +1264,11 @@ func _recalculate_grid():
 					stat_modifiers[k] += comp.stat_modifiers[k] - 1.0 # Additive percentage bonuses
 				else:
 					stat_modifiers[k] = comp.stat_modifiers[k]
-	
-	if not components.has(HexTile.BodySlot.TORSO):
-		return
-		
-	var torso = components[HexTile.BodySlot.TORSO]
-	
+
+# Multi-phase torso->peripheral->return->re-simulate energy routing pass.
+# `torso` is the already-resolved TORSO component (caller already guarded
+# on it existing).
+func _simulate_energy_flow(torso):
 	# Collect energy from ALL generators in the Torso
 	var initial_packets: Array[EnergyPacket] = []
 	for coord in torso.hex_grid.grid.keys():
@@ -1255,10 +1278,10 @@ func _recalculate_grid():
 			for p in pkts:
 				p.position = HexCoord.new(coord.x, coord.y)
 			initial_packets.append_array(pkts)
-	
+
 	# PHASE 1: Route through Torso grid
 	_simulate_grid(torso.hex_grid, initial_packets)
-	
+
 	# PHASE 2: Collect transferred packets from Sinks and route into peripheral grids
 	var peripheral_transfer = _collect_transfers(torso)
 	# Simulate HEAD and BACKPACK first so they can return energy
@@ -1268,7 +1291,7 @@ func _recalculate_grid():
 			var accessory_comp = components[accessory_slot]
 			var a_pkts = peripheral_transfer[accessory_slot]
 			_route_to_peripheral(a_pkts, accessory_comp)
-			
+
 			for coord in accessory_comp.hex_grid.grid.keys():
 				var t = accessory_comp.hex_grid.get_tile(coord)
 				if t.has_method("generate_energy"):
@@ -1276,9 +1299,9 @@ func _recalculate_grid():
 					for p in pkts:
 						p.position = HexCoord.new(coord.x, coord.y)
 					a_pkts.append_array(pkts)
-					
+
 			_simulate_grid(accessory_comp.hex_grid, a_pkts)
-			
+
 			# Collect return packets
 			var accessory_return = _collect_transfers(accessory_comp)
 			if accessory_return.has(HexTile.BodySlot.TORSO):
@@ -1294,7 +1317,7 @@ func _recalculate_grid():
 				return_pos = HexCoord.new(coord_v.x, coord_v.y)
 				return_tile = t
 				break
-		
+
 		var final_return_pkts: Array[EnergyPacket] = []
 		for pkt in return_pkts:
 			if return_tile:
@@ -1308,10 +1331,10 @@ func _recalculate_grid():
 				pkt.position = return_pos
 				pkt.is_active = true
 				final_return_pkts.append(pkt)
-				
+
 		# Re-simulate Torso with returned energy!
 		_simulate_grid(torso.hex_grid, final_return_pkts)
-		
+
 		# Add any new transfers from Torso back into the peripheral pools
 		var second_transfers = _collect_transfers(torso)
 		for slot in second_transfers:
@@ -1321,15 +1344,15 @@ func _recalculate_grid():
 
 	# Simulate remaining peripherals (Arms, Legs)
 	for slot in components.keys():
-		if slot == HexTile.BodySlot.HEAD or slot == HexTile.BodySlot.BACKPACK or slot == HexTile.BodySlot.TORSO: 
+		if slot == HexTile.BodySlot.HEAD or slot == HexTile.BodySlot.BACKPACK or slot == HexTile.BodySlot.TORSO:
 			continue # Already simulated
-			
+
 		var comp = components[slot]
 		var pkts: Array[EnergyPacket] = []
 		if peripheral_transfer.has(slot):
 			pkts.append_array(peripheral_transfer[slot])
 			_route_to_peripheral(pkts, comp)
-			
+
 		# get_all_tiles() (not raw .grid.keys()) - footprint-safe, see
 		# HexGridComponent.get_all_tiles's own comment.
 		for t in comp.hex_grid.get_all_tiles():
@@ -1338,9 +1361,17 @@ func _recalculate_grid():
 				for p in generated:
 					p.position = t.grid_position
 				pkts.append_array(generated)
-				
+
 		_simulate_grid(comp.hex_grid, pkts)
-			
+
+# Single pass over every equipped tile: builds precalculated_weapons (with
+# the accumulator normal/bank split-fire model) AND detects every
+# per-tile capability (Lance Mount, speed/magnetic bonuses, loot rarity
+# filter, Magnet repel mode, Jumpjet blink mode, Actuator school, Shield/
+# Cloak/Jammer/Heal Beacon capacity) in the same loop they were always
+# scanned together in - kept as ONE pass (not split further) so nothing
+# about iteration order can change.
+func _collect_weapon_mounts_and_tile_capabilities():
 	for comp in components.values():
 		for tile in comp.hex_grid.get_all_tiles():
 			if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Accessory Return" or tile.tile_type == "Torso Return") and "pending_packets" in tile and tile.pending_packets.size() > 0:
@@ -1446,7 +1477,7 @@ func _recalculate_grid():
 
 			if tile.has_method("get_speed_bonus"):
 				base_move_speed += tile.get_speed_bonus()
-				
+
 			if tile.has_method("get_magnetic_power"):
 				total_magnetic_power += tile.get_magnetic_power()
 
@@ -1464,7 +1495,7 @@ func _recalculate_grid():
 
 			if tile.tile_type == "Actuator" and tile.rarity == HexTile.Rarity.MYTHIC:
 				actuator_school = int(tile.get("mythic_mode"))
-				
+
 			if tile.tile_type == "Shield Generator" and tile.rarity == HexTile.Rarity.MYTHIC:
 				shield_mythic_mode = int(tile.get("mythic_mode"))
 
@@ -1484,10 +1515,10 @@ func _recalculate_grid():
 					shield_recharge_delay = min(shield_recharge_delay, 2.0)
 				else:
 					shield_recharge_delay = min(shield_recharge_delay, 3.0)
-					
+
 				# Rapidly recharge (e.g. fully recharge in 2 seconds)
 				shield_recharge_rate += max_shield_hp * 0.5
-				
+
 				if tile.has_method("get_shield_synergies"):
 					var syns = tile.get_shield_synergies()
 					for k in syns:
@@ -1526,13 +1557,14 @@ func _recalculate_grid():
 				heal_pulse_radius = tile.get_pulse_radius()
 				heal_pulse_interval = tile.get_pulse_interval()
 
+func _finalize_grid_state():
 	# Find dominant shield synergy
 	var max_syn_val = 0.0
 	for k in shield_synergies:
 		if shield_synergies[k] > max_syn_val:
 			max_syn_val = shield_synergies[k]
 			dominant_shield_synergy = str(k)
-				
+
 	# Keep shield HP within bounds
 	shield_hp = min(shield_hp, max_shield_hp)
 	if not has_shield_generator:

@@ -8,6 +8,15 @@ extends PopupPanel
 # instances, real flight/spread/patterns/particles, real hits with damage
 # numbers - not a simulation of the shot, the shot.
 #
+# Mount selection is a checklist, not a single dropdown pick (playtest:
+# "could the garage test range... allow isolation of weapon mount(s) alone
+# or in groups?") - every armed mount gets its own row, checked by default
+# (so FIRE reproduces a real full volley out of the box), with a per-row
+# Solo button to isolate exactly one and All/None for the rest. FIRE fires
+# every currently-checked mount together in one volley, so you can test a
+# single mount in isolation OR a chosen combination (e.g. "what do my two
+# arms' payloads do when they land on the same target at once").
+#
 # Runs inside a SubViewport with its OWN World2D: the garage pauses the
 # scene tree, so everything under this popup is PROCESS_MODE_ALWAYS, and
 # the private physics world keeps stray test shots (and their AoE) from
@@ -17,7 +26,7 @@ extends PopupPanel
 
 const MechScript = preload("res://scripts/entities/Mech.gd")
 
-const RANGE_SIZE = Vector2(900, 380)
+const RANGE_SIZE = Vector2(900, 340)
 const RIG_POS = Vector2(110, 210)
 const DUMMY_POS = Vector2(700, 210)
 const AUTO_FIRE_INTERVAL = 0.6
@@ -27,11 +36,15 @@ var player: Node = null
 var _world_root: Node2D = null
 var _rig: Node = null
 var _dummy: Node = null
-var _mount_select: OptionButton = null
+# One entry per armed mount, in the same order as player.precalculated_weapons
+# at the moment this popup opened: {checkbox: CheckButton, data: Dictionary}.
+var _mount_rows: Array = []
+var _mount_list: VBoxContainer = null
 var _stats_label: Label = null
 var _auto_toggle: CheckButton = null
 var _auto_timer: float = 0.0
 var _shots_fired: int = 0
+var _volleys_fired: int = 0
 
 func setup(p_player: Node):
 	player = p_player
@@ -46,24 +59,43 @@ func _ready():
 	title.text = "TEST RANGE - live fire, real projectiles, nothing leaves this room"
 	vbox.add_child(title)
 
-	# Controls row
+	# Mount checklist row-select controls
+	var select_controls = HBoxContainer.new()
+	vbox.add_child(select_controls)
+	var select_lbl = Label.new()
+	select_lbl.text = "Mounts:"
+	select_controls.add_child(select_lbl)
+	var all_btn = Button.new()
+	all_btn.text = "All"
+	all_btn.pressed.connect(func(): _set_all_checked(true))
+	select_controls.add_child(all_btn)
+	var none_btn = Button.new()
+	none_btn.text = "None"
+	none_btn.pressed.connect(func(): _set_all_checked(false))
+	select_controls.add_child(none_btn)
+
+	var mount_scroll = ScrollContainer.new()
+	mount_scroll.custom_minimum_size = Vector2(0, 110)
+	vbox.add_child(mount_scroll)
+	_mount_list = VBoxContainer.new()
+	_mount_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mount_scroll.add_child(_mount_list)
+	_populate_mounts()
+
+	# Fire controls row
 	var controls = HBoxContainer.new()
 	vbox.add_child(controls)
-
-	_mount_select = OptionButton.new()
-	_mount_select.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_populate_mounts()
-	controls.add_child(_mount_select)
 
 	var fire_btn = Button.new()
 	fire_btn.text = "FIRE"
 	fire_btn.custom_minimum_size = Vector2(90, 0)
-	fire_btn.pressed.connect(_fire_once)
+	fire_btn.tooltip_text = "Fires every currently-checked mount together as one volley."
+	fire_btn.pressed.connect(_fire_selected)
 	controls.add_child(fire_btn)
 
 	_auto_toggle = CheckButton.new()
 	_auto_toggle.text = "Auto"
-	_auto_toggle.tooltip_text = "Keep firing the selected mount every %.1fs." % AUTO_FIRE_INTERVAL
+	_auto_toggle.tooltip_text = "Keep firing the checked mounts every %.1fs." % AUTO_FIRE_INTERVAL
 	controls.add_child(_auto_toggle)
 
 	var reset_btn = Button.new()
@@ -132,9 +164,14 @@ func _ready():
 	popup_hide.connect(queue_free)
 
 func _populate_mounts():
-	_mount_select.clear()
+	for c in _mount_list.get_children():
+		c.queue_free()
+	_mount_rows.clear()
+
 	if not player or not is_instance_valid(player):
-		_mount_select.add_item("(no mech)")
+		var lbl = Label.new()
+		lbl.text = "(no mech)"
+		_mount_list.add_child(lbl)
 		return
 	if player.is_grid_dirty:
 		player._recalculate_grid()
@@ -144,59 +181,81 @@ func _populate_mounts():
 		HexTile.BodySlot.LEG_R: "R.Leg", HexTile.BodySlot.HEAD: "Head",
 		HexTile.BodySlot.BACKPACK: "Backpack",
 	}
-	var idx = 0
 	for data in player.precalculated_weapons:
 		var kind = "bank shot" if data.get("bank_mode", "") == "bank" else "normal fire"
 		var elem = EnergyPacket.element_name(data.packet.get_dominant_synergy())
-		_mount_select.add_item("%s %s - %s, %s (%.0f energy)" % [
-			slot_names.get(data.slot_type, "?"), data.mount.tile_type, kind, elem, data.packet.magnitude])
-		_mount_select.set_item_metadata(idx, idx)
-		idx += 1
-	if idx == 0:
-		_mount_select.add_item("(no armed mounts - wire energy to a Weapon Mount first)")
+		var row = HBoxContainer.new()
+		var check = CheckButton.new()
+		check.text = "%s %s - %s, %s (%.0f energy)" % [
+			slot_names.get(data.slot_type, "?"), data.mount.tile_type, kind, elem, data.packet.magnitude]
+		check.button_pressed = true # everything armed by default - FIRE reproduces a real full volley out of the box
+		check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(check)
+		var solo_btn = Button.new()
+		solo_btn.text = "Solo"
+		solo_btn.tooltip_text = "Check only this mount, uncheck every other one."
+		var row_index = _mount_rows.size()
+		solo_btn.pressed.connect(func(): _solo_row(row_index))
+		row.add_child(solo_btn)
+		_mount_list.add_child(row)
+		_mount_rows.append({"checkbox": check, "data": data})
 
-func _selected_weapon():
+	if _mount_rows.is_empty():
+		var lbl = Label.new()
+		lbl.text = "(no armed mounts - wire energy to a Weapon Mount first)"
+		_mount_list.add_child(lbl)
+
+func _set_all_checked(on: bool):
+	for row in _mount_rows:
+		row.checkbox.button_pressed = on
+
+func _solo_row(index: int):
+	for i in range(_mount_rows.size()):
+		_mount_rows[i].checkbox.button_pressed = (i == index)
+
+func _checked_weapons() -> Array:
+	var out: Array = []
+	for row in _mount_rows:
+		if row.checkbox.button_pressed:
+			out.append(row.data)
+	return out
+
+func _fire_selected():
 	if not player or not is_instance_valid(player):
-		return null
-	var meta = _mount_select.get_selected_metadata()
-	if meta == null:
-		return null
-	var idx = int(meta)
-	if idx < 0 or idx >= player.precalculated_weapons.size():
-		return null
-	return player.precalculated_weapons[idx]
-
-func _fire_once():
-	var data = _selected_weapon()
-	if data == null:
+		return
+	var to_fire = _checked_weapons()
+	if to_fire.is_empty():
 		return
 	_rig.last_aim_position = _dummy.global_position
-	var packet = data.packet.copy()
-	if data.get("bank_mode", "") == "bank":
-		packet.is_banked_shot = true
-	data.mount._fire_combined_projectile(_rig, packet, 0)
-	_shots_fired += 1
+	for data in to_fire:
+		var packet = data.packet.copy()
+		if data.get("bank_mode", "") == "bank":
+			packet.is_banked_shot = true
+		data.mount._fire_combined_projectile(_rig, packet, 0)
+		_shots_fired += 1
+	_volleys_fired += 1
 	_update_stats()
 
 func _reset_dummy_stats():
 	if is_instance_valid(_dummy):
 		_dummy.hp = _dummy.max_hp
 	_shots_fired = 0
+	_volleys_fired = 0
 	_update_stats()
 
 func _update_stats():
 	if not is_instance_valid(_dummy):
 		return
 	var dealt = _dummy.max_hp - _dummy.hp
-	var per_shot = dealt / max(1, _shots_fired)
-	_stats_label.text = "Shots: %d   Total damage on dummy: %.0f   Avg per volley: %.0f" % [_shots_fired, dealt, per_shot]
+	var per_volley = dealt / max(1, _volleys_fired)
+	_stats_label.text = "Volleys: %d   Shots: %d   Total damage on dummy: %.0f   Avg per volley: %.0f" % [_volleys_fired, _shots_fired, dealt, per_volley]
 
 func _process(delta):
 	if _auto_toggle and _auto_toggle.button_pressed:
 		_auto_timer -= delta
 		if _auto_timer <= 0.0:
 			_auto_timer = AUTO_FIRE_INTERVAL
-			_fire_once()
+			_fire_selected()
 	# Damage lands asynchronously (real flight time) - keep the readout live.
-	if _shots_fired > 0:
+	if _volleys_fired > 0:
 		_update_stats()

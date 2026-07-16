@@ -23,15 +23,14 @@ This document tracks the active implementation targets, backlog, and design expa
 
 Garage QoL first (felt immediately), then small gameplay wins, then progression systems, then the big engine lift, then the feature batch.
 
-1. **Simulation UX** - Timeline Scrubber implemented as *deterministic re-run-to-step-N* (the sim is deterministic, so no state buffering: same UX, zero memory cost, scrubs the whole run, not a 2-3s window) + Packet Inspector panel (packet composition and last-5-packet history for each of the 6 directions on tile click).
-2. **Data-driven tiles** - per-tile folder with `stats.json` (charge multipliers, damage boosts) and optional sprite PNG override; stages full custom tile mods. Procedural visuals remain the default per the locked ruling.
-3. **Late-game progression** (in order):
+1. **Data-driven tiles** - per-tile folder with `stats.json` (charge multipliers, damage boosts) and optional sprite PNG override; stages full custom tile mods. Procedural visuals remain the default per the locked ruling.
+2. **Late-game progression** (in order):
    - *Overclocking (prestige):* at max component level, safely un-equips Mod Chips back to inventory, drops Chip Capacity until re-upgraded; grants permanent mass reduction or +1 hex.
    - *Chip Splicing:* merge two Mythic chips into one "Corrupted" dual-effect chip carrying a severe drawback from a large pool.
    - *Nemesis Bounties:* the Director breeds a boss from the player's own genetics (BossEvolution) to counter their build; drops unique inverted-synergy Nemesis Parts.
-4. **Corporate Sponsorships** - post-max-level alignment with an in-universe manufacturer; biases loot via weights (see locked ruling) and adds tech constraints. **Each brand carries its own unique hex tiles** (Natalia, 2026-07-14) - design discussion with Natalia pending before implementation starts.
-5. **Rust projectile physics port (Phase 3)** - the real win: eliminate per-projectile Area2D nodes entirely (Rust-side spatial hash + batched sweeps in `rust_ext`), feeding the `pixbots_core` extraction. Already landed toward this: ProjectileFlight batched flight math, `hexgrid_sim.rs` stub, and the GDScript saturation tiers (consolidation + visual LOD + popup budget) that relieve the immediate pressure.
-6. **Feature batch:** Bot League auto-pilot spectating (entered via Evan's exhibition table), Tactical Puzzle Challenges (Evan's chess-style JSON scenarios, restricted parts, strict timers), Shop events (wager waves first; Shop Cat flagship later), shop-framing UI paradigm pass across all menus, Champion Card art compositing the real mech sprite.
+3. **Corporate Sponsorships** - post-max-level alignment with an in-universe manufacturer; biases loot via weights (see locked ruling) and adds tech constraints. **Each brand carries its own unique hex tiles** (Natalia, 2026-07-14) - design discussion with Natalia pending before implementation starts.
+4. **Rust projectile physics port (Phase 3)** - the real win: eliminate per-projectile Area2D nodes entirely (Rust-side spatial hash + batched sweeps in `rust_ext`), feeding the `pixbots_core` extraction. Already landed toward this: ProjectileFlight batched flight math, `hexgrid_sim.rs` stub, and the GDScript saturation tiers (consolidation + visual LOD + popup budget) that relieve the immediate pressure.
+5. **Feature batch:** Bot League auto-pilot spectating (entered via Evan's exhibition table), Tactical Puzzle Challenges (Evan's chess-style JSON scenarios, restricted parts, strict timers), Shop events (wager waves first; Shop Cat flagship later), shop-framing UI paradigm pass across all menus, Champion Card art compositing the real mech sprite.
 
 ---
 
@@ -39,7 +38,7 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 
 ### Bugs & Code Health
 - **God-Class Aftercare:** Monitor and stabilize the `Mech.gd` split (`BossBrain`, `StatusEffectRunner`, `PlayerController`, `MagnetSystem`).
-- **Spatial Hashing:** Largely superseded by `EntityCache` + the saturation tiers; the remaining need (projectile broadphase) folds into queue item 5.
+- **Spatial Hashing:** Largely superseded by `EntityCache` + the saturation tiers; the remaining need (projectile broadphase) folds into queue item 4.
 
 ### Gameplay & Balance Improvements
 - **Boss Variety:** Stop scaling up Brawlers. Use role-specific bosses or genuine boss-only kits.
@@ -57,12 +56,13 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 - **Expedition Map:** Slay-the-Spire style branching Tournament Bracket/Shop Campaign.
 - **Pilot Skill Tree:** Earn XP for permanent QoL/utility passives across runs (QoL, not power, per ruling).
 - **Deployables & Superweapons:** Proximity mines, turrets, massive multi-hex superweapons (e.g. AoE shield domes).
-- **Modding (Phases 3-4):** Custom bot types and custom tile scripts extending `HexTile` (staged by queue item 2).
+- **Modding (Phases 3-4):** Custom bot types and custom tile scripts extending `HexTile` (staged by queue item 1).
 - **Cutscene content:** the framework is shipped and data-driven (`config/cutscenes/`) - actual story beats and real sprite PNGs are authoring work, gated on STORY_SCRIPT.md.
 
 ---
 
 ## 4. Recently Shipped (orientation only - cleared from tracking)
+- Simulation Timeline Scrubber + Packet Inspector: deterministic re-run-to-step-N replay (no state buffering - Resonator/Splitter/Catalyst mutable state resets via HexTile.reset_simulation_state before each replay), drag-to-scrub HSlider synced to live auto-play, click-a-tile packet inspector showing current output + last-5-packet history per direction
 - Garage Test Range: live-fire any armed mount's real combat packet at a target dummy in a private physics world (SubViewport + own World2D) - real projectiles, patterns, damage numbers, shots/avg readout
 - Tile config batch (`1300fb6`): Resonator per-path Sync Dropoff, Mythic Splitter output ratios, Catalyst gated injection (magnitude + cadence gates), Accumulator auto-dump thresholds - all in the click-a-tile config popup, all save-persistent
 - Wild-bot flee thresholds: skittish roles break off and go wild (squad + wave accounting stay honest, wounds regen while loitering, director recruits them back)

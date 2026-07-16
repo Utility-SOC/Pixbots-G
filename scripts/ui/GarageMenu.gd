@@ -16,6 +16,7 @@ const SynergyCodexPopup = preload("res://scripts/ui/SynergyCodexPopup.gd")
 const TileActionMenu = preload("res://scripts/ui/TileActionMenu.gd")
 const GarageInventoryPanel = preload("res://scripts/ui/GarageInventoryPanel.gd")
 const GarageTileConfigPopup = preload("res://scripts/ui/GarageTileConfigPopup.gd")
+const GaragePacketInspector = preload("res://scripts/ui/GaragePacketInspector.gd")
 const GarageUIBuilder = preload("res://scripts/ui/GarageUIBuilder.gd")
 
 var inventory_panel: PanelContainer
@@ -123,6 +124,17 @@ var synergy_codex_popup: SynergyCodexPopup = null
 var tile_action_menu: TileActionMenu = null
 var garage_inventory_panel: GarageInventoryPanel = null
 var garage_tile_config_popup: GarageTileConfigPopup = null
+var garage_packet_inspector: GaragePacketInspector = null
+
+# Simulation Timeline Scrubber (Status.md queue) - visible only once a
+# simulation has run at least once for the current grid. See
+# GarageSimulationRunner.seek_to_step/_update_scrubber_range.
+var sim_scrubber: HSlider = null
+var sim_step_label: Label = null
+# Set true only while the scrubber's own code moves .value programmatically
+# (syncing to live auto-play) - guards _on_sim_scrubber_changed so that
+# doesn't misread a programmatic move as a user drag and re-seek redundantly.
+var _scrubber_syncing: bool = false
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -281,6 +293,13 @@ func _on_tab_changed(index: int):
 
 	var meta = component_tabs.get_tab_metadata(index)
 	if meta == null: return
+
+	# Switching tabs swaps grid_renderer.hex_grid to a different component
+	# entirely - any Timeline Scrubber snapshot from before belongs to a
+	# grid that isn't even on screen anymore, so it hides itself rather
+	# than scrubbing a stale/invisible sim.
+	if sim_scrubber:
+		sim_scrubber.visible = false
 
 	if meta is Dictionary and meta.get("slot") == HexTile.BodySlot.DRONE:
 		var drone_bay = meta.get("bay")
@@ -537,9 +556,30 @@ func _update_mount_preview(tile: HexTile, screen_pos: Vector2):
 	mount_preview.show_for(tile, entries, fire_rate, screen_pos)
 
 func _on_tile_clicked(tile: HexTile):
+	# While the Timeline Scrubber is live (a simulation has run for this
+	# grid), clicking a tile opens the Packet Inspector instead of the
+	# normal edit-config popup - "configuring" a tile mid-preview doesn't
+	# make sense, but inspecting what just flowed through it does.
+	if sim_scrubber and sim_scrubber.visible:
+		if not garage_packet_inspector:
+			garage_packet_inspector = GaragePacketInspector.new(self)
+		garage_packet_inspector.on_tile_clicked(tile)
+		return
 	if not garage_tile_config_popup:
 		garage_tile_config_popup = GarageTileConfigPopup.new(self)
 	garage_tile_config_popup.on_tile_clicked(tile)
+
+# Scrubber drag handler - only re-seeks on a genuine user drag (see
+# _scrubber_syncing's field comment). Dragging mid-live-play stops the
+# auto-play timer loop (same as pressing Stop) so the drag isn't fighting
+# the next 0.5s auto-advance.
+func _on_sim_scrubber_changed(value: float):
+	if _scrubber_syncing or not simulation_runner:
+		return
+	if is_simulating:
+		is_simulating = false
+		if sim_button: sim_button.text = "Simulate Energy Flow"
+	simulation_runner.seek_to_step(int(round(value)))
 
 # Any Mythic-mode change alters the precalculated grid state - make sure
 # the mech rebuilds it before the next shot.
@@ -588,6 +628,11 @@ func _on_auto_equip_pressed():
 func _on_clear_grid_pressed():
 	if not active_component or not grid_renderer.hex_grid:
 		return
+
+	# Clearing tiles invalidates any Timeline Scrubber snapshot for this
+	# grid the same way switching tabs does (see _on_tab_changed).
+	if sim_scrubber:
+		sim_scrubber.visible = false
 
 	var tiles = grid_renderer.hex_grid.get_all_tiles()
 	var cleared = 0

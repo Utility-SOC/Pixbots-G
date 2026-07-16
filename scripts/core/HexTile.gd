@@ -139,6 +139,49 @@ func get_exit_direction(entry_direction: int) -> int:
 func can_enter_from(direction: int) -> bool:
 	return not is_blocked
 
+# --- Garage simulation timeline support (Timeline Scrubber + Packet
+# Inspector, Status.md queue) -----------------------------------------------
+# The scrubber replays the simulation from a cached step-0 packet snapshot
+# up to whatever step the player drags to, RATHER than buffering every
+# intermediate frame - the sim is fully deterministic (no RNG anywhere in
+# process_energy), so re-running it is free and exact. That only works if
+# every tile's own mutable state (a Resonator's path residue, a Catalyst's
+# gate counter, ...) gets wiped back to baseline before each replay -
+# reset_simulation_state() is the one place that happens. Stateful tile
+# subclasses (ResonatorTile, SplitterTile, CatalystTile, ...) override this
+# and call super() first, so a future stateful tile just needs to do the
+# same to stay scrubber-safe.
+const PACKET_HISTORY_CAP = 5
+# entry_direction (int 0-5) -> Array of snapshot Dictionaries, oldest
+# first, capped at PACKET_HISTORY_CAP - what the Packet Inspector reads.
+var packet_history: Dictionary = {}
+
+func record_packet_history(entry_direction: int, packet: EnergyPacket) -> void:
+	var snap = {
+		"magnitude": packet.magnitude,
+		"synergies": packet.synergies.duplicate(),
+		"dominant": packet.get_dominant_synergy(),
+	}
+	if not packet_history.has(entry_direction):
+		packet_history[entry_direction] = []
+	var hist: Array = packet_history[entry_direction]
+	hist.append(snap)
+	if hist.size() > PACKET_HISTORY_CAP:
+		hist.pop_front()
+
+func reset_simulation_state() -> void:
+	packet_history.clear()
+	# pending_packets isn't declared on the base HexTile class (only on
+	# WeaponMountTile/Link tiles/DroneBayTile), so a bare identifier
+	# reference here fails to compile even behind the "in self" guard -
+	# get() is the dynamic, always-legal way to reach a property that only
+	# SOME subclasses declare. Godot Arrays share their backing storage, so
+	# clear() on the fetched reference mutates the real property in place.
+	if "pending_packets" in self:
+		var pp = get("pending_packets")
+		if pp is Array:
+			pp.clear()
+
 # --- Shared "acts as a weapon mount" behavior -----------------------------
 # Both WeaponMountTile and ComponentLinkTile (when it's wired as an
 # Accessory/Torso Return "vent" with nowhere else to route energy) can end

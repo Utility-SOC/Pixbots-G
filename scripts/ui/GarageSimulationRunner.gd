@@ -19,6 +19,26 @@ var garage: GarageMenu
 func _init(p_garage: GarageMenu):
 	garage = p_garage
 
+# --- Timeline Scrubber support (Status.md queue) ---------------------------
+# The sim is fully deterministic (process_energy has no RNG anywhere in this
+# codebase), so the scrubber doesn't buffer history - it re-runs from a
+# cached step-0 snapshot up to whatever step the player drags to. Zero
+# growing memory cost, and "scrub backward" is exactly as cheap as "scrub
+# forward" since both are just "replay from 0 to N."
+#
+# _initial_packets_snapshot is captured once per Simulate press, right after
+# run_simulation()'s setup phase finishes computing this component's actual
+# starting packets (Core Reactor generation + any cross-component transfers)
+# - the SAME packets seeded into the live view, just independently copied so
+# later live-play mutation never touches the replay anchor.
+var _initial_packets_snapshot: Array[EnergyPacket] = []
+# How many steps until every packet has exited the grid or died out -
+# computed once via a throwaway discovery replay right after the snapshot is
+# taken, so "how far can I scrub" is never a guess. Drives the scrubber
+# HSlider's max_value.
+var total_steps: int = 0
+const DISCOVERY_STEP_CAP = 200
+
 func run_simulation():
 	garage._tutorial_notify("event:simulate_pressed")
 	if garage.is_simulating:
@@ -146,13 +166,29 @@ func run_simulation():
 		p.set_meta("anim_progress", 1.0)
 		p.is_active = true
 
+	# Snapshot the real step-0 starting point BEFORE anything below mutates
+	# it, then run a throwaway discovery pass to find out how far the
+	# scrubber can go - both reuse the exact same _advance_step() engine the
+	# live view uses, so "total steps" and "what the scrubber can reach" can
+	# never disagree.
+	_initial_packets_snapshot = _clone_packets(initial_packets)
+	total_steps = _discover_total_steps()
+	_update_scrubber_range()
+
 	garage.grid_renderer.active_packets = initial_packets
 	garage.grid_renderer.simulation_step = 0
 
 	update_stats()
 	step()
 
-func step():
+# One tick of pure state transition: no timers, no rendering side effects
+# beyond what it always did (mutating grid_renderer.active_packets/
+# simulation_step directly, same as before this was split out). Shared by
+# the live auto-play loop (step(), below) and the scrubber's replay
+# (seek_to_step/_discover_total_steps) - a single source of truth for "what
+# does one simulation step do," so scrubbed state and live-played state can
+# never drift apart.
+func _advance_step() -> void:
 	var active = garage.grid_renderer.active_packets
 	if active.is_empty(): return
 
@@ -170,7 +206,12 @@ func step():
 		var out_pkts = []
 		if garage.grid_renderer.hex_grid.has_tile(next_pos):
 			var tile = garage.grid_renderer.hex_grid.get_tile(next_pos)
-			out_pkts = tile.process_energy(pkt, (dir + 3) % 6)
+			var entry_dir = (dir + 3) % 6
+			# Packet Inspector history (Status.md queue) - recorded on
+			# whatever ENTERED this tile, before process_energy transforms
+			# it, so the inspector shows what actually arrived.
+			tile.record_packet_history(entry_dir, pkt)
+			out_pkts = tile.process_energy(pkt, entry_dir)
 			for out in out_pkts:
 				if out.magnitude < 0.5:
 					out.is_active = false
@@ -219,7 +260,11 @@ func step():
 			merged_packets.append(pkt)
 
 	garage.grid_renderer.active_packets = merged_packets
+
+func step():
+	_advance_step()
 	update_stats()
+	_sync_scrubber_to_live_step()
 
 	# Auto step loop
 	var tree = garage.get_tree()
@@ -240,6 +285,77 @@ func step():
 		else:
 			garage.is_simulating = false
 			if garage.sim_button: garage.sim_button.text = "Simulate Energy Flow"
+
+# --- Scrubber engine ---------------------------------------------------
+static func _clone_packets(packets: Array) -> Array[EnergyPacket]:
+	var out: Array[EnergyPacket] = []
+	for p in packets:
+		out.append(p.copy())
+	return out
+
+func _reset_active_grid_state() -> void:
+	if garage.grid_renderer.hex_grid:
+		for tile in garage.grid_renderer.hex_grid.get_all_tiles():
+			tile.reset_simulation_state()
+
+# Silent replay used only to find where the run naturally ends (every
+# packet exited the grid or dropped below the 0.5-magnitude floor). Reuses
+# _advance_step so it can never disagree with what the scrubber itself
+# reaches - leaves grid_renderer's visible state exactly where it lands
+# (drained), which is fine since the caller (run_simulation) always follows
+# this with a fresh seed into active_packets right after.
+func _discover_total_steps() -> int:
+	_reset_active_grid_state()
+	garage.grid_renderer.active_packets = _clone_packets(_initial_packets_snapshot)
+	garage.grid_renderer.simulation_step = 0
+	var n = 0
+	while n < DISCOVERY_STEP_CAP and not garage.grid_renderer.active_packets.is_empty():
+		_advance_step()
+		n += 1
+	return n
+
+# Deterministic re-run to an arbitrary step (drag target). Always replays
+# from the cached step-0 snapshot rather than stepping incrementally from
+# wherever the view currently sits - "scrub backward" and "scrub forward"
+# are the identical operation, which is what keeps this correct without
+# needing separate rewind logic.
+func seek_to_step(target_step: int) -> void:
+	target_step = clampi(target_step, 0, total_steps)
+	_reset_active_grid_state()
+	garage.grid_renderer.active_packets = _clone_packets(_initial_packets_snapshot)
+	garage.grid_renderer.simulation_step = 0
+	for i in range(target_step):
+		if garage.grid_renderer.active_packets.is_empty():
+			break
+		_advance_step()
+	# Instant seek, not a live tween - packets should render already
+	# "arrived" at this step rather than mid-flight from a stale anim.
+	for p in garage.grid_renderer.active_packets:
+		p.set_meta("anim_progress", 1.0)
+	update_stats()
+	_sync_scrubber_ui(target_step)
+
+func _update_scrubber_range() -> void:
+	if garage.sim_scrubber:
+		garage.sim_scrubber.max_value = total_steps
+		garage.sim_scrubber.visible = total_steps > 0
+	_sync_scrubber_ui(0)
+
+# Called from the live auto-play loop so the slider tracks playback without
+# the user having to touch it - guarded by _scrubber_syncing so this
+# programmatic move doesn't loop back through _on_sim_scrubber_changed and
+# trigger a redundant (if harmless) re-seek.
+func _sync_scrubber_to_live_step() -> void:
+	_sync_scrubber_ui(garage.grid_renderer.simulation_step)
+
+func _sync_scrubber_ui(step_value: int) -> void:
+	if not garage.sim_scrubber:
+		return
+	garage._scrubber_syncing = true
+	garage.sim_scrubber.value = step_value
+	garage._scrubber_syncing = false
+	if garage.sim_step_label:
+		garage.sim_step_label.text = "Step: %d / %d" % [step_value, total_steps]
 
 # Compact display for the stats panel's numbers. Stays readable at any
 # magnitude: plain integers below 1000, a K/M/B/T suffix ladder up through

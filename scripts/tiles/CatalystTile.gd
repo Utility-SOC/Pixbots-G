@@ -24,6 +24,10 @@ extends HexTile
 @export_range(1, 6) var gate_every_n: int = 1
 var _gate_counter: int = 0
 
+func reset_simulation_state() -> void:
+	super.reset_simulation_state()
+	_gate_counter = 0
+
 func toggle_inverted():
 	if rarity == Rarity.MYTHIC:
 		inverted = not inverted

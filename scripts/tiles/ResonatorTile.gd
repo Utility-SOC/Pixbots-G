@@ -36,6 +36,11 @@ const SYNC_DROPOFF_MAX = 9
 var sync_dropoff_per_path: Array = [SYNC_DROPOFF_DEFAULT, SYNC_DROPOFF_DEFAULT, SYNC_DROPOFF_DEFAULT]
 var _path_residue: Dictionary = {} # path_id (0/1/2) -> {"synergy": int, "steps_left": int}
 
+func reset_simulation_state() -> void:
+	super.reset_simulation_state()
+	_remnant_magnitudes.clear()
+	_path_residue.clear()
+
 func get_sync_dropoff(path_id: int) -> int:
 	if path_id < 0 or path_id >= sync_dropoff_per_path.size():
 		return SYNC_DROPOFF_DEFAULT

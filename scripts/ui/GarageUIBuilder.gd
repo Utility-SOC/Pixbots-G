@@ -202,6 +202,35 @@ func build():
 	)
 	bottom_bar.add_child(deploy_button)
 
+	# Simulation Timeline Scrubber (Status.md queue) - deterministic re-run
+	# to any step, hidden until a simulation has actually run for this grid
+	# (see GarageSimulationRunner.run_simulation/_update_scrubber_range and
+	# GarageMenu._on_tab_changed/_on_clear_grid_pressed's invalidation).
+	# While visible, clicking a tile opens the Packet Inspector instead of
+	# the normal edit popup - see GarageMenu._on_tile_clicked.
+	var scrubber_bar = HBoxContainer.new()
+	left_vbox.add_child(scrubber_bar)
+
+	var scrubber_lbl = Label.new()
+	scrubber_lbl.text = "Timeline:"
+	scrubber_bar.add_child(scrubber_lbl)
+
+	garage.sim_scrubber = HSlider.new()
+	garage.sim_scrubber.min_value = 0
+	garage.sim_scrubber.max_value = 0
+	garage.sim_scrubber.step = 1
+	garage.sim_scrubber.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	garage.sim_scrubber.custom_minimum_size = Vector2(200, 24)
+	garage.sim_scrubber.tooltip_text = "Drag to scrub the simulation to any step - deterministic re-run, no memory cost. Click a tile while this is visible to inspect its packet history instead of editing it."
+	garage.sim_scrubber.visible = false
+	garage.sim_scrubber.value_changed.connect(garage._on_sim_scrubber_changed)
+	scrubber_bar.add_child(garage.sim_scrubber)
+
+	garage.sim_step_label = Label.new()
+	garage.sim_step_label.text = "Step: 0 / 0"
+	garage.sim_step_label.custom_minimum_size = Vector2(100, 0)
+	scrubber_bar.add_child(garage.sim_step_label)
+
 	# Loadouts Bar - named, unlimited slots (playtest ruling: "a wider
 	# variety of builds (Component and full bot) not just 3 slots"). Both
 	# buttons open a popup manager in GarageMenu with save-as / load /

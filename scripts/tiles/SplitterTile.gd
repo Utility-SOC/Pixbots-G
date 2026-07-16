@@ -41,6 +41,10 @@ func _init():
 	category = TileCategory.ROUTER
 	active_faces = [1, 5]
 
+func reset_simulation_state() -> void:
+	super.reset_simulation_state()
+	_remnant_magnitudes.clear()
+
 func get_weight() -> float:
 	return 2.0 # light - just a routing junction
 

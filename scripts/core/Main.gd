@@ -510,61 +510,71 @@ func _setup_player():
 	# Pre-calculate weapons so the first shot doesn't freeze the game
 	player._recalculate_grid()
 
+## Starter inventory curve (Status.md "God-Class Aftercare"-adjacent backlog
+## item, tuned 2026-07-16): the original grant was 20 debug-leftover
+## Legendary Splitters stacked on top of an already-generous full COMMON-
+## through-LEGENDARY spread of every core tile - a fresh save started with
+## more high-rarity routing tiles than LootManager's DROP_RATES (2% for
+## LEGENDARY, wave-scaled ~0.5-8% for MYTHIC) intend a player to see for
+## many waves of actual play. Replaced with a real taper: COMMON-heavy,
+## a taste of UNCOMMON/RARE, and zero free LEGENDARY/MYTHIC - those stay
+## something the loot economy and Garage Market actually have to earn.
+## New players still get a full working demo build separately (see
+## GarageMenu.gd's _apply_demo_build) - this loose inventory is spare
+## crafting/customization material on top of that, not the only path to
+## a functioning mech.
 func _initialize_starter_inventory():
 	player_inventory.clear()
 	player_component_inventory.clear()
-	
-	var rarities = [HexTile.Rarity.COMMON, HexTile.Rarity.UNCOMMON, HexTile.Rarity.RARE, HexTile.Rarity.LEGENDARY]
+
+	var taper = [HexTile.Rarity.COMMON, HexTile.Rarity.UNCOMMON, HexTile.Rarity.RARE]
+	var taper_counts = {HexTile.Rarity.COMMON: 5, HexTile.Rarity.UNCOMMON: 3, HexTile.Rarity.RARE: 1}
 	var classes = [
 		preload("res://scripts/tiles/SplitterTile.gd"),
 		preload("res://scripts/tiles/ReflectorTile.gd"),
 		preload("res://scripts/tiles/AmplifierTile.gd")
 	]
-	
-	# 3 of each rarity for Splitter, Reflector, Amplifier
-	for r in rarities:
+
+	# Splitter, Reflector, Amplifier: 5 Common / 3 Uncommon / 1 Rare each
+	for r in taper:
 		for c in classes:
-			for i in range(3):
+			for i in range(taper_counts[r]):
 				var tile = c.new()
 				tile.rarity = r
 				player_inventory.append(tile)
-				
-	# Add 20 Legendary Splitters per user request
-	for i in range(20):
-		var tile = preload("res://scripts/tiles/SplitterTile.gd").new()
-		tile.rarity = HexTile.Rarity.LEGENDARY
-		player_inventory.append(tile)
-				
-	# Add Magnets and Shields
-	for r in rarities:
-		for i in range(5):
+
+	# Magnets and Shields: 3 Common / 2 Uncommon / 1 Rare each
+	var defense_counts = {HexTile.Rarity.COMMON: 3, HexTile.Rarity.UNCOMMON: 2, HexTile.Rarity.RARE: 1}
+	for r in taper:
+		for i in range(defense_counts[r]):
 			var tile = load("res://scripts/tiles/MagnetTile.gd").new()
 			tile.rarity = r
 			player_inventory.append(tile)
-			
+
 			var shield = load("res://scripts/tiles/ShieldGeneratorTile.gd").new()
 			shield.rarity = r
 			player_inventory.append(shield)
-				
+
 	# Add Infusers (enum values, not magic ints - the old literal `3` here
 	# was commented POISON but is actually LIGHTNING in SynergyType order,
 	# so the starter "poison" infuser had been infusing lightning)
 	var poison_infuser = load("res://scripts/tiles/InfuserTile.gd").new()
-	poison_infuser.rarity = HexTile.Rarity.RARE
+	poison_infuser.rarity = HexTile.Rarity.UNCOMMON
 	poison_infuser.secondary_synergy = EnergyPacket.SynergyType.POISON
 	player_inventory.append(poison_infuser)
 
 	var fire_infuser = load("res://scripts/tiles/InfuserTile.gd").new()
-	fire_infuser.rarity = HexTile.Rarity.RARE
+	fire_infuser.rarity = HexTile.Rarity.UNCOMMON
 	fire_infuser.secondary_synergy = EnergyPacket.SynergyType.FIRE
 	player_inventory.append(fire_infuser)
-	
-	# Add Catalyst
-	var leg_cat = load("res://scripts/tiles/CatalystTile.gd").new()
-	leg_cat.rarity = HexTile.Rarity.LEGENDARY
-	player_inventory.append(leg_cat)
 
-	# Add Jumpjets for Water Traversal
+	# Add Catalyst - Rare, not Legendary; a starter taste, not a free BiS tile
+	var starter_cat = load("res://scripts/tiles/CatalystTile.gd").new()
+	starter_cat.rarity = HexTile.Rarity.RARE
+	player_inventory.append(starter_cat)
+
+	# Add Jumpjets for Water Traversal - functional necessity, not a power
+	# spike, so this stays as-is rather than tapering down further.
 	for i in range(2):
 		var jj = load("res://scripts/tiles/JumpjetTile.gd").new()
 		jj.rarity = HexTile.Rarity.UNCOMMON

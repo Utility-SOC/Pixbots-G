@@ -23,6 +23,13 @@ const RANK_FILE = "user://pvp_rank.dat" # encrypted local rank (design ruling)
 const RANK_BASELINE = 1000.0
 const RANK_K = 32.0 # classic Elo K-factor
 
+# Sprite portrait band (Status.md backlog: "composite the real mech sprite").
+# Card width stays 400 - this just adds a portrait strip above the existing
+# hex-schematic blueprint rather than fighting it for space, so the
+# schematic's already-tuned pixel offsets never need to change.
+const PORTRAIT_HEIGHT = 300
+const PORTRAIT_SNAPSHOT_SIZE = 320
+
 # Matches GarageMenu's rarity accent colors closely enough to read.
 const RARITY_COLORS = [
 	Color(0.62, 0.62, 0.62), # COMMON
@@ -130,9 +137,86 @@ static func extract_payload(png_bytes: PackedByteArray) -> Dictionary:
 # tile rarity, and a "blueprint" of each component's actual hex grid drawn
 # in its tiles' own colors - a genuinely identifying visual of the build.
 # All the DATA lives in the embedded chunk; this layer is free to evolve.
+# Renders a real, in-engine sprite snapshot of the mech via MechRenderer -
+# the actual procedural pixel-art sprite as it appears in gameplay, distinct
+# from the hex-schematic blueprint render_card_image() draws below. Builds a
+# throwaway rendering rig from deep-copied/deserialized components (the same
+# serialize/deserialize round-trip assemble_blueprint already uses) rather
+# than reparenting the live `mech` itself - that mech is usually the actively-
+# playing player, and yanking it into a private SubViewport mid-game would
+# risk disrupting its physics/visual state. Returns null if `mech` has no
+# tree access (shouldn't happen for any real caller - export_card is only
+# ever invoked on a mech already in the scene tree).
+static func _render_sprite_portrait(mech: Node) -> Image:
+	if not mech.is_inside_tree():
+		return null
+	# Headless runs (debug checks, dedicated servers, --headless) fall back
+	# to Godot's dummy rendering driver, which has no real RenderingDevice -
+	# SubViewport.get_texture() there comes back a non-null Texture2D wrapper
+	# over an invalid RID, so the null-check has to happen up front rather
+	# than on the texture itself further down (calling get_image() on it
+	# hits an engine-level "Parameter t is null" error, not a catchable
+	# GDScript one). Not a bug - just no real portrait to capture outside an
+	# actual windowed session; render_card_image()'s blank-band fallback
+	# covers this cleanly.
+	if not RenderingServer.get_rendering_device():
+		return null
+	var tree = mech.get_tree()
+
+	var vp = SubViewport.new()
+	vp.size = Vector2i(PORTRAIT_SNAPSHOT_SIZE, PORTRAIT_SNAPSHOT_SIZE)
+	vp.transparent_bg = true
+	vp.world_2d = World2D.new()
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	tree.root.add_child(vp)
+
+	var MechScript = load("res://scripts/entities/Mech.gd")
+	var rig = MechScript.new()
+	rig.is_player = false
+	vp.add_child(rig) # _ready() fires here, building a default starter body + renderer
+
+	# equip_component() doesn't free whatever already occupies a slot, so the
+	# default starter body _ready() just built has to be explicitly torn down
+	# first or the real parts would render stacked on top of it.
+	for slot in rig.components.keys().duplicate():
+		var old = rig.unequip_component(slot)
+		if old:
+			old.queue_free()
+	for slot in mech.components.keys():
+		var fresh_comp = SaveManager._deserialize_component(SaveManager._serialize_component(mech.components[slot]))
+		rig.equip_component(fresh_comp)
+	rig._recalculate_grid()
+	rig._renderer._rebuild_visuals()
+
+	var cam = Camera2D.new()
+	# Wide, fixed zoom rather than per-role framing math: the player's card-
+	# export mech always renders at MechRenderer's "hero" scale (a fixed
+	# 1.05x, see get_role_scale), so a generous zoom-out safely frames it
+	# without needing to measure the actual sprite bounds.
+	cam.zoom = Vector2(0.45, 0.45)
+	rig.add_child(cam) # child of rig, not vp - inherits rig's position for free
+	cam.make_current()
+
+	# A SubViewport needs at least one process frame after its content
+	# changes before get_texture() reflects it - two to be safe with
+	# UPDATE_ALWAYS's own internal lag.
+	await tree.process_frame
+	await tree.process_frame
+
+	# Headless runs (debug checks, dedicated servers) use Godot's dummy
+	# rendering driver, which never produces a real texture here - get_texture()
+	# comes back null. That's expected outside a real windowed session, not a
+	# bug: fail quietly so render_card_image()'s "blank band" fallback takes
+	# over instead of a crash.
+	var vp_tex = vp.get_texture()
+	var img = vp_tex.get_image() if vp_tex else null
+	vp.queue_free()
+	return img
+
 static func render_card_image(mech: Node) -> Image:
 	var w = 400
-	var h = 560
+	var schematic_h = 560
+	var h = PORTRAIT_HEIGHT + schematic_h
 	var img = Image.create(w, h, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0.09, 0.09, 0.12))
 
@@ -156,12 +240,25 @@ static func render_card_image(mech: Node) -> Image:
 	img.fill_rect(Rect2i(12, 12, w - 24, 2), dim)
 	img.fill_rect(Rect2i(12, h - 14, w - 24, 2), dim)
 
+	# Sprite portrait band: the real in-game mech render, scaled/centered
+	# into the top strip. Falls back to leaving the band blank (still a
+	# valid, readable card) if the snapshot ever comes back empty - a
+	# missing portrait shouldn't block exporting the card at all.
+	var portrait = await _render_sprite_portrait(mech)
+	if portrait:
+		var target_size = min(w - 24, PORTRAIT_HEIGHT - 24)
+		portrait.resize(target_size, target_size, Image.INTERPOLATE_NEAREST)
+		img.blit_rect(portrait, Rect2i(Vector2i.ZERO, portrait.get_size()), Vector2i((w - target_size) / 2, (PORTRAIT_HEIGHT - target_size) / 2))
+	img.fill_rect(Rect2i(12, PORTRAIT_HEIGHT - 2, w - 24, 2), dim)
+
 	# Blueprint: slots on a 2x4 grid of cells; each hex as a 4x4 px block.
+	# Shifted down by PORTRAIT_HEIGHT so the portrait band above never has
+	# to touch this schematic's already-tuned pixel offsets.
 	var slot_centers = {}
 	var idx = 0
 	for slot in mech.components.keys():
 		var cx = 100 + (idx % 2) * 200
-		var cy = 90 + int(idx / 2) * 130
+		var cy = PORTRAIT_HEIGHT + 90 + int(idx / 2) * 130
 		slot_centers[slot] = Vector2i(cx, cy)
 		idx += 1
 
@@ -178,7 +275,7 @@ static func render_card_image(mech: Node) -> Image:
 				for dy in range(4):
 					var x = px + dx
 					var y = py + dy
-					if x >= 8 and y >= 8 and x < w - 8 and y < h - 8:
+					if x >= 8 and y >= PORTRAIT_HEIGHT + 8 and x < w - 8 and y < h - 8:
 						img.set_pixel(x, y, color.lerp(rc, 0.35))
 	return img
 
@@ -188,7 +285,7 @@ static func render_card_image(mech: Node) -> Image:
 static func export_card(mech: Node, pilot_name: String) -> String:
 	DirAccess.make_dir_recursive_absolute(CARDS_DIR)
 	var payload = build_payload(mech, pilot_name)
-	var img = render_card_image(mech)
+	var img = await render_card_image(mech)
 	var png = img.save_png_to_buffer()
 	png = embed_payload(png, payload)
 	var safe_name = pilot_name.validate_filename().replace(" ", "_")

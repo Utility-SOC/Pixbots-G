@@ -30,7 +30,7 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
    - *Nemesis Bounties:* the Director breeds a boss from the player's own genetics (BossEvolution) to counter their build; drops unique inverted-synergy Nemesis Parts.
 3. **Corporate Sponsorships** - post-max-level alignment with an in-universe manufacturer; biases loot via weights (see locked ruling) and adds tech constraints. **Each brand carries its own unique hex tiles** (Natalia, 2026-07-14) - design discussion with Natalia pending before implementation starts.
 4. **Rust projectile physics port (Phase 3)** - the real win: eliminate per-projectile Area2D nodes entirely (Rust-side spatial hash + batched sweeps in `rust_ext`), feeding the `pixbots_core` extraction. Already landed toward this: ProjectileFlight batched flight math, `hexgrid_sim.rs` stub, and the GDScript saturation tiers (consolidation + visual LOD + popup budget) that relieve the immediate pressure.
-5. **Feature batch:** Bot League auto-pilot spectating (entered via Evan's exhibition table), Tactical Puzzle Challenges (Evan's chess-style JSON scenarios, restricted parts, strict timers), Shop events (wager waves first; Shop Cat flagship later), shop-framing UI paradigm pass across all menus, Champion Card art compositing the real mech sprite.
+5. **Feature batch:** Bot League auto-pilot spectating (entered via Evan's exhibition table), Tactical Puzzle Challenges (Evan's chess-style JSON scenarios, restricted parts, strict timers), Shop events (wager waves first; Shop Cat flagship later), shop-framing UI paradigm pass across all menus. Champion Card art compositing the real mech sprite: shipped.
 
 ---
 
@@ -61,7 +61,7 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 ---
 
 ## 4. Recently Shipped (orientation only - cleared from tracking)
-- Easy-wins batch: starter inventory rarity curve (no more free Legendaries), Ambusher decloak reveal burst + targetable Heal Beacons (disable-priority), HUD text outlines + unified menu keys (WarRoomMenu now uses real InputMap actions like everything else)
+- Easy-wins batch: starter inventory rarity curve (no more free Legendaries), Ambusher decloak reveal burst + targetable Heal Beacons (disable-priority), HUD text outlines + unified menu keys (WarRoomMenu now uses real InputMap actions like everything else), Champion Card sprite portrait (real in-engine MechRenderer render composited above the existing hex-schematic blueprint via a throwaway SubViewport rig)
 - Simulation Timeline Scrubber + Packet Inspector: deterministic re-run-to-step-N replay (no state buffering - Resonator/Splitter/Catalyst mutable state resets via HexTile.reset_simulation_state before each replay), drag-to-scrub HSlider synced to live auto-play, click-a-tile packet inspector showing current output + last-5-packet history per direction
 - Garage Test Range: live-fire any armed mount's real combat packet at a target dummy in a private physics world (SubViewport + own World2D) - real projectiles, patterns, damage numbers, shots/avg readout
 - Tile config batch (`1300fb6`): Resonator per-path Sync Dropoff, Mythic Splitter output ratios, Catalyst gated injection (magnitude + cadence gates), Accumulator auto-dump thresholds - all in the click-a-tile config popup, all save-persistent

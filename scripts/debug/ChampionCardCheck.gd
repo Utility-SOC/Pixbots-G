@@ -18,6 +18,14 @@ const LootPickupScript = preload("res://scripts/entities/LootPickup.gd")
 const ChampionCard = preload("res://scripts/pvp/ChampionCard.gd")
 
 func _ready():
+	# The tree is still mid-setup during this very _ready() call - a
+	# same-frame get_tree().root.add_child(...) later on (the sprite-portrait
+	# snapshot's SubViewport, see ChampionCard._render_sprite_portrait) would
+	# hit "Parent node is busy setting up children." One deferred frame is
+	# enough to clear that - same fix as HealBeaconSystemCheck.gd's identical
+	# issue.
+	await get_tree().process_frame
+
 	var failures = 0
 	var world = Node2D.new()
 	add_child(world)
@@ -35,7 +43,7 @@ func _ready():
 	player.equip_component(torso) # installs the Core at (0,0)
 
 	# --- 1-2: export + PNG still valid ---
-	var path = ChampionCard.export_card(player, "Harness Pilot")
+	var path = await ChampionCard.export_card(player, "Harness Pilot")
 	if path == "" or not FileAccess.file_exists(path):
 		push_error("FAIL: export_card produced no file")
 		get_tree().quit(1)

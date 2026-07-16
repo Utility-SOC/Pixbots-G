@@ -387,7 +387,7 @@ func _build_doctrines(director):
 		if players.is_empty():
 			status_label.text = "Start a game to export your champion."
 			return
-		var path = ChampionCard.export_card(players[0], SaveManager.pilot_name)
+		var path = await ChampionCard.export_card(players[0], SaveManager.pilot_name)
 		if path != "":
 			status_label.text = "Champion Card saved: %s (share the PNG!)" % ProjectSettings.globalize_path(path)
 		else:

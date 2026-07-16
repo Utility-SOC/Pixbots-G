@@ -16,19 +16,21 @@ const BossBrain = preload("res://scripts/entities/BossBrain.gd")
 const StatusEffectRunner = preload("res://scripts/entities/StatusEffectRunner.gd")
 const SightAndSearch = preload("res://scripts/entities/SightAndSearch.gd")
 const MagnetSystem = preload("res://scripts/entities/MagnetSystem.gd")
+const CloakSystem = preload("res://scripts/entities/CloakSystem.gd")
 const JammerField = preload("res://scripts/visuals/JammerField.gd")
 
 # Lazily constructed the first time it's needed (is_player branch of
 # _physics_process / is_boss branch of _execute_ai_tactics / first call to
-# update_status_effects / first call to _update_player_sight) - see
-# PlayerController.gd/BossBrain.gd/StatusEffectRunner.gd/SightAndSearch.gd's
-# own header comments for why these are composed RefCounted objects, not
-# child Nodes.
+# update_status_effects / first call to _update_player_sight / first call to
+# _physics_process's cloak tick) - see PlayerController.gd/BossBrain.gd/
+# StatusEffectRunner.gd/SightAndSearch.gd/CloakSystem.gd's own header
+# comments for why these are composed RefCounted objects, not child Nodes.
 var player_controller: PlayerController = null
 var boss_brain: BossBrain = null
 var status_runner: StatusEffectRunner = null
 var sight_and_search: SightAndSearch = null
 var magnet_system: MagnetSystem = null
+var cloak_system: CloakSystem = null
 
 # JammerField is a real scene-tree Node (see its own header comment for why
 # it's NOT a RefCounted composed object like the three above) - constructed
@@ -127,28 +129,18 @@ var actuator_energy = null
 
 # --- Cloak (Ambusher backpack ability) ---
 # Capacity/recharge-rate are sized once per _recalculate_grid() from
-# CloakTile energy (same pattern as the shield generator); the actual
-# charge/drain while playing is a simple runtime timer, independent of the
-# hex-grid packet simulation (unlike jumpjet_energy, which only refills on
-# equip changes - not something we want cloak to inherit).
+# CloakTile energy (same pattern as the shield generator) - these stay on
+# Mech (not CloakSystem) because _recalculate_grid writes them directly on
+# every loadout change, and is_cloaked is read/written externally by
+# BossBrain/PlayerController at any time. The actual per-frame charge/
+# timer/visual tick lives in CloakSystem.gd - see its header comment for
+# the full split rationale (same principle as StatusEffectRunner.gd).
 var has_cloak_generator: bool = false
 var max_cloak_charge: float = 0.0
-var cloak_charge: float = 0.0
 var cloak_recharge_rate: float = 0.0
 var cloak_recharge_delay: float = 1.0
 var cloak_drain_rate: float = 0.0
 var is_cloaked: bool = false
-var time_since_cloak_break: float = 999.0
-
-# Ambush bonus window: any damage dealt within AMBUSH_WINDOW_DURATION
-# seconds of a decloak event (from any cause - firing, taking a hit, or
-# cloak charge running out, since _break_cloak() is the one chokepoint all
-# three funnel through) gets AMBUSH_MULTIPLIER applied. Replaces the old
-# "only the exact shot that broke cloak gets the bonus" behavior with a
-# proper timed window per Natalia's request.
-var _ambush_window_timer: float = 0.0
-const AMBUSH_WINDOW_DURATION = 0.25
-const AMBUSH_MULTIPLIER = 2.5
 
 # --- Jammer Module (equippable pulse ability - distinct from the JammerMech
 # role, which is a whole separate continuous-aura mech class) ---
@@ -680,7 +672,9 @@ func _physics_process(delta: float):
 			if _boss_time_since_hit > BOSS_FLEE_GRACE:
 				_boss_flee_penalty += BOSS_FLEE_RATE * delta
 
-	_update_cloak(delta)
+	if not cloak_system:
+		cloak_system = CloakSystem.new(self)
+	cloak_system.tick(delta)
 	_update_jammer_module(delta)
 	_update_healer(delta)
 
@@ -2481,8 +2475,8 @@ func update_status_effects(delta: float):
 	if is_cloaked:
 		current_move_speed *= 1.25 # Sneaking in fast while unseen
 
-	if _ambush_window_timer > 0.0:
-		_ambush_window_timer = max(0.0, _ambush_window_timer - delta)
+	# (Ambush-window countdown now lives in CloakSystem.tick(), ticked from
+	# _physics_process alongside the rest of cloak's per-frame state.)
 
 	# Overlord boss ability ("Rally") - temporary speed buff on top of the
 	# self-heal/shield-refresh it grants (see _do_rally). Ticked here so it
@@ -2501,125 +2495,24 @@ func update_status_effects(delta: float):
 		for syn_id in synergies_to_clear:
 			jammed_synergies.erase(syn_id)
 
-# --- Cloak -------------------------------------------------------------
-
-func _update_cloak(delta: float):
-	if not has_cloak_generator:
-		if is_cloaked or modulate.a < 1.0:
-			is_cloaked = false
-			modulate.a = 1.0
-		return
-
-	time_since_cloak_break += delta
-
-	if is_cloaked:
-		cloak_charge = max(0.0, cloak_charge - cloak_drain_rate * delta)
-		if cloak_charge <= 0.0:
-			_break_cloak()
-	elif time_since_cloak_break >= cloak_recharge_delay:
-		cloak_charge = min(max_cloak_charge, cloak_charge + cloak_recharge_rate * delta)
-
-		var wants_cloak = false
-		if is_player:
-			wants_cloak = InputMap.has_action("cloak") and Input.is_action_pressed("cloak")
-		elif target:
-			# Ambush AI: stay cloaked while closing in, reveal once at striking range
-			wants_cloak = global_position.distance_to(target.global_position) > engagement_distance * 0.9
-
-		if wants_cloak and cloak_charge >= max_cloak_charge * 0.3:
-			is_cloaked = true
-
-	var target_alpha = 0.3 if is_cloaked else 1.0
-	# Was 8.0 - converged in under half a second, way too snappy for a
-	# "cloak" to read as anything more than a quick flicker. This is a
-	# genuinely slow fade now (~2-2.5s to fully settle).
-	modulate.a = lerp(modulate.a, target_alpha, 1.2 * delta)
-
-	# The "big distorted circle" visual: a heat-haze shimmer bubble around
-	# the cloaked mech (screen-UV displacement shader). Fades in/out with
-	# the cloak. Doubles as the ambusher counterplay tell - a player who
-	# learns the shimmer can spot an incoming cloaked ambusher.
-	_update_cloak_distortion(delta)
-
-const CLOAK_DISTORTION_RADIUS = 80.0
-const CLOAK_SHADER_CODE = """
-shader_type canvas_item;
-uniform sampler2D screen_tex : hint_screen_texture, filter_nearest;
-uniform float strength : hint_range(0.0, 1.0) = 0.0;
-
-void fragment() {
-	vec2 centered = UV - vec2(0.5);
-	float dist = length(centered) * 2.0;
-	// 1.0 at the middle, 0 at the rim - the bubble has a soft edge
-	float mask = smoothstep(1.0, 0.55, dist);
-	// Wobbling ripple rings drifting through the bubble
-	float ripple = sin(dist * 22.0 - TIME * 4.0) + sin(centered.x * 18.0 + TIME * 2.3);
-	vec2 dir = dist > 0.001 ? centered / dist : vec2(0.0);
-	vec2 offset = dir * ripple * 0.012 * strength * mask;
-	vec4 scene = texture(screen_tex, SCREEN_UV + offset);
-	// Slight cool tint so the bubble reads even over flat terrain
-	scene.rgb = mix(scene.rgb, scene.rgb * vec3(0.92, 0.97, 1.05), mask * strength);
-	COLOR = vec4(scene.rgb, mask * min(1.0, strength * 3.0));
-}"""
-
-var _cloak_distortion: ColorRect = null
-var _cloak_distortion_strength: float = 0.0
-
-func _ensure_cloak_distortion():
-	if _cloak_distortion and is_instance_valid(_cloak_distortion):
-		return
-	if not get_parent():
-		return
-	_cloak_distortion = ColorRect.new()
-	_cloak_distortion.size = Vector2.ONE * CLOAK_DISTORTION_RADIUS * 2.0
-	_cloak_distortion.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sh = Shader.new()
-	sh.code = CLOAK_SHADER_CODE
-	var mat = ShaderMaterial.new()
-	mat.shader = sh
-	_cloak_distortion.material = mat
-	# Sibling of the mech, NOT a child: children inherit modulate, so a
-	# child bubble would fade out with the cloaking mech - i.e. disappear
-	# exactly when it's supposed to be the only visible tell. As a sibling
-	# it keeps full opacity and just follows the mech's position.
-	get_parent().add_child(_cloak_distortion)
-	tree_exiting.connect(func():
-		if _cloak_distortion and is_instance_valid(_cloak_distortion):
-			_cloak_distortion.queue_free()
-	)
-
-func _update_cloak_distortion(delta: float):
-	var target = 1.0 if is_cloaked else 0.0
-	_cloak_distortion_strength = lerp(_cloak_distortion_strength, target, 1.2 * delta)
-
-	if _cloak_distortion_strength < 0.02:
-		if _cloak_distortion and is_instance_valid(_cloak_distortion):
-			_cloak_distortion.visible = false
-		return
-
-	_ensure_cloak_distortion()
-	if not _cloak_distortion:
-		return
-	_cloak_distortion.visible = true
-	_cloak_distortion.global_position = global_position - _cloak_distortion.size / 2.0
-	_cloak_distortion.material.set_shader_parameter("strength", _cloak_distortion_strength)
+# --- Cloak ---------------------------------------------------------------
+# Thin wrappers only - see CloakSystem.gd for the actual charge/timer/
+# visual tick and the ambush-window bonus. Both stay as real Mech methods
+# (not e.g. mech.cloak_system.break_cloak()) because they're called from
+# many places both inside this file and externally (BossBrain,
+# PlayerController) - lazily constructing here matches the same pattern
+# update_status_effects() uses for status_runner, so callers never have to
+# know or care whether a CloakSystem exists yet.
 
 func _break_cloak():
-	if not is_cloaked:
-		return
-	is_cloaked = false
-	time_since_cloak_break = 0.0
-	_ambush_window_timer = AMBUSH_WINDOW_DURATION
+	if not cloak_system:
+		cloak_system = CloakSystem.new(self)
+	cloak_system.break_cloak()
 
-# Ambush multiplier for whatever damage is about to be dealt. True while
-# still cloaked (covers the shot that's actively breaking cloak this call)
-# OR while the post-decloak window is running (covers everything else within
-# AMBUSH_WINDOW_DURATION seconds of any decloak, regardless of cause - see
-# _break_cloak). Ticked down in update_status_effects().
 func _get_ambush_multiplier() -> float:
-	if is_cloaked or _ambush_window_timer > 0.0:
-		return AMBUSH_MULTIPLIER
-	return 1.0
+	if not cloak_system:
+		cloak_system = CloakSystem.new(self)
+	return cloak_system.get_ambush_multiplier()
 
 # --- Jammer Module (equippable ability) ---------------------------------
 # VISION mode (jammer_mode == 0) is now a persistent, spatial JammerField

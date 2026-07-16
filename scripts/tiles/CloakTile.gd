@@ -5,8 +5,9 @@ extends HexTile
 # it just accumulates energy routed to it during the hex-grid simulation
 # (Mech._recalculate_grid), and Mech reads get_cloak_energy() once per
 # recalculation to size a runtime charge pool. The actual charge/drain while
-# playing is handled by Mech._update_cloak() every physics frame, the same
-# way shield_hp regenerates independently of the routing simulation.
+# playing is handled by CloakSystem.tick() every physics frame (see
+# Mech.gd's cloak_system field), the same way shield_hp regenerates
+# independently of the routing simulation.
 
 func _init():
 	super._init("Cloak Generator", HexTile.TileCategory.OUTPUT)

@@ -37,7 +37,8 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 ## 3. Backlog & Improvements
 
 ### Bugs & Code Health
-- **God-Class Aftercare:** Monitor and stabilize the `Mech.gd` split (`BossBrain`, `StatusEffectRunner`, `PlayerController`, `MagnetSystem`).
+- **God-Class Aftercare (in progress):** `Mech.gd` audited at ~3000 lines. The 5 existing splits (`BossBrain`, `StatusEffectRunner`, `PlayerController`, `MagnetSystem`, `SightAndSearch`) are all genuinely lazy-constructed and cleanly delegated - confirmed healthy, not the problem. `CloakSystem` extracted (`b3adf92`) as the first of three matching "equippable ability" cuts. Remaining, in order: **Jammer Module** (~120 lines: charge tick, pulse emission, field lifecycle) and **Heal Beacon** (~50 lines) - both same shape as Cloak/Magnet, low risk. Then the two big, higher-risk clusters: **`_recalculate_grid` + its energy-routing helpers** (~550 lines, the single largest block in the file) and the **damage/combat pipeline** (`apply_damage`, part disables, shield mitigation - ~400 lines).
+- **Consolidation-first mode:** per Natalia's direction (2026-07-16), no new features until this pass and a general stability sweep are done.
 - **Spatial Hashing:** Largely superseded by `EntityCache` + the saturation tiers; the remaining need (projectile broadphase) folds into queue item 4.
 
 ### Gameplay & Balance Improvements

@@ -6,7 +6,7 @@ extends HexTile
 # a legitimate "normalizer" (converts everything back to RAW at its usual
 # efficiency), so nothing special-cases it.
 @export var target_synergy: EnergyPacket.SynergyType = EnergyPacket.SynergyType.RAW
-@export var efficiency: float = 1.2
+@export var efficiency: float = TileStatsRegistry.get_stat("CatalystTile", "efficiency", 1.2)
 
 # MYTHIC ability: "Inverted" catalyst acts as a FILTER instead of a
 # converter - voids every energy type EXCEPT the chosen element, protecting
@@ -37,7 +37,7 @@ func _init():
 	category = TileCategory.CONVERTER
 
 func get_weight() -> float:
-	return 4.0 # a moderately complex processor
+	return TileStatsRegistry.get_stat("CatalystTile", "weight", 4.0) # a moderately complex processor
 
 func cycle_synergy():
 	target_synergy = (target_synergy + 1) % 10

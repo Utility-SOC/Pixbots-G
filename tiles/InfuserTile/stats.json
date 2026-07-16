@@ -1,0 +1,9 @@
+{
+	"weight": 4.0,
+	"power_infusion": 2.0,
+	"conversion_rate_base": 0.4,
+	"conversion_rate_rarity_coeff": 0.15,
+	"conversion_rate_level_coeff": 0.05,
+	"infusion_rarity_coeff": 0.5,
+	"infusion_level_coeff": 0.1
+}

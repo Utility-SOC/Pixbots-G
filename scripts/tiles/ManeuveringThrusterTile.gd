@@ -15,7 +15,7 @@ func _init():
 	category = TileCategory.OUTPUT
 
 func get_weight() -> float:
-	return 5.0 # gimbal/reaction-wheel hardware - lighter than a full jumpjet stack
+	return TileStatsRegistry.get_stat("ManeuveringThrusterTile", "weight", 5.0) # gimbal/reaction-wheel hardware - lighter than a full jumpjet stack
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []

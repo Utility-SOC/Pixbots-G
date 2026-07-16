@@ -23,7 +23,7 @@ This document tracks the active implementation targets, backlog, and design expa
 
 Garage QoL first (felt immediately), then small gameplay wins, then progression systems, then the big engine lift, then the feature batch.
 
-1. **Data-driven tiles** - per-tile folder with `stats.json` (charge multipliers, damage boosts) and optional sprite PNG override; stages full custom tile mods. Procedural visuals remain the default per the locked ruling.
+1. **Data-driven tiles** - shipped. Every one of the 24 tile scripts now reads its balance numbers (weight, charge/damage multipliers, per-rarity power/duration/interval curves) from `res://tiles/<TileType>/stats.json` via the new `TileStatsRegistry` autoload, falling back to the original hardcoded value if a file/key is missing - purely additive, verified byte-identical to prior behavior via `DataDrivenTilesCheck.gd` across all 24 types and all 5 rarities. Optional sprite PNG override per tile folder is a natural next step (not yet wired) for the full custom-tile-mod staging; procedural visuals remain the default per the locked ruling either way.
 2. **Late-game progression** (in order):
    - *Overclocking (prestige):* at max component level, safely un-equips Mod Chips back to inventory, drops Chip Capacity until re-upgraded; grants permanent mass reduction or +1 hex.
    - *Chip Splicing:* merge two Mythic chips into one "Corrupted" dual-effect chip carrying a severe drawback from a large pool.
@@ -62,6 +62,7 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 
 ## 4. Recently Shipped (orientation only - cleared from tracking)
 - Easy-wins batch: starter inventory rarity curve (no more free Legendaries), Ambusher decloak reveal burst + targetable Heal Beacons (disable-priority), HUD text outlines + unified menu keys (WarRoomMenu now uses real InputMap actions like everything else), Champion Card sprite portrait (real in-engine MechRenderer render composited above the existing hex-schematic blueprint via a throwaway SubViewport rig)
+- Data-driven tiles: all 24 tile types + `TileStatsRegistry` autoload, `res://tiles/<TileType>/stats.json` per type, zero behavior change (verified)
 - Simulation Timeline Scrubber + Packet Inspector: deterministic re-run-to-step-N replay (no state buffering - Resonator/Splitter/Catalyst mutable state resets via HexTile.reset_simulation_state before each replay), drag-to-scrub HSlider synced to live auto-play, click-a-tile packet inspector showing current output + last-5-packet history per direction
 - Garage Test Range: live-fire any armed mount's real combat packet at a target dummy in a private physics world (SubViewport + own World2D) - real projectiles, patterns, damage numbers, shots/avg readout
 - Tile config batch (`1300fb6`): Resonator per-path Sync Dropoff, Mythic Splitter output ratios, Catalyst gated injection (magnitude + cadence gates), Accumulator auto-dump thresholds - all in the click-a-tile config popup, all save-persistent

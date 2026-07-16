@@ -3,7 +3,7 @@ extends HexTile
 
 var stored_energy: float = 0.0
 var shield_synergies: Dictionary = {}
-@export var conversion_rate: float = 2.0 # Energy to Shield HP ratio
+@export var conversion_rate: float = TileStatsRegistry.get_stat("ShieldTile", "conversion_rate", 2.0) # Energy to Shield HP ratio
 
 # MYTHIC toggle - see Mech.gd's shield_mythic_mode / _apply_shield_mitigation
 # / _deflect_overflow. Aegis: hard per-hit damage cap while shields hold
@@ -21,17 +21,13 @@ func _init():
 	base_color = Color(0.1, 0.4, 0.8) # Blue
 
 func get_weight() -> float:
-	return 6.5 # substantial shield-generation hardware
+	return TileStatsRegistry.get_stat("ShieldTile", "weight", 6.5) # substantial shield-generation hardware
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var p = packet.copy()
 
-	var mult = 1.1
-	if rarity == Rarity.UNCOMMON: mult = 1.5
-	elif rarity == Rarity.RARE: mult = 2.5
-	elif rarity == Rarity.LEGENDARY: mult = 5.0
-	elif rarity == Rarity.MYTHIC: mult = 10.0
-	
+	var mult = TileStatsRegistry.get_stat_by_rarity("ShieldTile", "energy_mult_by_rarity", rarity, [1.1, 1.5, 2.5, 5.0, 10.0])
+
 	stored_energy += p.magnitude * mult
 	for k in p.synergies:
 		if shield_synergies.has(k):

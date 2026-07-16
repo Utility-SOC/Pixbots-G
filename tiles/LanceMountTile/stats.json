@@ -1,0 +1,8 @@
+{
+	"weight": 14.0,
+	"face_threshold": 10000.0,
+	"required_faces": 6,
+	"cooldown_time": 10.0,
+	"residue_lifetime": 25.0,
+	"beam_range": 6000.0
+}

@@ -1,0 +1,6 @@
+{
+	"weight": 7.0,
+	"base_speed_multiplier": 0.5,
+	"kinetic_bonus_mult": 1.5,
+	"lightning_bonus_mult": 2.0
+}

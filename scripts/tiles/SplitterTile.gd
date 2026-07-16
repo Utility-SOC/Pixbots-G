@@ -56,16 +56,10 @@ func copy_config_from(other: HexTile) -> void:
 	output_ratios = other.output_ratios.duplicate()
 
 func get_weight() -> float:
-	return 2.0 # light - just a routing junction
+	return TileStatsRegistry.get_stat("SplitterTile", "weight", 2.0) # light - just a routing junction
 
 func get_max_faces() -> int:
-	match rarity:
-		Rarity.COMMON: return 2
-		Rarity.UNCOMMON: return 2
-		Rarity.RARE: return 3
-		Rarity.LEGENDARY: return 5
-		Rarity.MYTHIC: return 6 # every face on the hex - the geometric maximum
-		_: return 2
+	return int(TileStatsRegistry.get_stat_by_rarity("SplitterTile", "max_faces_by_rarity", rarity, [2, 2, 3, 5, 6])) # 6 (Mythic) is every face on the hex - the geometric maximum
 
 func toggle_output(direction: int):
 	if active_faces.has(direction):

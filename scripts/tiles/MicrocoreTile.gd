@@ -6,25 +6,13 @@ func _init():
 	tile_type = "Microcore"
 
 func get_weight() -> float:
-	return 5.0 # a compact reactor - still a heavy power source, just lighter than the full Core
+	return TileStatsRegistry.get_stat("MicrocoreTile", "weight", 5.0) # a compact reactor - still a heavy power source, just lighter than the full Core
 
 func get_max_faces() -> int:
-	match rarity:
-		Rarity.COMMON: return 2
-		Rarity.UNCOMMON: return 2
-		Rarity.RARE: return 3
-		Rarity.LEGENDARY: return 4
-		Rarity.MYTHIC: return 6 # geometric ceiling
-		_: return 2
+	return int(TileStatsRegistry.get_stat_by_rarity("MicrocoreTile", "max_faces_by_rarity", rarity, [2, 2, 3, 4, 6]))
 
 func get_power_output() -> float:
-	match rarity:
-		Rarity.COMMON: return 50.0
-		Rarity.UNCOMMON: return 75.0
-		Rarity.RARE: return 120.0
-		Rarity.LEGENDARY: return 200.0
-		Rarity.MYTHIC: return 320.0
-		_: return 50.0
+	return TileStatsRegistry.get_stat_by_rarity("MicrocoreTile", "power_output_by_rarity", rarity, [50.0, 75.0, 120.0, 200.0, 320.0])
 
 func set_face_output(direction: int, synergy: EnergyPacket.SynergyType):
 	face_outputs[direction] = synergy

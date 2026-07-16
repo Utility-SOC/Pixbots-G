@@ -16,13 +16,13 @@ func _init():
 var stored_energy: float = 0.0
 
 func get_weight() -> float:
-	return 4.5 # a stealth generator - moderately complex hardware
+	return TileStatsRegistry.get_stat("CloakTile", "weight", 4.5) # a stealth generator - moderately complex hardware
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []
 
 	packet.is_active = false # Consume energy
-	stored_energy += packet.magnitude * (1.0 + rarity * 0.5)
+	stored_energy += packet.magnitude * (1.0 + rarity * TileStatsRegistry.get_stat("CloakTile", "energy_storage_rarity_coeff", 0.5))
 
 	return []
 
@@ -35,17 +35,7 @@ func get_cloak_energy() -> float:
 # to fully recharge from empty. Better rarity = holds the cloak longer and
 # recovers faster, same tiering convention as ShieldGeneratorTile's recharge_delay.
 func get_cloak_duration() -> float:
-	match rarity:
-		Rarity.MYTHIC: return 8.0
-		Rarity.LEGENDARY: return 6.0
-		Rarity.RARE: return 4.5
-		Rarity.UNCOMMON: return 3.5
-		_: return 2.5
+	return TileStatsRegistry.get_stat_by_rarity("CloakTile", "cloak_duration_by_rarity", rarity, [2.5, 3.5, 4.5, 6.0, 8.0])
 
 func get_recharge_time() -> float:
-	match rarity:
-		Rarity.MYTHIC: return 3.0
-		Rarity.LEGENDARY: return 4.0
-		Rarity.RARE: return 5.5
-		Rarity.UNCOMMON: return 7.0
-		_: return 9.0
+	return TileStatsRegistry.get_stat_by_rarity("CloakTile", "recharge_time_by_rarity", rarity, [9.0, 7.0, 5.5, 4.0, 3.0])

@@ -1,7 +1,7 @@
 class_name WeaponMountTile
 extends HexTile
 
-@export var damage_multiplier: float = 1.0
+@export var damage_multiplier: float = TileStatsRegistry.get_stat("WeaponMountTile", "damage_multiplier", 1.0)
 
 # MYTHIC ability: alternate firing patterns (see HexTile._fire_combined_projectile).
 # 0 = normal, 1 = shotgun spread (5 pellets, 40% each), 2 = 360-degree
@@ -31,7 +31,7 @@ func _init():
 	category = TileCategory.OUTPUT
 
 func get_weight() -> float:
-	return 6.0 # a gun mount has real heft
+	return TileStatsRegistry.get_stat("WeaponMountTile", "weight", 6.0) # a gun mount has real heft
 
 func clear_pending():
 	pending_packets.clear()

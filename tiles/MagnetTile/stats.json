@@ -1,0 +1,5 @@
+{
+	"weight": 5.0,
+	"lightning_bonus_mult": 1.5,
+	"power_mult_by_rarity": [1.0, 1.2, 1.5, 2.0, 3.0]
+}

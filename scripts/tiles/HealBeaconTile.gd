@@ -14,7 +14,7 @@ func _init():
 var stored_energy: float = 0.0
 
 func get_weight() -> float:
-	return 4.5 # a med-bay beacon emitter, moderately complex hardware
+	return TileStatsRegistry.get_stat("HealBeaconTile", "weight", 4.5) # a med-bay beacon emitter, moderately complex hardware
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []
@@ -30,7 +30,10 @@ func get_heal_energy() -> float:
 	return e
 
 func get_pulse_radius() -> float:
-	return 180.0 + rarity * 40.0
+	return TileStatsRegistry.get_stat("HealBeaconTile", "pulse_radius_base", 180.0) + rarity * TileStatsRegistry.get_stat("HealBeaconTile", "pulse_radius_rarity_coeff", 40.0)
 
 func get_pulse_interval() -> float:
-	return max(2.0, 5.0 - rarity * 0.7)
+	var floor_val = TileStatsRegistry.get_stat("HealBeaconTile", "pulse_interval_min", 2.0)
+	var base = TileStatsRegistry.get_stat("HealBeaconTile", "pulse_interval_base", 5.0)
+	var coeff = TileStatsRegistry.get_stat("HealBeaconTile", "pulse_interval_rarity_coeff", 0.7)
+	return max(floor_val, base - rarity * coeff)

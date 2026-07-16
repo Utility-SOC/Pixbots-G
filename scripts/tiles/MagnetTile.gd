@@ -34,16 +34,16 @@ func _init():
 	base_color = Color(0.6, 0.2, 0.8) # Purple
 
 func get_weight() -> float:
-	return 5.0 # substantial electromagnet hardware
+	return TileStatsRegistry.get_stat("MagnetTile", "weight", 5.0) # substantial electromagnet hardware
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var p = packet.copy()
 	# Power determines the pull strength
 	current_magnetic_power += p.magnitude
-	
+
 	if p.has_synergy(EnergyPacket.SynergyType.LIGHTNING):
-		current_magnetic_power *= 1.5 # Lightning boosts magnetism
-		
+		current_magnetic_power *= TileStatsRegistry.get_stat("MagnetTile", "lightning_bonus_mult", 1.5) # Lightning boosts magnetism
+
 	p.is_active = false
 	p.magnitude = 0.0
 	return [p]
@@ -51,12 +51,8 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 func get_magnetic_power() -> float:
 	var power = current_magnetic_power
 	current_magnetic_power = 0.0 # reset for next tick
-	
-	# Scale by rarity
-	if rarity == Rarity.UNCOMMON: power *= 1.2
-	elif rarity == Rarity.RARE: power *= 1.5
-	elif rarity == Rarity.LEGENDARY: power *= 2.0
-	elif rarity == Rarity.MYTHIC: power *= 3.0
+
+	power *= TileStatsRegistry.get_stat_by_rarity("MagnetTile", "power_mult_by_rarity", rarity, [1.0, 1.2, 1.5, 2.0, 3.0])
 
 	return power
 

@@ -33,7 +33,7 @@ func _init():
 	base_color = Color(0.2, 0.55, 0.6)
 
 func get_weight() -> float:
-	return 8.0 # a whole extra flying combatant folded up in here
+	return TileStatsRegistry.get_stat("DroneBayTile", "weight", 8.0) # a whole extra flying combatant folded up in here
 
 # The Drone Bay doesn't consume backpack energy for anything itself - the
 # drone it deploys has its own independent Core Reactor and grid (see

@@ -18,7 +18,7 @@ func _init():
 	base_color = Color(0.45, 0.4, 0.28)
 
 func get_weight() -> float:
-	return 7.0
+	return TileStatsRegistry.get_stat("MissileRackTile", "weight", 7.0)
 
 # Pass-through until the salvo model lands - see header.
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:

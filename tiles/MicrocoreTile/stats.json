@@ -1,0 +1,5 @@
+{
+	"weight": 5.0,
+	"max_faces_by_rarity": [2, 2, 3, 4, 6],
+	"power_output_by_rarity": [50.0, 75.0, 120.0, 200.0, 320.0]
+}

@@ -1,0 +1,6 @@
+{
+	"weight": 3.0,
+	"boost_per_remnant": 1.3,
+	"baseline_amplify": 0.15,
+	"sync_dropoff_default": 3
+}

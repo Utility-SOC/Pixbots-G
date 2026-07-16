@@ -2,14 +2,14 @@ class_name FilterTile
 extends HexTile
 
 @export var allowed_synergy: EnergyPacket.SynergyType = EnergyPacket.SynergyType.FIRE
-@export var raw_return_rate: float = 0.5
+@export var raw_return_rate: float = TileStatsRegistry.get_stat("FilterTile", "raw_return_rate", 0.5)
 
 func _init():
 	tile_type = "Filter"
 	category = TileCategory.CONVERTER
 
 func get_weight() -> float:
-	return 2.0 # a simple, light processor
+	return TileStatsRegistry.get_stat("FilterTile", "weight", 2.0) # a simple, light processor
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var new_synergies = {}

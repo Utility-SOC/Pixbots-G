@@ -51,13 +51,13 @@ func cycle_target_synergy():
 	target_synergy = 1 + (target_synergy % (count - 1))
 
 func get_weight() -> float:
-	return 4.0 # a pulse-jammer emitter, moderate hardware
+	return TileStatsRegistry.get_stat("JammerModuleTile", "weight", 4.0) # a pulse-jammer emitter, moderate hardware
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []
 
 	packet.is_active = false
-	stored_energy += packet.magnitude * (1.0 + rarity * 0.5)
+	stored_energy += packet.magnitude * (1.0 + rarity * TileStatsRegistry.get_stat("JammerModuleTile", "energy_storage_rarity_coeff", 0.5))
 
 	return []
 
@@ -70,15 +70,13 @@ func get_pulse_radius() -> float:
 	# x1.7: fields read as too small/subtle in play relative to how good
 	# they look - rarity scaling (more power = bigger field) unchanged,
 	# just the whole curve scaled up.
-	return (220.0 + rarity * 60.0) * 1.7
+	var base = TileStatsRegistry.get_stat("JammerModuleTile", "pulse_radius_base", 220.0)
+	var coeff = TileStatsRegistry.get_stat("JammerModuleTile", "pulse_radius_rarity_coeff", 60.0)
+	var scale = TileStatsRegistry.get_stat("JammerModuleTile", "pulse_radius_scale", 1.7)
+	return (base + rarity * coeff) * scale
 
 func get_pulse_interval() -> float:
-	match rarity:
-		Rarity.MYTHIC: return 4.0
-		Rarity.LEGENDARY: return 5.0
-		Rarity.RARE: return 6.5
-		Rarity.UNCOMMON: return 8.0
-		_: return 10.0
+	return TileStatsRegistry.get_stat_by_rarity("JammerModuleTile", "pulse_interval_by_rarity", rarity, [10.0, 8.0, 6.5, 5.0, 4.0])
 
 func get_effect_duration() -> float:
-	return 1.5 + rarity * 0.5
+	return TileStatsRegistry.get_stat("JammerModuleTile", "effect_duration_base", 1.5) + rarity * TileStatsRegistry.get_stat("JammerModuleTile", "effect_duration_rarity_coeff", 0.5)

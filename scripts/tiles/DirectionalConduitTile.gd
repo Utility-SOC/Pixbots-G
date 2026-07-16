@@ -29,7 +29,7 @@ func _init():
 	category = TileCategory.CONDUIT
 
 func get_weight() -> float:
-	return 1.0 # basically just a wire
+	return TileStatsRegistry.get_stat("DirectionalConduitTile", "weight", 1.0) # basically just a wire
 
 func get_exit_direction(entry_direction: int) -> int:
 	return (entry_direction + 3) % 6

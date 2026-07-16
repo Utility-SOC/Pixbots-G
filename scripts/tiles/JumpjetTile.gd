@@ -1,7 +1,7 @@
 class_name JumpjetTile
 extends HexTile
 
-@export var speed_boost_mult: float = 1.5
+@export var speed_boost_mult: float = TileStatsRegistry.get_stat("JumpjetTile", "speed_boost_mult", 1.5)
 
 # MYTHIC ability: locomotion mode. 0 = standard jump/sprint boost,
 # 1 = Blink (instant short-range teleport toward the cursor with a
@@ -19,7 +19,7 @@ func _init():
 	category = TileCategory.OUTPUT
 
 func get_weight() -> float:
-	return 7.0 # propulsion hardware - heavy, ironic given what it does
+	return TileStatsRegistry.get_stat("JumpjetTile", "weight", 7.0) # propulsion hardware - heavy, ironic given what it does
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []

@@ -1,12 +1,13 @@
 class_name ResonatorTile
 extends HexTile
 
-@export var boost_per_remnant: float = 1.3
+@export var boost_per_remnant: float = TileStatsRegistry.get_stat("ResonatorTile", "boost_per_remnant", 1.3)
 var _remnant_magnitudes: Dictionary = {}
 
 # Guaranteed baseline amplify applied on EVERY pass, not just a second pass
-# that consumes remnant memory (see process_energy below).
-const BASELINE_AMPLIFY = 0.15
+# that consumes remnant memory (see process_energy below). Data-driven
+# (Status.md queue item 1) - read at point of use since const can't call
+# TileStatsRegistry.get_stat().
 
 # --- Resonator Sync (Mythic-only) -------------------------------------------
 # Natalia's design: a Resonator sits at a 3-way crossing of the hex's
@@ -25,7 +26,7 @@ const BASELINE_AMPLIFY = 0.15
 # is only ever simulated once per loadout change (_recalculate_grid), not
 # live during combat (see FEATURE_ROADMAP.md's key architectural fact) -
 # packet.traversal_steps is the only clock that actually exists here.
-const SYNC_DROPOFF_DEFAULT = 3
+var SYNC_DROPOFF_DEFAULT: int = int(TileStatsRegistry.get_stat("ResonatorTile", "sync_dropoff_default", 3))
 const SYNC_DROPOFF_MIN = 1
 const SYNC_DROPOFF_MAX = 9
 # Player-tunable dropoff PER TRAVERSAL PATH (Status.md queue: "manually
@@ -56,7 +57,7 @@ func _init():
 	category = TileCategory.PROCESSOR
 
 func get_weight() -> float:
-	return 3.0 # not too heavy - mostly resonating chambers, not dense hardware
+	return TileStatsRegistry.get_stat("ResonatorTile", "weight", 3.0) # not too heavy - mostly resonating chambers, not dense hardware
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if rarity == Rarity.MYTHIC:
@@ -73,7 +74,7 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	# opportunity cost). A guaranteed baseline amplify now applies on every
 	# pass; the remnant-memory bonus still layers on top for genuinely
 	# repeat/crossed traffic.
-	var mult = 1.0 + (BASELINE_AMPLIFY * _get_power_multiplier())
+	var mult = 1.0 + (TileStatsRegistry.get_stat("ResonatorTile", "baseline_amplify", 0.15) * _get_power_multiplier())
 	if _remnant_magnitudes.size() > 0:
 		for k in _remnant_magnitudes:
 			packet.add_synergy(k, _remnant_magnitudes[k] * 0.8)

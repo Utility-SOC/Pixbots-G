@@ -1,0 +1,7 @@
+{
+	"weight": 6.0,
+	"amplification": 1.2,
+	"mythic_pure_damage_mult": 1.75,
+	"mythic_aoe_power_mult": 0.8,
+	"mythic_aoe_bonus_add": 1.0
+}

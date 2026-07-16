@@ -8,7 +8,7 @@ func _init():
 	category = TileCategory.ROUTER
 
 func get_weight() -> float:
-	return 2.5 # light routing hardware
+	return TileStatsRegistry.get_stat("ReflectorTile", "weight", 2.5) # light routing hardware
 
 func get_exit_direction(entry_direction: int) -> int:
 	return (entry_direction + 3 + rotation_steps) % 6

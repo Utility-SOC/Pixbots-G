@@ -13,19 +13,13 @@ func _init():
 	active_faces.append(0)
 
 func get_weight() -> float:
-	return 8.0 # heaviest tile in the game - it's the reactor
+	return TileStatsRegistry.get_stat("CoreTile", "weight", 8.0) # heaviest tile in the game - it's the reactor
 
 func get_exit_directions(entry_direction: int = 0) -> Array[int]:
 	return active_faces
 
 func get_max_faces() -> int:
-	match rarity:
-		Rarity.COMMON: return 1
-		Rarity.UNCOMMON: return 1
-		Rarity.RARE: return 2
-		Rarity.LEGENDARY: return 6
-		Rarity.MYTHIC: return 6 # 6 is the geometric ceiling (one per hex face) - Legendary already maxed this out
-		_: return 1
+	return int(TileStatsRegistry.get_stat_by_rarity("CoreTile", "max_faces_by_rarity", rarity, [1, 1, 2, 6, 6]))
 
 func toggle_face(direction: int):
 	if active_faces.has(direction):
@@ -48,13 +42,7 @@ func set_face_output(direction: int, synergy: EnergyPacket.SynergyType):
 # and a Legendary Core Reactor produced the exact same 10.0-magnitude
 # packets. This gives rarity a real payoff on the primary power source too.
 func get_power_output() -> float:
-	match rarity:
-		Rarity.COMMON: return 10.0
-		Rarity.UNCOMMON: return 14.0
-		Rarity.RARE: return 20.0
-		Rarity.LEGENDARY: return 35.0
-		Rarity.MYTHIC: return 55.0
-		_: return 10.0
+	return TileStatsRegistry.get_stat_by_rarity("CoreTile", "power_output_by_rarity", rarity, [10.0, 14.0, 20.0, 35.0, 55.0])
 
 func generate_energy(grid: Node) -> Array[EnergyPacket]:
 	var packets: Array[EnergyPacket] = []

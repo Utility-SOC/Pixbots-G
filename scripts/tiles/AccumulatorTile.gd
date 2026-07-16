@@ -1,8 +1,13 @@
 class_name AccumulatorTile
 extends HexTile
 
-@export var charge_multiplier: float = 3.0 # How many times longer it takes to fire
-@export var damage_boost: float = 4.5 # The multiplier applied to the magnitude when fired
+# Data-driven tiles (Status.md queue item 1): the literals below are just the
+# code-side fallback now - res://tiles/AccumulatorTile/stats.json is the real
+# source of truth, read once and cached by TileStatsRegistry. A missing file
+# or key falls back to these exact numbers, so nothing changes for anyone
+# until a modder (or a future in-repo tuning pass) actually edits the JSON.
+@export var charge_multiplier: float = TileStatsRegistry.get_stat("AccumulatorTile", "charge_multiplier", 3.0) # How many times longer it takes to fire
+@export var damage_boost: float = TileStatsRegistry.get_stat("AccumulatorTile", "damage_boost", 4.5) # The multiplier applied to the magnitude when fired
 @export_enum("None", "1", "2", "3") var trigger_key: String = "None"
 
 # Auto-dump threshold (tile config, Status.md re-imaginings): 0.0 = the
@@ -18,7 +23,7 @@ func _init():
 	category = TileCategory.STORAGE
 
 func get_weight() -> float:
-	return 7.0 # a capacitor bank storing this much charge is heavy
+	return TileStatsRegistry.get_stat("AccumulatorTile", "weight", 7.0) # a capacitor bank storing this much charge is heavy
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var mult = _get_power_multiplier()
@@ -43,12 +48,7 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 # tax. Manual key-dumps (hold 1/2/3 + fire) bypass it entirely - see
 # Mech._shoot.
 func get_quality_factor() -> float:
-	var base = 0.85
-	match rarity:
-		Rarity.UNCOMMON: base = 0.88
-		Rarity.RARE: base = 0.91
-		Rarity.LEGENDARY: base = 0.95
-		Rarity.MYTHIC: base = 1.0
+	var base = TileStatsRegistry.get_stat_by_rarity("AccumulatorTile", "quality_factor_by_rarity", rarity, [0.85, 0.88, 0.91, 0.95, 1.0])
 	return min(1.0, base + (level - 1) * 0.005)
 
 # Used by the adjacency-based "capacitor bank" behavior (see
@@ -68,7 +68,7 @@ func get_quality_factor() -> float:
 # Multiple adjacent Accumulators stack on both counts: more of them (or
 # higher rarity) means a longer wait for a much bigger payoff.
 func get_bank_charge() -> float:
-	return 12.0 * _get_power_multiplier()
+	return TileStatsRegistry.get_stat("AccumulatorTile", "bank_charge_base", 12.0) * _get_power_multiplier()
 
 func get_bank_amplify() -> float:
-	return 0.5 * _get_power_multiplier()
+	return TileStatsRegistry.get_stat("AccumulatorTile", "bank_amplify_base", 0.5) * _get_power_multiplier()

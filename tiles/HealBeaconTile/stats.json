@@ -1,0 +1,8 @@
+{
+	"weight": 4.5,
+	"pulse_radius_base": 180.0,
+	"pulse_radius_rarity_coeff": 40.0,
+	"pulse_interval_base": 5.0,
+	"pulse_interval_rarity_coeff": 0.7,
+	"pulse_interval_min": 2.0
+}

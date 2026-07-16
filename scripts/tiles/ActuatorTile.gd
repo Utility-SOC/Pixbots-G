@@ -2,7 +2,7 @@ class_name ActuatorTile
 extends HexTile
 
 var current_speed_bonus: float = 0.0
-@export var base_speed_multiplier: float = 0.5
+@export var base_speed_multiplier: float = TileStatsRegistry.get_stat("ActuatorTile", "base_speed_multiplier", 0.5)
 
 # MYTHIC "Schools" - three distinct feels for the melee/ramming pillar
 # (see Mech._process_ramming and update_status_effects), per Natalia:
@@ -25,16 +25,16 @@ func _init():
 	base_color = Color(0.8, 0.4, 0.1) # Orange/Brown for motor
 
 func get_weight() -> float:
-	return 7.0 # motor hardware - heavy
+	return TileStatsRegistry.get_stat("ActuatorTile", "weight", 7.0) # motor hardware - heavy
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var p = packet.copy()
 	# Calculate speed bonus based on energy
 	current_speed_bonus = p.magnitude * base_speed_multiplier
 	if p.has_synergy(EnergyPacket.SynergyType.KINETIC):
-		current_speed_bonus *= 1.5
+		current_speed_bonus *= TileStatsRegistry.get_stat("ActuatorTile", "kinetic_bonus_mult", 1.5)
 	if p.has_synergy(EnergyPacket.SynergyType.LIGHTNING):
-		current_speed_bonus *= 2.0
+		current_speed_bonus *= TileStatsRegistry.get_stat("ActuatorTile", "lightning_bonus_mult", 2.0)
 		
 	if grid and grid.get_parent():
 		var mech = grid.get_parent()

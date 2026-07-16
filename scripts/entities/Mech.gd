@@ -17,30 +17,32 @@ const StatusEffectRunner = preload("res://scripts/entities/StatusEffectRunner.gd
 const SightAndSearch = preload("res://scripts/entities/SightAndSearch.gd")
 const MagnetSystem = preload("res://scripts/entities/MagnetSystem.gd")
 const CloakSystem = preload("res://scripts/entities/CloakSystem.gd")
+const JammerModuleSystem = preload("res://scripts/entities/JammerModuleSystem.gd")
 const JammerField = preload("res://scripts/visuals/JammerField.gd")
 
 # Lazily constructed the first time it's needed (is_player branch of
 # _physics_process / is_boss branch of _execute_ai_tactics / first call to
 # update_status_effects / first call to _update_player_sight / first call to
-# _physics_process's cloak tick) - see PlayerController.gd/BossBrain.gd/
-# StatusEffectRunner.gd/SightAndSearch.gd/CloakSystem.gd's own header
-# comments for why these are composed RefCounted objects, not child Nodes.
+# _physics_process's cloak/jammer tick) - see PlayerController.gd/
+# BossBrain.gd/StatusEffectRunner.gd/SightAndSearch.gd/CloakSystem.gd/
+# JammerModuleSystem.gd's own header comments for why these are composed
+# RefCounted objects, not child Nodes.
 var player_controller: PlayerController = null
 var boss_brain: BossBrain = null
 var status_runner: StatusEffectRunner = null
 var sight_and_search: SightAndSearch = null
 var magnet_system: MagnetSystem = null
 var cloak_system: CloakSystem = null
+var jammer_module_system: JammerModuleSystem = null
 
 # JammerField is a real scene-tree Node (see its own header comment for why
-# it's NOT a RefCounted composed object like the three above) - constructed
-# lazily by _ensure_jammer_field() the first time this mech's equipped
-# Jammer Module is in VISION mode, freed by _release_jammer_field() the
-# moment it isn't (mode swapped, tile unequipped, or this mech dies).
+# it's NOT a RefCounted composed object like the ones above) - constructed
+# lazily by JammerModuleSystem the first time this mech's equipped Jammer
+# Module is in VISION mode, freed the moment it isn't (mode swapped, tile
+# unequipped, or this mech dies). Stays a plain Mech field (not moved into
+# JammerModuleSystem) since it's read directly as mech.jammer_field by an
+# existing debug check and other systems - meant to be glanceable state.
 var jammer_field: JammerField = null
-var _jammer_field_exit_hooked: bool = false
-var _jammer_broadcast_timer: float = 0.0
-const JAMMER_BROADCAST_INTERVAL = 2.5
 
 # Cached lookups for two effectively-singleton nodes (the map and the
 # player) - both are created once at game start and outlive every mech that
@@ -2515,100 +2517,17 @@ func _get_ambush_multiplier() -> float:
 	return cloak_system.get_ambush_multiplier()
 
 # --- Jammer Module (equippable ability) ---------------------------------
-# VISION mode (jammer_mode == 0) is now a persistent, spatial JammerField
-# (see that class's own header comment) instead of a periodic full-screen-
-# dim pulse - not stealth, an announcement: it broadcasts this mech's rough
-# location to the opposing side while denying them an exact position, and
-# blinds (see Mech._update_player_sight / Main._update_player_blind_state)
-# anyone from the opposing side standing inside it. SYNERGY mode
-# (jammer_mode == 1) is UNCHANGED - still the old pulse-timer/duration mute.
-
+# Thin wrapper only - see JammerModuleSystem.gd for the actual field
+# lifecycle, broadcast throttling, and synergy-pulse emission. Stays a
+# real Mech method (not e.g. mech.jammer_module_system.tick()) since
+# _physics_process and an existing debug check both call it directly by
+# this name - lazily constructing here matches update_status_effects()'s
+# status_runner pattern, so callers never have to know or care whether a
+# JammerModuleSystem exists yet.
 func _update_jammer_module(delta: float):
-	# Drain routed packet energy from every equipped Jammer Module each
-	# frame regardless of mode (nothing may pile up unread across a mode
-	# switch); in VISION mode it feeds the field's power scaling ("jammer
-	# field should increase with more power pushed into it").
-	var jam_energy = 0.0
-	for tile in _jammer_tiles:
-		jam_energy += tile.get_jam_energy()
-
-	if has_jammer_module and jammer_mode == 0: # VISION
-		_ensure_jammer_field()
-		if jammer_field and jam_energy > 0.0:
-			jammer_field.feed_power(jam_energy)
-		if is_player:
-			_tick_jammer_broadcast(delta)
-	else:
-		_release_jammer_field()
-
-	if has_jammer_module and jammer_mode == 1: # SYNERGY
-		jammer_pulse_timer -= delta
-		if is_player:
-			# Module-keybind ruling: the player's synergy jam is a BUTTON
-			# (J, registered in Main._ready), fired when charged.
-			if jammer_pulse_timer <= 0.0 and InputMap.has_action("jam_pulse") and Input.is_action_just_pressed("jam_pulse"):
-				jammer_pulse_timer = jammer_pulse_interval
-				_emit_synergy_jam_pulse()
-		elif jammer_pulse_timer <= 0.0:
-			jammer_pulse_timer = jammer_pulse_interval
-			_emit_synergy_jam_pulse()
-
-func _emit_synergy_jam_pulse():
-	# Side-aware: an AI jammer jams the player; the PLAYER's jammer jams
-	# every enemy in the pulse radius. (Previously this always targeted
-	# _get_player_ref() - a player-owned synergy jammer jammed its owner.)
-	var victims: Array = []
-	if is_player:
-		victims = EntityCache.get_group("enemy")
-	else:
-		var p = _get_player_ref()
-		if p:
-			victims = [p]
-	for v in victims:
-		if not is_instance_valid(v):
-			continue
-		if global_position.distance_to(v.global_position) <= jammer_pulse_radius and v.has_method("apply_synergy_jam"):
-			v.apply_synergy_jam(jammer_target_synergy, jammer_effect_duration)
-
-	var visual_class = load("res://scripts/attacks/PulseRingVisual.gd")
-	if visual_class:
-		var v = visual_class.new()
-		v.global_position = global_position
-		v.setup(jammer_pulse_radius, Color(0.6, 0.15, 0.85, 1.0))
-		if get_parent():
-			get_parent().add_child(v)
-
-func _ensure_jammer_field():
-	if jammer_field and is_instance_valid(jammer_field):
-		return
-	if not get_parent():
-		return
-	jammer_field = JammerField.new()
-	jammer_field.global_position = global_position
-	jammer_field.setup(self, jammer_pulse_radius, -1.0)
-	get_parent().add_child(jammer_field)
-	if not _jammer_field_exit_hooked:
-		_jammer_field_exit_hooked = true
-		tree_exiting.connect(_release_jammer_field)
-
-func _release_jammer_field():
-	if jammer_field and is_instance_valid(jammer_field):
-		jammer_field.queue_free()
-	jammer_field = null
-
-# Throttled (not per-frame) alert to every enemy on the map that the
-# player's jammer is active, and roughly where - reuses the EXISTING
-# search-AI primitives entirely unmodified (see receive_jammer_alert below
-# and _execute_search's own redatum-on-drift logic), doesn't touch or
-# improve that system, just feeds it a new target.
-func _tick_jammer_broadcast(delta: float):
-	_jammer_broadcast_timer -= delta
-	if _jammer_broadcast_timer > 0.0 or not jammer_field or not is_instance_valid(jammer_field):
-		return
-	_jammer_broadcast_timer = JAMMER_BROADCAST_INTERVAL
-	var main = get_tree().current_scene
-	if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
-		main.world.get_node("SquadDirector").broadcast_jammer_alert(jammer_field.global_position)
+	if not jammer_module_system:
+		jammer_module_system = JammerModuleSystem.new(self)
+	jammer_module_system.tick(delta)
 
 # Called by SquadDirector.broadcast_jammer_alert on every live squad member.
 # Deliberately does nothing but nudge last_known_player_pos - an enemy

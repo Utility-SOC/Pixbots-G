@@ -3,8 +3,9 @@ extends HexTile
 
 # Support-role backpack tile. Accumulates energy during grid simulation like
 # ShieldGeneratorTile/CloakTile; Mech reads get_heal_energy() once per
-# _recalculate_grid() to size the pulse, then Mech._emit_heal_pulse() heals
-# nearby squadmates (group "enemy") periodically at runtime.
+# _recalculate_grid() to size the pulse, then HealBeaconSystem.gd (see
+# Mech.gd's heal_beacon_system field) heals nearby squadmates (group
+# "enemy") periodically at runtime.
 
 func _init():
 	super._init("Heal Beacon", HexTile.TileCategory.OUTPUT)

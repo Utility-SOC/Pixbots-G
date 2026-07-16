@@ -318,9 +318,10 @@ func _hex_in_valid_set(comp, h: HexCoord) -> bool:
 
 # has_healer/heal_pulse_power/radius/interval are populated generically by
 # _recalculate_grid() (see Mech.gd) regardless of is_player - only
-# Mech._update_healer()'s USE of them is player-gated (and hardcoded to
-# heal the "enemy" AI group, wrong for a player-owned drone's "allied
-# forces" - see this var's own comment above). Deliberately scoped to just
+# HealBeaconSystem.tick()'s USE of them (see Mech._update_healer's thin
+# wrapper) is player-gated (and hardcoded to heal the "enemy" AI group,
+# wrong for a player-owned drone's "allied forces" - see this var's own
+# comment above). Deliberately scoped to just
 # owner_mech (the single most meaningful ally for a companion drone) rather
 # than building a full squad/ally-group system nothing else in the game has
 # yet - a real AoE pulse centered on whoever it's actually escorting, not a

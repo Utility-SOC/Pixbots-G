@@ -18,6 +18,7 @@ const SightAndSearch = preload("res://scripts/entities/SightAndSearch.gd")
 const MagnetSystem = preload("res://scripts/entities/MagnetSystem.gd")
 const CloakSystem = preload("res://scripts/entities/CloakSystem.gd")
 const JammerModuleSystem = preload("res://scripts/entities/JammerModuleSystem.gd")
+const HealBeaconSystem = preload("res://scripts/entities/HealBeaconSystem.gd")
 const JammerField = preload("res://scripts/visuals/JammerField.gd")
 
 # Lazily constructed the first time it's needed (is_player branch of
@@ -34,6 +35,7 @@ var sight_and_search: SightAndSearch = null
 var magnet_system: MagnetSystem = null
 var cloak_system: CloakSystem = null
 var jammer_module_system: JammerModuleSystem = null
+var heal_beacon_system: HealBeaconSystem = null
 
 # JammerField is a real scene-tree Node (see its own header comment for why
 # it's NOT a RefCounted composed object like the ones above) - constructed
@@ -2554,58 +2556,16 @@ func _apply_synergy_jamming(packet: EnergyPacket):
 			packet.magnitude = max(0.0, packet.magnitude - suppressed)
 			packet.synergies[syn_id] *= 0.1
 
-# --- Heal Beacon (Support ability) --------------------------------------
-
+# --- Heal Beacon (Support ability) ----------------------------------------
+# Thin wrapper only - see HealBeaconSystem.gd for the actual pulse-timer
+# tick and heal emission. Stays a real Mech method (not e.g.
+# mech.heal_beacon_system.tick()) since _physics_process calls it directly
+# by this name - lazily constructing here matches the same pattern
+# CloakSystem/JammerModuleSystem already use.
 func _update_healer(delta: float):
-	if not has_healer:
-		return
-	heal_pulse_timer -= delta
-	if is_player:
-		# Module-keybind ruling ("I need to be able to use every type of
-		# module"): the player's Heal Beacon is a BUTTON, not an autocast -
-		# press H (registered in Main._ready) when the pulse is charged.
-		if heal_pulse_timer <= 0.0 and InputMap.has_action("heal_pulse") and Input.is_action_just_pressed("heal_pulse"):
-			heal_pulse_timer = heal_pulse_interval
-			_emit_heal_pulse()
-	elif heal_pulse_timer <= 0.0:
-		heal_pulse_timer = heal_pulse_interval
-		_emit_heal_pulse()
-
-func _emit_heal_pulse():
-	# Allies by side: AI beacons heal their squad (the "enemy" group);
-	# the player's beacon heals their companion drones.
-	var allies: Array = []
-	if is_player:
-		var main = get_tree().current_scene
-		if main and "drone_nodes" in main:
-			allies = main.drone_nodes.values()
-	else:
-		allies = EntityCache.get_group("enemy")
-	for ally in allies:
-		if ally == self or not is_instance_valid(ally) or not ("hp" in ally):
-			continue
-		if global_position.distance_to(ally.global_position) > heal_pulse_radius:
-			continue
-		var healed = min(ally.max_hp, ally.hp + heal_pulse_power) - ally.hp
-		ally.hp += healed
-		if healed >= 1.0 and ally.has_method("_show_floating_text"):
-			ally._show_floating_text("+%d" % int(round(healed)), Color(0.3, 1.0, 0.4))
-
-	# AI beacons self-heal at half strength (the squad is the point); the
-	# player's manual pulse self-heals at full - it's their button.
-	var self_mult = 1.0 if is_player else 0.5
-	var self_healed = min(max_hp, hp + heal_pulse_power * self_mult) - hp
-	hp += self_healed
-	if self_healed >= 1.0:
-		_show_floating_text("+%d" % int(round(self_healed)), Color(0.3, 1.0, 0.4))
-
-	var visual_class = load("res://scripts/attacks/PulseRingVisual.gd")
-	if visual_class:
-		var v = visual_class.new()
-		v.global_position = global_position
-		v.setup(heal_pulse_radius, Color(0.2, 0.9, 0.5, 1.0))
-		if get_parent():
-			get_parent().add_child(v)
+	if not heal_beacon_system:
+		heal_beacon_system = HealBeaconSystem.new(self)
+	heal_beacon_system.tick(delta)
 
 # --- Boss Fitness Tracking ------------------------------------------------
 # Same fitness shape as Squad.gd's fitness inputs (damage dealt + hits

@@ -43,11 +43,9 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 
 ### Gameplay & Balance Improvements
 - **Boss Variety:** Stop scaling up Brawlers. Use role-specific bosses or genuine boss-only kits.
-- **Counterplay Tells:** Audio/visual cues for Ambusher decloaks; make Heal Beacons targetable. (Director pre/post-wave intel tells already shipped.)
 - **Synergy Effects:** Signature status marks per element are shipped; deepen the lingering effects for VORTEX and VAMPIRIC (bleed/immobilize interactions with corpse statues).
 - **Near-peer difficulty watch:** evolution now earns premiums for player/ally damage and killing blows - watch whether it needs a counterweight (rubber-banding, bounty rewards for the player) as it sharpens.
-- **Starter Inventory:** Rebalance the debug leftovers (20 Legendary Splitters) into a formal progression curve.
-- **HUD & UX:** Improve HUD legibility, damage-number noise (popup budget shipped; legibility pass still open), unify menu keys. Extend Synergy Codex to cover biome interactions.
+- **HUD & UX:** damage-number noise (popup budget shipped), unify menu keys (shipped), HUD legibility (shipped). Extend Synergy Codex to cover biome interactions still open.
 
 ### Future Expansions
 - **Synchronous Online Multiplayer (GodotSteam):** P2P lobby punch-through using GodotSteam (no dedicated servers required).
@@ -63,6 +61,7 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 ---
 
 ## 4. Recently Shipped (orientation only - cleared from tracking)
+- Easy-wins batch: starter inventory rarity curve (no more free Legendaries), Ambusher decloak reveal burst + targetable Heal Beacons (disable-priority), HUD text outlines + unified menu keys (WarRoomMenu now uses real InputMap actions like everything else)
 - Simulation Timeline Scrubber + Packet Inspector: deterministic re-run-to-step-N replay (no state buffering - Resonator/Splitter/Catalyst mutable state resets via HexTile.reset_simulation_state before each replay), drag-to-scrub HSlider synced to live auto-play, click-a-tile packet inspector showing current output + last-5-packet history per direction
 - Garage Test Range: live-fire any armed mount's real combat packet at a target dummy in a private physics world (SubViewport + own World2D) - real projectiles, patterns, damage numbers, shots/avg readout
 - Tile config batch (`1300fb6`): Resonator per-path Sync Dropoff, Mythic Splitter output ratios, Catalyst gated injection (magnitude + cadence gates), Accumulator auto-dump thresholds - all in the click-a-tile config popup, all save-persistent

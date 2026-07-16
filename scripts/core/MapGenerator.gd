@@ -1028,11 +1028,26 @@ func _get_textured_pixel_color(base: Color, biome: BiomeType) -> Color:
 	return base
 
 func get_valid_spawn_position(target_pos: Vector2) -> Vector2:
-	var start_x = int(target_pos.x / tile_size)
-	var start_y = int(target_pos.y / tile_size)
+	var raw_x = int(target_pos.x / tile_size)
+	var raw_y = int(target_pos.y / tile_size)
+	# Clamp the SEARCH ORIGIN into real tile bounds first - target_pos can
+	# legitimately arrive far outside the map (a random offset from a
+	# player standing near an edge - see Main._spawn_extraction_marker,
+	# the actual source of the "enemies/extraction off map" playtest
+	# report: the marker landed outside the map and the player followed
+	# the "Follow indicator" prompt off it, with chasing enemies in tow).
+	# Searching from an out-of-bounds origin made every dx/dy in the spiral
+	# below clamp to the SAME single boundary column/row - effectively
+	# searching nothing. Clamping the origin here means the spiral always
+	# explores a real neighborhood near the map edge instead.
+	var start_x = clamp(raw_x, 0, width - 1)
+	var start_y = clamp(raw_y, 0, height - 1)
 	var start_v = Vector2i(start_x, start_y)
 
-	if _has_spawn_clearance(start_v):
+	# Only return target_pos verbatim when it was ALREADY in-bounds and
+	# clear - preserves the exact requested position for the normal case.
+	# An out-of-bounds target_pos always falls through to the spiral search.
+	if raw_x == start_x and raw_y == start_y and _has_spawn_clearance(start_v):
 		return target_pos
 
 	# Spiral search for nearest tile with real clearance
@@ -1046,7 +1061,15 @@ func get_valid_spawn_position(target_pos: Vector2) -> Vector2:
 					if _has_spawn_clearance(tv):
 						return Vector2(tx * tile_size + tile_size / 2.0, ty * tile_size + tile_size / 2.0)
 
-	return target_pos # Fallback if all fails
+	# Last-resort fallback: clamp into real map bounds rather than ever
+	# handing back an unclamped (possibly off-map) target_pos - a caller
+	# that forgets to pre-clamp its own input (as the extraction marker
+	# did) must never be able to place something off the map even here.
+	var fallback_inset = tile_size * 2.0
+	return Vector2(
+		clamp(target_pos.x, fallback_inset, width * tile_size - fallback_inset),
+		clamp(target_pos.y, fallback_inset, height * tile_size - fallback_inset)
+	)
 
 # A tile being obstacle-free isn't enough on its own - mech collision boxes
 # (40px) are bigger than a single tile (32px), so a mech centered on a

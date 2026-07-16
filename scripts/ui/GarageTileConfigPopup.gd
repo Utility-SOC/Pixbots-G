@@ -87,11 +87,18 @@ func on_tile_clicked(tile: HexTile):
 		# ratio-tuning rows below can add up to 14+ total rows, which used to
 		# silently overflow the popup's old fixed 300px height with no way
 		# to reach the lower face checkboxes at all ("I cannot edit splitter
-		# directions anymore" - playtest report).
+		# directions anymore" - playtest report). custom_minimum_size on the
+		# inner vbox (not just the scroll viewport) is what actually forces
+		# width - without it, long strings like "MYTHIC output ratios
+		# (weights - shares shown live)" and "South-East: weight N (M%)"
+		# were wrapping/overlapping the hex grid behind the popup even
+		# after the panel itself got wider ("the window is too narrow for
+		# readability" - playtest report).
 		var scroll = ScrollContainer.new()
-		scroll.custom_minimum_size = Vector2(0, 340)
+		scroll.custom_minimum_size = Vector2(360, 340)
 		outer_vbox.add_child(scroll)
 		var vbox = VBoxContainer.new()
+		vbox.custom_minimum_size = Vector2(360, 0)
 		vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		scroll.add_child(vbox)
 
@@ -163,7 +170,7 @@ func on_tile_clicked(tile: HexTile):
 				refresh_ratios.call()
 
 		garage.add_child(popup)
-		popup.popup_centered(Vector2(280, 400))
+		popup.popup_centered(Vector2(400, 420))
 		popup.popup_hide.connect(func(): popup.queue_free())
 
 	elif tile.tile_type == "Reflector":
@@ -257,7 +264,12 @@ func on_tile_clicked(tile: HexTile):
 			vbox.add_child(inv_btn)
 
 		garage.add_child(popup)
-		popup.popup_centered(Vector2(250, 100))
+		# Wide/tall enough for up to 4 rows (Synergy + magnitude gate +
+		# cadence + Mythic Inverted) without wrapping/overlapping the grid
+		# behind it - same fix as the Splitter popup above ("the window is
+		# too narrow for readability"); the old fixed 250x100 only ever
+		# fit the single Synergy button this branch originally had.
+		popup.popup_centered(Vector2(340, 160) if tile.tile_type == "Catalyst" else Vector2(250, 100))
 		popup.popup_hide.connect(func(): popup.queue_free())
 
 	elif tile.tile_type == "Microcore":

@@ -403,10 +403,24 @@ func _spawn_extraction_marker():
 		var offset = Vector2(randf_range(600, 1500), randf_range(600, 1500))
 		if randf() > 0.5: offset.x *= -1
 		if randf() > 0.5: offset.y *= -1
-		
+
 		if player:
 			var target_pos = player.global_position + offset
+			# Hard-clamp inside the walls BEFORE the valid-position search -
+			# same fix as _spawn_wave_async's identical hazard. A player
+			# standing anywhere near a map edge could otherwise push this
+			# random 600-1500px offset genuinely off the map, and
+			# get_valid_spawn_position's spiral search (which used to
+			# collapse to nothing from an already-out-of-bounds origin)
+			# would hand the marker right back there - "Follow indicator"
+			# then leads the player off the map, with chasing enemies in
+			# tow (the actual source of the "enemies off map" report).
 			if map:
+				var inset = 96.0
+				var map_w = map.width * map.tile_size
+				var map_h = map.height * map.tile_size
+				target_pos.x = clamp(target_pos.x, inset, map_w - inset)
+				target_pos.y = clamp(target_pos.y, inset, map_h - inset)
 				target_pos = map.get_valid_spawn_position(target_pos)
 			extraction_marker.global_position = target_pos
 		world.add_child(extraction_marker)

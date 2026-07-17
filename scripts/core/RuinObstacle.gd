@@ -142,7 +142,7 @@ func _draw_farmhouse():
 					shade = window
 			draw_rect(Rect2(Vector2(c * PIX, y) - half, Vector2(PIX, PIX)), shade)
 
-func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false):
+func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false, source_label_override: String = ""):
 	hp -= amount
 	# Visible damage state: dust and grime as the kit takes hits
 	modulate = Color(1, 1, 1).lerp(Color(0.75, 0.7, 0.68), 1.0 - clamp(hp / max_hp, 0.0, 1.0))

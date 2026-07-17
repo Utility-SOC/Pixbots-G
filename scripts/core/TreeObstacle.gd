@@ -25,7 +25,7 @@ func _ready():
 	shape.shape = rect
 	add_child(shape)
 
-func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false):
+func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false, source_label_override: String = ""):
 	# Demolition-as-buildcraft (fourth-review ruling): obstacles have
 	# element weaknesses. FIRE torches trees for double damage.
 	if element == "FIRE":

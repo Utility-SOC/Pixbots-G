@@ -9,7 +9,7 @@ extends StaticBody2D
 
 var hp: float = 25.0
 
-func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false):
+func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false, source_label_override: String = ""):
 	hp -= amount
 	if hp <= 0 and not is_queued_for_deletion():
 		queue_free()

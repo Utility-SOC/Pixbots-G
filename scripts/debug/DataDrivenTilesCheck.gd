@@ -133,16 +133,15 @@ func _ready():
 		var jammer = JammerModuleTileScript.new(); jammer.rarity = r
 		_check("JammerModule.get_pulse_interval() @ rarity %d" % r, jammer.get_pulse_interval(), jammer_interval[i])
 
-		# NOTE: EnergyPacket.has_synergy(type) defaults min_percentage=0.0, so
-		# `perc >= 0.0` is true for ANY nonzero packet regardless of which
-		# synergy it actually carries - MagnetTile.process_energy()'s
-		# `p.has_synergy(LIGHTNING)` call (no threshold arg) is therefore
-		# always true, not conditional on real lightning content. Pre-existing
-		# behavior, unrelated to this conversion - the *1.5 below reflects
-		# what the tile actually does today, not what its comment claims.
+		# EnergyPacket.has_synergy(type)'s always-true-on-any-nonzero-packet bug
+		# (min_percentage defaulted to 0.0, so 0.0 >= 0.0 passed even with
+		# ZERO of that synergy) is fixed now - see EnergyPacket.has_synergy's
+		# own comment. A plain EnergyPacket.new(10.0, null) is 100% RAW (see
+		# EnergyPacket._init), so it no longer trips MagnetTile's Lightning
+		# bonus - the *1.5 is gone from this expectation.
 		var magnet = MagnetTileScript.new(); magnet.rarity = r
 		magnet.process_energy(EnergyPacket.new(10.0, null), 0)
-		_check("Magnet.get_magnetic_power() @ rarity %d" % r, magnet.get_magnetic_power(), 10.0 * 1.5 * magnet_mult[i])
+		_check("Magnet.get_magnetic_power() @ rarity %d" % r, magnet.get_magnetic_power(), 10.0 * magnet_mult[i])
 
 		var shield = ShieldTileScript.new(); shield.rarity = r
 		var pkt = EnergyPacket.new(10.0, null)

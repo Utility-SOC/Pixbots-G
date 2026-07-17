@@ -112,7 +112,17 @@ func add_synergy(synergy_type: int, amount: float):
 
 func has_synergy(synergy_type: int, min_percentage: float = 0.0) -> bool:
 	if magnitude == 0: return false
-	var perc = synergies.get(synergy_type, 0.0) / magnitude
+	var amount = synergies.get(synergy_type, 0.0)
+	# A packet carrying NONE of this synergy must never pass, regardless of
+	# min_percentage - the old `perc >= min_percentage` let the default
+	# min_percentage=0.0 make 0.0 >= 0.0 true for every packet, so callers
+	# like MagnetTile/ActuatorTile that check has_synergy(TYPE) with no
+	# explicit threshold (meaning "carries ANY of this element") got an
+	# unconditional true instead (see DataDrivenTilesCheck.gd's old note on
+	# this). Every other case (amount > 0) keeps the original percentage
+	# comparison unchanged.
+	if amount <= 0.0: return false
+	var perc = amount / magnitude
 	return perc >= min_percentage
 
 func convert_synergy(from_type: int, to_type: int, percentage: float):

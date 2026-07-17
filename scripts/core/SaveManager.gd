@@ -333,7 +333,13 @@ func _deserialize_component(cdata: Dictionary):
 	else:
 		for h in comp.hex_grid.grid.keys():
 			var tile = comp.hex_grid.grid[h]
-			if tile.tile_type == "Component Link" and tile.get("is_fixed"):
+			# tile.tile_type is never literally "Component Link" (ComponentLinkTile
+			# ._init() always overwrites it to a specific "X Link"/"Energy Intake"
+			# string before returning) - check the script instead of the
+			# unreachable string, so the 5 arm/leg/head sink tiles (which aren't
+			# individually listed in the elif below) are still caught here via
+			# is_fixed for legacy saves that predate an explicit fixed_sinks list.
+			if tile.get_script() and tile.get_script().resource_path.ends_with("ComponentLinkTile.gd") and tile.get("is_fixed"):
 				comp.fixed_sinks.append(HexCoord.new(h.x, h.y))
 			elif tile.tile_type == "Core Reactor" or tile.tile_type == "Weapon Mount" or tile.tile_type == "Actuator" or tile.tile_type == "Torso Return" or tile.tile_type == "Energy Intake" or tile.tile_type == "Backpack Link" or tile.tile_type == "Accessory Return":
 				comp.fixed_sinks.append(HexCoord.new(h.x, h.y))
@@ -399,7 +405,20 @@ func _serialize_tile(tile) -> Dictionary:
 		data["target_synergy"] = tile.target_synergy
 	elif "rotation_steps" in tile:
 		data["rotation_steps"] = tile.rotation_steps
-	elif tile.tile_type == "Component Link" or tile.tile_type == "Actuator" or tile.tile_type == "Torso Return" or tile.tile_type == "Backpack Link":
+	elif tile.get_script() and tile.get_script().resource_path.ends_with("ComponentLinkTile.gd"):
+		# Was gated on `tile.tile_type == "Component Link"`, a string no
+		# ComponentLinkTile instance ever actually has (see
+		# ComponentEquipment.update_link_positions()'s matching comment) -
+		# target_slot/is_fixed were silently NEVER saved for "Left Arm Link"/
+		# "Right Arm Link"/"Left Leg Link"/"Right Leg Link"/"Head Link"/
+		# "Energy Intake" (only "Actuator" [a different, unrelated tile class
+		# with no target_slot/is_fixed fields]/"Torso Return"/"Backpack Link"
+		# happened to be listed by name and worked). On load, the missing
+		# target_slot silently defaulted to NONE, turning a torso's arm/leg/
+		# head sink tiles into ordinary mid-grid routers instead of terminal
+		# sinks - packets reaching them got captured into the wrong transfer
+		# bucket and silently dropped rather than delivered to the limb
+		# ("stuff is just bypassing the left arm link" playtest report).
 		data["target_slot"] = tile.get("target_slot")
 		data["is_fixed"] = tile.get("is_fixed")
 	elif tile.tile_type == "Drone Bay":

@@ -1134,7 +1134,12 @@ func update_link_positions():
 	for key in all_hexes:
 		var h = HexCoord.new(key.x, key.y)
 		var tile = hex_grid.get_tile(h)
-		if tile.tile_type == "Component Link":
+		# ComponentLinkTile._init() always overwrites tile_type away from its
+		# initial "Component Link" value (to "Left Arm Link"/"Energy Intake"/
+		# etc. - see that file's own _init) before returning, so no instance
+		# EVER retains that literal string - this gate never matched anything,
+		# making the whole function a silent no-op. Check the script instead.
+		if tile.get_script() and tile.get_script().resource_path.ends_with("ComponentLinkTile.gd"):
 			var new_coord = h
 			if tile.target_slot == HexTile.BodySlot.ARM_L:
 				new_coord = HexCoord.new(min_q, 0)

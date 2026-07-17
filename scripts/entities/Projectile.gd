@@ -122,6 +122,12 @@ var visual_node: Node2D
 var helix_particles: Array = []
 var fired_by_player: bool = true
 var source_mech: Node2D = null
+# Snapshot of Mech.resolve_attacker_label(source_mech), taken at FIRE time
+# while the shooter is still guaranteed alive - see apply_damage()'s
+# label_override param comment (Mech.gd) for why this exists: source_mech
+# can die mid-flight, and by the time _handle_hit runs, a freed reference
+# can't be resolved to a label anymore. Set by HexTile._fire_combined_projectile.
+var source_label: String = ""
 # Set true when a Mythic Magnet in Repel mode bounces this shot back at its
 # original owner (see Mech.gd's magnet-repel flip block) - carried through to
 # apply_damage() so Squad._calculate_fitness can score reflection deaths
@@ -1343,7 +1349,7 @@ func _handle_hit(target: Node2D):
 	# further downstream (_log_incoming_damage), which never gets the
 	# chance to run.
 	var valid_source = source_mech if is_instance_valid(source_mech) else null
-	target.apply_damage(damage, dominant_str, valid_source, was_reflected)
+	target.apply_damage(damage, dominant_str, valid_source, was_reflected, source_label)
 	
 	# Massive Damage Screen Shake on Hit
 	if fired_by_player and target.is_in_group("enemy") and damage >= 10000000.0:

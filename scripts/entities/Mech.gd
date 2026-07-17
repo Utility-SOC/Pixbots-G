@@ -2346,7 +2346,7 @@ func _is_pierce_execution_exempt() -> bool:
 			return true
 	return false
 
-func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false):
+func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false, source_label_override: String = ""):
 	if elemental_resistances.has(element):
 		amount *= elemental_resistances[element]
 
@@ -2422,7 +2422,7 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 		source.note_priority_target_damage(amount, is_in_group("player"))
 
 	if is_player and amount > 0:
-		_log_incoming_damage(amount, element, source)
+		_log_incoming_damage(amount, element, source, source_label_override)
 		var main = get_tree().current_scene
 		if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
 			main.world.get_node("SquadDirector").log_bot_damage(amount, element)
@@ -2454,25 +2454,42 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 			source.note_priority_kill(is_in_group("player"))
 		die()
 
+# "Rival <name>" takes priority over "Boss" over plain role, matching how
+# those are already surfaced elsewhere (see Main.gd's RIVAL floating text /
+# rival_name meta). Static so projectiles/mortars can call it at FIRE time,
+# while the shooter is still guaranteed alive - see _log_incoming_damage's
+# own comment for why that matters.
+static func resolve_attacker_label(source: Node) -> String:
+	if source and is_instance_valid(source):
+		if source.has_meta("rival_name"):
+			return "Rival " + str(source.get_meta("rival_name"))
+		elif "is_boss" in source and source.is_boss:
+			return "Boss"
+		elif "combat_role" in source and source.combat_role != "":
+			return source.combat_role.capitalize()
+	return "Environment"
+
 # Appends one entry to recent_damage_log and prunes anything older than
 # DEATH_LOG_LOOKBACK_SEC (plus a hard size cap as a defensive backstop) -
 # see the field's own comment for what reads this. amount here is already
 # post-mitigation (the real damage that got through shields), which is the
 # number that actually matters for "what killed me."
-func _log_incoming_damage(amount: float, element: String, source: Node):
-	# Label captured now, not resolved later off the source node - by the
-	# time a death report gets built the attacker may already be gone
-	# (queue_free'd, or the whole wave torn down). "Rival <name>" takes
-	# priority over "Boss" over plain role, matching how those are already
-	# surfaced elsewhere (see Main.gd's RIVAL floating text / rival_name meta).
-	var label = "Environment"
-	if source and is_instance_valid(source):
-		if source.has_meta("rival_name"):
-			label = "Rival " + str(source.get_meta("rival_name"))
-		elif "is_boss" in source and source.is_boss:
-			label = "Boss"
-		elif "combat_role" in source and source.combat_role != "":
-			label = source.combat_role.capitalize()
+#
+# label_override: playtest report - a kill from a bot whose projectile/
+# mortar was still in flight when the bot itself died showed up as "Hit by:
+# Environment" even though it was a real KINETIC weapon hit. Label captured
+# now (from the still-valid `source`) covers the common case, but `source`
+# is already null by the time Projectile._handle_hit calls apply_damage if
+# the shooter died mid-flight - Godot's argument-type check rejects a freed
+# reference before it even reaches here. Projectile/MortarShell snapshot the
+# shooter's label at FIRE time (while it's still alive) via
+# resolve_attacker_label() and pass it through as this override so a kill
+# from an already-dead attacker still gets credited correctly instead of
+# falling back to "Environment".
+func _log_incoming_damage(amount: float, element: String, source: Node, label_override: String = ""):
+	var label = resolve_attacker_label(source)
+	if label == "Environment" and label_override != "":
+		label = label_override
 
 	var now = Time.get_ticks_msec() / 1000.0
 	var entry = {

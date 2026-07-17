@@ -358,6 +358,7 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 
 	proj.fired_by_player = mech.get("is_player") == true
 	proj.source_mech = mech
+	proj.source_label = Mech.resolve_attacker_label(mech)
 	proj.damage = base_damage
 	proj.is_crit = is_crit
 	proj.synergies = packet.synergies.duplicate()

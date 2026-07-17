@@ -15,6 +15,12 @@ var damage: float = 0.0
 var synergies: Dictionary = {}
 var fired_by_player: bool = true
 var source_mech: Node = null
+# Snapshot of Mech.resolve_attacker_label(source_mech) taken in setup(),
+# while the shooter is still guaranteed alive - mortars have a flight-time
+# delay before impact, making the shooter dying mid-flight even more likely
+# than for a direct-fire Projectile. See Projectile.gd's source_label
+# comment for the full story.
+var source_label: String = ""
 
 var _elapsed: float = 0.0
 var _landed: bool = false
@@ -32,6 +38,7 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 	synergies = p_synergies
 	fired_by_player = p_by_player
 	source_mech = p_source
+	source_label = Mech.resolve_attacker_label(p_source)
 	global_position = p_target # node sits at the impact point; shell is drawn offset
 
 func _process(delta: float):
@@ -96,6 +103,7 @@ func _detonate():
 		proj.damage = damage
 		proj.fired_by_player = fired_by_player
 		proj.source_mech = src
+		proj.source_label = source_label
 		proj.direction = Vector2.DOWN # payload arrives from above
 		proj.global_position = target_pos
 		# Combat-correct collision MASK even though the projectile never
@@ -129,7 +137,7 @@ func _detonate():
 		if not is_instance_valid(v) or not v.has_method("apply_damage"):
 			continue
 		var falloff = 1.0 - 0.5 * (v.global_position.distance_to(target_pos) / AOE_RADIUS)
-		v.apply_damage(damage * 0.6 * falloff, element, src)
+		v.apply_damage(damage * 0.6 * falloff, element, src, false, source_label)
 
 func _dominant_synergy() -> int:
 	var dominant = EnergyPacket.SynergyType.RAW

@@ -34,6 +34,30 @@ func _rebuild_valid_hex_set():
 	for h in valid_hexes:
 		_valid_hex_set[_hex_key(h.q, h.r)] = true
 
+# Energy Intake tiles (every create_starter_arm/leg/head + backpack variant
+# below) spawn at hex (0,0) riding ComponentLinkTile's class-level default
+# active_faces = [0] (hex direction East - see HexCoord.get_directions) -
+# nothing here ever pointed it at the shape it actually landed in. Playtest
+# report: on any generated shape that doesn't happen to extend East from
+# center, the intake's one allowed exit hits empty space, and
+# ComponentLinkTile.process_energy's "no tile there" branch silently
+# captures the packet as a dead weapon-payload instead of routing it into
+# the rest of the grid - the intake renders as connected in the Garage view
+# but can never actually deliver power. Point it at every real neighbor the
+# shape has instead of a fixed guess (a shape can legitimately touch (0,0)
+# from more than one side, so this can set multiple active_faces, which
+# ComponentLinkTile's splitter branch already knows how to split across).
+static func _orient_intake_to_shape(component: ComponentEquipment, intake: ComponentLinkTile, origin: HexCoord = null) -> void:
+	if origin == null:
+		origin = HexCoord.new(0, 0)
+	var found: Array[int] = []
+	for d in range(6):
+		var n = origin.neighbor(d)
+		if component._valid_hex_set.has(_hex_key(n.q, n.r)):
+			found.append(d)
+	if found.size() > 0:
+		intake.active_faces = found
+
 var infusion_level: int = 0
 var infusion_xp: int = 0
 var stat_modifiers: Dictionary = {}
@@ -520,6 +544,7 @@ static func create_starter_arm(is_left: bool, role: String = "", p_rarity: int =
 	intake.rarity = p_rarity
 	arm.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	arm.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(arm, intake)
 
 	# Add a Weapon Mount at the furthest extent
 	var max_q = 0
@@ -569,6 +594,7 @@ static func create_starter_leg(is_left: bool, role: String = "", p_rarity: int =
 	intake.rarity = p_rarity
 	leg.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	leg.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(leg, intake)
 
 	# Add Actuator at bottom
 	var max_r = 0
@@ -599,6 +625,7 @@ static func create_starter_head(role: String = "", p_rarity: int = HexTile.Rarit
 	intake.rarity = p_rarity
 	head.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	head.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(head, intake)
 
 	var min_r = 0
 	for h in head.valid_hexes:
@@ -713,6 +740,7 @@ static func create_shield_backpack():
 	intake.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
 	
 	var shield_class = load("res://scripts/tiles/ShieldTile.gd")
 	if shield_class:
@@ -744,6 +772,7 @@ static func create_jetpack_backpack():
 	intake.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
 	
 	var max_r = 0
 	for h in pack.valid_hexes:
@@ -768,6 +797,7 @@ static func create_drone_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 	intake.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
 
 	var drone_bay = load("res://scripts/tiles/DroneBayTile.gd").new()
 	drone_bay.rarity = p_rarity
@@ -799,6 +829,7 @@ static func create_missile_backpack():
 	intake.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
 	
 	var max_r = 0
 	for h in pack.valid_hexes:
@@ -848,6 +879,7 @@ static func create_cloak_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 	intake.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
 
 	var cloak = load("res://scripts/tiles/CloakTile.gd").new()
 	cloak.rarity = p_rarity
@@ -882,6 +914,7 @@ static func create_jammer_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 	intake.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
 
 	var jammer = load("res://scripts/tiles/JammerModuleTile.gd").new()
 	jammer.rarity = p_rarity
@@ -919,6 +952,7 @@ static func create_dual_utility_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON
 	intake.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
 
 	var roll = randf()
 	var combo: String
@@ -975,6 +1009,7 @@ static func create_support_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON, for
 	intake.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
 
 	var healer = load("res://scripts/tiles/HealBeaconTile.gd").new()
 	healer.rarity = p_rarity
@@ -1031,6 +1066,7 @@ static func create_command_backpack(p_rarity: int = HexTile.Rarity.RARE):
 	intake.body_slot = HexTile.BodySlot.BACKPACK
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
 
 	# Module loadout: [script_path, coord]. Order matters - the first four
 	# always install; the fifth (second heal beacon) is Legendary+ only.

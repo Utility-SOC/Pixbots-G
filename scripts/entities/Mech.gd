@@ -19,6 +19,7 @@ const MagnetSystem = preload("res://scripts/entities/MagnetSystem.gd")
 const CloakSystem = preload("res://scripts/entities/CloakSystem.gd")
 const JammerModuleSystem = preload("res://scripts/entities/JammerModuleSystem.gd")
 const HealBeaconSystem = preload("res://scripts/entities/HealBeaconSystem.gd")
+const AegisShieldPulseSystem = preload("res://scripts/entities/AegisShieldPulseSystem.gd")
 const JammerField = preload("res://scripts/visuals/JammerField.gd")
 
 # Lazily constructed the first time it's needed (is_player branch of
@@ -176,6 +177,18 @@ var umbra_toggle_mode: bool = false
 var has_jammer_immunity: bool = false
 var has_cloak_detection: bool = false
 var sensor_sight_bonus: float = 0.0
+
+# Corporate Sponsorships (task #17): Aegis Dynamics' AegisJammerShieldTile
+# capacity fields. has_elemental_aegis is checked directly in
+# _apply_shield_mitigation(); shield_pulse_* mirror heal_pulse_*'s exact
+# shape and feed AegisShieldPulseSystem.gd (see its header).
+var has_elemental_aegis: bool = false
+var has_shield_pulse: bool = false
+var shield_pulse_power: float = 0.0
+var shield_pulse_radius: float = 0.0
+var shield_pulse_interval: float = 4.0
+var shield_pulse_timer: float = 0.0
+var shield_pulse_system: AegisShieldPulseSystem = null
 # Decremented every tick in CloakSystem.tick() regardless of whether THIS
 # mech owns a cloak generator - refreshed by a nearby Umbra-equipped ally's
 # _share_cloak_with_allies() pulse. >0 fades this mech out exactly like
@@ -718,6 +731,7 @@ func _physics_process(delta: float):
 	cloak_system.tick(delta)
 	_update_jammer_module(delta)
 	_update_healer(delta)
+	_update_shield_pulse(delta)
 
 	if is_player:
 		if not player_controller:
@@ -1278,6 +1292,10 @@ func _reset_grid_state():
 	has_jammer_immunity = false
 	has_cloak_detection = false
 	sensor_sight_bonus = 0.0
+	has_elemental_aegis = false
+	has_shield_pulse = false
+	shield_pulse_power = 0.0
+	shield_pulse_radius = 0.0
 	has_jammer_module = false
 	_jammer_tiles.clear()
 	has_healer = false
@@ -1599,6 +1617,17 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					jammer_target_synergy = tile.target_synergy
 					if jammer_pulse_timer <= 0.0:
 						jammer_pulse_timer = jammer_pulse_interval
+
+				# Corporate Sponsorships: Aegis Dynamics' AegisJammerShieldTile
+				# rides on the Jammer Module capacity block above (it inherits
+				# JammerModuleTile) - the shield-pulse and elemental Aegis are
+				# a genuinely separate concern, detected here via brand_id.
+				if tile.brand_id == "defensive" and tile.has_method("get_shield_pulse_power"):
+					has_elemental_aegis = true
+					has_shield_pulse = true
+					shield_pulse_power = max(shield_pulse_power, tile.get_shield_pulse_power())
+					shield_pulse_radius = max(shield_pulse_radius, tile.get_shield_pulse_radius())
+					shield_pulse_interval = tile.get_shield_pulse_interval()
 
 			if tile.tile_type == "Heal Beacon" and tile.has_method("get_heal_energy"):
 				has_healer = true
@@ -2216,6 +2245,17 @@ func _apply_shield_mitigation(amount: float, element: String) -> float:
 	if shield_mythic_mode == 0 and max_shield_hp > 0:
 		amount = min(amount, max_shield_hp * AEGIS_HIT_CAP_RATIO)
 
+	# Corporate Sponsorships: Aegis Dynamics' elemental Aegis - the SAME hard
+	# per-hit cap as the Mythic Shield Generator's own Aegis mode above, but
+	# gated on brand equip rather than a Mythic mode toggle, and scoped to
+	# every "elemental" synergy specifically (Natalia: "anything not
+	# kinetic, pierce, raw, or explosion" - i.e. FIRE/ICE/LIGHTNING/VORTEX/
+	# POISON/VAMPIRIC). Independent of shield_mythic_mode - a mech with BOTH
+	# a Mythic Aegis Shield Generator AND this brand tile just gets whichever
+	# cap is more restrictive, since both apply as separate min() clamps.
+	if has_elemental_aegis and max_shield_hp > 0 and element in ELEMENTAL_SYNERGY_NAMES:
+		amount = min(amount, max_shield_hp * AEGIS_HIT_CAP_RATIO)
+
 	shield_hp -= amount
 	if shield_hp < 0:
 		var overflow = -shield_hp
@@ -2233,6 +2273,11 @@ func _apply_shield_mitigation(amount: float, element: String) -> float:
 
 const AEGIS_HIT_CAP_RATIO = 0.15 # Aegis: no single hit can exceed 15% of max shield HP
 const DEFLECTOR_BURST_RADIUS = 220.0
+# Corporate Sponsorships: Aegis Dynamics' elemental Aegis - "elemental" means
+# every SynergyType except RAW/KINETIC/PIERCE/EXPLOSION (Natalia's own
+# phrasing), matching EnergyPacket.SynergyType's real enum order
+# (RAW, FIRE, ICE, LIGHTNING, VORTEX, POISON, EXPLOSION, KINETIC, PIERCE, VAMPIRIC).
+const ELEMENTAL_SYNERGY_NAMES = ["FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON", "VAMPIRIC"]
 
 # Ejects `amount` of absorbed overflow energy as a random-direction AoE
 # burst - reuses the same PhysicsShapeQueryParameters2D/intersect_shape
@@ -2693,6 +2738,11 @@ func _update_healer(delta: float):
 	if not heal_beacon_system:
 		heal_beacon_system = HealBeaconSystem.new(self)
 	heal_beacon_system.tick(delta)
+
+func _update_shield_pulse(delta: float):
+	if not shield_pulse_system:
+		shield_pulse_system = AegisShieldPulseSystem.new(self)
+	shield_pulse_system.tick(delta)
 
 # --- Boss Fitness Tracking ------------------------------------------------
 # Same fitness shape as Squad.gd's fitness inputs (damage dealt + hits

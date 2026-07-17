@@ -52,13 +52,23 @@ func _ready():
 			break
 	print("3) random_brand() always returns a valid id (20 samples)")
 
-	# --- 2. BrandTileFactory null-safety (no brand tiles built yet) --------
-	# "defensive" is the last brand still pending as of this check's most
-	# recent update - power/sniper/efficiency/cloak/sensors are all built
-	# now (see BrandTileFactory.BRAND_TILE_SCRIPTS), so this assertion has to
-	# keep pointing at whichever brand is still genuinely unbuilt.
-	var tile = BrandTileFactoryScript.random_tile_for_brand("defensive")
-	_check("random_tile_for_brand() for an unbuilt brand returns null", tile, null)
+	# --- 2. BrandTileFactory resolves every one of the 7 real brands, and
+	# stays null-safe for anything that isn't a recognized id --------------
+	# All 7 brands are built as of this check's most recent update (power/
+	# sniper/efficiency/cloak/sensors/mobility/defensive - see
+	# BrandTileFactory.BRAND_TILE_SCRIPTS) - the "unbuilt brand returns null"
+	# case this used to cover no longer has a real id to point at, so this
+	# now asserts full coverage instead.
+	for id in BrandRegistryScript.BRAND_IDS:
+		var tile = BrandTileFactoryScript.random_tile_for_brand(id)
+		if tile == null:
+			push_error("FAIL: random_tile_for_brand('%s') returned null - every brand should be built now" % id)
+			failures += 1
+		elif tile.brand_id != id:
+			push_error("FAIL: random_tile_for_brand('%s') returned a tile tagged brand_id '%s'" % [id, tile.brand_id])
+			failures += 1
+	print("2) BrandTileFactory resolves a real tile for all 7 brands, each correctly tagged with its own brand_id")
+
 	var garbage_tile = BrandTileFactoryScript.random_tile_for_brand("not_a_real_brand")
 	_check("random_tile_for_brand() for a garbage id returns null", garbage_tile, null)
 

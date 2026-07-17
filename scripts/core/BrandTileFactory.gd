@@ -30,6 +30,9 @@ const BRAND_TILE_SCRIPTS = {
 	"mobility": [
 		"res://scripts/tiles/brands/MobilityCoreTile.gd",
 	],
+	"defensive": [
+		"res://scripts/tiles/brands/AegisJammerShieldTile.gd",
+	],
 }
 
 # Rolls one of `brand_id`'s tiles at Mythic rarity, tagged brand_id for the

@@ -9,6 +9,19 @@ extends RefCounted
 # sponsorship foundation (boss affiliation, drop hooks, save/load) land and
 # be verified safely ahead of the actual tile content.
 const BRAND_TILE_SCRIPTS = {
+	"power": [
+		"res://scripts/tiles/brands/PowerGridSplitterTile.gd",
+		"res://scripts/tiles/brands/PowerGridResonatorTile.gd",
+	],
+	"sniper": [
+		"res://scripts/tiles/brands/SniperMountTile.gd",
+	],
+	"efficiency": [
+		"res://scripts/tiles/brands/PrimeCircuitTile.gd",
+	],
+	"cloak": [
+		"res://scripts/tiles/brands/AllyCloakTile.gd",
+	],
 }
 
 # Rolls one of `brand_id`'s tiles at Mythic rarity, tagged brand_id for the

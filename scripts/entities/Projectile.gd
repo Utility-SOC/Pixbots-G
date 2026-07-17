@@ -78,6 +78,13 @@ var weapon_rarity: int = 0
 # add onto whatever was pre-set) and a plain `proj.max_range *= X` set
 # before _ready() would otherwise get silently clobbered.
 var is_beam_shot: bool = false
+# Corporate Sponsorships (task #17): mirrors is_beam_shot's exact wiring -
+# set from packet.range_mult by HexTile._fire_combined_projectile before
+# add_child, read in _calculate_stats() as a final multiplier over the whole
+# computed max_range (base + kinetic bonus), so a brand mount's range bonus
+# stacks multiplicatively with kinetic's own range identity rather than
+# fighting the same full-overwrite clobbering issue described above.
+var range_mult: float = 1.0
 # Set by HexTile._fire_combined_projectile when the firing EnergyPacket came
 # off an Accumulator bank-charge dump (hold-1/2/3, or AI auto-release) -
 # see EnergyPacket.is_banked_shot. Grants an exclusive damage/scale bonus
@@ -389,6 +396,7 @@ func _calculate_stats():
 	max_range = BASE_RANGE + KINETIC_RANGE_BONUS * r_kin
 	if is_beam_shot:
 		max_range *= 1.6
+	max_range *= range_mult
 
 	# Lightning blink hops (see the BLINK_INTERVAL block comment): extra
 	# targets beyond the first, 4 at full lightning.

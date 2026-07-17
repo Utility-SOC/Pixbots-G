@@ -370,6 +370,8 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 		proj.aoe_bonus = packet.aoe_bonus
 	if "is_banked_shot" in proj and "is_banked_shot" in packet:
 		proj.is_banked_shot = packet.is_banked_shot
+	if "range_mult" in proj and "range_mult" in packet:
+		proj.range_mult = packet.range_mult
 	# Per-mount visual signature (Utility-SOC: "easier to tell which
 	# projectile is coming from which weapon mount") - a stable hash of
 	# this mount's own (body_slot, grid_position), NOT anything about the

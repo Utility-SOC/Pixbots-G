@@ -65,6 +65,13 @@ var aoe_bonus: float = 0.0
 # fires only via its 1/2/3 key. See Mech._recalculate_grid.
 var acc_charge_mult: float = 1.0
 var acc_damage_mult: float = 1.0
+# Corporate Sponsorships (task #17): stamped by brand-exclusive weapon mounts
+# (currently only Farsight Optics' Sniper Mount, *= 6.0) - final multiplier
+# applied to the whole computed max_range in Projectile._calculate_stats(),
+# AFTER the kinetic-synergy range bonus, so it stacks multiplicatively with
+# kinetic's own range identity rather than replacing it (Natalia: "I want
+# the x5 and x6 to be able to stack").
+var range_mult: float = 1.0
 # Accumulator auto-dump (tile config): highest threshold stamped by any
 # Accumulator this packet routed through. 0 = manual key fire only; > 0 =
 # the banked shot auto-releases at that fraction of full charge (payload
@@ -144,6 +151,7 @@ func split(ratio: float) -> EnergyPacket:
 	new_packet.aoe_bonus = aoe_bonus
 	new_packet.acc_charge_mult = acc_charge_mult
 	new_packet.acc_damage_mult = acc_damage_mult
+	new_packet.range_mult = range_mult
 	new_packet.synergies.clear()
 	for k in synergies:
 		new_packet.synergies[k] = synergies[k] * ratio
@@ -169,6 +177,7 @@ func copy() -> EnergyPacket:
 	new_packet.aoe_bonus = aoe_bonus
 	new_packet.acc_charge_mult = acc_charge_mult
 	new_packet.acc_damage_mult = acc_damage_mult
+	new_packet.range_mult = range_mult
 	new_packet.auto_dump_threshold = auto_dump_threshold
 	return new_packet
 
@@ -180,6 +189,7 @@ func merge(other: EnergyPacket):
 	# Strongest accumulator stack on any merged path defines the big shot
 	acc_charge_mult = max(acc_charge_mult, other.acc_charge_mult)
 	acc_damage_mult = max(acc_damage_mult, other.acc_damage_mult)
+	range_mult = max(range_mult, other.range_mult)
 	auto_dump_threshold = max(auto_dump_threshold, other.auto_dump_threshold)
 	for k in other.synergies:
 		synergies[k] = synergies.get(k, 0.0) + other.synergies[k]

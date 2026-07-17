@@ -152,6 +152,28 @@ var cloak_recharge_delay: float = 1.0
 var cloak_drain_rate: float = 0.0
 var is_cloaked: bool = false
 
+# Corporate Sponsorships (task #17): Umbra Systems' AllyCloakTile capacity
+# fields, written directly in _collect_weapon_mounts_and_tile_capabilities()
+# same as the block above (has_cloak_generator etc.) - see CloakSystem.gd's
+# tick() for how these actually get used.
+#   umbra_share_radius - > 0 means an Umbra cloak generator is equipped;
+#     while cloaked, allies within this radius get faded/hidden too, even
+#     though they don't own a cloak generator themselves.
+#   umbra_stealth_fire - firing a weapon while cloaked no longer breaks
+#     cloak (see the two _break_cloak() call sites in _shoot/weapon-charge
+#     ticking below).
+#   umbra_toggle_mode - Cloak (C) is a toggle instead of hold-to-cloak (see
+#     CloakSystem.tick()'s player input branch).
+var umbra_share_radius: float = 0.0
+var umbra_stealth_fire: bool = false
+var umbra_toggle_mode: bool = false
+# Decremented every tick in CloakSystem.tick() regardless of whether THIS
+# mech owns a cloak generator - refreshed by a nearby Umbra-equipped ally's
+# _share_cloak_with_allies() pulse. >0 fades this mech out exactly like
+# is_cloaked does, letting an ally without their own cloak generator still
+# be hidden by someone else's Umbra field.
+var external_cloak_timer: float = 0.0
+
 # --- Jammer Module (equippable pulse ability - distinct from the JammerMech
 # role, which is a whole separate continuous-aura mech class) ---
 var has_jammer_module: bool = false
@@ -1015,7 +1037,7 @@ func _tick_weapon_charges(delta: float):
 					auto_packet.synergies[k] *= banked_frac * current_jammer_debuff
 				_apply_synergy_jamming(auto_packet)
 				auto_packet.magnitude *= _get_ambush_multiplier()
-				if is_cloaked:
+				if is_cloaked and not umbra_stealth_fire:
 					_break_cloak()
 				mount._fire_combined_projectile(self, auto_packet, data.step)
 				mount.bank_current_charge = 0.0
@@ -1088,7 +1110,7 @@ func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, d
 		heat = max(0.0, heat - required_charge * 0.6)
 		fired_a_shot = true
 
-	if fired_a_shot and was_cloaked:
+	if fired_a_shot and was_cloaked and not umbra_stealth_fire:
 		_break_cloak()
 
 # --- Lightweight heat, v1 (FEATURE_ROADMAP.md group 5, locked spec) --------
@@ -1241,6 +1263,9 @@ func _reset_grid_state():
 	max_cloak_charge = 0.0
 	cloak_recharge_rate = 0.0
 	cloak_recharge_delay = 1.0
+	umbra_share_radius = 0.0
+	umbra_stealth_fire = false
+	umbra_toggle_mode = false
 	has_jammer_module = false
 	_jammer_tiles.clear()
 	has_healer = false
@@ -1541,6 +1566,12 @@ func _collect_weapon_mounts_and_tile_capabilities():
 				var recharge_time = tile.get_recharge_time() if tile.has_method("get_recharge_time") else 6.0
 				cloak_drain_rate = max_cloak_charge / max(0.1, duration)
 				cloak_recharge_rate += max_cloak_charge / max(0.1, recharge_time)
+				# Corporate Sponsorships: Umbra Systems' AllyCloakTile - see
+				# Mech.gd's umbra_* field block for what these unlock.
+				if tile.brand_id == "cloak" and tile.has_method("get_ally_share_radius"):
+					umbra_share_radius = max(umbra_share_radius, tile.get_ally_share_radius())
+					umbra_stealth_fire = true
+					umbra_toggle_mode = true
 
 			if tile.tile_type == "Jammer Module" and tile.has_method("get_jam_energy"):
 				# All modules are kept so _update_jammer_module can drain their

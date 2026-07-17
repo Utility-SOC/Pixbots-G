@@ -135,6 +135,24 @@ func _ready():
 					main.garage_ui.inventory.append(tile)
 		print("[Debug] Gave 5x Mythic Lance Mount - drag one from the Garage inventory onto 3 in-line arm hexes to place it.")
 	)
+	# Mod Chips (Late-game progression prep, task #41): normally these only
+	# come from TileActionMenu.extract_modifier() sacrificing a spare
+	# Legendary+ component that already rolled a stat_modifiers entry via
+	# ComponentEquipment._roll_stat_modifier() - a slow, RNG-gated path. This
+	# grants one +10% chip for each of that function's own 11 possible stats
+	# directly, so a chip can be tried via TileActionMenu.infuse_chip() (the
+	# Garage's existing "Infuse Chip" button) without grinding for one first.
+	_btn(tab_inv, "Give Mod Chips (1 of each stat)", func():
+		var main = get_tree().current_scene
+		if not main or main.get("player_modifier_chips") == null:
+			return
+		var possible_stats = ["kin_mult", "fire_mult", "ice_mult", "vtx_mult", "ltg_mult", "psn_mult", "exp_mult", "prc_mult", "vmp_mult", "dmg_mult", "spd_mult"]
+		for stat in possible_stats:
+			main.player_modifier_chips.append({"stat": stat, "value": 1.1})
+		if main.get("garage_ui") != null and main.garage_ui.get("tile_action_menu") != null and main.garage_ui.tile_action_menu != null:
+			main.garage_ui.tile_action_menu.update_chip_label()
+		print("[Debug] Gave 1 +10%% chip for each of the 11 stats - open a part's config popup in the Garage and use Infuse Chip.")
+	)
 
 	# --- Tab: World ---------------------------------------------------------
 	var tab_world = _tab(tabs, "World")

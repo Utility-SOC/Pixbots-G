@@ -145,10 +145,6 @@ func get_center_position() -> Vector2:
 	if valid_count == 0: return Vector2.ZERO
 	return center / valid_count
 
-func check_combat_state(is_in_combat: bool):
-	if not is_in_combat and active_members < initial_members:
-		request_linkup.emit(self)
-
 func _on_member_died():
 	active_members -= 1
 	if active_members <= 0:

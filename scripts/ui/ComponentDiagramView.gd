@@ -13,9 +13,9 @@ extends Control
 # line moves) so they never become illegibly tiny or comically huge.
 #
 # Drag-and-drop equip is handled by GarageMenu (which already owns a manual
-# drag system for hex tiles) - this view just exposes get_slot_at_point() /
-# get_slot_rect_global() so GarageMenu can hit-test a drop, and refresh() so
-# it can push the currently-equipped part into each callout's label.
+# drag system for hex tiles) - this view just exposes get_slot_at_point() so
+# GarageMenu can hit-test a drop, and refresh() so it can push the
+# currently-equipped part into each callout's label.
 
 signal slot_pressed(slot_type)
 
@@ -273,11 +273,6 @@ func get_slot_at_point(global_pos: Vector2) -> int:
 		if node.get_global_rect().has_point(global_pos):
 			return slot_type
 	return -1
-
-func get_slot_rect_global(slot_type) -> Rect2:
-	if _slot_nodes.has(slot_type):
-		return _slot_nodes[slot_type].get_global_rect()
-	return Rect2()
 
 func set_highlight(slot_type):
 	if _highlighted_slot == slot_type:

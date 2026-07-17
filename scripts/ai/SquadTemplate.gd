@@ -48,9 +48,6 @@ func _init(_name: String = "Unnamed", _roles: Dictionary = {}):
 	template_name = _name
 	required_roles = _roles
 
-func add_role(role_name: String, count: int):
-	required_roles[role_name] = count
-
 func get_average_fitness() -> float:
 	if times_deployed == 0:
 		return 0.0

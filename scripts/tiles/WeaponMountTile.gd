@@ -48,33 +48,13 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	packet.magnitude = 0.0
 	return [packet]
 
-func fire_pending(mech: Node2D):
-	if pending_packets.is_empty():
-		return
-
-	var step_groups: Dictionary = {}
-	for item in pending_packets:
-		var step = item.step
-		if not step_groups.has(step):
-			step_groups[step] = []
-		step_groups[step].append(item.packet)
-
-	var sorted_steps = step_groups.keys()
-	sorted_steps.sort()
-
-	for step in sorted_steps:
-		var group: Array = step_groups[step]
-		if group.is_empty(): continue
-
-		# Merge synced packets
-		var merged_packet = group[0].copy()
-		for i in range(1, group.size()):
-			merged_packet.merge(group[i])
-
-		_fire_combined_projectile(mech, merged_packet, step)
-
-	pending_packets.clear()
-
+# fire_pending() (grouped/merged pending_packets by step, then fired via
+# _fire_combined_projectile) was dead code - the real firing path was
+# reimplemented directly in Mech.gd (see its weapon-mount collection loop),
+# which reads tile.pending_packets itself with its own grouping logic
+# (picks the packet with max acc_damage_mult rather than merging in step
+# order). Removed rather than kept as an unmaintained duplicate.
+#
 # _fire_combined_projectile(), get_muzzle_position(), and _get_power_multiplier()
 # now live on the HexTile base class (scripts/core/HexTile.gd) - they were
 # duplicated near-verbatim across this file, ComponentLinkTile.gd, and a

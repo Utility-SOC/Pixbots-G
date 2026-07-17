@@ -1,14 +1,13 @@
 class_name RivalProfile
 extends BossProfile
 
-# A RivalProfile extends BossProfile to add specific constraints for the 
+# A RivalProfile extends BossProfile to add specific constraints for the
 # 15 Yu-Gi-Oh! style named rivals (and PvP Ghost Clones).
-# It enforces exact components or bans, and tracks their dialogue lines.
+# It enforces mythic-only/junk-only loadout constraints, and tracks their
+# dialogue lines.
 
 @export var rival_name: String = ""
 @export var is_ghost: bool = false
-@export var forced_components: Array[String] = []
-@export var banned_components: Array[String] = []
 
 # If true, the AutoEquipSolver is forced to use only Mythic rarity parts (e.g. Arthur).
 @export var force_mythic_only: bool = false
@@ -35,8 +34,6 @@ func to_dict() -> Dictionary:
 	var d = super.to_dict()
 	d["rival_name"] = rival_name
 	d["is_ghost"] = is_ghost
-	d["forced_components"] = forced_components
-	d["banned_components"] = banned_components
 	d["force_mythic_only"] = force_mythic_only
 	d["force_junk_only"] = force_junk_only
 	d["dialogue_intro"] = dialogue_intro
@@ -51,17 +48,6 @@ func from_dict(data: Dictionary):
 	super.from_dict(data)
 	if data.has("rival_name"): rival_name = data["rival_name"]
 	if data.has("is_ghost"): is_ghost = bool(data["is_ghost"])
-	
-	if data.has("forced_components"):
-		forced_components.clear()
-		for c in data["forced_components"]:
-			forced_components.append(str(c))
-			
-	if data.has("banned_components"):
-		banned_components.clear()
-		for c in data["banned_components"]:
-			banned_components.append(str(c))
-			
 	if data.has("force_mythic_only"): force_mythic_only = bool(data["force_mythic_only"])
 	if data.has("force_junk_only"): force_junk_only = bool(data["force_junk_only"])
 	if data.has("dialogue_intro"): dialogue_intro = str(data["dialogue_intro"])

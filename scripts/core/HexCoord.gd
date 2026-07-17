@@ -56,18 +56,6 @@ static func get_directions() -> Array[HexCoord]:
 		]
 	return _cached_directions
 
-func rotate_left(center: HexCoord) -> HexCoord:
-	var vec = self.sub(center)
-	var cube = vec.to_cube()
-	var rotated = HexCoord.from_cube(Vector3i(-cube.z, -cube.x, -cube.y))
-	return center.add(rotated)
-
-func rotate_right(center: HexCoord) -> HexCoord:
-	var vec = self.sub(center)
-	var cube = vec.to_cube()
-	var rotated = HexCoord.from_cube(Vector3i(-cube.y, -cube.z, -cube.x))
-	return center.add(rotated)
-
 func _to_string() -> String:
 	return "HexCoord(" + str(q) + ", " + str(r) + ")"
 

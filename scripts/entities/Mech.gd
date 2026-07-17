@@ -232,10 +232,6 @@ var heal_pulse_timer: float = 0.0
 # remaining duration. Consulted when firing to suppress that element.
 var jammed_synergies: Dictionary = {}
 
-func apply_shield_energy(amount: float):
-	max_shield_hp += amount # Max shield grows based on energy it processes!
-	shield_hp = max_shield_hp
-
 var is_player: bool = false
 var is_firing_outward: bool = false
 var last_aim_position: Vector2 = Vector2.ZERO

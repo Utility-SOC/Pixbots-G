@@ -472,15 +472,6 @@ func _on_infuse_chip():
 		tile_action_menu = TileActionMenu.new(self)
 	tile_action_menu.infuse_chip()
 
-# --- Feature 5: Black Market -------------------------------------------------
-# Stock is deterministic per 10-minute real-time window (seeded from unix
-# time / 600), so reopening the popup shows the same rotation until the
-# window rolls over. Purchases are remembered per window.
-
-const MARKET_CYCLE_SECONDS = 600
-const MARKET_FORBIDDABLE = ["Amplifier", "Accumulator", "Splitter", "Catalyst", "Shield Generator"]
-var _market_sold: Dictionary = {}
-
 # Shared human-readable slot names - used by the Black Market listing, the
 # spare-components list, and the Swap Component warning/popup, so a purchased
 # part is identifiable as "Right Arm" everywhere instead of showing up as a

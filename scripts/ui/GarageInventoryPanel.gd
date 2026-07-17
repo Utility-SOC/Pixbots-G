@@ -439,9 +439,6 @@ func _on_inventory_item_gui_input(event: InputEvent, tile: HexTile):
 				garage.tile_action_menu = TileActionMenu.new(garage)
 			garage.tile_action_menu.upgrade_tile(tile)
 
-func _on_inventory_item_down(_tile: HexTile):
-	pass # Deprecated in favor of gui_input
-
 func _drop_tile(pos: Vector2):
 	# Multi-cell tiles (Lance - see HexTile.footprint_offsets) never use the
 	# fill-line paint path: that path places several SEPARATE copies of a

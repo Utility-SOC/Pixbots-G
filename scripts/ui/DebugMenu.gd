@@ -444,8 +444,6 @@ func _on_restore_components():
 		if main.get("garage_ui") != null:
 			if main.garage_ui.has_method("_refresh_component_ui"):
 				main.garage_ui._refresh_component_ui()
-			if main.garage_ui.has_method("_refresh_grid_ui"):
-				main.garage_ui._refresh_grid_ui()
 		print("[Debug] Restored 2 full sets of Legendary components!")
 
 func _on_give_god_inventory(is_mythic: bool = false):

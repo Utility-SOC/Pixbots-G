@@ -14,9 +14,6 @@ func get_max_faces() -> int:
 func get_power_output() -> float:
 	return TileStatsRegistry.get_stat_by_rarity("MicrocoreTile", "power_output_by_rarity", rarity, [50.0, 75.0, 120.0, 200.0, 320.0])
 
-func set_face_output(direction: int, synergy: EnergyPacket.SynergyType):
-	face_outputs[direction] = synergy
-
 func get_face_output(direction: int) -> int:
 	if face_outputs.has(direction):
 		return face_outputs[direction]

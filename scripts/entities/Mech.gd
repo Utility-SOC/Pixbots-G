@@ -1606,6 +1606,14 @@ func _collect_weapon_mounts_and_tile_capabilities():
 				heal_pulse_radius = tile.get_pulse_radius()
 				heal_pulse_interval = tile.get_pulse_interval()
 
+			# Corporate Sponsorships: Velocity Works' MobilityCoreTile - a
+			# self-contained reactor, so it grants capacity UNCONDITIONALLY
+			# from mere presence rather than needing a routed packet like
+			# JumpjetTile/ActuatorTile do (see MobilityCoreTile.gd's header).
+			if tile.tile_type == "Mobility Core" and tile.brand_id == "mobility":
+				jumpjet_rarity = max(jumpjet_rarity, tile.rarity)
+				thruster_accel_bonus = max(thruster_accel_bonus, tile.rarity)
+
 			# Corporate Sponsorships: Keeneye Sensing's SensorTile family - see
 			# SensorTile.gd's header for what jammer_immunity/cloak_detection
 			# actually resolve to.

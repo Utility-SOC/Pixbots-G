@@ -27,6 +27,9 @@ const BRAND_TILE_SCRIPTS = {
 		"res://scripts/tiles/brands/CounterCloakTile.gd",
 		"res://scripts/tiles/brands/CounterBothTile.gd",
 	],
+	"mobility": [
+		"res://scripts/tiles/brands/MobilityCoreTile.gd",
+	],
 }
 
 # Rolls one of `brand_id`'s tiles at Mythic rarity, tagged brand_id for the

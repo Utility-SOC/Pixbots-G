@@ -6,6 +6,7 @@ const WeaponMountTile = preload("res://scripts/tiles/WeaponMountTile.gd")
 const DroneBayTile = preload("res://scripts/tiles/DroneBayTile.gd")
 const ChampionCardScript = preload("res://scripts/pvp/ChampionCard.gd")
 const CutscenePlayer = preload("res://scripts/cutscene/CutscenePlayer.gd")
+const BrandRegistry = preload("res://scripts/core/BrandRegistry.gd")
 
 # Companion Drones (see Drone.gd/DroneBayTile.gd): one spawned alongside the
 # player per Drone Bay tile installed anywhere in their Backpack on deploy -
@@ -34,6 +35,13 @@ var player_scrap: int = 0
 # Extracted stat modifiers waiting to be infused into a part (feature 5).
 # Each entry: {"stat": String, "value": float}. Managed by GarageMenu.
 var player_modifier_chips: Array = []
+
+# Corporate Sponsorships (task #17, BrandRegistry.gd) - "" means Free Agent
+# (no sponsorship, the always-valid default). Selectable from wave 125
+# onward, freely re-selectable later with no penalty - see BrandRegistry's
+# header for the full design. Read by LootManager.generate_loot_for_mech()
+# for the sponsor drip-feed bonus drop.
+var player_sponsorship: String = ""
 
 
 var hud_canvas: CanvasLayer
@@ -506,6 +514,8 @@ func _setup_player():
 		if load_data.has("current_wave"):
 			current_wave = max(1, int(load_data["current_wave"]))
 			last_garage_wave = current_wave
+		if load_data.has("player_sponsorship"):
+			player_sponsorship = str(load_data["player_sponsorship"])
 	else:
 
 		_initialize_starter_inventory()
@@ -916,6 +926,14 @@ func _spawn_boss(director, is_mega: bool):
 		boss.is_boss = true
 		var backpacks = ["shield", "jetpack", "missile", "drone"]
 		boss.set_meta("boss_drop", backpacks.pick_random())
+
+	# Corporate Sponsorships (task #17): every boss from wave 100+ reps a
+	# random brand - its kill drops one of that brand's tiles (see
+	# LootManager.generate_loot_for_mech), regardless of the player's own
+	# sponsorship. This is how an unaligned or differently-sponsored player
+	# can still eventually get any brand's gear.
+	if current_wave >= 100:
+		boss.brand_affiliation = BrandRegistry.random_brand()
 
 	# is_boss/boss_profile are set above, AFTER _spawn_bot_for_role's
 	# add_child already triggered _ready() and built the visual once with

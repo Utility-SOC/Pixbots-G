@@ -156,6 +156,8 @@ func save_game(save_name: String, mech: Node, inventory: Array):
 	# silently restarted the run at wave 1 while keeping the gear.
 	if main and "current_wave" in main:
 		data["current_wave"] = main.current_wave
+	if main and "player_sponsorship" in main:
+		data["player_sponsorship"] = main.player_sponsorship
 
 	# Serialize Components
 	for slot in mech.components.keys():
@@ -230,6 +232,8 @@ func load_game(save_name: String) -> Dictionary:
 		result["modifier_chips"] = json["modifier_chips"]
 	if json.has("current_wave"):
 		result["current_wave"] = int(json["current_wave"])
+	if json.has("player_sponsorship"):
+		result["player_sponsorship"] = str(json["player_sponsorship"])
 
 	
 	var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")

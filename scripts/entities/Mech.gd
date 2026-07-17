@@ -90,6 +90,12 @@ var base_move_speed: float = 200.0
 var total_mass: float = 0.0
 var combat_role: String = "melee"
 
+# Corporate Sponsorships (task #17): "" means unaffiliated - only bosses from
+# wave 100+ ever get one (see Main._spawn_boss), rolled via
+# BrandRegistry.random_brand(). Read by LootManager.generate_loot_for_mech()
+# to pick which brand's tile a boss kill drops.
+var brand_affiliation: String = ""
+
 # Water-capable movement variant: normally ANY mech standing over water
 # drowns unless it happens to have jumpjets equipped (see _check_drowning/
 # _has_jumpjets) - a happy accident of loadout, not a real trait. Amphibious

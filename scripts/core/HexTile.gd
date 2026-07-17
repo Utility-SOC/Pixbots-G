@@ -31,6 +31,13 @@ enum BodySlot {
 @export var level: int = 1
 @export var is_blocked: bool = false
 
+# Corporate Sponsorships (task #17): "" means an ordinary tile. A brand tile
+# is otherwise a plain Mythic-rarity tile - no separate rarity tier - just
+# rendered BrandRegistry.BRAND_COLOR (dark blue) with the brand's logo mark
+# instead of the normal Mythic tint (see MechRenderer/GarageGridRenderer's
+# tile-color lookups). See BrandRegistry.gd's header for the full design.
+@export var brand_id: String = ""
+
 var grid_position: HexCoord = null
 var base_color: Color = Color.GRAY
 var sync_adjustment: int = 0

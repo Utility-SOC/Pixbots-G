@@ -1,5 +1,12 @@
 extends Node
 
+# Explicit preload rather than the bare global class name: LootManager is the
+# first-registered autoload (see project.godot), and the engine's global
+# script-class cache for a brand new file isn't always populated yet by the
+# time the very first autoload is parsed - preload() sidesteps that entirely,
+# same pattern already used elsewhere in this codebase for cross-script refs.
+const BrandTileFactoryScript = preload("res://scripts/core/BrandTileFactory.gd")
+
 # Probability map based on rarity. Raised across the board per
 # FEATURE_ROADMAP.md (feature 5 / group 2): the upgrade + infusion +
 # repair economy needs a steady stream of salvage fuel, so drops must be
@@ -63,6 +70,25 @@ func generate_loot_for_mech(mech: Node):
 
 		if pack != null:
 			_spawn_component_drop(mech, pack)
+
+		# Corporate Sponsorships (task #17): this boss's own brand drops one
+		# of its tiles regardless of the player's sponsorship - see
+		# BrandRegistry.gd's header for why (it's how an unaligned/differently
+		# -sponsored player can still eventually get any brand's gear).
+		if "brand_affiliation" in mech and mech.brand_affiliation != "":
+			var boss_brand_tile = BrandTileFactoryScript.random_tile_for_brand(mech.brand_affiliation)
+			if boss_brand_tile:
+				_spawn_loot_drop(mech, boss_brand_tile)
+
+			# Sponsor drip-feed bonus: a sponsored player ALSO gets one of
+			# their OWN brand's tiles from every boss kill that ISN'T already
+			# their own sponsor's boss (no double-dip beating your own
+			# champion - you already got the line above for that case).
+			var main = mech.get_tree().current_scene if mech.is_inside_tree() else null
+			if main and "player_sponsorship" in main and main.player_sponsorship != "" and main.player_sponsorship != mech.brand_affiliation:
+				var sponsor_tile = BrandTileFactoryScript.random_tile_for_brand(main.player_sponsorship)
+				if sponsor_tile:
+					_spawn_loot_drop(mech, sponsor_tile)
 
 	elif randf() <= COMPONENT_DROP_CHANCE:
 		# Regular kills occasionally shed a whole (Common/Uncommon) component

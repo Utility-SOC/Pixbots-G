@@ -351,6 +351,24 @@ func _deserialize_component(cdata: Dictionary):
 			intake.body_slot = comp.slot_type
 			comp.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 		comp.fixed_sinks.append(HexCoord.new(0, 0))
+
+	# Re-orient any Energy Intake tile now that the component's real shape is
+	# fully settled - the custom-valid_hexes override above, the stray-tile
+	# absorption loop, and the backwards-compat block can all still change
+	# valid_hexes after generate_shape() already built _valid_hex_set once,
+	# so it must be rebuilt before re-deriving orientation from it.
+	# active_faces was never part of Energy Intake's serialized data (see
+	# _serialize_tile/_deserialize_tile - only Splitter/Core Reactor/
+	# Microcore save it), so a saved/named loadout always deserialized the
+	# intake back to ComponentLinkTile's class-level default (direction 0,
+	# East) instead of keeping whatever direction ComponentEquipment.
+	# _orient_intake_to_shape() picked when the part was first built -
+	# playtest report: "worked last time" (freshly generated), broken again
+	# after loading a saved build (deserialized, orientation lost).
+	comp._rebuild_valid_hex_set()
+	for tile in comp.hex_grid.get_all_tiles():
+		if tile.tile_type == "Energy Intake":
+			ScriptComponentEquipment._orient_intake_to_shape(comp, tile, tile.grid_position)
 		
 	return comp
 

@@ -149,6 +149,7 @@ func _build_component(offer: Dictionary):
 		intake.body_slot = comp.slot_type
 		comp.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 		comp.fixed_sinks.append(HexCoord.new(0, 0))
+		ComponentEquipment._orient_intake_to_shape(comp, intake)
 	return comp
 
 func sell_all(max_rarity: int):

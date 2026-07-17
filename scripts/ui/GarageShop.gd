@@ -286,6 +286,7 @@ func _build_generated_component(slot: int, role: String, rarity: int) -> Compone
 		intake.body_slot = slot
 		comp.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 		comp.fixed_sinks.append(HexCoord.new(0, 0))
+		ComponentEquipment._orient_intake_to_shape(comp, intake)
 
 	for spec in _role_tile_specs(role, slot):
 		var free_hex = _first_free_hex(comp)

@@ -186,6 +186,7 @@ func _create_procedural_component(rarity: int, mech: Node, name_prefix: String):
 	intake.body_slot = slot
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	comp_script._orient_intake_to_shape(pack, intake)
 	return pack
 
 func _spawn_component_drop(mech: Node, pack):

@@ -33,7 +33,9 @@ func _init(p_mech: Mech):
 	mech = p_mech
 
 func _effective_sight_range() -> float:
-	return mech.SIGHT_RANGE * (mech.SCOUT_SIGHT_MULT if mech.combat_role == "scout" else 1.0)
+	# Corporate Sponsorships: Keeneye Sensing's passive sight-radius bonus -
+	# see SensorTile.gd's header.
+	return mech.SIGHT_RANGE * (mech.SCOUT_SIGHT_MULT if mech.combat_role == "scout" else 1.0) + mech.sensor_sight_bonus
 
 func _effective_search_radius() -> float:
 	return mech.SEARCH_WANDER_RADIUS * (mech.SCOUT_SEARCH_MULT if mech.combat_role == "scout" else 1.0)

@@ -167,6 +167,15 @@ var is_cloaked: bool = false
 var umbra_share_radius: float = 0.0
 var umbra_stealth_fire: bool = false
 var umbra_toggle_mode: bool = false
+
+# Corporate Sponsorships (task #17): Keeneye Sensing's SensorTile capacity
+# fields, written directly in _collect_weapon_mounts_and_tile_capabilities()
+# same as everything above. See SensorTile.gd's header for what "bypasses
+# jammers and cloaks" actually resolves to given what those two systems
+# really gate in this codebase.
+var has_jammer_immunity: bool = false
+var has_cloak_detection: bool = false
+var sensor_sight_bonus: float = 0.0
 # Decremented every tick in CloakSystem.tick() regardless of whether THIS
 # mech owns a cloak generator - refreshed by a nearby Umbra-equipped ally's
 # _share_cloak_with_allies() pulse. >0 fades this mech out exactly like
@@ -1266,6 +1275,9 @@ func _reset_grid_state():
 	umbra_share_radius = 0.0
 	umbra_stealth_fire = false
 	umbra_toggle_mode = false
+	has_jammer_immunity = false
+	has_cloak_detection = false
+	sensor_sight_bonus = 0.0
 	has_jammer_module = false
 	_jammer_tiles.clear()
 	has_healer = false
@@ -1593,6 +1605,18 @@ func _collect_weapon_mounts_and_tile_capabilities():
 				heal_pulse_power += tile.get_heal_energy() * 0.1
 				heal_pulse_radius = tile.get_pulse_radius()
 				heal_pulse_interval = tile.get_pulse_interval()
+
+			# Corporate Sponsorships: Keeneye Sensing's SensorTile family - see
+			# SensorTile.gd's header for what jammer_immunity/cloak_detection
+			# actually resolve to.
+			if tile.tile_type == "Sensor Array" and tile.has_method("get_sensor_mode"):
+				var sensor_mode = tile.get_sensor_mode()
+				if sensor_mode == "jammer" or sensor_mode == "both":
+					has_jammer_immunity = true
+				if sensor_mode == "cloak" or sensor_mode == "both":
+					has_cloak_detection = true
+				if tile.has_method("get_sight_bonus"):
+					sensor_sight_bonus = max(sensor_sight_bonus, tile.get_sight_bonus())
 
 func _finalize_grid_state():
 	# Find dominant shield synergy
@@ -2272,6 +2296,23 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 	if amount > 0 and _brace_timer > 0.0:
 		amount *= 0.75
 
+	# Corporate Sponsorships: Keeneye Sensing's Counter-Cloak tile. Cloak
+	# itself never gates targeting/visibility anywhere in this codebase (it's
+	# purely a modulate.a fade plus the attacker's own ambush damage
+	# multiplier - see SensorTile.gd's header) so "bypasses cloak" resolves
+	# to negating that multiplier when you're the one getting hit. Checked at
+	# HIT time via the attacker's LIVE _get_ambush_multiplier() (true while
+	# still cloaked OR within the brief post-decloak ambush window) rather
+	# than tracking which specific packet was ambush-boosted at fire time -
+	# an honest approximation: it correctly discounts the shot that actually
+	# reveals/represents the ambush, but could rarely also discount an
+	# unrelated normal shot from the same attacker if it happens to land
+	# during a coincidentally-timed later ambush window.
+	if amount > 0 and has_cloak_detection and is_instance_valid(source) and source.has_method("_get_ambush_multiplier"):
+		var ambush_mult = source._get_ambush_multiplier()
+		if ambush_mult > 1.0:
+			amount /= ambush_mult
+
 	if not is_player:
 		var main = get_tree().current_scene
 		# SquadDirector lives under Main.world (the pixel-viewport game
@@ -2617,6 +2658,10 @@ func receive_jammer_alert(approx_pos: Vector2):
 	last_known_player_pos = approx_pos
 
 func apply_synergy_jam(synergy_id: int, duration: float):
+	# Corporate Sponsorships: Keeneye Sensing's Counter-Jammer tile - see
+	# SensorTile.gd's header.
+	if has_jammer_immunity:
+		return
 	jammed_synergies[synergy_id] = max(jammed_synergies.get(synergy_id, 0.0), duration)
 
 # Mutes any jammed synergy's contribution to an outgoing packet. Called once

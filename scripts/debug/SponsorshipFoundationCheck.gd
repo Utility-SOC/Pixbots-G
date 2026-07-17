@@ -53,7 +53,11 @@ func _ready():
 	print("3) random_brand() always returns a valid id (20 samples)")
 
 	# --- 2. BrandTileFactory null-safety (no brand tiles built yet) --------
-	var tile = BrandTileFactoryScript.random_tile_for_brand("sniper")
+	# "defensive" is the last brand still pending as of this check's most
+	# recent update - power/sniper/efficiency/cloak/sensors are all built
+	# now (see BrandTileFactory.BRAND_TILE_SCRIPTS), so this assertion has to
+	# keep pointing at whichever brand is still genuinely unbuilt.
+	var tile = BrandTileFactoryScript.random_tile_for_brand("defensive")
 	_check("random_tile_for_brand() for an unbuilt brand returns null", tile, null)
 	var garbage_tile = BrandTileFactoryScript.random_tile_for_brand("not_a_real_brand")
 	_check("random_tile_for_brand() for a garbage id returns null", garbage_tile, null)

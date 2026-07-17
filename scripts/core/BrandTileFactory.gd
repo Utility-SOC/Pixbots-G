@@ -22,6 +22,11 @@ const BRAND_TILE_SCRIPTS = {
 	"cloak": [
 		"res://scripts/tiles/brands/AllyCloakTile.gd",
 	],
+	"sensors": [
+		"res://scripts/tiles/brands/CounterJammerTile.gd",
+		"res://scripts/tiles/brands/CounterCloakTile.gd",
+		"res://scripts/tiles/brands/CounterBothTile.gd",
+	],
 }
 
 # Rolls one of `brand_id`'s tiles at Mythic rarity, tagged brand_id for the

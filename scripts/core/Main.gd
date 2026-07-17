@@ -318,11 +318,14 @@ func _update_player_blind_state():
 	if not player or not is_instance_valid(player):
 		return
 	var blind = false
-	for f in EntityCache.get_group("jammer_field"):
-		if is_instance_valid(f) and not f.owner_is_player and f.is_point_inside(player.global_position):
-			blind = true
-			f.report_jam_contact(player.global_position)
-			break
+	# Corporate Sponsorships: Keeneye Sensing's Counter-Jammer tile - see
+	# SensorTile.gd's header.
+	if not player.get("has_jammer_immunity"):
+		for f in EntityCache.get_group("jammer_field"):
+			if is_instance_valid(f) and not f.owner_is_player and f.is_point_inside(player.global_position):
+				blind = true
+				f.report_jam_contact(player.global_position)
+				break
 	player_is_blind = blind
 	if blind == _was_player_blind:
 		return

@@ -178,6 +178,18 @@ var has_jammer_immunity: bool = false
 var has_cloak_detection: bool = false
 var sensor_sight_bonus: float = 0.0
 
+# AI counter-doctrine (SquadDirector._spawn_bot_for_role): set ONCE at spawn,
+# not a loadout-derived capacity field, so it's NOT reset in
+# _reset_grid_state() - same category as elemental_resistances/modulate
+# tweaks the Director already sets directly on a bot at build time. Kinetic
+# weapons get a huge projectile-range bonus (Projectile.gd's
+# KINETIC_RANGE_BONUS) that was otherwise wasted - a bot built to counter
+# the player's shield with Kinetic couldn't ever get close enough to use
+# that range, since SIGHT_RANGE (the actual detection gate) never scaled
+# with it. Only ever set on bots the Director deliberately kitted with
+# Kinetic weapons for exactly this reason.
+var kinetic_sight_bonus: float = 0.0
+
 # Corporate Sponsorships (task #17): Aegis Dynamics' AegisJammerShieldTile
 # capacity fields. has_elemental_aegis is checked directly in
 # _apply_shield_mitigation(); shield_pulse_* mirror heal_pulse_*'s exact

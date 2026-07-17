@@ -705,11 +705,11 @@ func _start_wave():
 	# composition (mutation or fresh random template). Not every wave, so
 	# each trial gets a few waves to actually accumulate deployments before
 	# the next one shows up.
-	if current_wave % 3 == 0:
+	if current_wave % 2 == 0:
 		director.maybe_introduce_experimental_template()
-	if current_wave % 4 == 0:
+	if current_wave % 3 == 0:
 		director.maybe_introduce_experimental_profile()
-	if current_wave % 5 == 0:
+	if current_wave % 4 == 0:
 		director.maybe_introduce_experimental_boss_profile()
 
 	active_enemies = 0

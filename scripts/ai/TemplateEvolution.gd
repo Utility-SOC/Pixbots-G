@@ -15,7 +15,7 @@ extends RefCounted
 
 const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
 
-const MAX_EXPERIMENTAL_TEMPLATES = 5
+const MAX_EXPERIMENTAL_TEMPLATES = 7
 const MIN_TRIALS_BEFORE_CULL = 3
 const CULL_FITNESS_THRESHOLD = 60.0
 const GRADUATE_FITNESS_THRESHOLD = 110.0
@@ -56,18 +56,20 @@ func maybe_introduce_experimental_template():
 	if director.templates.is_empty() or _count_experimental() >= MAX_EXPERIMENTAL_TEMPLATES:
 		return
 
-	# Three sources of fresh doctrine: mutate one proven parent (40%),
+	# Three sources of fresh doctrine: mutate one proven parent (35%),
 	# crossbreed two proven parents (30%, needs 2+ candidates), or a fully
-	# random composition for genetic diversity (30%).
+	# random composition for genetic diversity (35% - nudged up from 30% so
+	# the Director keeps stumbling into compositions nobody bred on purpose,
+	# not just refinements of what already works).
 	var candidates = director.templates.filter(func(t): return not t.is_experimental)
 	if candidates.is_empty():
 		candidates = director.templates
 
 	var new_template: SquadTemplate = null
 	var roll = randf()
-	if roll < 0.4:
+	if roll < 0.35:
 		new_template = SquadTemplateMutator.mutate(_pick_fitness_weighted_parent(candidates))
-	elif roll < 0.7 and candidates.size() >= 2:
+	elif roll < 0.65 and candidates.size() >= 2:
 		var parent_a = _pick_fitness_weighted_parent(candidates)
 		# Distributed evolution: once imports are in the mix, bias crossover
 		# toward mixing lineages from DIFFERENT pilots rather than always

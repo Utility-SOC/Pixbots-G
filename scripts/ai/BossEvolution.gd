@@ -12,7 +12,7 @@ extends RefCounted
 const BossProfile = preload("res://scripts/ai/BossProfile.gd")
 const WarRoomNames = preload("res://scripts/ai/WarRoomNames.gd")
 
-const MAX_EXPERIMENTAL_BOSS_PROFILES = 4
+const MAX_EXPERIMENTAL_BOSS_PROFILES = 6
 const MIN_BOSS_PROFILE_TRIALS_BEFORE_CULL = 2 # boss fights are rarer events than squad wipes - don't demand as many trials
 const BOSS_PROFILE_CULL_THRESHOLD = 60.0
 const BOSS_PROFILE_GRADUATE_THRESHOLD = 110.0
@@ -112,10 +112,10 @@ func _mutate_boss_profile(parent: BossProfile) -> BossProfile:
 			var idx = randi() % mutant.ability_pool.size()
 			mutant.ability_pool[idx] = BossProfile.ALL_ABILITIES[randi() % BossProfile.ALL_ABILITIES.size()]
 	else:
-		mutant.hp_mult = clamp(mutant.hp_mult * randf_range(0.85, 1.15), 0.2, 4.0)
+		mutant.hp_mult = clamp(mutant.hp_mult * randf_range(0.8, 1.2), 0.2, 4.0)
 
 	# Rare, dramatic: rebuild on a different role's stat block entirely.
-	if randf() < 0.1:
+	if randf() < 0.15:
 		mutant.base_role = BossProfile.ALL_ROLES[randi() % BossProfile.ALL_ROLES.size()]
 
 	return mutant

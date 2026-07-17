@@ -656,6 +656,21 @@ const SHIELD_COUNTER_WHEEL = {
 	"VORTEX": "KINETIC",
 }
 
+# Playtest feedback: the counter-doctrine below used to apply
+# deterministically to EVERY weapon/shield-feeding Microcore on EVERY bot -
+# no wobble, no chance for the Director to stumble onto something that beats
+# the "obvious" counter. This is the fraction of bots that actually commit to
+# it; the rest keep whatever synergy the tile already rolled, giving genuine
+# build variety a chance to compete with the deliberate counter-pick.
+const COUNTER_BUILD_CHANCE = 0.7
+
+# A bot whose weapon got deliberately Kinetic-countered otherwise can't
+# leverage Kinetic's huge projectile-range bonus (Projectile.gd's
+# KINETIC_RANGE_BONUS, up to +5600 units at full ratio) - it can't detect the
+# player from anywhere near that far, so the range investment goes to waste.
+# See Mech.kinetic_sight_bonus's own field comment.
+const KINETIC_COUNTER_SIGHT_BONUS = 2000.0
+
 # Thin wrapper over the canonical EnergyPacket.element_id() table, keeping
 # this function's historical "RAW (or unknown) means -1 / not jammable"
 # contract for its callers.
@@ -784,6 +799,11 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 				elif element == "VAMPIRIC":
 					bot.modulate = Color(0.9, 0.6, 0.6)
 					
+	# Wobble: roll once per bot rather than committing the counter-doctrine on
+	# every qualifying tile deterministically - see COUNTER_BUILD_CHANCE.
+	var commit_weapon_counter = randf() < COUNTER_BUILD_CHANCE
+	var commit_shield_counter = randf() < COUNTER_BUILD_CHANCE
+
 	# Apply generated synergies to bot's components
 	bot.ready.connect(func():
 		var counter_fitted = false
@@ -810,11 +830,13 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 							var neighbor = comp.hex_grid.get_tile(n)
 							if neighbor.tile_type == "Weapon Mount": is_weapon_feeder = true
 							elif neighbor.tile_type == "Shield Generator": is_shield_feeder = true
-					
+
 					for d in tile.active_faces:
-						if is_weapon_feeder and counter_element != -1:
+						if is_weapon_feeder and counter_element != -1 and commit_weapon_counter:
 							tile.set_face_output(d, counter_element)
-						if is_shield_feeder and player_favored_element != -1:
+							if counter_element == EnergyPacket.SynergyType.KINETIC:
+								bot.kinetic_sight_bonus = KINETIC_COUNTER_SIGHT_BONUS
+						if is_shield_feeder and player_favored_element != -1 and commit_shield_counter:
 							tile.set_face_output(d, player_favored_element)
 		bot.is_grid_dirty = true
 		# Director tell: a bot that was specifically kitted against the

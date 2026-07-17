@@ -13,7 +13,7 @@ const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
 const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 const WarRoomNames = preload("res://scripts/ai/WarRoomNames.gd")
 
-const MAX_EXPERIMENTAL_PROFILES = 5
+const MAX_EXPERIMENTAL_PROFILES = 7
 const MIN_PROFILE_TRIALS_BEFORE_CULL = 3
 const PROFILE_CULL_THRESHOLD = 60.0
 const PROFILE_GRADUATE_THRESHOLD = 110.0
@@ -161,9 +161,9 @@ func _crossover_profiles(a: SolverProfile, b: SolverProfile) -> SolverProfile:
 
 func _mutate_profile(parent: SolverProfile) -> SolverProfile:
 	var mutant = SolverProfile.new(WarRoomNames.designation(), parent.favored_synergy)
-	mutant.pierce_priority = clamp(parent.pierce_priority + randf_range(-0.3, 0.3), 0.0, 1.0)
-	mutant.amplify_priority = clamp(parent.amplify_priority + randf_range(-0.3, 0.3), 0.1, 2.0)
-	if randf() < 0.3:
+	mutant.pierce_priority = clamp(parent.pierce_priority + randf_range(-0.35, 0.35), 0.0, 1.0)
+	mutant.amplify_priority = clamp(parent.amplify_priority + randf_range(-0.35, 0.35), 0.1, 2.0)
+	if randf() < 0.35:
 		mutant.favored_synergy = randi() % EnergyPacket.SynergyType.size()
 	mutant.is_experimental = true
 	mutant.base_spawn_weight = 60.0

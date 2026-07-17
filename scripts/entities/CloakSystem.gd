@@ -27,8 +27,8 @@ var mech: Mech
 var cloak_charge: float = 0.0
 var time_since_cloak_break: float = 999.0
 
-# Corporate Sponsorships (task #17): Umbra Systems' Cloak (C) toggle state -
-# only meaningful when mech.umbra_toggle_mode is true (see tick()'s player
+# Corporate Sponsorships (task #17): Shadow Systems' Cloak (C) toggle state -
+# only meaningful when mech.shadow_toggle_mode is true (see tick()'s player
 # input branch). Lives here rather than on Mech since it's pure per-frame
 # input-tracking state, same category as everything else this class owns.
 var toggle_state: bool = false
@@ -50,7 +50,7 @@ func tick(delta: float) -> void:
 
 	# Corporate Sponsorships: external_cloak_timer decays regardless of
 	# whether THIS mech owns a cloak generator - it's refreshed by a nearby
-	# Umbra-equipped ally's own _share_cloak_with_allies() pulse (see below),
+	# Shadow-equipped ally's own _share_cloak_with_allies() pulse (see below),
 	# and is what lets an ally with no cloak generator of their own still
 	# fade out while covered by someone else's field.
 	if mech.external_cloak_timer > 0.0:
@@ -62,7 +62,7 @@ func tick(delta: float) -> void:
 				mech.is_cloaked = false
 				mech.modulate.a = 1.0
 			return
-		# No cloak generator of our own, but an ally's Umbra field currently
+		# No cloak generator of our own, but an ally's Shadow field currently
 		# covers us - still fade out, just skip every bit of charge/recharge/
 		# input logic below (none of it applies without a real generator).
 		_apply_fade(delta)
@@ -79,8 +79,8 @@ func tick(delta: float) -> void:
 
 		var wants_cloak = false
 		if mech.is_player:
-			if mech.umbra_toggle_mode:
-				# Umbra Systems: Cloak (C) is a toggle, not hold-to-cloak.
+			if mech.shadow_toggle_mode:
+				# Shadow Systems: Cloak (C) is a toggle, not hold-to-cloak.
 				if InputMap.has_action("cloak") and Input.is_action_just_pressed("cloak"):
 					toggle_state = not toggle_state
 				wants_cloak = toggle_state
@@ -95,10 +95,10 @@ func tick(delta: float) -> void:
 
 	_apply_fade(delta)
 
-	# Umbra Systems' ally-share pulse: while actively cloaked, refresh
-	# external_cloak_timer on every ally within umbra_share_radius so they
+	# Shadow Systems' ally-share pulse: while actively cloaked, refresh
+	# external_cloak_timer on every ally within shadow_share_radius so they
 	# fade out too, even without a cloak generator of their own.
-	if mech.is_cloaked and mech.umbra_share_radius > 0.0:
+	if mech.is_cloaked and mech.shadow_share_radius > 0.0:
 		_share_cloak_with_allies()
 
 func _apply_fade(delta: float) -> void:
@@ -117,7 +117,7 @@ func _apply_fade(delta: float) -> void:
 	# spottable as a lone Ambusher.
 	_update_distortion(delta, effectively_cloaked)
 
-# Umbra Systems (task #17): "cloaks any allies you have within X radius"
+# Shadow Systems (task #17): "cloaks any allies you have within X radius"
 # (Natalia). Same ally-detection split HealBeaconSystem._emit_pulse() already
 # uses (AI: squad/"enemy" group; player: companion drones) - refreshes
 # external_cloak_timer on everyone in range rather than touching their
@@ -136,7 +136,7 @@ func _share_cloak_with_allies() -> void:
 	for ally in allies:
 		if ally == mech or not is_instance_valid(ally) or not ("external_cloak_timer" in ally):
 			continue
-		if mech.global_position.distance_to(ally.global_position) > mech.umbra_share_radius:
+		if mech.global_position.distance_to(ally.global_position) > mech.shadow_share_radius:
 			continue
 		ally.external_cloak_timer = max(ally.external_cloak_timer, ALLY_CLOAK_REFRESH)
 

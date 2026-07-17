@@ -32,7 +32,7 @@ const BRAND_IDS = ["sniper", "defensive", "cloak", "mobility", "sensors", "effic
 const BRAND_NAMES = {
 	"sniper": "Farsight Optics",
 	"defensive": "Aegis Dynamics",
-	"cloak": "Umbra Systems",
+	"cloak": "Shadow Systems",
 	"mobility": "Velocity Works",
 	"sensors": "Keeneye Sensing",
 	"efficiency": "Prime Circuits",

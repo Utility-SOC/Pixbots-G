@@ -1,6 +1,6 @@
 extends Node
 
-# Regression harness for Umbra Systems' Cloak brand mechanics (Corporate
+# Regression harness for Shadow Systems' Cloak brand mechanics (Corporate
 # Sponsorships, task #17): toggle-mode input, shoot-while-cloaked not
 # breaking cloak, and the ally-sharing pulse fading allies with no cloak
 # generator of their own.
@@ -19,7 +19,7 @@ func _ready():
 	var world = Node2D.new()
 	add_child(world)
 
-	# --- 1. Toggle mode: Umbra Cloak Generator flips umbra_toggle_mode true,
+	# --- 1. Toggle mode: Shadow Cloak Generator flips shadow_toggle_mode true,
 	# and the toggle state persists across ticks without holding the key ---
 	var mech = MechScript.new()
 	mech.is_player = true
@@ -29,9 +29,9 @@ func _ready():
 	mech.max_cloak_charge = 100.0
 	mech.cloak_recharge_rate = 200.0
 	mech.cloak_drain_rate = 1.0
-	mech.umbra_toggle_mode = true
-	mech.umbra_stealth_fire = true
-	mech.umbra_share_radius = 150.0
+	mech.shadow_toggle_mode = true
+	mech.shadow_stealth_fire = true
+	mech.shadow_share_radius = 150.0
 
 	if not InputMap.has_action("cloak"):
 		InputMap.add_action("cloak")
@@ -41,7 +41,7 @@ func _ready():
 
 	# Deliberately NOT calling mech._recalculate_grid() here - this mech has
 	# no real cloak tile equipped, so a recalc would immediately reset
-	# has_cloak_generator (and every umbra_* field) back to false/default,
+	# has_cloak_generator (and every shadow_* field) back to false/default,
 	# undoing the manual setup above. This test isolates CloakSystem.tick()'s
 	# own logic; the real equip -> recalc -> wiring path is verified
 	# separately in test 2 below.
@@ -75,7 +75,7 @@ func _ready():
 		print("1) toggle mode: a tap (not a hold) latches cloak on, activating once charge later crosses the threshold")
 
 	# --- 2. Real equip -> _recalculate_grid() -> capacity-field wiring -----
-	# The manually-set umbra_* fields above only prove CloakSystem/Mech.gd's
+	# The manually-set shadow_* fields above only prove CloakSystem/Mech.gd's
 	# CONSUMING logic is correct - this proves the actual detection in
 	# _collect_weapon_mounts_and_tile_capabilities() (tile.brand_id == "cloak")
 	# really does set them from a real equipped AllyCloakTile, which is the
@@ -99,16 +99,16 @@ func _ready():
 	if not wired_mech.has_cloak_generator:
 		push_error("FAIL: equipping an AllyCloakTile didn't set has_cloak_generator")
 		failures += 1
-	elif wired_mech.umbra_share_radius <= 0.0:
-		push_error("FAIL: equipping an AllyCloakTile didn't set umbra_share_radius")
+	elif wired_mech.shadow_share_radius <= 0.0:
+		push_error("FAIL: equipping an AllyCloakTile didn't set shadow_share_radius")
 		failures += 1
-	elif not wired_mech.umbra_stealth_fire or not wired_mech.umbra_toggle_mode:
-		push_error("FAIL: equipping an AllyCloakTile didn't set umbra_stealth_fire/umbra_toggle_mode")
+	elif not wired_mech.shadow_stealth_fire or not wired_mech.shadow_toggle_mode:
+		push_error("FAIL: equipping an AllyCloakTile didn't set shadow_stealth_fire/shadow_toggle_mode")
 		failures += 1
 	else:
-		print("2) equipping a real AllyCloakTile + _recalculate_grid() correctly wires has_cloak_generator/umbra_share_radius(%.1f)/umbra_stealth_fire/umbra_toggle_mode" % wired_mech.umbra_share_radius)
+		print("2) equipping a real AllyCloakTile + _recalculate_grid() correctly wires has_cloak_generator/shadow_share_radius(%.1f)/shadow_stealth_fire/shadow_toggle_mode" % wired_mech.shadow_share_radius)
 
-	# A PLAIN CloakTile (no brand_id) must NOT pick up any umbra_* flags -
+	# A PLAIN CloakTile (no brand_id) must NOT pick up any shadow_* flags -
 	# every ordinary Ambusher cloak generator in the game must stay unaffected.
 	var plain_mech = MechScript.new()
 	plain_mech.is_player = false
@@ -125,8 +125,8 @@ func _ready():
 	plain_mech.equip_component(plain_backpack)
 	plain_mech._recalculate_grid()
 
-	if plain_mech.umbra_share_radius > 0.0 or plain_mech.umbra_stealth_fire or plain_mech.umbra_toggle_mode:
-		push_error("FAIL: a plain (non-brand) CloakTile incorrectly picked up umbra_* flags")
+	if plain_mech.shadow_share_radius > 0.0 or plain_mech.shadow_stealth_fire or plain_mech.shadow_toggle_mode:
+		push_error("FAIL: a plain (non-brand) CloakTile incorrectly picked up shadow_* flags")
 		failures += 1
 	else:
 		print("3) a plain CloakTile (no brand_id) stays a completely ordinary cloak generator")
@@ -140,7 +140,7 @@ func _ready():
 	sharer.set_physics_process(false)
 	sharer.has_cloak_generator = true
 	sharer.is_cloaked = true
-	sharer.umbra_share_radius = 150.0
+	sharer.shadow_share_radius = 150.0
 	sharer.global_position = Vector2.ZERO
 
 	var bare_ally = MechScript.new()
@@ -209,5 +209,5 @@ func _ready():
 		print("6) a covered ally with no cloak generator visually fades too (alpha %.2f)" % bare_ally.modulate.a)
 
 	if failures == 0:
-		print("PASS: Umbra Systems (Cloak brand) toggle mode, shoot-while-cloaked, and ally-sharing all verified")
+		print("PASS: Shadow Systems (Cloak brand) toggle mode, shoot-while-cloaked, and ally-sharing all verified")
 	get_tree().quit(0 if failures == 0 else 1)

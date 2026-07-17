@@ -1,7 +1,7 @@
 class_name AllyCloakTile
 extends CloakTile
 
-# Corporate Sponsorships (task #17): Umbra Systems' signature tile. Design
+# Corporate Sponsorships (task #17): Shadow Systems' signature tile. Design
 # locked with Natalia:
 #   - Cloaks any allies within a shared radius, not just the owning mech
 #     (see CloakSystem.gd's _share_cloak_with_allies()) - a quarter of a
@@ -12,9 +12,9 @@ extends CloakTile
 #   - "Craziness": you can fire while cloaked without breaking cloak (stays
 #     hidden, keeps the ambush multiplier - see the two _break_cloak() call
 #     sites in Mech.gd's _shoot/weapon-charge ticking, both now gated on
-#     `not umbra_stealth_fire`).
-# All three of the above are wired via Mech.umbra_share_radius/
-# umbra_toggle_mode/umbra_stealth_fire, set in
+#     `not shadow_stealth_fire`).
+# All three of the above are wired via Mech.shadow_share_radius/
+# shadow_toggle_mode/shadow_stealth_fire, set in
 # Mech._collect_weapon_mounts_and_tile_capabilities() when it finds a
 # Cloak Generator tile with brand_id == "cloak" (this tile, once
 # BrandTileFactory rolls it for a boss/sponsor drop).

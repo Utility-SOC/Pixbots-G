@@ -121,7 +121,7 @@ func _ready():
 	far_ally.shield_hp = 20.0
 	far_ally.global_position = Vector2(5000, 0) # well outside the radius
 
-	await get_tree().process_frame # EntityCache group snapshot staleness - see UmbraCloakBrandCheck.gd's identical note
+	await get_tree().process_frame # EntityCache group snapshot staleness - see ShadowCloakBrandCheck.gd's identical note
 
 	sharer._update_shield_pulse(DT)
 

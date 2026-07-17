@@ -3,7 +3,7 @@ extends HexTile
 
 # Corporate Sponsorships (task #17): Prime Circuits' signature tile - one hex
 # that's simultaneously an Amplifier, an Elemental Infuser, AND a Resonator
-# (Natalia: "the efficiency would be all three of those tiles in one").
+# ("the efficiency would be all three of those tiles in one" - locked design).
 # Applies the same three formulas those tiles already use (flat amplify,
 # RAW -> chosen-element conversion, baseline resonance amplify + remnant
 # memory) SEQUENTIALLY to the same packet, reading from this tile's own

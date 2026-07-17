@@ -3,9 +3,9 @@ extends HexTile
 
 # Corporate Sponsorships (task #17): Keeneye Sensing's shared base for its
 # three signature tiles (CounterJammerTile/CounterCloakTile/CounterBothTile).
-# Design locked with Natalia: "offers a counter jammer/counter cloak set of
+# Design locked: "offers a counter jammer/counter cloak set of
 # tiles... they bypass jammers and cloaks," plus a baseline passive sight
-# bonus (my recommendation, accepted) so the brand has standing value even
+# bonus (a recommendation, accepted) so the brand has standing value even
 # in fights with no jammer/cloak-equipped enemies at all.
 #
 # A purely PASSIVE presence effect, not an energy-processing one - mere

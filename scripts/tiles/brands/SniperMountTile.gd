@@ -2,7 +2,7 @@ class_name SniperMountTile
 extends WeaponMountTile
 
 # Corporate Sponsorships (task #17): Farsight Optics' signature tile - every
-# shot fired through it gets 6x range (Natalia: locked at 6x, deliberately
+# shot fired through it gets 6x range (locked at 6x, deliberately
 # stacks multiplicatively with kinetic's own range bonus rather than
 # replacing it - see EnergyPacket.range_mult/Projectile._calculate_stats()
 # for the actual multiplication point. "I do not care if that is imbalanced

@@ -118,7 +118,7 @@ func _apply_fade(delta: float) -> void:
 	_update_distortion(delta, effectively_cloaked)
 
 # Shadow Systems (task #17): "cloaks any allies you have within X radius"
-# (Natalia). Same ally-detection split HealBeaconSystem._emit_pulse() already
+# (locked design). Same ally-detection split HealBeaconSystem._emit_pulse() already
 # uses (AI: squad/"enemy" group; player: companion drones) - refreshes
 # external_cloak_timer on everyone in range rather than touching their
 # is_cloaked directly, since a target without its own CloakSystem tick

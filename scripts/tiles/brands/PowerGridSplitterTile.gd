@@ -2,8 +2,8 @@ class_name PowerGridSplitterTile
 extends SplitterTile
 
 # Corporate Sponsorships (task #17): Gridwork Distribution's signature tile -
-# every one of their Splitters doubles as a flat 0.5x amplifier (Natalia:
-# "all of their splitters are .5 amplifier"). Applied once to the incoming
+# every one of their Splitters doubles as a flat 0.5x amplifier
+# ("all of their splitters are .5 amplifier" - locked design). Applied once to the incoming
 # packet BEFORE delegating to SplitterTile.process_energy(), so every output
 # branch (equal-split or Mythic ratio-weighted) inherits the boosted
 # magnitude/synergies, same as if a real Amplifier tile had fed this one.

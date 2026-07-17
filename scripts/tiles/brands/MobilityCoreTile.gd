@@ -3,7 +3,7 @@ extends HexTile
 
 # Corporate Sponsorships (task #17): Velocity Works' signature tile - a
 # Jumpjet that's also a Maneuvering Thruster, with its own self-contained
-# reactor (Natalia: "has its own self contained reactor"). Every other
+# reactor ("has its own self contained reactor" - locked design). Every other
 # ability tile in the game is an energy SINK that only does anything once a
 # packet actually routes to it (JumpjetTile/ActuatorTile both early-return
 # on packet.magnitude <= 0) - a self-contained reactor means this one grants

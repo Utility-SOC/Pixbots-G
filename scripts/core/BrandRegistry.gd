@@ -3,7 +3,7 @@ extends RefCounted
 
 # Corporate Sponsorships (Status.md queue item, task #17). Seven brands, each
 # with its own signature tile(s) - see scripts/tiles/brands/ for the actual
-# tile classes. Design locked with Natalia 2026-07-16:
+# tile classes. Design locked 2026-07-16:
 #   - Brand tiles are plain Mythic rarity (no separate tier) - just rendered
 #     BRAND_COLOR (dark blue) with the company's logo instead of the normal
 #     Mythic tint, so they read as a distinct "corporate" tier visually

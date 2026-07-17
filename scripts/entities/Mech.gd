@@ -2248,7 +2248,7 @@ func _apply_shield_mitigation(amount: float, element: String) -> float:
 	# Corporate Sponsorships: Aegis Dynamics' elemental Aegis - the SAME hard
 	# per-hit cap as the Mythic Shield Generator's own Aegis mode above, but
 	# gated on brand equip rather than a Mythic mode toggle, and scoped to
-	# every "elemental" synergy specifically (Natalia: "anything not
+	# every "elemental" synergy specifically (locked design: "anything not
 	# kinetic, pierce, raw, or explosion" - i.e. FIRE/ICE/LIGHTNING/VORTEX/
 	# POISON/VAMPIRIC). Independent of shield_mythic_mode - a mech with BOTH
 	# a Mythic Aegis Shield Generator AND this brand tile just gets whichever
@@ -2274,8 +2274,8 @@ func _apply_shield_mitigation(amount: float, element: String) -> float:
 const AEGIS_HIT_CAP_RATIO = 0.15 # Aegis: no single hit can exceed 15% of max shield HP
 const DEFLECTOR_BURST_RADIUS = 220.0
 # Corporate Sponsorships: Aegis Dynamics' elemental Aegis - "elemental" means
-# every SynergyType except RAW/KINETIC/PIERCE/EXPLOSION (Natalia's own
-# phrasing), matching EnergyPacket.SynergyType's real enum order
+# every SynergyType except RAW/KINETIC/PIERCE/EXPLOSION (the locked design's
+# own phrasing), matching EnergyPacket.SynergyType's real enum order
 # (RAW, FIRE, ICE, LIGHTNING, VORTEX, POISON, EXPLOSION, KINETIC, PIERCE, VAMPIRIC).
 const ELEMENTAL_SYNERGY_NAMES = ["FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON", "VAMPIRIC"]
 

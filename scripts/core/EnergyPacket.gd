@@ -69,8 +69,8 @@ var acc_damage_mult: float = 1.0
 # (currently only Farsight Optics' Sniper Mount, *= 6.0) - final multiplier
 # applied to the whole computed max_range in Projectile._calculate_stats(),
 # AFTER the kinetic-synergy range bonus, so it stacks multiplicatively with
-# kinetic's own range identity rather than replacing it (Natalia: "I want
-# the x5 and x6 to be able to stack").
+# kinetic's own range identity rather than replacing it (locked design:
+# "I want the x5 and x6 to be able to stack").
 var range_mult: float = 1.0
 # Accumulator auto-dump (tile config): highest threshold stamped by any
 # Accumulator this packet routed through. 0 = manual key fire only; > 0 =

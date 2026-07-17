@@ -2,7 +2,7 @@ class_name AllyCloakTile
 extends CloakTile
 
 # Corporate Sponsorships (task #17): Shadow Systems' signature tile. Design
-# locked with Natalia:
+# locked:
 #   - Cloaks any allies within a shared radius, not just the owning mech
 #     (see CloakSystem.gd's _share_cloak_with_allies()) - a quarter of a
 #     Jammer Module's own pulse-radius formula ((220+rarity*60)*1.7*0.25),

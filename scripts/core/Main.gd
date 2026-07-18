@@ -1230,13 +1230,15 @@ func _on_enemy_died():
 var last_garage_wave: int = 1
 
 # Extra lives (playtest request: "so it isn't game over as soon as I get
-# killed once"). Refilled on every _close_garage() deploy - same checkpoint
-# last_garage_wave already uses, so a death always costs you back to your
-# last garage visit at worst, not further. _on_player_died() consumes one
-# and respawns in place (full heal, wave continues) instead of running the
-# full death sequence until this hits zero.
-const MAX_PLAYER_LIVES = 3
-var player_lives_remaining: int = MAX_PLAYER_LIVES
+# killed once", then "3 for casual, 2 for regular, 1 for hard, none for
+# why are you doing this to yourself" - see SaveManager.DIFFICULTY_LIVES).
+# Refilled on every _close_garage() deploy - same checkpoint last_garage_
+# wave already uses, so a death always costs you back to your last garage
+# visit at worst, not further. _on_player_died() consumes one and respawns
+# in place (full heal, wave continues) instead of running the full death
+# sequence until this hits zero - on the top difficulty tier (0 lives),
+# that's immediately, matching the original single-life behavior exactly.
+var player_lives_remaining: int = SaveManager.DIFFICULTY_LIVES[SaveManager.difficulty]
 
 func _on_player_died():
 	# Extra life: respawn in place instead of the full death sequence, as
@@ -1460,7 +1462,7 @@ func _close_garage():
 	get_tree().paused = false
 
 	garage_timer = 90.0
-	player_lives_remaining = MAX_PLAYER_LIVES
+	player_lives_remaining = SaveManager.DIFFICULTY_LIVES[SaveManager.difficulty]
 	_update_hud()
 
 	last_garage_wave = current_wave

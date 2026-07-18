@@ -45,6 +45,10 @@ const DIFFICULTY_NAMES = ["Casual", "Normal", "Hard", "Why would you do this to 
 const DIFFICULTY_HP_GROWTH = [1.08, 1.14, 1.20, 1.25]
 # Wave enemy-count multiplier
 const DIFFICULTY_COUNT_MULT = [0.7, 1.0, 1.3, 1.6]
+# Extra lives per difficulty (playtest request) - Casual gets the most
+# forgiveness, "Why would you do this to yourself?" gets none at all (a
+# death there falls straight through to the original single-life behavior).
+const DIFFICULTY_LIVES = [3, 2, 1, 0]
 # Where per-wave HP growth stops compounding and goes linear - see
 # wave_hp_multiplier below.
 const WAVE_HP_KNEE = 25

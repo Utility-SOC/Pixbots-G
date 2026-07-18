@@ -101,11 +101,25 @@ func run_silent_snapshot():
 		p.is_active = true
 
 	_initial_packets_snapshot = _clone_packets(initial_packets)
-	# _discover_total_steps() replays to completion, which is exactly what a
-	# silent snapshot wants (final resting pending_packets, not mid-flight) -
-	# it also leaves grid_renderer.active_packets drained, matching "nothing
-	# is animating" rather than the live view's populated step-0 state.
+	# _discover_total_steps() only drains active_packets to empty when the
+	# sim naturally finishes within DISCOVERY_STEP_CAP (200) steps - fine
+	# for its original job (an APPROXIMATE scrubber range), wrong for "leave
+	# it fully at rest." A large/complex build (lots of Amplifiers/routing,
+	# or a genuine closed loop that never naturally terminates - see
+	# Mech._simulate_grid's own 100-step safety cap for the same class of
+	# problem) can still have real packets mid-flight when the cap kicks
+	# in, which _update_stats/the grid renderer then draw as "still
+	# actively simulating" even though nothing was ever started - playtest
+	# report: "the instant I enter the garage, the simulation is already
+	# running" / "a random packet shows up" when switching components.
+	# Silent means silent: force the visible state to empty regardless of
+	# how the replay actually ended. pending_packets (what update_stats()
+	# and the tiles themselves actually care about) already landed on the
+	# tile objects during the replay above - clearing the moving-dot
+	# markers here doesn't touch that.
 	total_steps = _discover_total_steps()
+	garage.grid_renderer.active_packets = []
+	garage.grid_renderer.simulation_step = 0
 	update_stats()
 
 func _compute_initial_packets() -> Array[EnergyPacket]:

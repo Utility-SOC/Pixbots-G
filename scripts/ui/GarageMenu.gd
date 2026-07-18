@@ -315,6 +315,23 @@ func _on_tab_changed(index: int):
 	if sim_inspect_toggle:
 		sim_inspect_toggle.visible = false
 
+	# Force-stop a still-animating live Simulate run before switching grids.
+	# is_simulating only ever clears itself when the sim naturally drains to
+	# completion or the player manually presses "Stop Simulation" - leaving
+	# either undone (switching tabs mid-animation, the common case) left it
+	# stuck true forever. Two real consequences: the orphaned step() await-
+	# loop kept firing every 0.5s against whatever grid_renderer.hex_grid
+	# THEN pointed at (i.e. corrupting the NEXT component you looked at, not
+	# the one the sim was actually for), and run_silent_snapshot()'s own
+	# `if garage.is_simulating: return` guard permanently blocked the silent
+	# recompute below from ever running again for the rest of the session -
+	# playtest report: "I still need to run the simulation before the energy
+	# coming into the component will model accurately," despite the silent-
+	# snapshot feature being wired in correctly.
+	if is_simulating:
+		is_simulating = false
+		if sim_button: sim_button.text = "Simulate Energy Flow"
+
 	if meta is Dictionary and meta.get("slot") == HexTile.BodySlot.DRONE:
 		var drone_bay = meta.get("bay")
 		if not drone_bay or not is_instance_valid(drone_bay):

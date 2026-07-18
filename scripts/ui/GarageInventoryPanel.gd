@@ -81,6 +81,15 @@ func refresh_component_list():
 			empty_lbl.text = "(%d entries couldn't be displayed - corrupted data, see log)" % dropped
 		empty_lbl.modulate = Color(0.6, 0.6, 0.6)
 		empty_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		# component_inventory_list is an HFlowContainer, which sizes a child
+		# from its own minimum size rather than granting it any width - a
+		# word-wrapped Label's minimum width can shrink to a single
+		# character, so without an explicit floor the container collapsed
+		# this label down to one letter per line (playtest report: spare
+		# parts empty-state text rendering vertically, one character at a
+		# time). Same fix shape as GarageTileConfigPopup.gd's wrapped-text
+		# rows.
+		empty_lbl.custom_minimum_size = Vector2(280, 0)
 		garage.component_inventory_list.add_child(empty_lbl)
 		return
 

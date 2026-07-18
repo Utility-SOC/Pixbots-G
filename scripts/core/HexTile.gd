@@ -226,7 +226,7 @@ func _get_power_multiplier() -> float:
 	elif rarity == Rarity.MYTHIC: mult = 5.0
 	return mult * (1.0 + (level - 1) * 0.1)
 
-# Weapon Mount Capacity (Natalia: "especially at higher rarities would have
+# Weapon Mount Capacity (the user: "especially at higher rarities would have
 # more capacity before firing, so instead of getting 100 projectiles in a
 # split second from a heavily fuelled shotgun, it could just have 10% as
 # many projectiles, but much bigger"). Shotgun/Radial Burst used to always

@@ -5,7 +5,7 @@ var current_speed_bonus: float = 0.0
 @export var base_speed_multiplier: float = TileStatsRegistry.get_stat("ActuatorTile", "base_speed_multiplier", 0.5)
 
 # MYTHIC "Schools" - three distinct feels for the melee/ramming pillar
-# (see Mech._process_ramming and update_status_effects), per Natalia:
+# (see Mech._process_ramming and update_status_effects), per the user:
 #   Velocity - fast, low damage: more move speed, weaker ram hits.
 #   Ember    - slow, fire effect: less move speed, but rams hit harder and
 #              set the target burning.

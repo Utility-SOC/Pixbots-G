@@ -12,7 +12,7 @@ var initial_members: int = 0
 var time_alive: float = 0.0
 var total_damage_dealt: float = 0.0
 
-# --- Additional fitness inputs (Natalia: "recommend additional axes of
+# --- Additional fitness inputs (the user: "recommend additional axes of
 # fitness... tracked/used") ------------------------------------------------
 # Damage this squad's members actually took, mirroring total_damage_dealt -
 # lets fitness reward FAVORABLE TRADES (dealt >> taken) instead of only ever
@@ -50,7 +50,7 @@ var flee_penalty: float = 0.0
 const FLEE_GRACE_PERIOD: float = 5.0 # seconds of silence (post-engagement) tolerated before penalizing
 const FLEE_PENALTY_RATE: float = 1.5 # fitness points/sec subtracted beyond the grace period
 
-# --- Shared search memory (Natalia: "everyone in the squad knows where
+# --- Shared search memory (the user: "everyone in the squad knows where
 # everyone in the squad has looked") --------------------------------------
 # Coarse grid of world-space cells the squad has collectively covered while
 # searching (see Mech.gd's _execute_search/_execute_scout_search) - members
@@ -191,7 +191,7 @@ func _calculate_fitness() -> float:
 	var trade_ratio = damage_score / max(1.0, total_damage_taken)
 	var trade_score = clamp((trade_ratio - 1.0) * 15.0, -40.0, 60.0)
 
-	# 7. Reflection Punishment (Natalia: "AI will need to track if I am
+	# 7. Reflection Punishment (the user: "AI will need to track if I am
 	# doing something like using the mythic magnet - that should prompt
 	# more speed to breach the magnet projectiles, and more shield than
 	# weapon to survive shooting themselves"). Same magnitude scale as

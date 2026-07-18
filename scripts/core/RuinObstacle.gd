@@ -26,7 +26,7 @@ var structure_type: String = "ruin"
 func _ready():
 	collision_layer = 32 # terrain-obstacle layer: blocks movement/shots, but jets fly over (see Mech.OBSTACLE_LAYER)
 	collision_mask = 0
-	# 150/tile (was 60) - Natalia wanted ruins to read as genuinely tough
+	# 150/tile (was 60) - the user wanted ruins to read as genuinely tough
 	# terrain, not something that melts in a couple of hits like a Tree
 	# (30 HP flat). A small 2x2 kit now sits at 600 HP, a big 5x3 at 2250.
 	max_hp = 150.0 * size_tiles.x * size_tiles.y

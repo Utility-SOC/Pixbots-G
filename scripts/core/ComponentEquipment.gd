@@ -680,7 +680,7 @@ static func create_starter_backpack(role: String = "", p_rarity: int = HexTile.R
 # harmless here (just a modest bonus: a Common Drone Bay's drone gets an
 # 18-hex grid, an Uncommon's gets 28, etc.) and not worth special-casing
 # away just to shave a few hexes. Rarity still directly drives the grid
-# size either way - exactly Natalia's "rarity of this tile affects the size
+# size either way - exactly the user's "rarity of this tile affects the size
 # of the grid the drone has."
 static func create_starter_drone(p_rarity: int = HexTile.Rarity.COMMON) -> ComponentEquipment:
 	var script = load("res://scripts/core/ComponentEquipment.gd")
@@ -690,7 +690,7 @@ static func create_starter_drone(p_rarity: int = HexTile.Rarity.COMMON) -> Compo
 
 	drone.fixed_sinks.append(HexCoord.new(0, 0)) # Core Reactor goes here on equip
 
-	# Pre-installed Jumpjet, matching THIS tile's rarity (Natalia: "comes
+	# Pre-installed Jumpjet, matching THIS tile's rarity (the user: "comes
 	# with installed jumpjets matching the rarity of the hex in the
 	# backpack") - scales the drone's own Mech.jumpjet_rarity/
 	# current_move_speed up with rarity so it can actually keep pace with a
@@ -934,7 +934,7 @@ static func create_jammer_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 	return pack
 
 # "Utility Duo" backpack - two utility tiles instead of one, rolled as one
-# of three combos per Natalia's design: two Jammers, a Jammer + Cloak, or
+# of three combos per the user's design: two Jammers, a Jammer + Cloak, or
 # two Heal Beacons ("med packs"). Reactive: when the director has detected
 # the player over-relying on one synergy for kills (forced_synergy >= 0,
 # see SquadDirector.counter_jam_synergy via Mech._get_reactive_jam_synergy),
@@ -1085,7 +1085,7 @@ static func create_command_backpack(p_rarity: int = HexTile.Rarity.RARE):
 		tile.body_slot = HexTile.BodySlot.BACKPACK
 		pack.hex_grid.add_tile(m[1], tile)
 
-	# Commanders come with a companion Drone by default (Natalia: "commanders
+	# Commanders come with a companion Drone by default (the user: "commanders
 	# should come with one by default at the appropriate rarity") - always
 	# installed, not rarity-gated like the second Heal Beacon above, since
 	# this is the one guaranteed case (see Mech._create_role_backpack's

@@ -130,7 +130,7 @@ func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss
 # ("resume where I left off" should update your own templates in place).
 # This one is "someone else's doctrine showed up": on a name collision the
 # incoming item is renamed with its origin_pilot attribution and registered
-# as a SEPARATE new entry instead of clobbering local progress (Natalia:
+# as a SEPARATE new entry instead of clobbering local progress (the user:
 # "if they have the same name can they be appended with the name of the
 # user you originally got it from (Silently, it should be visible in the
 # war room, but not advertised in menus unduly)"). Imports also always land
@@ -379,7 +379,7 @@ func _assemble_squad(selected_template: SquadTemplate) -> Squad:
 				squad.add_member(bot)
 
 	# Every squad gets at least one scout, regardless of what the template
-	# actually called for - per Natalia: scouts run the frontier-exploration
+	# actually called for - per the user: scouts run the frontier-exploration
 	# search pattern (see Mech.gd's _execute_scout_search) that pushes the
 	# squad's shared explored-cell memory outward, so a squad with zero
 	# scouts would have nobody actually mapping new ground while everyone
@@ -713,7 +713,7 @@ func _all_roles_filled(roles: Dictionary) -> bool:
 
 # Roles that stay drown-vulnerable on mostly-water maps even though every
 # other role gets is_amphibious there (see _spawn_bot_for_role below) -
-# Natalia: keep water a real hazard for the standard rank-and-file (sniper's
+# the user: keep water a real hazard for the standard rank-and-file (sniper's
 # stationary/backline anyway; brawler is the plain melee rusher, i.e. the
 # "grunt") rather than blanket-immunizing the whole roster.
 const WATER_SAFETY_EXCLUDED_ROLES = ["sniper", "brawler"]
@@ -876,7 +876,7 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	# Mythic seeding, independent of the difficulty-gated gear-parity above
 	# (which on its own never reaches past RARE, or only mirrors the
 	# player's own tier - neither ever introduces a FIRST Mythic on its
-	# own). Per Natalia: as waves climb, the chance any given enemy is
+	# own). Per the user: as waves climb, the chance any given enemy is
 	# built entirely at Mythic tier should steadily increase, tuned so a
 	# player realistically sees their first Mythic-tier enemy (and, via
 	# LootManager's matching wave-scaled drop chance, an actual Mythic

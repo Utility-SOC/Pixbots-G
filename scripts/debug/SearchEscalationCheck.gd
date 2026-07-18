@@ -1,6 +1,6 @@
 extends Node
 
-# Regression harness for the search-AI fixes (Natalia: "enemy search
+# Regression harness for the search-AI fixes (the user: "enemy search
 # patterns are slow/inefficient"):
 #   A) Exhausting the expanding square ESCALATES to a frontier hop (new
 #      datum 500-900px away) instead of restarting on the same stale datum

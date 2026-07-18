@@ -19,7 +19,7 @@ extends Node2D
 # (this node's own global_position). The anchor eases toward the owner's
 # real position rather than snapping - sit still and the blob centers
 # tightly on you; move fast and it trails behind, which is the whole
-# "jammers effectively limit your speed" feel Natalia asked for. Each
+# "jammers effectively limit your speed" feel the user asked for. Each
 # point's radius wobbles via periodic reroll-and-ease noise (organic,
 # non-circular boundary) AND gets biased by recent movement direction -
 # trailing-side points stretch and linger (slow ease back), leading-edge
@@ -43,7 +43,7 @@ const DRAG_SHRINK_EASE := 0.8
 
 const VEL_SMOOTH_RATE := 6.0
 
-# "Smear toward fresh jammed stuff" (Natalia): a secondary stretch bias
+# "Smear toward fresh jammed stuff" (the user): a secondary stretch bias
 # toward wherever this field most recently caught someone, layered on top
 # of the movement-drag bias below via the exact same combined-target/ease-
 # selection logic - one more additive term on math that already runs every

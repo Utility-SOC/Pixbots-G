@@ -405,7 +405,7 @@ func _sync_scrubber_ui(step_value: int) -> void:
 # Compact display for the stats panel's numbers. Stays readable at any
 # magnitude: plain integers below 1000, a K/M/B/T suffix ladder up through
 # the trillions (covers every sane in-game build), and true scientific
-# notation beyond that - Natalia's own suggestion, and the only thing that
+# notation beyond that - the user's own suggestion, and the only thing that
 # stays legible once a stacked Amplifier/Resonator build (or, previously, the
 # EnergyPacket synergies/magnitude decoupling bug - see EnergyPacket.gd's
 # _sync_synergies_to_magnitude) pushes a number into the 1e15+ range. Built

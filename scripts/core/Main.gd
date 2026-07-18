@@ -12,7 +12,7 @@ const BrandRegistry = preload("res://scripts/core/BrandRegistry.gd")
 # player per Drone Bay tile installed anywhere in their Backpack on deploy -
 # a build can carry more than one bay, each flying an independent drone with
 # its own loadout. Each is destroyed and respawned after its own cooldown if
-# it dies mid-run - "destructible, respawns" per Natalia's design choice.
+# it dies mid-run - "destructible, respawns" per the user's design choice.
 # Both dictionaries are keyed by the owning DroneBayTile's instance ID (the
 # tile itself, not the Drone node, since that's what survives a drone's
 # death/respawn cycle and what GarageMenu edits).
@@ -166,7 +166,7 @@ func _ready():
 		war_room_key.physical_keycode = KEY_TAB
 		InputMap.action_add_event("toggle_war_room", war_room_key)
 
-	# Per Natalia: every game start (new game or loaded save) should land in
+	# Per the user: every game start (new game or loaded save) should land in
 	# the Garage first, not straight into combat - the player deploys
 	# explicitly via "Deploy to Battlefield ->". _close_garage() already
 	# handles kicking off the first wave's countdown on that initial
@@ -1055,7 +1055,7 @@ func _scatter_random_tiles(origin: Vector2, count: int, rarity: int):
 # --- Rival Challenges (FEATURE_ROADMAP.md Story section) --------------------
 # "Sometimes another player challenges you - a specialized match where the
 # enemy mech is built to counter your play to date, directly or within
-# +/-15% of directly." Locked cadence/tolerance per Natalia: every 10 waves,
+# +/-15% of directly." Locked cadence/tolerance per the user: every 10 waves,
 # +/-15% of the player's own estimated power (SquadDirector._estimate_mech_power,
 # the same yardstick the near-peer difficulty scaling already uses).
 
@@ -1267,7 +1267,7 @@ func _on_player_died():
 	player.set_physics_process(false)
 
 	# Snapshot the death report now, while player.recent_damage_log is still
-	# populated - see Mech.gd's field comment. Per Natalia's request:
+	# populated - see Mech.gd's field comment. Per the user's request:
 	# "what squad got me, what elements they used".
 	_show_death_report(player.recent_damage_log)
 
@@ -1338,7 +1338,7 @@ func _on_player_died():
 	add_child(timer)
 	timer.start()
 
-# "How did I die" breakdown (Natalia's playtest request) - aggregates
+# "How did I die" breakdown (the user's playtest request) - aggregates
 # Mech.recent_damage_log (last DEATH_LOG_LOOKBACK_SEC of damage taken) by
 # attacker label and by element, then shows a small non-blocking panel over
 # the death explosion. Doesn't block anything - it just auto-frees after a
@@ -1481,7 +1481,7 @@ func _close_garage():
 		# true, which meant the (non-trivial: iterates every tile across
 		# every component, then runs the full packet simulation) recalc
 		# happened synchronously in the middle of the player's first shot
-		# after every deploy, not just the first shot of a session. Natalia:
+		# after every deploy, not just the first shot of a session. the user:
 		# "the first time I shoot after a few seconds of not shooting it
 		# freezes the game... a brief freeze, .25-.5 seconds." Doing it here
 		# instead moves that cost to the deploy transition (already a scene

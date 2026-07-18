@@ -455,7 +455,7 @@ func build():
 
 	# Lives in the sidebar, hidden until Components mode reparents
 	# grid_renderer into it (see _set_inventory_view). Half the height it used
-	# to be (Natalia: shrink the hex-grid preview and use the freed space for
+	# to be (the user: shrink the hex-grid preview and use the freed space for
 	# the actual inventory list below it) - SIZE_FILL (not expand) so it
 	# stays exactly this tall and doesn't compete with component_spare_panel
 	# for the sidebar's remaining vertical space.
@@ -467,7 +467,7 @@ func build():
 
 	# --- Components: spare-parts inventory (moves to the SIDEBAR, below the
 	# shrunk hex preview) --------------------------------------------------
-	# This is the actual draggable tray Natalia bought Black Market parts
+	# This is the actual draggable tray the user bought Black Market parts
 	# into - previously stacked directly under the (much taller) diagram in
 	# this same sidebar column, where it regularly got squeezed to nothing or
 	# scrolled below the fold. Splitting it out into its own guaranteed slot,

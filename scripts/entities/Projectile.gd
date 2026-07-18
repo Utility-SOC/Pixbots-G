@@ -6,7 +6,7 @@ const Trail2D = preload("res://scripts/visuals/Trail2D.gd")
 const FireTrail2D = preload("res://scripts/visuals/FireTrail2D.gd")
 const PulseRingVisual = preload("res://scripts/attacks/PulseRingVisual.gd")
 
-# --- POISON MINE (Natalia: "poison's projectile behavior needs to change so
+# --- POISON MINE (the user: "poison's projectile behavior needs to change so
 # that when combined with other things it makes them into a mine/stationary
 # projectile") ------------------------------------------------------------
 # A packet with enough POISON in it stops behaving like a normal shot: it
@@ -26,7 +26,7 @@ var _mine_detonated: bool = false
 var base_speed: float = 500.0
 var final_speed: float = 500.0
 
-# --- Range (Natalia: "kinetic should increase range... everything should
+# --- Range (the user: "kinetic should increase range... everything should
 # have basic good range from the outset") -------------------------------
 # BASE_RANGE is a generous floor so no build feels short-ranged by default
 # (FIRE's much shorter time-based lifetime below still gives it its own
@@ -202,7 +202,7 @@ var _cached_homing_target: Node2D = null
 var _vortex_query_timer: float = 0.0
 
 func _ready():
-	# Desync throttled queries (Natalia: "freezing is still happening
+	# Desync throttled queries (the user: "freezing is still happening
 	# regularly") - every projectile defaulted these timers to 0.0, so every
 	# projectile fired in the same volley (a shotgun/radial Mythic pattern,
 	# or just several weapons releasing the same tick) ran its first homing/
@@ -277,7 +277,7 @@ func _ready():
 	# the shot left the camera's view, which meant nothing could ever be
 	# shot at past the edge of the screen ("I need to be able to shoot far
 	# enough off screen... right now it just seems like my projectiles die
-	# as soon as they go off screen" - Natalia). Enemies can absolutely be
+	# as soon as they go off screen" - the user). Enemies can absolutely be
 	# positioned beyond the current view, so that's a real problem, not
 	# just a wasted perf optimization. Now it's a grace window instead of
 	# an instant kill: a shot that's still off-screen after
@@ -802,7 +802,7 @@ func _prepare_flight_request(delta: float) -> Dictionary:
 	_flight_r_vtx = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
 	_flight_r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 
-	# KINETIC "The Straightener" (Natalia: "kinetic should also straighten
+	# KINETIC "The Straightener" (the user: "kinetic should also straighten
 	# paths") - dampens how hard OTHER elements bend this shot's actual
 	# flight path off a straight line, on top of the passive aim-correction
 	# steering Kinetic already gets below. Only applies to distortions that

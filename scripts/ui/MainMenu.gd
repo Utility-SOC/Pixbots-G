@@ -78,7 +78,7 @@ func _setup_ui():
 	# Continue Game
 	var saves = SaveManager.get_save_files()
 	if saves.size() > 0:
-		# Resume from whichever save made it FURTHEST (Natalia: "pick up
+		# Resume from whichever save made it FURTHEST (the user: "pick up
 		# from the highest level I've made it to"), not just whichever
 		# happened to be named "autosave" or sorted last in the directory
 		# listing - neither of those reflects actual progress.
@@ -114,7 +114,7 @@ func _setup_ui():
 	var btn_boss_rush = _create_button("Boss Rush", _on_play_boss_rush)
 	vbox.add_child(btn_boss_rush)
 
-	# Tournament arc - scaffold only (Natalia, design pass decision #12).
+	# Tournament arc - scaffold only (the user, design pass decision #12).
 	# Nothing actually sets tournament_arc_unlocked true yet - the real
 	# unlock condition is the Level 100 milestone, and that milestone/Round
 	# system doesn't exist yet either. This button just reads the flag so

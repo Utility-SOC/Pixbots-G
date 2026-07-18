@@ -3,7 +3,7 @@ extends Node
 const SAVE_DIR = "user://saves/"
 var save_to_load: String = ""
 
-# Per-save tutorial-seen bit (Natalia asked for this instead of the tutorial
+# Per-save tutorial-seen bit (the user asked for this instead of the tutorial
 # only tracking completion via the old global user://tutorial_completed.flag
 # file, which didn't distinguish between save slots). Runtime state here,
 # same pattern as save_to_load: written into every save_game() payload,
@@ -13,7 +13,7 @@ var save_to_load: String = ""
 # it replay.
 var tutorial_completed: bool = false
 
-# Tournament arc scaffold (Natalia, decision #12 on the Narrative/Rival
+# Tournament arc scaffold (the user, decision #12 on the Narrative/Rival
 # design pass): placeholder plumbing only - nothing sets this true yet, since
 # it's meant to unlock on the Level 100 milestone and the milestone/Round
 # system doesn't exist yet either. Same pattern as tutorial_completed above:
@@ -535,7 +535,7 @@ func get_save_files() -> Array[String]:
 
 # Lightweight peek at a save's max_wave_reached without doing the full
 # component/tile-grid deserialization load_game() does - lets MainMenu
-# compare progress across every save file cheaply (Natalia: "Continue
+# compare progress across every save file cheaply (the user: "Continue
 # should pick up from the highest level I've made it to", not just
 # whichever save happens to be named "autosave" or sorts last).
 func peek_max_wave(save_name: String) -> int:

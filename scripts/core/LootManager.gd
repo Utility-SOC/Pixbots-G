@@ -21,7 +21,7 @@ var DROP_RATES = {
 	4: 0.005, # MYTHIC - baseline; see _get_mythic_drop_rate() for the wave-scaled version actually used
 }
 
-# Per Natalia: Mythic drop odds should steadily climb as waves progress
+# Per the user: Mythic drop odds should steadily climb as waves progress
 # (paired with SquadDirector's matching wave-scaled Mythic-enemy seeding),
 # tuned so a player realistically sees their first Mythic drop by around
 # wave/level 30 - not guaranteed, just increasingly likely as more Mythic-

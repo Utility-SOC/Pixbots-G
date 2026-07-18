@@ -1,6 +1,6 @@
 extends Node
 
-# Repro/regression harness for Natalia's play report: "companion drone sits
+# Repro/regression harness for the user's play report: "companion drone sits
 # idle - doesn't chase or shoot." Spawns a real player Mech wearing a Drone
 # Bay backpack, deploys its drone via DroneBayTile.spawn_drones_for (the
 # exact path Main._spawn_drones_if_needed uses), plants an enemy Mech well

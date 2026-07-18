@@ -59,7 +59,7 @@ func refresh_component_list():
 	# perfectly good entries alongside the bad one, including a purchase that
 	# just landed) was fine. That failure mode is indistinguishable from "my
 	# purchase just didn't show up" from the player's side, which is exactly
-	# what Natalia kept reporting even after two rounds of pure layout fixes.
+	# what the user kept reporting even after two rounds of pure layout fixes.
 	# Filtering up front means one bad apple can never hide everyone else's
 	# entries, and the warning below at least gets it into the log instead of
 	# vanishing silently.

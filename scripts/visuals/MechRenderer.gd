@@ -585,7 +585,7 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 	_draw_conduit_glows(glow_comp, part, rng, scale_mult)
 	part.renderer.finish()
 
-# "Sloppy is fine" per Natalia - a small SUBSET of a component's Directional
+# "Sloppy is fine" per the user - a small SUBSET of a component's Directional
 # Conduit tiles glow the color of whatever synergy actually dominated the
 # packets that last routed through THAT SPECIFIC conduit (see
 # DirectionalConduitTile.last_dominant_synergy's comment) - a build that

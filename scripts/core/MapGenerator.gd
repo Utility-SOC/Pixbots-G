@@ -466,7 +466,7 @@ func _get_biome(elevation: float, moisture: float) -> BiomeType:
 
 # Multi-tile ruined-building footprints. Originally Tabletop-only; now
 # usable on any map_type (see `force_ruins`, set by the debug menu) since
-# Natalia wanted ruins available everywhere, not just the tabletop preset.
+# the user wanted ruins available everywhere, not just the tabletop preset.
 # Tiles are marked "RuinPart" in `obstacles` (so the minimap, spawn anchors,
 # and nav all treat them as solid terrain) and one destructible RuinObstacle
 # node per building is spawned in _build_collisions_and_obstacles.

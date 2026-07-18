@@ -79,7 +79,7 @@ func _update_player_sight(delta: float):
 
 	if visible:
 		mech._gain_sight(mech.target.global_position)
-		# Per Natalia: "if any squad member sees me the whole squad sees
+		# Per the user: "if any squad member sees me the whole squad sees
 		# me. BUT other squads do not get that freebie." - only broadcasts
 		# to THIS mech's own squad.members, never anything global.
 		_share_sight_with_squad(mech.target.global_position)
@@ -160,7 +160,7 @@ func _execute_search(delta: float):
 
 	var search_dir = mech.global_position.direction_to(mech._search_leg_target)
 	# More committed than the old passive wander (0.6x) - "more aggressive"
-	# per Natalia, though still a notch under a full chase (1.0x) since it's
+	# per the user, though still a notch under a full chase (1.0x) since it's
 	# still just a hunch, not a confirmed sighting.
 	mech.velocity = search_dir * mech.current_move_speed * mech.speed_modifier * 0.85
 
@@ -223,7 +223,7 @@ func _advance_search_leg():
 		return
 	mech._search_leg_target = _next_leg_target()
 
-# Scouts don't hunt for one specific last-known spot - per Natalia, "scouts
+# Scouts don't hunt for one specific last-known spot - per the user, "scouts
 # optimize for seeing unseen map": push outward into whichever nearby
 # direction the squad HASN'T already marked explored, continually
 # expanding the squad's collective vision instead of converging on a single

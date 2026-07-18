@@ -7,7 +7,7 @@ const ComponentEquipmentClass = preload("res://scripts/core/ComponentEquipment.g
 # Beacon - see ComponentEquipment.gd's create_*_backpack constructors).
 # Presence anywhere in the equipped backpack's grid unlocks a genuine new
 # combat unit: a companion Drone with its OWN tiny hex-grid weapon loadout,
-# sized by THIS tile's own rarity (not the backpack's) - Natalia: "gives me
+# sized by THIS tile's own rarity (not the backpack's) - the user: "gives me
 # another component slot for a drone... rarity of this tile affects the
 # size of the grid the drone has... comes with installed jumpjets matching
 # the rarity of the hex."

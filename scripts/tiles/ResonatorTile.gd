@@ -10,7 +10,7 @@ var _remnant_magnitudes: Dictionary = {}
 # TileStatsRegistry.get_stat().
 
 # --- Resonator Sync (Mythic-only) -------------------------------------------
-# Natalia's design: a Resonator sits at a 3-way crossing of the hex's
+# the user's design: a Resonator sits at a 3-way crossing of the hex's
 # opposite-face pairs (E/W, NW/SE, SW/NE - see HexCoord.get_directions()).
 # Whatever synergy dominates the last packet to cross ANY one of those 3
 # paths gets left behind as residue FOR THAT PATH SPECIFICALLY, with its own

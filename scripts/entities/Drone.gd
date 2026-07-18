@@ -14,7 +14,7 @@ extends Mech
 #                          nearest enemy instead of the player as its target
 #   die()                - no loot drop/corpse husk; just tells whoever's
 #                          listening (Main.gd) so it can respawn after a
-#                          cooldown, per Natalia's "destructible, respawns"
+#                          cooldown, per the user's "destructible, respawns"
 #
 # `is_player = true` is a deliberate reuse of Projectile.gd's friendly-fire
 # check (fired_by_player and col.is_player -> skip, not fired_by_player and

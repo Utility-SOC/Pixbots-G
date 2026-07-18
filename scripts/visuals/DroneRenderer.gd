@@ -1,7 +1,7 @@
 class_name DroneRenderer
 extends Node2D
 
-# Distinct (non-mech-shaped) visual for the Drone companion, per Natalia's
+# Distinct (non-mech-shaped) visual for the Drone companion, per the user's
 # choice: a small hovering drone silhouette rather than a shrunk-down reuse
 # of MechRenderer's humanoid look. Deliberately simple - one _draw() body
 # per chassis class, no multi-part node tree or particles - this exists on

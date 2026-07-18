@@ -18,7 +18,7 @@ extends Node2D
 # World-units per pixel "cell". Bigger = chunkier/more legible, smaller =
 # more detail but softer-reading at a glance. 4.5 keeps a ~36-unit-wide
 # torso to roughly 8 cells across - deliberately chunkier than the original
-# 3.0/~12-cells (Natalia: "MUCH lower resolution would be fine, I just want
+# 3.0/~12-cells (the user: "MUCH lower resolution would be fine, I just want
 # a wider variety of mech appearance and for them to look good doing it") -
 # genuinely small icon-sprite territory rather than Mario-sprite territory,
 # which also means the per-shape shading gradient below (see

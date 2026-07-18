@@ -32,7 +32,7 @@ var scrap_label: Label
 # completely separate pool from the hex-tile inventory list below, and
 # previously not shown anywhere in the Garage at all. Swap Component,
 # Upgrade Part, and Extract Modifier all consume from THIS pool, not from
-# tiles - per Natalia, that was invisible enough to look like those
+# tiles - per the user, that was invisible enough to look like those
 # features were just broken ("I can only upgrade the torso... swap doesn't
 # work even if I own another of them"). This visualizes the pool two ways:
 # a zoomable slot diagram (component_diagram) showing what's equipped where,
@@ -49,7 +49,7 @@ var tile_panel: VBoxContainer
 # component_spare_panel (sort dropdown + the actual draggable spare-parts
 # cards) lives in the sidebar space freed up by shrinking side_grid_container.
 # Previously all of this was one "component_panel" stacked in the sidebar,
-# which is why Natalia couldn't find her purchased parts - the tray was
+# which is why the user couldn't find their purchased parts - the tray was
 # real, just squeezed/scrolled out of view under the diagram every time.
 var component_diagram_panel: VBoxContainer
 var component_spare_panel: VBoxContainer

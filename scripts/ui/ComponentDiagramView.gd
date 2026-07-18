@@ -6,7 +6,7 @@ extends Control
 # Shows a simplified mech silhouette in the middle with a fixed-size callout
 # box per body slot (head, torso, both arms, backpack, both legs), each
 # linked back to its anchor point on the silhouette by a leader line. Per
-# Natalia's design pass (confirmed via mockup): head sits off to the left,
+# the user's design pass (confirmed via mockup): head sits off to the left,
 # backpack off to the right, torso above but slightly left of center, arms
 # and legs flank below - and when the silhouette is zoomed, the callout
 # BOXES stay a constant screen size (only their position along the leader

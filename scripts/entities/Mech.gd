@@ -310,7 +310,7 @@ var engagement_distance: float = 200.0 # How close to get before strafing
 var rotational_direction: float = 1.0 # 1.0 for clockwise, -1.0 for counter-clockwise
 var base_speed: float = 150.0
 
-# Separation steering (Natalia: "mostly shuffling around really close to one
+# Separation steering (the user: "mostly shuffling around really close to one
 # another"): every enemy independently approaches the SAME shared flow-field
 # corridor toward the player, then orbits at the same engagement_distance
 # ring with no awareness of each other - with a big enough wave, that ring's
@@ -356,7 +356,7 @@ signal dealt_damage(amount: float)
 # New fitness-axis input (see Squad._calculate_fitness): mirrors dealt_damage
 # but for the receiving side, so Squad can score damage TRADED (dealt vs.
 # taken) instead of only ever looking at offense. was_reflected flags damage
-# from a Mythic Magnet repel-mode bounce specifically - Natalia asked for the
+# from a Mythic Magnet repel-mode bounce specifically - the user asked for the
 # AI to notice when it's dying to its own reflected fire and weight
 # speed/shield accordingly (see the magnet-repel flip block below).
 signal took_damage(amount: float, was_reflected: bool)
@@ -394,7 +394,7 @@ const WILD_REGEN_CAP_FRACTION = 0.75
 var is_fleeing: bool = false
 var _has_gone_wild: bool = false
 
-# --- Individual-bot fitness tracking (Natalia: "individuals in types of
+# --- Individual-bot fitness tracking (the user: "individuals in types of
 # roles... tracked/scored") ------------------------------------------------
 # Mirrors Squad._calculate_fitness's inputs but scoped to THIS bot alone,
 # by self-connecting dealt_damage/took_damage in _ready() rather than
@@ -522,7 +522,7 @@ func _ready():
 	if not is_player:
 		visual_seed = randi()
 
-		# Desync throttled per-mech timers (Natalia: "freezing is still
+		# Desync throttled per-mech timers (the user: "freezing is still
 		# happening regularly"). Every one of these defaulted to 0.0, which
 		# means every mech fires its FIRST throttled check on the very same
 		# tick it spawns, and since they all reset to the same fixed
@@ -622,7 +622,7 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 
 	# Commanders always come with a companion Drone (see create_command_
 	# backpack); every other enemy role gets a modest independent chance at
-	# one too (Natalia: "mobs/enemies should get to have them too") - never
+	# one too (the user: "mobs/enemies should get to have them too") - never
 	# for the player (role == "" only ever happens for the player's own
 	# backpack, which stays entirely Garage-controlled, never procedurally
 	# overridden). Rolled AFTER the role match above so it only ever applies
@@ -715,7 +715,7 @@ func _physics_process(delta: float):
 		fire_cooldown -= delta
 
 	_tick_weapon_charges(delta)
-	# _update_heat(delta) # Thermal system commented out per Natalia - see the
+	# _update_heat(delta) # Thermal system commented out per the user - see the
 	# heat block near HEAT_CAPACITY below for the rest of what's disabled.
 
 	time_since_last_hit += delta
@@ -806,7 +806,7 @@ var external_force: Vector2 = Vector2.ZERO
 var _lod_ai_timer: float = 0.0
 
 # Melee/mass physics pillar: automatic contact damage on a fast enough
-# collision with an opposing mech - no dedicated input, matches Natalia's
+# collision with an opposing mech - no dedicated input, matches the user's
 # "automatic on fast contact" call. mass x speed x coefficient, using THIS
 # mech's own mass/speed (the other mech gets its own independent ram roll
 # out of its own _process_ramming call the same frame, so a head-on
@@ -1146,7 +1146,7 @@ func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, d
 
 # --- Lightweight heat, v1 (FEATURE_ROADMAP.md group 5, locked spec) --------
 # No live packet simulation: heat is ONE scalar per mech, derived from the
-# static grid sim. Everything is proportional to totals (Natalia's ruling):
+# static grid sim. Everything is proportional to totals (the user's ruling):
 #   - generation rate ~ sum of charge_required across armed weapons
 #   - venting ~ the volley just released
 #   - volatility severity ~ current heat
@@ -1154,7 +1154,7 @@ func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, d
 # heavy circuits arc into adjacent tiles when hot; hitting the cap knocks
 # out an Accumulator via the existing disable/reboot machinery.
 const HEAT_CAPACITY = 100.0
-# Natalia: thermal system fully commented out below (_update_heat,
+# the user: thermal system fully commented out below (_update_heat,
 # _heat_arc_damage, _overheat, and the heat_rate/ice/ltg computation block
 # in _recalculate_grid) rather than just flag-gated - none of those are
 # called from anywhere outside this system, so nothing else breaks. The vars
@@ -1444,7 +1444,7 @@ func _collect_weapon_mounts_and_tile_capabilities():
 	for comp in components.values():
 		for tile in comp.hex_grid.get_all_tiles():
 			if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Accessory Return" or tile.tile_type == "Torso Return") and "pending_packets" in tile and tile.pending_packets.size() > 0:
-				# Accumulator split-fire model (Natalia's locked design):
+				# Accumulator split-fire model (the user's locked design):
 				# whenever accumulators feed this mount - routed THROUGH the
 				# circuit (packet.acc_*_mult) or sitting adjacent (bank) -
 				# the mount gets TWO fully independent weapons:
@@ -1878,7 +1878,7 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array):
 # --- Player Sight/Detection (non-boss only) --------------------------------
 # Previously every enemy just always knew exactly where the player was and
 # beelined toward them forever, regardless of range or obstacles - per
-# Natalia: "enemies off screen don't seem to see/acknowledge me... their
+# the user: "enemies off screen don't seem to see/acknowledge me... their
 # sight should be broken by range and obstacles." SIGHT_RANGE is
 # deliberately a bit past the flow field's own bounded radius (896 units,
 # see MapGenerator.FLOW_FIELD_RADIUS) - "I'd like them to see a little bit
@@ -1894,7 +1894,7 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array):
 # that doesn't need frame-perfect precision.
 const SIGHT_RANGE = 1000.0
 const SIGHT_CHECK_HZ = 3.0
-# Per Natalia: lost (or never-had) sight should trigger an ONGOING search,
+# Per the user: lost (or never-had) sight should trigger an ONGOING search,
 # not a freeze - "enemies don't seem to be searching at all... they should
 # search aware of their vision." There's deliberately no give-up/idle state
 # anymore: a mech without current sight is ALWAYS either searching near the
@@ -1908,12 +1908,12 @@ const SIGHT_CHECK_HZ = 3.0
 const SEARCH_WANDER_RADIUS = 220.0
 const SEARCH_WAYPOINT_INTERVAL = 1.3
 # Scout role: "can go three times further, and see 1.25x further than other
-# enemy units" per Natalia - wider patrol/search footprint plus modestly
+# enemy units" per the user - wider patrol/search footprint plus modestly
 # better eyesight, matching a recon archetype.
 const SCOUT_SIGHT_MULT = 1.25
 const SCOUT_SEARCH_MULT = 3.0
 
-# --- Expanding Square Search (Natalia: "us coast guard search pattern...
+# --- Expanding Square Search (the user: "us coast guard search pattern...
 # more aggressive and aware of line of sight") ---------------------------
 # Rank-and-file squad members now run a real expanding-square (ES) sweep
 # instead of hopping to random points: legs of length 1,1,2,2,3,3... units
@@ -2269,7 +2269,7 @@ func _apply_shield_mitigation(amount: float, element: String) -> float:
 		var overflow = -shield_hp
 		shield_hp = 0
 		# MYTHIC Shield - Deflector: "very effective defense tool if used
-		# properly" per Natalia - overflow that would otherwise bleed
+		# properly" per the user - overflow that would otherwise bleed
 		# through to HP instead gets ejected as an offensive burst in a
 		# random direction, fully absorbing the hit (no HP damage taken)
 		# at the cost of not being an AIMED counterattack.
@@ -2313,7 +2313,7 @@ func _deflect_overflow(amount: float):
 		ring.burst(15.0, DEFLECTOR_BURST_RADIUS, 0.2, Color(0.3, 0.6, 1.0, 1.0))
 
 # Flat per-hit chance, same for everyone - deliberately simple/predictable
-# rather than scaling with PIERCE stacking, per Natalia's call. Easy for a
+# rather than scaling with PIERCE stacking, per the user's call. Easy for a
 # player to learn ("pierce hits sometimes just end the fight") and easy for
 # the existing AI counter-pressure (SquadDirector.player_kill_methods /
 # _apply_kill_method_counter_pressure) to detect and counter if the player
@@ -2555,7 +2555,7 @@ func apply_part_damage(slot: int, amount: float, element: String = "RAW"):
 	# Apply a small fraction of locational damage to global structure HP
 	apply_damage(amount * 0.2, element)
 
-# Per-Natalia's design: a hit that gets past shields (or punches through as
+# Per-the user's design: a hit that gets past shields (or punches through as
 # PIERCE - "armor pierced") rolls a % chance to disable/reboot a tile in the
 # component, independent of the random direct-damage tile above. The roll
 # targets whichever tile in the component is highest-priority right now:

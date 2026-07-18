@@ -1,14 +1,18 @@
 extends Node
 
-# Regression harness for the "player bot appearance needs to vary more"
-# playtest report: MechRenderer._compute_bulk_factor() now derives a
-# per-component silhouette-size multiplier from actual tile composition
-# (Shield/Core/Accumulator/Missile/Lance = bulkier; Cloak/Jumpjet/Actuator/
-# Directional Conduit/Filter = sleeker), folded into the same scale_mult
-# lever every _draw_* function already uses for rarity - so two builds at
-# the identical rarity no longer converge on the same silhouette.
+# Regression harness for the two-axis mech-silhouette-variety feature.
+# First pass (single net "bulk minus sleek" scalar) got follow-up playtest
+# feedback: "if I have something a bit shieldy but very fast it could be
+# bulky sleek... they need to be visually distinct in spite of the bulk" -
+# a build with a healthy amount of both bulk and sleek tiles was averaging
+# back out to looking plain, the opposite of "visually distinct". Bulk and
+# sleek are now independent axes (Vector2, each only ever >= 1.0) applied
+# as an anisotropic Node2D.scale on the part's container - this checks both
+# the pure _compute_visual_factors() math AND that a real _rebuild_visuals()
+# pass actually applies it to the rendered part.
 
 const MechRendererScript = preload("res://scripts/visuals/MechRenderer.gd")
+const MechScript = preload("res://scripts/entities/Mech.gd")
 const ComponentEquipmentScript = preload("res://scripts/core/ComponentEquipment.gd")
 const ShieldTileScript = preload("res://scripts/tiles/ShieldTile.gd")
 const CloakTileScript = preload("res://scripts/tiles/CloakTile.gd")
@@ -36,37 +40,59 @@ func _make_component(tile_scripts: Array) -> ComponentEquipment:
 func _ready():
 	var renderer = MechRendererScript.new()
 
-	_check("no component (null) defaults to neutral 1.0", renderer._compute_bulk_factor(null) == 1.0)
+	# --- Pure math: independent axes, never cancel each other ---
+	_check("no component (null) defaults to neutral (1,1)", renderer._compute_visual_factors(null) == Vector2.ONE)
 
 	var neutral = _make_component([SplitterTileScript, SplitterTileScript])
-	_check("neutral tiles (Splitter) don't shift bulk", renderer._compute_bulk_factor(neutral) == 1.0)
+	_check("neutral tiles (Splitter) stay at (1,1)", renderer._compute_visual_factors(neutral) == Vector2.ONE)
 
-	var shield_heavy = _make_component([ShieldTileScript, ShieldTileScript, ShieldTileScript])
-	var shield_bulk = renderer._compute_bulk_factor(shield_heavy)
-	_check("3 Shield Generator tiles push bulk above neutral (%.3f)" % shield_bulk, shield_bulk > 1.0)
+	var shield_only = _make_component([ShieldTileScript, ShieldTileScript, ShieldTileScript])
+	var shield_factors = renderer._compute_visual_factors(shield_only)
+	_check("pure-bulk build: x > 1 (%.3f)" % shield_factors.x, shield_factors.x > 1.0)
+	_check("pure-bulk build: y stays at 1 (%.3f) - bulk does not shrink sleek" % shield_factors.y, shield_factors.y == 1.0)
 
-	var cloak_heavy = _make_component([CloakTileScript, CloakTileScript, CloakTileScript])
-	var cloak_bulk = renderer._compute_bulk_factor(cloak_heavy)
-	_check("3 Cloak Generator tiles push bulk below neutral (%.3f)" % cloak_bulk, cloak_bulk < 1.0)
+	var cloak_only = _make_component([CloakTileScript, CloakTileScript, CloakTileScript])
+	var cloak_factors = renderer._compute_visual_factors(cloak_only)
+	_check("pure-sleek build: y > 1 (%.3f)" % cloak_factors.y, cloak_factors.y > 1.0)
+	_check("pure-sleek build: x stays at 1 (%.3f) - sleek does not shrink bulk" % cloak_factors.x, cloak_factors.x == 1.0)
 
-	_check("Shield-heavy renders bulkier than Cloak-heavy at the same rarity",
-		shield_bulk > cloak_bulk)
+	var mixed = _make_component([ShieldTileScript, ShieldTileScript, CloakTileScript, CloakTileScript])
+	var mixed_factors = renderer._compute_visual_factors(mixed)
+	_check("\"bulky sleek\" build (2 Shield + 2 Cloak): BOTH axes rise together instead of cancelling to (1,1) (%s)" % str(mixed_factors),
+		mixed_factors.x > 1.0 and mixed_factors.y > 1.0)
+	_check("bulky-sleek's bulk axis matches a pure-bulk build with the same Shield count", mixed_factors.x == renderer._compute_visual_factors(_make_component([ShieldTileScript, ShieldTileScript])).x)
 
-	# Clamping: an absurd number of bulky/sleek tiles must not blow past the range
-	var extreme_bulky_tiles = []
+	# Clamping
+	var extreme_tiles = []
 	for i in range(20):
-		extreme_bulky_tiles.append(ShieldTileScript)
-	var extreme_bulky = _make_component(extreme_bulky_tiles)
-	var extreme_bulk = renderer._compute_bulk_factor(extreme_bulky)
-	_check("bulk factor clamps at the max even with 20 Shield Generators (%.3f)" % extreme_bulk, extreme_bulk <= 1.25)
+		extreme_tiles.append(ShieldTileScript)
+	var extreme = renderer._compute_visual_factors(_make_component(extreme_tiles))
+	_check("bulk axis clamps at the max even with 20 Shield Generators (%.3f)" % extreme.x, extreme.x <= 1.25)
 
-	var extreme_sleek_tiles = []
-	for i in range(20):
-		extreme_sleek_tiles.append(CloakTileScript)
-	var extreme_sleek = _make_component(extreme_sleek_tiles)
-	var extreme_sleek_bulk = renderer._compute_bulk_factor(extreme_sleek)
-	_check("bulk factor clamps at the min even with 20 Cloak Generators (%.3f)" % extreme_sleek_bulk, extreme_sleek_bulk >= 0.85)
+	# --- End-to-end: a real _rebuild_visuals() pass actually applies it ---
+	var mech = MechScript.new()
+	mech.is_player = true
+	add_child(mech)
+	var torso = ComponentEquipmentScript.create_starter_torso()
+	# Stack the torso with bulky+sleek tiles on top of its fixed structural ones
+	for i in range(3):
+		var st = ShieldTileScript.new()
+		if torso.hex_grid.add_tile(HexCoord.new(10 + i, 10), st):
+			pass
+	mech.equip_component(torso)
+	# Parented to the mech itself (a Node2D/CharacterBody2D), matching real
+	# usage (Mech.gd:544) - PartHitbox.mech is typed Node2D, so parenting
+	# this to a plain Node like the check script itself would fail that
+	# assignment with an unrelated, misleading error.
+	var live_renderer = MechRendererScript.new()
+	live_renderer.name = "MechRenderer"
+	live_renderer.components = mech.components
+	mech.add_child(live_renderer)
+	live_renderer._rebuild_visuals()
+	var torso_container = live_renderer.drawn_parts.get("Torso")
+	_check("a real _rebuild_visuals() pass sets the Torso container's scale (not left at default (1,1))",
+		torso_container != null and torso_container.scale != Vector2.ONE)
 
 	if failures == 0:
-		print("PASS: mech silhouette bulk now reacts to actual tile composition, not just rarity")
+		print("PASS: bulk and sleek are independent axes that don't cancel each other, and the real render pass applies them")
 	get_tree().quit(0 if failures == 0 else 1)

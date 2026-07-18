@@ -115,7 +115,7 @@ func _rebuild_visuals():
 
 	for slot in components.keys():
 		var comp = components[slot]
-		var rarity_mult = (1.0 + (comp.rarity * 0.05)) * profile.scale * _compute_bulk_factor(comp)
+		var rarity_mult = (1.0 + (comp.rarity * 0.05)) * profile.scale
 
 		# Deterministic per-mech random seed so the same mech always looks
 		# the same across rebuilds (e.g. re-equipping a different slot).
@@ -126,18 +126,41 @@ func _rebuild_visuals():
 		rng.seed = hash(comp.component_name) + comp.rarity + v_seed
 
 		var tier = _tier_of(mech)
+		var part_name = ""
 		if comp.slot_type == HexTile.BodySlot.TORSO:
+			part_name = "Torso"
 			_draw_torso(null, _part_color(profile.color, mech, "torso", tier), rng, rarity_mult, comp.rarity, profile.accent, is_boss, comp)
 		elif comp.slot_type == HexTile.BodySlot.ARM_L:
+			part_name = "Arm_true"
 			_draw_arm(null, _part_color(profile.color, mech, "arm_l", tier), true, rng, rarity_mult, comp.rarity, profile.accent, comp)
 		elif comp.slot_type == HexTile.BodySlot.ARM_R:
+			part_name = "Arm_false"
 			_draw_arm(null, _part_color(profile.color, mech, "arm_r", tier), false, rng, rarity_mult, comp.rarity, profile.accent, comp)
 		elif comp.slot_type == HexTile.BodySlot.LEG_L:
+			part_name = "Leg_true"
 			_draw_leg(null, _part_color(profile.color, mech, "leg_l", tier), true, rng, rarity_mult, comp.rarity, comp)
 		elif comp.slot_type == HexTile.BodySlot.LEG_R:
+			part_name = "Leg_false"
 			_draw_leg(null, _part_color(profile.color, mech, "leg_r", tier), false, rng, rarity_mult, comp.rarity, comp)
 		elif comp.slot_type == HexTile.BodySlot.HEAD:
+			part_name = "Head"
 			_draw_head(null, _part_color(profile.color, mech, "head", tier), rng, rarity_mult, comp.rarity, profile.accent, is_boss, comp)
+
+		# Playtest request: "if I have something a bit shieldy but very fast
+		# it could be bulky sleek... they need to be visually distinct in
+		# spite of the bulk" - a single net bulk-minus-sleek scalar (the
+		# previous version of this feature) let a build with both cancel
+		# back out to looking neutral, exactly the flattening the user
+		# didn't want. bulk and sleek are now two INDEPENDENT axes (see
+		# _compute_visual_factors) applied as a genuine anisotropic
+		# stretch on the already-drawn part's container - X (width) reads
+		# bulk, Y (length) reads sleek, and since neither can go below
+		# 1.0, a "bulky AND sleek" build gets both wider AND longer at
+		# once instead of averaging to plain. Doesn't touch a single
+		# coordinate inside the hand-authored module-vocabulary library -
+		# Node2D.scale on the part's container does the whole stretch.
+		if part_name != "" and drawn_parts.has(part_name):
+			drawn_parts[part_name].scale = _compute_visual_factors(comp)
 
 	# Draw standard parts for any slots that weren't overridden by tiles
 	var rng_def = RandomNumberGenerator.new()
@@ -579,31 +602,42 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 # one." Root cause - rarity only ever fed a uniform rarity_mult (bigger +
 # glowier at higher tiers), so two builds at the same rarity looked the
 # same regardless of what was actually equipped, and the SILHOUETTE itself
-# never differed by rarity either. Rather than a rarity-driven redesign,
-# this reacts to actual tile COMPOSITION per-component: heavy/defensive
-# hardware (Shield Generator, Core Reactor/Microcore, Accumulator, Missile
-# Rack, Lance Mount) reads bulkier; mobility/stealth hardware (Cloak
-# Generator, Jumpjet, Actuator, Directional Conduit, Filter) reads sleeker.
-# Folded into the SAME scale_mult lever every _draw_* function already
-# takes for rarity, so a Shield-stacked torso and a Cloak-stacked torso at
-# the identical rarity now render at genuinely different sizes instead of
-# converging on the same silhouette.
+# never differed by rarity either. This reacts to actual tile COMPOSITION
+# per-component instead: heavy/defensive hardware (Shield Generator, Core
+# Reactor/Microcore, Accumulator, Missile Rack, Lance Mount) reads bulkier
+# (wider); mobility/stealth hardware (Cloak Generator, Jumpjet, Actuator,
+# Directional Conduit, Filter) reads sleeker (longer).
+#
+# Follow-up playtest request: "if I have something a bit shieldy but very
+# fast it could be bulky sleek... they need to be visually distinct in
+# spite of the bulk." The first version of this feature summed bulk and
+# sleek into ONE net scalar, so a build with a healthy amount of both just
+# cancelled back out to looking plain - the opposite of what was wanted.
+# Bulk and sleek are now two INDEPENDENT axes, each only ever >= 1.0 (never
+# a penalty on the other), returned as a Vector2 and applied directly as
+# Node2D.scale (x=width from bulk, y=length from sleek) on the part's
+# already-drawn container - see the call site in _rebuild_visuals(). A
+# "bulky AND sleek" build gets wider AND longer at once, clearly distinct
+# from pure-bulk (wide, normal length - stocky), pure-sleek (normal width,
+# long - lean), and neutral (1,1) builds alike.
 const _BULK_TILE_TYPES = ["Shield Generator", "Core Reactor", "Microcore", "Accumulator", "Missile Rack", "Lance Mount"]
 const _SLEEK_TILE_TYPES = ["Cloak Generator", "Jumpjet", "Actuator", "Directional Conduit", "Filter"]
-const _BULK_STEP = 0.03
-const _BULK_MIN = 0.85
-const _BULK_MAX = 1.25
+const _AXIS_STEP = 0.03
+const _AXIS_MAX = 1.25
 
-func _compute_bulk_factor(comp) -> float:
+func _compute_visual_factors(comp) -> Vector2:
 	if not comp or not ("hex_grid" in comp) or not comp.hex_grid:
-		return 1.0
-	var net = 0
+		return Vector2.ONE
+	var bulk_count = 0
+	var sleek_count = 0
 	for t in comp.hex_grid.get_all_tiles():
 		if t.tile_type in _BULK_TILE_TYPES:
-			net += 1
+			bulk_count += 1
 		elif t.tile_type in _SLEEK_TILE_TYPES:
-			net -= 1
-	return clamp(1.0 + net * _BULK_STEP, _BULK_MIN, _BULK_MAX)
+			sleek_count += 1
+	var bulk_scale = clamp(1.0 + bulk_count * _AXIS_STEP, 1.0, _AXIS_MAX)
+	var sleek_scale = clamp(1.0 + sleek_count * _AXIS_STEP, 1.0, _AXIS_MAX)
+	return Vector2(bulk_scale, sleek_scale)
 
 func _draw_conduit_glows(comp, part, rng, scale_mult):
 	if not comp or not ("hex_grid" in comp) or not comp.hex_grid:

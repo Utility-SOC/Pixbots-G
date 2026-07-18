@@ -347,6 +347,19 @@ func _on_tab_changed(index: int):
 			core_tile.body_slot = HexTile.BodySlot.TORSO
 			active_component.hex_grid.add_tile(h0, core_tile)
 			print("Restored missing Torso Core!")
+
+	# Playtest request: "still needing to run the simulation on the torso in
+	# order to get accurate info in any of the peripherals - could it cache
+	# the results of a silent calculation... so I can start simulating
+	# anywhere and have more or less consistent results?" - a silent (non-
+	# animated) full recompute runs every time the viewed component changes,
+	# so pending_packets/stats_label are already accurate the instant you
+	# switch tabs, whether or not Simulate has ever been pressed on this
+	# component or the torso. See GarageSimulationRunner.run_silent_snapshot.
+	if not simulation_runner:
+		simulation_runner = GarageSimulationRunner.new(self)
+	simulation_runner.run_silent_snapshot()
+
 func _populate_mock_inventory():
 	var main = get_tree().current_scene
 	if main and "player_inventory" in main and main.player_inventory.size() > 0:

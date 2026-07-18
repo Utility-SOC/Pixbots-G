@@ -51,6 +51,64 @@ func run_simulation():
 	garage.is_simulating = true
 	if garage.sim_button: garage.sim_button.text = "Stop Simulation"
 
+	var initial_packets = _compute_initial_packets()
+
+	for p in initial_packets:
+		p.set_meta("source_hex", p.position)
+		p.set_meta("target_hex", p.position)
+		p.set_meta("anim_progress", 1.0)
+		p.is_active = true
+
+	# Snapshot the real step-0 starting point BEFORE anything below mutates
+	# it, then run a throwaway discovery pass to find out how far the
+	# scrubber can go - both reuse the exact same _advance_step() engine the
+	# live view uses, so "total steps" and "what the scrubber can reach" can
+	# never disagree.
+	_initial_packets_snapshot = _clone_packets(initial_packets)
+	total_steps = _discover_total_steps()
+	_update_scrubber_range()
+
+	garage.grid_renderer.active_packets = initial_packets
+	garage.grid_renderer.simulation_step = 0
+
+	update_stats()
+	step()
+
+# Playtest request: "still needing to run the simulation on the torso in
+# order to get accurate info in any of the peripherals - could it cache
+# the results of a silent calculation even before I simulate so I can
+# start simulating anywhere and have more or less consistent results?"
+# Runs the exact same cross-component computation as the Simulate button
+# (torso generation -> transfers -> peripheral routing, all the way
+# through to a fully-drained final state via _discover_total_steps' replay
+# engine), but with none of the animated/visible-simulation side effects:
+# doesn't touch is_simulating, the button label, or the scrubber's
+# visibility. The net effect is that pending_packets/stats_label are
+# always populated with a real, fresh number the instant you switch which
+# component you're looking at (see GarageMenu._on_tab_changed), whether or
+# not you've ever pressed Simulate on this component OR the torso.
+func run_silent_snapshot():
+	if not garage.grid_renderer.hex_grid or not garage.active_component:
+		return
+	if garage.is_simulating:
+		return # a live animated run already owns the visible state - don't fight it
+
+	var initial_packets = _compute_initial_packets()
+	for p in initial_packets:
+		p.set_meta("source_hex", p.position)
+		p.set_meta("target_hex", p.position)
+		p.set_meta("anim_progress", 1.0)
+		p.is_active = true
+
+	_initial_packets_snapshot = _clone_packets(initial_packets)
+	# _discover_total_steps() replays to completion, which is exactly what a
+	# silent snapshot wants (final resting pending_packets, not mid-flight) -
+	# it also leaves grid_renderer.active_packets drained, matching "nothing
+	# is animating" rather than the live view's populated step-0 state.
+	total_steps = _discover_total_steps()
+	update_stats()
+
+func _compute_initial_packets() -> Array[EnergyPacket]:
 	var initial_packets: Array[EnergyPacket] = []
 
 	if garage.active_component:
@@ -160,26 +218,7 @@ func run_simulation():
 						if t.tile_type == "Weapon Mount" and "pending_packets" in t:
 							t.pending_packets.clear()
 
-	for p in initial_packets:
-		p.set_meta("source_hex", p.position)
-		p.set_meta("target_hex", p.position)
-		p.set_meta("anim_progress", 1.0)
-		p.is_active = true
-
-	# Snapshot the real step-0 starting point BEFORE anything below mutates
-	# it, then run a throwaway discovery pass to find out how far the
-	# scrubber can go - both reuse the exact same _advance_step() engine the
-	# live view uses, so "total steps" and "what the scrubber can reach" can
-	# never disagree.
-	_initial_packets_snapshot = _clone_packets(initial_packets)
-	total_steps = _discover_total_steps()
-	_update_scrubber_range()
-
-	garage.grid_renderer.active_packets = initial_packets
-	garage.grid_renderer.simulation_step = 0
-
-	update_stats()
-	step()
+	return initial_packets
 
 # One tick of pure state transition: no timers, no rendering side effects
 # beyond what it always did (mutating grid_renderer.active_packets/

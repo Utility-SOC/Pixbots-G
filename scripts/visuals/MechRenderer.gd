@@ -115,7 +115,7 @@ func _rebuild_visuals():
 
 	for slot in components.keys():
 		var comp = components[slot]
-		var rarity_mult = (1.0 + (comp.rarity * 0.05)) * profile.scale
+		var rarity_mult = (1.0 + (comp.rarity * 0.05)) * profile.scale * _compute_bulk_factor(comp)
 
 		# Deterministic per-mech random seed so the same mech always looks
 		# the same across rebuilds (e.g. re-equipping a different slot).
@@ -574,6 +574,37 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 # seeded offset within the part's rough footprint. Uses the same seeded rng
 # as the rest of the part so a given mech's glow dots stay stable across
 # rebuilds instead of re-rolling every re-equip.
+# Playtest report: "the appearance of the player's bot needs to vary more -
+# it's identical or near identical to the mythic fully upgraded endgame
+# one." Root cause - rarity only ever fed a uniform rarity_mult (bigger +
+# glowier at higher tiers), so two builds at the same rarity looked the
+# same regardless of what was actually equipped, and the SILHOUETTE itself
+# never differed by rarity either. Rather than a rarity-driven redesign,
+# this reacts to actual tile COMPOSITION per-component: heavy/defensive
+# hardware (Shield Generator, Core Reactor/Microcore, Accumulator, Missile
+# Rack, Lance Mount) reads bulkier; mobility/stealth hardware (Cloak
+# Generator, Jumpjet, Actuator, Directional Conduit, Filter) reads sleeker.
+# Folded into the SAME scale_mult lever every _draw_* function already
+# takes for rarity, so a Shield-stacked torso and a Cloak-stacked torso at
+# the identical rarity now render at genuinely different sizes instead of
+# converging on the same silhouette.
+const _BULK_TILE_TYPES = ["Shield Generator", "Core Reactor", "Microcore", "Accumulator", "Missile Rack", "Lance Mount"]
+const _SLEEK_TILE_TYPES = ["Cloak Generator", "Jumpjet", "Actuator", "Directional Conduit", "Filter"]
+const _BULK_STEP = 0.03
+const _BULK_MIN = 0.85
+const _BULK_MAX = 1.25
+
+func _compute_bulk_factor(comp) -> float:
+	if not comp or not ("hex_grid" in comp) or not comp.hex_grid:
+		return 1.0
+	var net = 0
+	for t in comp.hex_grid.get_all_tiles():
+		if t.tile_type in _BULK_TILE_TYPES:
+			net += 1
+		elif t.tile_type in _SLEEK_TILE_TYPES:
+			net -= 1
+	return clamp(1.0 + net * _BULK_STEP, _BULK_MIN, _BULK_MAX)
+
 func _draw_conduit_glows(comp, part, rng, scale_mult):
 	if not comp or not ("hex_grid" in comp) or not comp.hex_grid:
 		return

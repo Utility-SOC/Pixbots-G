@@ -336,7 +336,7 @@ func _update_player_blind_state():
 
 func _update_hud():
 	if wave_label:
-		wave_label.text = "Wave: " + str(current_wave)
+		wave_label.text = "Wave: " + str(current_wave) + "  |  Lives: " + str(player_lives_remaining)
 	if timer_label:
 		if garage_timer > 0:
 			timer_label.text = "Extraction in: " + str(int(garage_timer)) + "s"
@@ -1229,7 +1229,29 @@ func _on_enemy_died():
 
 var last_garage_wave: int = 1
 
+# Extra lives (playtest request: "so it isn't game over as soon as I get
+# killed once"). Refilled on every _close_garage() deploy - same checkpoint
+# last_garage_wave already uses, so a death always costs you back to your
+# last garage visit at worst, not further. _on_player_died() consumes one
+# and respawns in place (full heal, wave continues) instead of running the
+# full death sequence until this hits zero.
+const MAX_PLAYER_LIVES = 3
+var player_lives_remaining: int = MAX_PLAYER_LIVES
+
 func _on_player_died():
+	# Extra life: respawn in place instead of the full death sequence, as
+	# long as this isn't the last one. Only the true (0-lives-left) death
+	# falls through to the existing explosion/kick-to-garage flow below.
+	if player_lives_remaining > 1:
+		player_lives_remaining -= 1
+		_update_hud()
+		player.is_dead = false
+		player.hp = player.max_hp
+		player.shield_hp = player.max_shield_hp
+		if player.has_method("_show_floating_text"):
+			player._show_floating_text("LIFE LOST - %d LEFT" % player_lives_remaining, Color(1.0, 0.5, 0.2))
+		return
+
 	print("!!! GAME OVER - MAGNIFICENT EXPLOSION !!!")
 	# Dying with a Traveling Champion still on the field counts as losing
 	# the challenge - the ghost takes the rank points home.
@@ -1438,6 +1460,7 @@ func _close_garage():
 	get_tree().paused = false
 
 	garage_timer = 90.0
+	player_lives_remaining = MAX_PLAYER_LIVES
 	_update_hud()
 
 	last_garage_wave = current_wave

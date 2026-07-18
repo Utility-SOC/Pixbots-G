@@ -398,7 +398,18 @@ func _serialize_tile(tile) -> Dictionary:
 		for off in tile.footprint_offsets:
 			data["footprint_offsets"].append({"x": off.x, "y": off.y})
 
-	if tile.tile_type == "Splitter":
+	if tile.tile_type == "Splitter" or tile.tile_type == "Accessory Return":
+		# Accessory Return is player-configurable via the exact same face-
+		# toggle popup as Splitter (GarageTileConfigPopup.gd), but its
+		# active_faces was never in this branch - it fell through to the
+		# ComponentLinkTile-script branch below instead, which only saves
+		# target_slot/is_fixed. Every load silently reset it to the class
+		# default active_faces=[0] (East only), discarding whatever routing
+		# the player actually configured - a second, distinct cause behind
+		# "stuff is just bypassing the left arm link" alongside the
+		# target_slot bug fixed earlier (that one broke the arm/leg/head
+		# SINK tiles; this one breaks a player-configured ROUTER upstream of
+		# them).
 		data["active_faces"] = tile.active_faces
 	elif tile.tile_type == "Core Reactor" or tile.tile_type == "Microcore":
 		data["active_faces"] = tile.active_faces
@@ -470,10 +481,16 @@ func _deserialize_tile(data: Dictionary):
 		for off in data["footprint_offsets"]:
 			tile.footprint_offsets.append(Vector2i(int(off.x), int(off.y)))
 
-	if tile.tile_type == "Splitter":
-		tile.active_faces.clear()
-		var faces = data.get("active_faces", [])
-		for f in faces: tile.active_faces.append(int(f))
+	if tile.tile_type == "Splitter" or tile.tile_type == "Accessory Return":
+		# Guarded on has() - a pre-fix save has no "active_faces" key for
+		# Accessory Return at all (see _serialize_tile's comment), and an
+		# unconditional clear() here would wipe it to a completely empty
+		# array (process_energy's split_count==0 pass-through) instead of
+		# just leaving the tile's freshly-constructed class default
+		# (active_faces=[0]) alone - worse than the bug being fixed.
+		if data.has("active_faces"):
+			tile.active_faces.clear()
+			for f in data["active_faces"]: tile.active_faces.append(int(f))
 	elif tile.tile_type == "Elemental Infuser":
 		if data.has("secondary_synergy"):
 			tile.secondary_synergy = int(data["secondary_synergy"])

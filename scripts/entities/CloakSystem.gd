@@ -19,6 +19,8 @@ extends RefCounted
 # charge/timer/visual TICK - the part those external callers never touch
 # directly - moved here.
 
+const AllySystemHelper = preload("res://scripts/entities/AllySystemHelper.gd")
+
 var mech: Mech
 
 # The one field that used to run through max()/min() clamps on Mech every
@@ -126,13 +128,8 @@ func _apply_fade(delta: float) -> void:
 const ALLY_CLOAK_REFRESH = 0.4 # seconds - reapplied every tick while in range, so this only has to outlast one frame's gap
 
 func _share_cloak_with_allies() -> void:
-	var allies: Array = []
-	if mech.is_player:
-		var main = mech.get_tree().current_scene if mech.is_inside_tree() else null
-		if main and "drone_nodes" in main:
-			allies = main.drone_nodes.values()
-	else:
-		allies = EntityCache.get_group("enemy")
+	# Allies by side - see AllySystemHelper.
+	var allies: Array = AllySystemHelper.get_allies(mech)
 	for ally in allies:
 		if ally == mech or not is_instance_valid(ally) or not ("external_cloak_timer" in ally):
 			continue

@@ -168,12 +168,4 @@ func sell_all(max_rarity: int):
 	if total_scrap > 0:
 		main.player_scrap += total_scrap
 		garage._refresh_inventory_ui()
-		var float_lbl = Label.new()
-		float_lbl.text = "+" + str(total_scrap) + " Scrap"
-		float_lbl.modulate = Color(1.0, 0.8, 0.2)
-		float_lbl.global_position = garage.get_viewport().get_mouse_position() - Vector2(20, 20)
-		garage.add_child(float_lbl)
-		var tw = garage.create_tween()
-		tw.tween_property(float_lbl, "global_position:y", float_lbl.global_position.y - 50, 1.0)
-		tw.parallel().tween_property(float_lbl, "modulate:a", 0.0, 1.0)
-		tw.tween_callback(float_lbl.queue_free)
+		garage._show_scrap_float("+" + str(total_scrap) + " Scrap")

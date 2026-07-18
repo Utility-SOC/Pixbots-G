@@ -14,6 +14,8 @@ extends RefCounted
 # stays a real Mech method (now a thin lazy-constructing wrapper) since
 # _physics_process calls it directly by that name.
 
+const AllySystemHelper = preload("res://scripts/entities/AllySystemHelper.gd")
+
 var mech: Mech
 
 func _init(p_mech: Mech):
@@ -36,14 +38,8 @@ func tick(delta: float) -> void:
 
 func _emit_pulse():
 	# Allies by side: AI beacons heal their squad (the "enemy" group); the
-	# player's beacon heals their companion drones.
-	var allies: Array = []
-	if mech.is_player:
-		var main = mech.get_tree().current_scene
-		if main and "drone_nodes" in main:
-			allies = main.drone_nodes.values()
-	else:
-		allies = EntityCache.get_group("enemy")
+	# player's beacon heals their companion drones. See AllySystemHelper.
+	var allies: Array = AllySystemHelper.get_allies(mech)
 	for ally in allies:
 		if ally == mech or not is_instance_valid(ally) or not ("hp" in ally):
 			continue

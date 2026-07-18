@@ -10,6 +10,8 @@ extends RefCounted
 # capacity fields. _update_shield_pulse(delta) is a thin lazy-constructing
 # wrapper on Mech since _physics_process calls it directly by that name.
 
+const AllySystemHelper = preload("res://scripts/entities/AllySystemHelper.gd")
+
 var mech: Mech
 
 func _init(p_mech: Mech):
@@ -25,15 +27,8 @@ func tick(delta: float) -> void:
 
 func _emit_pulse():
 	# Allies by side: AI beacons top up their squad (the "enemy" group); the
-	# player's tops up their companion drones - same split
-	# HealBeaconSystem._emit_pulse() already uses.
-	var allies: Array = []
-	if mech.is_player:
-		var main = mech.get_tree().current_scene if mech.is_inside_tree() else null
-		if main and "drone_nodes" in main:
-			allies = main.drone_nodes.values()
-	else:
-		allies = EntityCache.get_group("enemy")
+	# player's tops up their companion drones. See AllySystemHelper.
+	var allies: Array = AllySystemHelper.get_allies(mech)
 	for ally in allies:
 		if ally == mech or not is_instance_valid(ally) or not ("shield_hp" in ally) or not ("max_shield_hp" in ally):
 			continue

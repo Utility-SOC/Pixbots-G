@@ -168,6 +168,24 @@ func _ready():
 	_refresh_inventory_ui()
 
 func _populate_component_tabs():
+	# Preserve whatever was selected before the rebuild - playtest report:
+	# "I cannot upgrade any components except the torso - I pop to the
+	# torso every time I try to upgrade anything else." upgrade_part()/
+	# extract_modifier()/infuse_chip() (TileActionMenu.gd) and Swap
+	# Component (below) all call _refresh_component_ui() afterward, which
+	# calls this - the upgrade itself was applying correctly to whatever
+	# was actually active, but this then unconditionally jumped to tab 0
+	# (always Torso, per slot_order below), snapping the view back and
+	# making it look like only Torso could ever be upgraded. Captured as
+	# the raw tab metadata (not active_component.slot_type) since a Drone
+	# tab's active_component is that drone's own internal loadout, whose
+	# slot_type reads TORSO (see create_starter_drone) - deriving "which
+	# tab" from the component instead of the metadata would misidentify a
+	# selected Drone tab as the real Torso tab.
+	var prev_meta = null
+	if component_tabs.get_tab_count() > 0 and component_tabs.current_tab >= 0:
+		prev_meta = component_tabs.get_tab_metadata(component_tabs.current_tab)
+
 	component_tabs.clear_tabs()
 	if mech_components.is_empty():
 		return
@@ -200,7 +218,19 @@ func _populate_component_tabs():
 		component_tabs.add_tab(label)
 		component_tabs.set_tab_metadata(component_tabs.get_tab_count() - 1, {"slot": HexTile.BodySlot.DRONE, "bay": drone_bays[i]})
 
-	_on_tab_changed(0)
+	var restore_index = 0
+	if prev_meta != null:
+		for i in range(component_tabs.get_tab_count()):
+			var m = component_tabs.get_tab_metadata(i)
+			if m is Dictionary and prev_meta is Dictionary:
+				if m.get("slot") == prev_meta.get("slot") and m.get("bay") == prev_meta.get("bay"):
+					restore_index = i
+					break
+			elif m == prev_meta:
+				restore_index = i
+				break
+	component_tabs.current_tab = restore_index
+	_on_tab_changed(restore_index)
 
 # Returns every Drone Bay tile installed in the equipped Backpack, or an
 # empty array if there's no Backpack equipped or it has none installed.

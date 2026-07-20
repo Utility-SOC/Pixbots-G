@@ -39,6 +39,35 @@ func _show_popup(popup: PopupPanel, size: Vector2):
 			popup.hide()
 	)
 
+# BFS through hex-adjacency (not through packet routing - two Accumulators
+# just need to physically TOUCH, regardless of which faces are active) to
+# find every Accumulator tile transitively connected to `origin` on the
+# same grid, origin included. Per the user: "contiguous accumulators
+# should all adopt the settings of any other in the contiguous group, so I
+# can set the key and autofire stuff once instead of 15 times."
+func _find_contiguous_accumulators(origin: HexTile) -> Array:
+	var grid = garage.grid_renderer.hex_grid
+	if not grid or not origin.grid_position:
+		return [origin]
+	var seen = {}
+	var group: Array = []
+	var queue = [origin]
+	var start_key = "%d,%d" % [origin.grid_position.q, origin.grid_position.r]
+	seen[start_key] = true
+	while not queue.is_empty():
+		var curr = queue.pop_back()
+		group.append(curr)
+		for d in range(6):
+			var n = curr.grid_position.neighbor(d)
+			var key = "%d,%d" % [n.q, n.r]
+			if seen.has(key):
+				continue
+			seen[key] = true
+			var neighbor_tile = grid.get_tile(n)
+			if neighbor_tile and neighbor_tile.tile_type == "Accumulator":
+				queue.append(neighbor_tile)
+	return group
+
 func on_tile_clicked(tile: HexTile):
 	if tile.tile_type == "Core Reactor":
 		var popup = PopupPanel.new()
@@ -352,8 +381,12 @@ func on_tile_clicked(tile: HexTile):
 		var vbox = VBoxContainer.new()
 		popup.add_child(vbox)
 
+		var group_size = _find_contiguous_accumulators(tile).size()
 		var label = Label.new()
 		label.text = "Configure Accumulator Trigger Key"
+		if group_size > 1:
+			label.text += "\n(%d contiguous Accumulators - settings apply to the whole group)" % group_size
+			label.autowrap_mode = TextServer.AUTOWRAP_WORD
 		vbox.add_child(label)
 
 		var opt = OptionButton.new()
@@ -369,10 +402,16 @@ func on_tile_clicked(tile: HexTile):
 		opt.select(current)
 
 		opt.item_selected.connect(func(index):
-			if index == 0: tile.trigger_key = "None"
-			elif index == 1: tile.trigger_key = "1"
-			elif index == 2: tile.trigger_key = "2"
-			elif index == 3: tile.trigger_key = "3"
+			var key = "None"
+			if index == 1: key = "1"
+			elif index == 2: key = "2"
+			elif index == 3: key = "3"
+			# Contiguous accumulators share settings (per the user: "so I can
+			# set the key, and autofire stuff once instead of 15 times") -
+			# every Accumulator touching this one, transitively, adopts the
+			# same trigger key.
+			for acc in _find_contiguous_accumulators(tile):
+				acc.trigger_key = key
 			garage.grid_renderer.queue_redraw()
 		)
 		vbox.add_child(opt)
@@ -392,7 +431,9 @@ func on_tile_clicked(tile: HexTile):
 		dump_opt.add_item("100% charge (full auto-release)")
 		dump_opt.select(clampi(int(round(tile.auto_dump_threshold * 4.0)), 0, 4))
 		dump_opt.item_selected.connect(func(index):
-			tile.auto_dump_threshold = index * 0.25
+			var threshold = index * 0.25
+			for acc in _find_contiguous_accumulators(tile):
+				acc.auto_dump_threshold = threshold
 			garage._mark_player_grid_dirty()
 		)
 		vbox.add_child(dump_opt)

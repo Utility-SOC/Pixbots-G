@@ -123,6 +123,10 @@ var inventory: Array = []
 var search_input: LineEdit
 var rarity_filter: OptionButton
 var sim_button: Button
+# Live inventory search text (lowercased), read by GarageGridRenderer._draw_
+# tile to dim grid tiles that don't match - see GarageInventoryPanel.
+# refresh_inventory_ui. Empty means no filter/no dimming.
+var inventory_search_filter: String = ""
 
 var is_simulating: bool = false
 var simulation_runner: GarageSimulationRunner = null
@@ -232,13 +236,14 @@ func _populate_component_tabs():
 	component_tabs.current_tab = restore_index
 	_on_tab_changed(restore_index)
 
-# Returns every Drone Bay tile installed in the equipped Backpack, or an
-# empty array if there's no Backpack equipped or it has none installed.
+# Returns every Drone Bay tile installed anywhere across the mech's
+# equipped components (not just the Backpack - nothing actually restricts
+# where a Drone Bay can be placed, see DroneBayTile.find_all_in_mech; a
+# bay placed in the Torso/an Arm/a Leg/the Head used to never get a Drone
+# tab here despite clearly being present in the build).
 func _find_all_drone_bay_tiles():
-	if not mech_components.has(HexTile.BodySlot.BACKPACK):
-		return []
 	var DroneBayTileClass = load("res://scripts/tiles/DroneBayTile.gd")
-	return DroneBayTileClass.find_all_in_backpack(mech_components[HexTile.BodySlot.BACKPACK])
+	return DroneBayTileClass.find_all_in_mech(mech_components)
 
 func _refresh_component_ui():
 	# If player was loaded or components changed, update the reference and tabs
@@ -613,7 +618,19 @@ func _update_mount_preview(tile: HexTile, screen_pos: Vector2):
 		var now_ms = Time.get_ticks_msec()
 		if now_ms >= _mount_preview_next_recalc_ms:
 			_mount_preview_next_recalc_ms = now_ms + MOUNT_PREVIEW_DEBOUNCE_MS
-			p._recalculate_grid()
+			# is_grid_dirty-gated, matching every other _recalculate_grid()
+			# caller (Mech._shoot(), GarageTestRange._populate_mounts) -
+			# this used to recompute the FULL multi-component energy
+			# simulation (up to 7 components, each up to a 1000-step packet
+			# routing loop) unconditionally on every debounce tick while the
+			# mouse just swept across an unedited grid. The debounce alone
+			# only slowed the repeat rate; it never stopped the redundant
+			# recompute of the exact same inputs/outputs. The Test Range
+			# already gives real, live per-mount damage numbers, so there's
+			# nothing this preview needs a fresh recalc for except an actual
+			# loadout edit.
+			if p.is_grid_dirty:
+				p._recalculate_grid()
 		fire_rate = p.fire_rate
 		for d in p.precalculated_weapons:
 			if d.mount == tile:
@@ -656,6 +673,12 @@ func _mark_player_grid_dirty():
 	var main = get_parent()
 	if main and main.get("player") != null:
 		main.player.is_grid_dirty = true
+	# Any real build edit also invalidates the silent-snapshot cache (see
+	# GarageSimulationRunner._snapshot_cache) - cleared wholesale, not
+	# per-component, since a torso edit changes what every PERIPHERAL's
+	# snapshot would receive too.
+	if simulation_runner:
+		simulation_runner.invalidate_snapshot_cache()
 
 # Fire-and-forget notification to TutorialManager, if one exists (it may
 # not - only present during the first-run onboarding flow). Kept as a tiny
@@ -685,6 +708,7 @@ func _on_auto_equip_pressed():
 	var new_inventory = solver.solve(active_component, inventory)
 	if new_inventory != null:
 		inventory = new_inventory
+		_mark_player_grid_dirty() # auto-equip rewrites the whole grid - a real edit
 		grid_renderer.queue_redraw()
 		_refresh_inventory_ui()
 		print("Auto-Equip completed!")
@@ -718,6 +742,7 @@ func _on_clear_grid_pressed():
 		cleared += 1
 
 	if cleared > 0:
+		_mark_player_grid_dirty() # mass removal - a real edit
 		_refresh_inventory_ui()
 		grid_renderer.queue_redraw()
 		print("[Garage] Cleared %d tiles back to inventory" % cleared)

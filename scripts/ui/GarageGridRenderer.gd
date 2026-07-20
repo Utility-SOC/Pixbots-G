@@ -200,6 +200,10 @@ func _gui_input(event: InputEvent):
 						else:
 							hex_grid.remove_tile(hovered_hex)
 							menu_parent._add_to_inventory(tile)
+							# Removal is a real build edit - combat's lazy
+							# recalc must see it (see GarageInventoryPanel's
+							# matching placement-site comments).
+							menu_parent._mark_player_grid_dirty()
 							tooltip_cleared.emit()
 							queue_redraw()
 				
@@ -209,6 +213,7 @@ func _gui_input(event: InputEvent):
 				var tile = hex_grid.get_tile(hovered_hex)
 				if tile.has_method("rotate"):
 					tile.rotate(true) # Clockwise
+					menu_parent._mark_player_grid_dirty() # rotation changes routing - a real edit
 					queue_redraw()
 					if hovered_hex and hex_grid and hex_grid.has_tile(hovered_hex):
 						tooltip_requested.emit(hex_grid.get_tile(hovered_hex), get_global_mouse_position())
@@ -324,6 +329,30 @@ func _draw_tile(tile: HexTile):
 
 	if show_static_paths:
 		_draw_static_paths(tile, center)
+
+	# Search-dim (playtest: "if I search a hex in the inventory, it should
+	# highlight any tiles that match the filter on the grid, dim all tiles
+	# which do not"). A translucent dark overlay drawn on TOP of everything
+	# above - same overlay technique the hover highlight already uses -
+	# rather than threading an alpha multiplier through every color literal
+	# in _draw_descriptive_icon's dozen-plus branches.
+	if _should_dim_tile(tile):
+		_draw_hex_filled(tile.grid_position, Color(0.0, 0.0, 0.0, 0.6))
+		for off in tile.footprint_offsets:
+			var dim_cell = HexCoord.new(tile.grid_position.q + off.x, tile.grid_position.r + off.y)
+			_draw_hex_filled(dim_cell, Color(0.0, 0.0, 0.0, 0.6))
+
+# True when an inventory search is active AND this tile's type doesn't
+# match it - split out from _draw_tile so the filter logic itself
+# (matching GarageInventoryPanel.refresh_inventory_ui's own
+# tile.tile_type.to_lower().contains(search_text) test exactly, so a tile
+# never disagrees between "shown in inventory" and "dimmed on the grid")
+# is testable without needing an actual rendered frame.
+func _should_dim_tile(tile: HexTile) -> bool:
+	var filter_text: String = menu_parent.inventory_search_filter if menu_parent and "inventory_search_filter" in menu_parent else ""
+	if filter_text == "":
+		return false
+	return not tile.tile_type.to_lower().contains(filter_text)
 
 func _draw_arrow(center: Vector2, direction: int, color: Color):
 	var angle = direction * (PI / 3.0)
@@ -623,7 +652,191 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 		var out_angle = (r + 3) * (PI / 3.0)
 		draw_line(center + Vector2(cos(in_angle), sin(in_angle)) * hs * 0.7, center, base, 4.0, true)
 		draw_line(center, center + Vector2(cos(out_angle), sin(out_angle)) * hs * 0.7, base, 4.0, true)
-		
+
+	# --- Distinct icon batch (playtest: "a catalyst and a directional
+	# conduit are identical - lots of things share that graphic") - every
+	# tile type below used to fall through to the generic conduit-line/dot
+	# fallback at the bottom of this function, indistinguishable from each
+	# other and from Directional Conduit. Catalyst and Elemental Infuser
+	# double as the "show the configured element at a glance" request
+	# (playtest: "I want to be able to tell what an elemental infuser or a
+	# catalyst is configured to at a glance, without using inspect") - both
+	# tint their whole icon to the actual configured synergy color via the
+	# same _get_synergy_color table every other element-aware draw call uses.
+
+	elif type == "Catalyst":
+		# Funnel: wide mouth narrowing to a point, tinted to target_synergy -
+		# reads as "everything in, one element out."
+		var cat_color = _get_synergy_color(int(tile.get("target_synergy"))) if "target_synergy" in tile else base
+		var pts = PackedVector2Array([
+			center + Vector2(-hs * 0.55, -hs * 0.4),
+			center + Vector2(hs * 0.55, -hs * 0.4),
+			center + Vector2(0, hs * 0.5),
+		])
+		draw_polygon(pts, PackedColorArray([cat_color]))
+		draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), Color.WHITE * Color(1, 1, 1, 0.6), 1.5, true)
+
+	elif type == "Elemental Infuser":
+		# Droplet: a circle with a small point on top, tinted to
+		# secondary_synergy (RAW target = neutral amber pass-through, same
+		# convention InfuserTile.process_energy itself uses for RAW).
+		var inf_syn = int(tile.get("secondary_synergy")) if "secondary_synergy" in tile else 0
+		var inf_color = _get_synergy_color(inf_syn) if inf_syn != 0 else Color(0.85, 0.85, 0.85, 0.9)
+		draw_circle(center + Vector2(0, hs * 0.08), hs * 0.32, inf_color)
+		var drip = PackedVector2Array([
+			center + Vector2(-hs * 0.16, -hs * 0.05),
+			center + Vector2(hs * 0.16, -hs * 0.05),
+			center + Vector2(0, -hs * 0.5),
+		])
+		draw_polygon(drip, PackedColorArray([inf_color]))
+
+	elif type == "Filter":
+		# Sieve: horizontal strainer lines inside a ring, tinted to the one
+		# synergy this tile lets through.
+		var filt_color = _get_synergy_color(int(tile.get("allowed_synergy"))) if "allowed_synergy" in tile else base
+		draw_arc(center, hs * 0.55, 0, TAU, 20, filt_color, 2.0, true)
+		for i in range(-1, 2):
+			var yy = i * hs * 0.22
+			draw_line(center + Vector2(-hs * 0.4, yy), center + Vector2(hs * 0.4, yy), filt_color, 2.5, true)
+
+	elif type == "Magnet":
+		# Horseshoe magnet: an arc with two straight prongs and contrasting
+		# tip caps.
+		var mag_color = Color(0.85, 0.15, 0.15)
+		draw_arc(center, hs * 0.4, deg_to_rad(30), deg_to_rad(330), 16, mag_color, 4.0, true)
+		var a1 = deg_to_rad(30); var a2 = deg_to_rad(330)
+		var p1 = center + Vector2(cos(a1), sin(a1)) * hs * 0.4
+		var p2 = center + Vector2(cos(a2), sin(a2)) * hs * 0.4
+		draw_line(p1, p1 + Vector2(0, -hs * 0.25), mag_color, 4.0, true)
+		draw_line(p2, p2 + Vector2(0, -hs * 0.25), mag_color, 4.0, true)
+		draw_circle(p1 + Vector2(0, -hs * 0.25), 3.0, Color(0.9, 0.9, 0.9))
+		draw_circle(p2 + Vector2(0, -hs * 0.25), 3.0, Color(0.9, 0.9, 0.9))
+
+	elif type == "Jumpjet":
+		# Upward thrust triangle + motion lines beneath. Blink mode
+		# (Mythic) tints violet instead of the default flame-orange.
+		var is_blink = tile.rarity == HexTile.Rarity.MYTHIC and int(tile.get("mythic_mode")) == 1
+		var jet_color = Color(0.7, 0.3, 1.0) if is_blink else Color(1.0, 0.55, 0.1)
+		var tri = PackedVector2Array([
+			center + Vector2(0, -hs * 0.5),
+			center + Vector2(-hs * 0.28, hs * 0.15),
+			center + Vector2(hs * 0.28, hs * 0.15),
+		])
+		draw_polygon(tri, PackedColorArray([jet_color]))
+		for i in range(2):
+			var yy = hs * (0.3 + i * 0.2)
+			draw_line(center + Vector2(-hs * 0.15, yy), center + Vector2(hs * 0.15, yy), jet_color * Color(1, 1, 1, 0.7), 2.0, true)
+
+	elif type == "Actuator":
+		# Simple 6-tooth gear silhouette.
+		var act_color = Color(0.9, 0.55, 0.15)
+		var gear_pts = PackedVector2Array()
+		for i in range(12):
+			var ang = i * TAU / 12.0
+			var rad = hs * (0.5 if i % 2 == 0 else 0.32)
+			gear_pts.append(center + Vector2(cos(ang), sin(ang)) * rad)
+		draw_polygon(gear_pts, PackedColorArray([act_color]))
+		draw_circle(center, hs * 0.15, Color(0.15, 0.15, 0.15))
+
+	elif type == "Accumulator":
+		# Capacitor plates (two parallel bars) + the bound trigger key, if
+		# any, printed between them - the one piece of config info a
+		# player scanning the grid most wants without opening the popup.
+		var acc_color = Color(0.3, 0.85, 1.0)
+		draw_line(center + Vector2(-hs * 0.35, -hs * 0.3), center + Vector2(-hs * 0.35, hs * 0.3), acc_color, 4.0, true)
+		draw_line(center + Vector2(hs * 0.35, -hs * 0.3), center + Vector2(hs * 0.35, hs * 0.3), acc_color, 4.0, true)
+		var trig = str(tile.get("trigger_key")) if "trigger_key" in tile else "None"
+		if trig != "None":
+			draw_string(ThemeDB.fallback_font, center + Vector2(-6, 5), trig, HORIZONTAL_ALIGNMENT_CENTER, 20, 14, acc_color)
+
+	elif type == "Resonator":
+		# Concentric pulse rings. Mythic Sync adds a crossing tri-spoke
+		# motif (echoing the 3-path E/W-SE/NW-SW/NE crossing the tile's
+		# own design is built around) instead of a third plain ring.
+		var res_color = Color(0.6, 0.9, 0.5)
+		draw_arc(center, hs * 0.2, 0, TAU, 14, res_color, 2.0, true)
+		draw_arc(center, hs * 0.38, 0, TAU, 16, res_color * Color(1, 1, 1, 0.7), 2.0, true)
+		if tile.rarity == HexTile.Rarity.MYTHIC:
+			for d in range(3):
+				var ang = d * (PI / 3.0)
+				draw_line(center + Vector2(cos(ang), sin(ang)) * hs * 0.55, center - Vector2(cos(ang), sin(ang)) * hs * 0.55, res_color, 1.5, true)
+		else:
+			draw_arc(center, hs * 0.54, 0, TAU, 18, res_color * Color(1, 1, 1, 0.4), 2.0, true)
+
+	elif type == "Lance Mount":
+		# Elongated spear along the footprint's own direction (anchor to
+		# the first offset cell), spanning past this hex's edge to read as
+		# one long weapon rather than three separate tiles.
+		var lance_color = Color(1.0, 0.3, 0.3)
+		var lance_dir = Vector2(1, 0)
+		if tile.footprint_offsets.size() > 0:
+			var off0 = tile.footprint_offsets[0]
+			lance_dir = _hex_to_pixel(HexCoord.new(off0.x, off0.y)) - _hex_to_pixel(HexCoord.new(0, 0))
+			lance_dir = lance_dir.normalized() if lance_dir.length() > 0.01 else Vector2(1, 0)
+		var perp = lance_dir.rotated(PI / 2.0)
+		var spear = PackedVector2Array([
+			center + lance_dir * hs * 0.65,
+			center - lance_dir * hs * 0.5 + perp * hs * 0.18,
+			center - lance_dir * hs * 0.5 - perp * hs * 0.18,
+		])
+		draw_polygon(spear, PackedColorArray([lance_color]))
+
+	elif type == "Heal Beacon":
+		# Medical cross.
+		var heal_color = Color(0.3, 1.0, 0.5)
+		var w = hs * 0.12
+		draw_rect(Rect2(center - Vector2(w, hs * 0.4), Vector2(w * 2, hs * 0.8)), heal_color)
+		draw_rect(Rect2(center - Vector2(hs * 0.4, w), Vector2(hs * 0.8, w * 2)), heal_color)
+
+	elif type == "Jammer Module":
+		# Broadcasting signal arcs, expanding outward - matches the
+		# in-combat JammerField visual language.
+		var jam_color = Color(0.6, 0.3, 0.9)
+		draw_circle(center, hs * 0.1, jam_color)
+		for i in range(1, 3):
+			var rad = hs * 0.22 * i
+			draw_arc(center, rad, -PI * 0.35, PI * 0.35, 10, jam_color * Color(1, 1, 1, 1.0 - i * 0.2), 2.0, true)
+
+	elif type == "Drone Bay":
+		# Tiny quadcopter silhouette: diamond body, four corner rotor dots.
+		var drone_color = Color(0.3, 0.8, 0.9)
+		var body = PackedVector2Array([
+			center + Vector2(0, -hs * 0.2), center + Vector2(hs * 0.2, 0),
+			center + Vector2(0, hs * 0.2), center + Vector2(-hs * 0.2, 0),
+		])
+		draw_polygon(body, PackedColorArray([drone_color]))
+		for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
+			draw_circle(center + corner * hs * 0.4, 3.0, drone_color)
+			draw_line(center + corner * hs * 0.15, center + corner * hs * 0.4, drone_color, 1.5, true)
+
+	elif type == "Shield Generator":
+		# Shield outline (rounded-top pentagon). Aegis (tank) fills solid;
+		# Deflector (overflow eject) draws hollow with a bolt through it.
+		var sh_color = Color(0.3, 0.6, 1.0)
+		var shield_pts = PackedVector2Array([
+			center + Vector2(0, -hs * 0.5), center + Vector2(hs * 0.4, -hs * 0.25),
+			center + Vector2(hs * 0.3, hs * 0.35), center + Vector2(0, hs * 0.55),
+			center + Vector2(-hs * 0.3, hs * 0.35), center + Vector2(-hs * 0.4, -hs * 0.25),
+		])
+		var is_deflector = tile.rarity == HexTile.Rarity.MYTHIC and int(tile.get("mythic_mode")) == 1
+		if is_deflector:
+			draw_polyline(shield_pts, sh_color, 2.0, true)
+			draw_line(shield_pts[0], center, sh_color, 2.0, true)
+			draw_line(center, shield_pts[3], sh_color, 2.0, true)
+		else:
+			draw_polygon(shield_pts, PackedColorArray([sh_color]))
+
+	elif type == "Cloak Generator":
+		# Dashed ring - reads as "partially invisible."
+		var cloak_color = Color(0.5, 0.4, 0.7)
+		var dash_count = 10
+		for i in range(dash_count):
+			if i % 2 == 0:
+				continue
+			var a0 = i * TAU / dash_count
+			var a1 = (i + 0.7) * TAU / dash_count
+			draw_arc(center, hs * 0.45, a0, a1, 4, cloak_color, 3.0, true)
+
 	else:
 		# Generic conduit path
 		var default_travel_dir = 3

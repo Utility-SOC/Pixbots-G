@@ -354,8 +354,19 @@ func refresh_inventory_ui():
 		if count > 1:
 			btn.text += " [%d]" % count
 		btn.custom_minimum_size = Vector2(0, 50)
+		btn.tooltip_text = build_tile_tooltip_text(tile)
 		btn.gui_input.connect(_on_inventory_item_gui_input.bind(tile))
 		garage.inv_vbox.add_child(btn)
+
+	# Search-dim (playtest: "if I search a hex in the inventory, it should
+	# highlight any tiles that match the filter on the grid, dim all tiles
+	# which do not") - the grid doesn't know about the search box directly,
+	# so stash the live filter on garage for GarageGridRenderer._draw_tile
+	# to read, and force a repaint so a filter change is visible immediately
+	# rather than waiting for the renderer's own throttled redraw tick.
+	garage.inventory_search_filter = search_text
+	if garage.grid_renderer:
+		garage.grid_renderer.queue_redraw()
 
 func handle_input(event):
 	if event is InputEventMouseMotion:
@@ -479,6 +490,11 @@ func _drop_tile(pos: Vector2):
 			elif not garage.grid_renderer.hex_grid.has_tile(hex):
 				garage.grid_renderer.hex_grid.add_tile(hex, garage.dragged_tile)
 				garage.inventory.erase(garage.dragged_tile)
+				# Placement is a REAL build edit - without this, combat's
+				# lazy recalc (_shoot's is_grid_dirty gate) kept firing the
+				# pre-edit loadout ("I just made a change in the garage...
+				# it changed in the test range, but did not update in game").
+				garage._mark_player_grid_dirty()
 				garage._refresh_inventory_ui()
 				garage.grid_renderer.queue_redraw()
 				garage._tutorial_notify("tile_placed:any")
@@ -521,6 +537,7 @@ func _drop_footprint_tile(hex: HexCoord):
 		]
 		garage.grid_renderer.hex_grid.add_tile(hex, garage.dragged_tile)
 		garage.inventory.erase(garage.dragged_tile)
+		garage._mark_player_grid_dirty() # real build edit - see the single-drop site's comment
 		garage._refresh_inventory_ui()
 		garage.grid_renderer.queue_redraw()
 		garage._tutorial_notify("tile_placed:any")
@@ -570,6 +587,7 @@ func _drop_fill_line():
 		# Even the origin cell was blocked/invalid - give the tile back
 		garage.inventory.append(garage.dragged_tile)
 	else:
+		garage._mark_player_grid_dirty() # real build edit - see the single-drop site's comment
 		garage._tutorial_notify("tile_placed:any")
 		garage._tutorial_notify("tile_placed:" + garage.dragged_tile.tile_type)
 
@@ -616,10 +634,12 @@ const TILE_TYPE_BLURBS = {
 	"Component Link": "Internal routing tile connecting one component's grid to another - not normally placed by hand.",
 }
 
-func on_tooltip_requested(tile: HexTile, screen_pos: Vector2):
-	if garage.dragged_tile: return
-	garage.tooltip_label.show()
-	garage.tooltip_label.global_position = screen_pos + Vector2(15, 15)
+# Shared by the grid's own hover tooltip (garage.tooltip_label, positioned
+# by mouse) AND the inventory list's native Control.tooltip_text (playtest:
+# "when I hover a hex's name in inventory it should have a tooltip that
+# explains how the tile is used - the tooltips from the grid would be fine
+# for now") - one source of truth so the two never drift apart.
+static func build_tile_tooltip_text(tile: HexTile) -> String:
 	var mult = 1.0 + (tile.rarity * 0.15)
 	var rarity_name = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"][tile.rarity]
 	var text = "[ %s ] %s\nPower Multiplier: x%s" % [rarity_name, tile.tile_type, str(snapped(mult, 0.01))]
@@ -631,7 +651,13 @@ func on_tooltip_requested(tile: HexTile, screen_pos: Vector2):
 		text += "\nAmplification: " + str(tile.amplification)
 	if "split_count" in tile:
 		text += "\nSplits: " + str(tile.split_count)
-	garage.tooltip_label.text = text
+	return text
+
+func on_tooltip_requested(tile: HexTile, screen_pos: Vector2):
+	if garage.dragged_tile: return
+	garage.tooltip_label.show()
+	garage.tooltip_label.global_position = screen_pos + Vector2(15, 15)
+	garage.tooltip_label.text = build_tile_tooltip_text(tile)
 
 func on_tooltip_cleared():
 	garage.tooltip_label.text = ""

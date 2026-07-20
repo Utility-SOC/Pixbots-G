@@ -28,6 +28,11 @@ const MagnetTileScript = preload("res://scripts/tiles/MagnetTile.gd")
 const AccumulatorTileScript = preload("res://scripts/tiles/AccumulatorTile.gd")
 const ResonatorTileScript = preload("res://scripts/tiles/ResonatorTile.gd")
 const ShieldGeneratorTileScript = preload("res://scripts/tiles/ShieldGeneratorTile.gd")
+const JumpjetTileScript = preload("res://scripts/tiles/JumpjetTile.gd")
+const ActuatorTileScript = preload("res://scripts/tiles/ActuatorTile.gd")
+const LanceMountTileScript = preload("res://scripts/tiles/LanceMountTile.gd")
+const PowerGridSplitterTileScript = preload("res://scripts/tiles/brands/PowerGridSplitterTile.gd")
+const PowerGridResonatorTileScript = preload("res://scripts/tiles/brands/PowerGridResonatorTile.gd")
 const MechScript = preload("res://scripts/entities/Mech.gd")
 const RustGridSimScript = preload("res://scripts/core/RustGridSim.gd")
 const SaveManagerScript = preload("res://scripts/core/SaveManager.gd")
@@ -143,6 +148,83 @@ func _build_component_b():
 	comp.hex_grid.add_tile(HexCoord.new(1, -1), sniper)
 	return comp
 
+# --- Grid C: Mythic-tier tiles + brand overrides ----------------------------
+#   Core(0,0) fires E and SE toward two Reflectors that both redirect into
+#   the SAME Resonator Sync tile at (1,1), from DIFFERENT entry directions
+#   (path 1 and path 0) - exercises cross-path proc conferral, not just
+#   single-path residue deposit. One exit continues into a Mythic Splitter
+#   (ratio-weighted fan + remnant boost); the other lands directly on a
+#   Weapon Mount so its conferred proc is directly inspectable. Core's West
+#   and Northwest faces independently feed a Power Grid Splitter (pre-amp)
+#   and a Power Grid Resonator (Mythic Sync + post-amp).
+func _build_component_c():
+	var comp = ComponentEquipmentScript.new(HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON)
+	var hexes: Array[HexCoord] = [
+		HexCoord.new(0, 0), HexCoord.new(1, 0), HexCoord.new(0, 1), HexCoord.new(1, 1),
+		HexCoord.new(2, 1), HexCoord.new(1, 2), HexCoord.new(1, 3), HexCoord.new(0, 3),
+		HexCoord.new(-1, 0), HexCoord.new(-2, 0),
+		HexCoord.new(0, -1), HexCoord.new(0, -2),
+	]
+	comp.valid_hexes = hexes
+	comp._rebuild_valid_hex_set()
+
+	var core = CoreTileScript.new()
+	core.active_faces.clear()
+	for f in [0, 1, 3, 4]:
+		core.active_faces.append(f)
+	core.set_face_output(0, EnergyPacket.SynergyType.FIRE)
+	core.set_face_output(1, EnergyPacket.SynergyType.ICE)
+	core.set_face_output(3, EnergyPacket.SynergyType.KINETIC)
+	core.set_face_output(4, EnergyPacket.SynergyType.LIGHTNING)
+	comp.hex_grid.add_tile(HexCoord.new(0, 0), core)
+
+	# East path -> Reflector(1,0) rotation 1 -> exits SE toward Resonator,
+	# entering it from NW (path 1).
+	var refl_e = ReflectorTileScript.new()
+	refl_e.rotation_steps = 1
+	comp.hex_grid.add_tile(HexCoord.new(1, 0), refl_e)
+
+	# SE path -> Reflector(0,1) rotation 5 -> exits E toward Resonator,
+	# entering it from W (path 0).
+	var refl_se = ReflectorTileScript.new()
+	refl_se.rotation_steps = 5
+	comp.hex_grid.add_tile(HexCoord.new(0, 1), refl_se)
+
+	var res_sync = ResonatorTileScript.new()
+	res_sync.rarity = HexTile.Rarity.MYTHIC
+	comp.hex_grid.add_tile(HexCoord.new(1, 1), res_sync)
+
+	# Neither Reflector nor Resonator change packet.direction, so each
+	# packet continues exiting the Resonator in the same direction it
+	# arrived traveling: the path-1 packet (arrived via SE) continues SE
+	# to (1,2); the path-0 packet (arrived via E) continues E to (2,1).
+	var splitter = SplitterTileScript.new()
+	splitter.rarity = HexTile.Rarity.MYTHIC
+	var s_faces: Array[int] = [1, 2]
+	splitter.active_faces = s_faces
+	splitter.output_ratios = [1.0, 3.0, 5.0, 1.0, 1.0, 1.0]
+	comp.hex_grid.add_tile(HexCoord.new(1, 2), splitter)
+	comp.hex_grid.add_tile(HexCoord.new(1, 3), WeaponMountTileScript.new())
+	comp.hex_grid.add_tile(HexCoord.new(0, 3), WeaponMountTileScript.new())
+
+	comp.hex_grid.add_tile(HexCoord.new(2, 1), WeaponMountTileScript.new())
+
+	# West path -> Power Grid Splitter (pre-amp) -> Weapon Mount
+	var pg_split = PowerGridSplitterTileScript.new()
+	pg_split.rarity = HexTile.Rarity.MYTHIC
+	var pg_faces: Array[int] = [3]
+	pg_split.active_faces = pg_faces
+	comp.hex_grid.add_tile(HexCoord.new(-1, 0), pg_split)
+	comp.hex_grid.add_tile(HexCoord.new(-2, 0), WeaponMountTileScript.new())
+
+	# NW path -> Power Grid Resonator (Mythic Sync + post-amp) -> Weapon Mount
+	var pg_res = PowerGridResonatorTileScript.new()
+	pg_res.rarity = HexTile.Rarity.MYTHIC
+	comp.hex_grid.add_tile(HexCoord.new(0, -1), pg_res)
+	comp.hex_grid.add_tile(HexCoord.new(0, -2), WeaponMountTileScript.new())
+
+	return comp
+
 func _gen_packets(comp) -> Array:
 	var core = comp.hex_grid.get_tile(HexCoord.new(0, 0))
 	var pkts = core.generate_energy(comp.hex_grid)
@@ -151,7 +233,7 @@ func _gen_packets(comp) -> Array:
 	return pkts
 
 func _harvest(comp) -> Dictionary:
-	var out = {"mounts": {}, "transfers": {}, "stores": {}, "magnet": {}, "shieldsyn": {}, "remnant": {}}
+	var out = {"mounts": {}, "transfers": {}, "stores": {}, "magnet": {}, "shieldsyn": {}, "remnant": {}, "residue": {}}
 	for tile in comp.hex_grid.get_all_tiles():
 		var key = "%d,%d" % [tile.grid_position.q, tile.grid_position.r]
 		if "pending_packets" in tile and tile.pending_packets.size() > 0:
@@ -179,6 +261,11 @@ func _harvest(comp) -> Dictionary:
 			out["shieldsyn"][key] = tile.shield_synergies.duplicate()
 		if "_remnant_magnitudes" in tile and not tile._remnant_magnitudes.is_empty():
 			out["remnant"][key] = tile._remnant_magnitudes.duplicate()
+		if "_path_residue" in tile and not tile._path_residue.is_empty():
+			var r = {}
+			for path_id in tile._path_residue:
+				r[int(path_id)] = [tile._path_residue[path_id]["synergy"], tile._path_residue[path_id]["steps_left"]]
+			out["residue"][key] = r
 	return out
 
 func _close(a, b) -> bool:
@@ -216,6 +303,21 @@ func _compare(a: Dictionary, b: Dictionary) -> bool:
 		for key in ka2:
 			if not _cmp_syn("%s@%s" % [section, key], a[section][key], b[section][key]):
 				same = false
+	# Resonator Sync residue: {path_id: [synergy, steps_left]}.
+	var kr_a = a["residue"].keys(); kr_a.sort()
+	var kr_b = b["residue"].keys(); kr_b.sort()
+	if kr_a != kr_b:
+		print("    MISMATCH residue keys: gd=%s rust=%s" % [kr_a, kr_b]); same = false
+	else:
+		for key in kr_a:
+			var ra = a["residue"][key]; var rb = b["residue"][key]
+			var ra_keys = ra.keys(); ra_keys.sort()
+			var rb_keys = rb.keys(); rb_keys.sort()
+			if ra_keys != rb_keys:
+				print("    MISMATCH residue paths @%s: gd=%s rust=%s" % [key, ra_keys, rb_keys]); same = false; continue
+			for path_id in ra:
+				if ra[path_id] != rb[path_id]:
+					print("    MISMATCH residue @%s path %s: gd=%s rust=%s" % [key, path_id, ra[path_id], rb[path_id]]); same = false
 	# Transfers.
 	var kt_a = a["transfers"].keys(); kt_a.sort()
 	var kt_b = b["transfers"].keys(); kt_b.sort()
@@ -282,12 +384,16 @@ func _ready():
 
 	_run_grid("stateless", _build_component_a)
 	_run_grid("stateful", _build_component_b)
+	_run_grid("mythic", _build_component_c)
 
-	# Fallback correctness: a grid with a still-unrouted tile (Actuator,
-	# which needs mech-merge plumbing) must be refused, not half-simulated.
+	# Fallback correctness: a grid with a still-unrouted tile (a gated
+	# Catalyst - conditional/stateful in a way the bridge deliberately
+	# doesn't describe) must be refused, not half-simulated.
 	var comp_unsup = _build_component_a()
-	comp_unsup.hex_grid.add_tile(HexCoord.new(0, 1), load("res://scripts/tiles/ActuatorTile.gd").new())
-	_check("a grid with an unrouted tile (Actuator) falls back to GDScript",
+	var gated_catalyst = CatalystTileScript.new()
+	gated_catalyst.gate_min_magnitude = 5.0
+	comp_unsup.hex_grid.add_tile(HexCoord.new(0, 1), gated_catalyst)
+	_check("a grid with an unrouted tile (gated Catalyst) falls back to GDScript",
 		not RustGridSimScript.try_simulate(comp_unsup.hex_grid, _gen_packets(comp_unsup), true))
 
 	if failures == 0:

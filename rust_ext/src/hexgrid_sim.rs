@@ -766,6 +766,12 @@ fn process_energy(
                 state.residue_syn[this_path] = dom;
                 state.residue_steps[this_path] = tile.sync_dropoff[this_path];
             }
+            // Power Grid Resonator (brand subclass): a flat extra amplify
+            // pass applied AFTER the base Sync behavior, same "base +
+            // bonus" shape as the baseline Resonator's post_amp (kind 18).
+            if tile.post_amp != 1.0 {
+                p.amplify(tile.post_amp);
+            }
             vec![p]
         }
         20 => {

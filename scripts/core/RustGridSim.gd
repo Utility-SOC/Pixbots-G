@@ -30,17 +30,14 @@ const KIND_LINK_ROUTER = 10
 const KIND_STORE_SINK = 11
 const KIND_FILTER = 12
 const KIND_MAGNET = 13
-# KIND_JUMPJET (14) / KIND_ACTUATOR (15) are implemented in Rust but NOT
-# yet routed here - they merge into MECH-level energy (jumpjet_energy/
-# actuator_energy) which needs replay plumbing the bridge doesn't have
-# yet, so they still fall back to GDScript. Same for KIND_RESONATOR_SYNC
-# (19, cross-path proc residue), KIND_LANCE (21, multi-cell face gating),
-# and the Mythic Splitter remnant path. Widening to those is the next
-# increment (task tracked); the parity check would catch any early enable.
+const KIND_JUMPJET = 14
+const KIND_ACTUATOR = 15
 const KIND_SHIELD_STORE = 16
 const KIND_ACCUMULATOR = 17
 const KIND_RESONATOR = 18
+const KIND_RESONATOR_SYNC = 19
 const KIND_PRIME_CIRCUIT = 20
+const KIND_LANCE = 21
 
 # MASTER GATE for the Rust path. ENABLED after RustGridSimParityCheck went
 # fully green (2026-07-19): captures, transfers, stores, synergies, AND
@@ -93,16 +90,29 @@ static func _describe_tile(tile) -> Dictionary:
 		d["amp_mult"] = mult
 		d["aoe_add"] = aoe_add
 	elif t == "Splitter":
-		if tile.rarity == HexTile.Rarity.MYTHIC:
-			return {} # Mythic splitter carries remnant state - unsupported
 		var faces = PackedInt32Array()
 		var weights = PackedFloat64Array()
 		for f in tile.active_faces:
 			faces.append(f)
+			# get_ratio_weight already returns the correct per-face weight
+			# either way: flat 1.0 for non-Mythic, output_ratios[f] for
+			# Mythic - no branching needed here.
 			weights.append(tile.get_ratio_weight(f))
 		d["kind"] = KIND_SPLITTER
 		d["faces"] = faces
 		d["weights"] = weights
+		# Mythic Splitter: Resonator-style remnant boost + amplify(2.0),
+		# same state shape as ResonatorTile below (SplitterTile.gd's own
+		# _remnant_magnitudes dict, same 0.8/0.2/0.15 constants).
+		d["mythic_remnants"] = tile.rarity == HexTile.Rarity.MYTHIC
+		if tile.rarity == HexTile.Rarity.MYTHIC:
+			d["remnant"] = _syn_dict_to_packed(tile._remnant_magnitudes)
+			d["remnant_present"] = _syn_dict_to_present(tile._remnant_magnitudes)
+		# Power Grid Splitter (brand subclass, tile_type stays "Splitter"):
+		# a flat 0.5x amplify applied BEFORE the normal split - see
+		# PowerGridSplitterTile.gd's header.
+		if script_path.ends_with("PowerGridSplitterTile.gd"):
+			d["pre_amp"] = 1.0 + tile.POWER_GRID_AMPLIFY_BONUS
 	elif t == "Reflector":
 		d["kind"] = KIND_REFLECTOR
 		d["rotation"] = int(tile.rotation_steps)
@@ -188,17 +198,56 @@ static func _describe_tile(tile) -> Dictionary:
 		d["acc_trigger"] = _trigger_to_int(tile.trigger_key)
 		d["acc_quality"] = tile.get_quality_factor()
 	elif t == "Resonator":
-		# Mythic Resonator is the Sync (cross-path proc residue) tile - not
-		# yet routed (see the KIND note above); non-Mythic baseline is.
 		if tile.rarity == HexTile.Rarity.MYTHIC:
-			return {}
-		# Power Grid Resonator is a brand (Mythic) tile, so it never reaches
-		# here - the Mythic guard above already sends it to GDScript.
-		d["kind"] = KIND_RESONATOR
-		d["res_baseline_mult"] = 1.0 + TileStatsRegistry.get_stat("ResonatorTile", "baseline_amplify", 0.15) * tile._get_power_multiplier()
-		d["res_remnant_boost"] = tile.boost_per_remnant * tile._get_power_multiplier()
-		d["remnant"] = _syn_dict_to_packed(tile._remnant_magnitudes)
-		d["remnant_present"] = _syn_dict_to_present(tile._remnant_magnitudes)
+			# Mythic Resonator Sync: cross-path proc residue - see
+			# ResonatorTile._process_sync/_path_residue. _path_residue is a
+			# Dictionary keyed by path_id (0/1/2) -> {"synergy", "steps_left"};
+			# packed into fixed-size arrays (-1 = no residue on that path).
+			d["kind"] = KIND_RESONATOR_SYNC
+			var res_syn = PackedInt32Array([-1, -1, -1])
+			var res_steps = PackedInt32Array([0, 0, 0])
+			for path_id in tile._path_residue:
+				var pid = int(path_id)
+				if pid >= 0 and pid < 3:
+					res_syn[pid] = int(tile._path_residue[path_id]["synergy"])
+					res_steps[pid] = int(tile._path_residue[path_id]["steps_left"])
+			d["residue_syn"] = res_syn
+			d["residue_steps"] = res_steps
+			d["sync_dropoff"] = PackedInt32Array([tile.get_sync_dropoff(0), tile.get_sync_dropoff(1), tile.get_sync_dropoff(2)])
+		else:
+			d["kind"] = KIND_RESONATOR
+			d["res_baseline_mult"] = 1.0 + TileStatsRegistry.get_stat("ResonatorTile", "baseline_amplify", 0.15) * tile._get_power_multiplier()
+			d["res_remnant_boost"] = tile.boost_per_remnant * tile._get_power_multiplier()
+			d["remnant"] = _syn_dict_to_packed(tile._remnant_magnitudes)
+			d["remnant_present"] = _syn_dict_to_present(tile._remnant_magnitudes)
+		# Power Grid Resonator (brand subclass, tile_type stays "Resonator",
+		# Mythic-only so it always takes the Sync branch above): a flat
+		# extra amplify pass on top of the normal baseline/Sync behavior -
+		# see PowerGridResonatorTile.gd's header.
+		if script_path.ends_with("PowerGridResonatorTile.gd"):
+			d["post_amp"] = 1.0 + tile.ENHANCED_AMPLIFY_BONUS
+	elif t == "Jumpjet":
+		# Mech-level merge (jumpjet_energy/ignore_terrain/jumpjet_rarity) -
+		# the Rust engine captures the packet that WOULD be merged; the
+		# bridge replays it onto the real mech after simulate_grid returns
+		# (see the mech_merges write-back below), mirroring JumpjetTile.
+		# process_energy's grid.get_parent()-chase exactly.
+		d["kind"] = KIND_JUMPJET
+	elif t == "Actuator":
+		d["kind"] = KIND_ACTUATOR
+		d["actuator_base_mult"] = tile.base_speed_multiplier
+		d["actuator_kin_mult"] = TileStatsRegistry.get_stat("ActuatorTile", "kinetic_bonus_mult", 1.5)
+		d["actuator_ltg_mult"] = TileStatsRegistry.get_stat("ActuatorTile", "lightning_bonus_mult", 2.0)
+	elif t == "Lance Mount":
+		# Multi-cell (footprint_offsets) capture with per-face bookkeeping -
+		# see the write-back below for how lance_hits gets replayed onto
+		# _face_magnitudes/_fed_packet.
+		d["kind"] = KIND_LANCE
+		var extra = PackedInt32Array()
+		for off in tile.footprint_offsets:
+			extra.append(off.x)
+			extra.append(off.y)
+		d["extra_cells"] = extra
 	elif t == "Sensor Array" or t == "Missile Rack" or t == "Mobility Core":
 		d["kind"] = KIND_PASS # pure pass-through tiles
 	else:
@@ -352,6 +401,48 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 		if "last_dominant_synergy" in tile:
 			tile.last_dominant_synergy = int(dominant[idx])
 
+	# Lance Mount: replay each (cell, entry_dir, packet) hit onto the real
+	# tile's _face_magnitudes accumulator + track the highest-magnitude
+	# _fed_packet seen, exactly mirroring LanceMountTile.process_energy's
+	# own bookkeeping (called once per packet arrival there; here, once per
+	# captured hit, in the same order Rust discovered them).
+	for hit in result.get("lance_hits", []):
+		var tile = tile_objs[int(hit["tile"])]
+		if not ("_face_magnitudes" in tile):
+			continue
+		var pkt = _packet_from_dict(hit["packet"])
+		var face_key = "%d:%d" % [int(hit["cell"]), int(hit["entry"])]
+		tile._face_magnitudes[face_key] = tile._face_magnitudes.get(face_key, 0.0) + pkt.magnitude
+		if tile._fed_packet == null or pkt.magnitude > tile._fed_packet.magnitude:
+			tile._fed_packet = pkt
+
+	# Jumpjet/Actuator: mech-level merges. The Rust engine has no Godot Node
+	# access, so it can't reach into the mech mid-simulation like
+	# JumpjetTile/ActuatorTile.process_energy do - it captures the packet
+	# that WOULD be merged instead, and this replays it onto the real mech
+	# after the fact, chasing the same grid -> component -> mech double-hop.
+	var merges: Array = result.get("mech_merges", [])
+	if not merges.is_empty():
+		var mech = _resolve_mech(grid)
+		for m in merges:
+			var tile = tile_objs[int(m["tile"])]
+			var pkt = _packet_from_dict(m["packet"])
+			if tile.tile_type == "Jumpjet":
+				if mech and "current_move_speed" in mech and "base_move_speed" in mech:
+					if mech.get("jumpjet_energy") == null:
+						mech.set("jumpjet_energy", EnergyPacket.new(0.0, null))
+						mech.get("jumpjet_energy").synergies.clear()
+					mech.get("jumpjet_energy").merge(pkt)
+					if "ignore_terrain" in mech:
+						mech.ignore_terrain = true
+					if "jumpjet_rarity" in mech:
+						mech.jumpjet_rarity = max(mech.jumpjet_rarity, tile.rarity)
+			elif tile.tile_type == "Actuator":
+				if mech and "actuator_energy" in mech:
+					if not mech.get("actuator_energy"):
+						mech.set("actuator_energy", EnergyPacket.new(0.0, null))
+					mech.get("actuator_energy").merge(pkt)
+
 	# Stateful write-back: the Rust engine started each tile's state from the
 	# value we described and returns the final state - mirror it onto the
 	# real tile so a subsequent sim (re-simulating a peripheral without a
@@ -366,9 +457,32 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 				tile.stored_energy = float(st["stored_energy"])
 			if "shield_synergies" in tile:
 				tile.shield_synergies = _packed_to_syn_dict(st["stored_syn"])
-		elif t == "Resonator" and "_remnant_magnitudes" in tile:
+		elif t == "Resonator" and tile.rarity != HexTile.Rarity.MYTHIC and "_remnant_magnitudes" in tile:
 			tile._remnant_magnitudes = _packed_to_syn_dict_from_present(st["remnant"], st["remnant_present"])
+		elif t == "Resonator" and tile.rarity == HexTile.Rarity.MYTHIC and "_path_residue" in tile:
+			var residue_syn: PackedInt32Array = st["residue_syn"]
+			var residue_steps: PackedInt32Array = st["residue_steps"]
+			var new_residue = {}
+			for path_id in range(3):
+				if residue_syn[path_id] >= 0:
+					new_residue[path_id] = {"synergy": residue_syn[path_id], "steps_left": residue_steps[path_id]}
+			tile._path_residue = new_residue
+		elif t == "Splitter" and tile.rarity == HexTile.Rarity.MYTHIC and "_remnant_magnitudes" in tile:
+			tile._remnant_magnitudes = _packed_to_syn_dict_from_present(st["remnant"], st["remnant_present"])
+		elif t == "Actuator" and "current_speed_bonus" in tile:
+			tile.current_speed_bonus = float(st["speed_bonus"])
 	return true
+
+# Mirrors JumpjetTile/ActuatorTile.process_energy's own mech lookup exactly:
+# the hex grid's parent is the owning ComponentEquipment (has slot_type),
+# and ITS parent is the actual Mech.
+static func _resolve_mech(grid):
+	if not grid or not grid.get_parent():
+		return null
+	var mech = grid.get_parent()
+	if mech and "slot_type" in mech:
+		mech = mech.get_parent()
+	return mech
 
 static func _packed_to_syn_dict(packed) -> Dictionary:
 	# Only non-zero entries become keys, matching how GDScript accumulates

@@ -29,6 +29,7 @@ ProceduralMusic="*res://scripts/core/ProceduralMusic.gd"
 ProjectileManager="*res://scripts/core/ProjectileManager.gd"
 EntityCache="*res://scripts/core/EntityCache.gd"
 TileStatsRegistry="*res://scripts/core/TileStatsRegistry.gd"
+FpsCounter="*res://scripts/core/FpsCounter.gd"
 
 [physics]
 

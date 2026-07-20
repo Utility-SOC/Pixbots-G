@@ -18,6 +18,27 @@ var garage: GarageMenu
 func _init(p_garage: GarageMenu):
 	garage = p_garage
 
+# Shared modal-dismiss wiring for every tile-config popup below (per the
+# user: "you should be able to click outside of the hex grid, as well as
+# outside of the current hex grid popup window - if I click somewhere that
+# is neither the hex grid, or the popup window, it should close that popup
+# window"). Window.focus_exited fires whenever input focus moves away from
+# this embedded popup for ANY reason - a click on the grid, on empty space,
+# on another tile (opening a different popup) - which is exactly the
+# "clicked outside" condition being asked for, without needing to hand-roll
+# hit-testing against the grid's bounds. Centralized here once instead of
+# repeating the same three lines at all 11 call sites below, so every
+# config popup gets this behavior automatically and future ones inherit it
+# for free.
+func _show_popup(popup: PopupPanel, size: Vector2):
+	garage.add_child(popup)
+	popup.popup_centered(size)
+	popup.popup_hide.connect(func(): popup.queue_free())
+	popup.focus_exited.connect(func():
+		if is_instance_valid(popup):
+			popup.hide()
+	)
+
 func on_tile_clicked(tile: HexTile):
 	if tile.tile_type == "Core Reactor":
 		var popup = PopupPanel.new()
@@ -70,9 +91,7 @@ func on_tile_clicked(tile: HexTile):
 			)
 			vbox.add_child(native_btn)
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(250, 300))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(250, 300))
 
 	elif tile.tile_type == "Splitter" or tile.tile_type == "Accessory Return":
 		var popup = PopupPanel.new()
@@ -178,9 +197,7 @@ func on_tile_clicked(tile: HexTile):
 					vbox.add_child(row)
 				refresh_ratios.call()
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(400, 420))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(400, 420))
 
 	elif tile.tile_type == "Reflector":
 		var popup = PopupPanel.new()
@@ -200,9 +217,7 @@ func on_tile_clicked(tile: HexTile):
 		)
 		vbox.add_child(btn)
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(250, 100))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(250, 100))
 
 	elif tile.tile_type == "Elemental Infuser" or tile.tile_type == "Catalyst":
 		var popup = PopupPanel.new()
@@ -272,14 +287,12 @@ func on_tile_clicked(tile: HexTile):
 			)
 			vbox.add_child(inv_btn)
 
-		garage.add_child(popup)
 		# Wide/tall enough for up to 4 rows (Synergy + magnitude gate +
 		# cadence + Mythic Inverted) without wrapping/overlapping the grid
 		# behind it - same fix as the Splitter popup above ("the window is
 		# too narrow for readability"); the old fixed 250x100 only ever
 		# fit the single Synergy button this branch originally had.
-		popup.popup_centered(Vector2(340, 160) if tile.tile_type == "Catalyst" else Vector2(250, 100))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(340, 160) if tile.tile_type == "Catalyst" else Vector2(250, 100))
 
 	elif tile.tile_type == "Microcore":
 		var popup = PopupPanel.new()
@@ -332,9 +345,7 @@ func on_tile_clicked(tile: HexTile):
 			)
 			vbox.add_child(hbox)
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(400, 300))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(400, 300))
 
 	elif tile.tile_type == "Accumulator":
 		var popup = PopupPanel.new()
@@ -386,9 +397,7 @@ func on_tile_clicked(tile: HexTile):
 		)
 		vbox.add_child(dump_opt)
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(280, 160))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(280, 160))
 
 	elif tile.tile_type == "Magnet":
 		var popup = PopupPanel.new()
@@ -435,9 +444,7 @@ func on_tile_clicked(tile: HexTile):
 			)
 			vbox.add_child(repel_btn)
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(280, 120))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(280, 120))
 
 	elif tile.tile_type == "Weapon Mount" or tile.tile_type == "Jumpjet" or tile.tile_type == "Amplifier" or tile.tile_type == "Directional Conduit" or tile.tile_type == "Shield Generator" or tile.tile_type == "Actuator":
 		# Mythic-ability popup for tiles that had no click config before.
@@ -515,9 +522,7 @@ func on_tile_clicked(tile: HexTile):
 				)
 				vbox.add_child(aim_btn)
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(300, 150))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(300, 150))
 
 	elif tile.tile_type == "Jammer Module":
 		# Deliberately its own branch, NOT folded into the Mythic-gated
@@ -553,9 +558,7 @@ func on_tile_clicked(tile: HexTile):
 		)
 		vbox.add_child(synergy_btn)
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(300, 140))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(300, 140))
 
 	elif tile.tile_type == "Resonator":
 		# Per-path Sync Dropoff tuning (Status.md queue item 1) - how many
@@ -605,9 +608,7 @@ func on_tile_clicked(tile: HexTile):
 				row.add_child(plus)
 				vbox.add_child(row)
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(300, 200))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(300, 200))
 
 	elif tile.tile_type == "Drone Bay":
 		# Cosmetic choice, not a power spike - ungated by rarity like the
@@ -636,6 +637,4 @@ func on_tile_clicked(tile: HexTile):
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 		vbox.add_child(hint)
 
-		garage.add_child(popup)
-		popup.popup_centered(Vector2(320, 160))
-		popup.popup_hide.connect(func(): popup.queue_free())
+		_show_popup(popup, Vector2(320, 160))

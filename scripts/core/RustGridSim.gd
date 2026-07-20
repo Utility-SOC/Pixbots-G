@@ -38,6 +38,7 @@ const KIND_RESONATOR = 18
 const KIND_RESONATOR_SYNC = 19
 const KIND_PRIME_CIRCUIT = 20
 const KIND_LANCE = 21
+const KIND_THRUSTER = 22
 
 # MASTER GATE for the Rust path. ENABLED after RustGridSimParityCheck went
 # fully green (2026-07-19): captures, transfers, stores, synergies, AND
@@ -133,12 +134,13 @@ static func _describe_tile(tile) -> Dictionary:
 		d["conv_rate"] = rate
 		d["infuse_amount"] = amount
 	elif t == "Catalyst":
-		if (tile.inverted and tile.rarity == HexTile.Rarity.MYTHIC) \
-			or tile.gate_min_magnitude > 0.0 or tile.gate_every_n > 1:
-			return {} # gated/filter modes are stateful or conditional - unsupported
 		d["kind"] = KIND_CATALYST
 		d["catalyst_target"] = int(tile.target_synergy)
 		d["catalyst_mult"] = tile.efficiency * tile._get_power_multiplier()
+		d["gate_min_magnitude"] = tile.gate_min_magnitude
+		d["gate_every_n"] = tile.gate_every_n
+		d["inverted"] = tile.inverted
+		d["gate_counter"] = tile._gate_counter
 	elif t == "Core Reactor" or t == "Microcore":
 		var core_faces = PackedInt32Array()
 		for f in tile.active_faces:
@@ -169,6 +171,16 @@ static func _describe_tile(tile) -> Dictionary:
 	elif t == "Drone Bay":
 		d["kind"] = KIND_STORE_SINK
 		d["store_coef"] = 1.0
+	elif t == "Cloak Generator":
+		d["kind"] = KIND_STORE_SINK
+		# AllyCloakTile (Shadow Systems brand) overrides process_energy to
+		# read its OWN "AllyCloakTile" stats key instead of "CloakTile" -
+		# see AllyCloakTile.gd's header - so the coefficient can genuinely
+		# differ from the base tile even though tile_type is identical.
+		if script_path.ends_with("AllyCloakTile.gd"):
+			d["store_coef"] = 1.0 + tile.rarity * TileStatsRegistry.get_stat("AllyCloakTile", "energy_storage_rarity_coeff", 0.5)
+		else:
+			d["store_coef"] = 1.0 + tile.rarity * TileStatsRegistry.get_stat("CloakTile", "energy_storage_rarity_coeff", 0.5)
 	elif t == "Filter":
 		d["kind"] = KIND_FILTER
 		d["filter_allowed"] = int(tile.allowed_synergy)
@@ -226,6 +238,29 @@ static func _describe_tile(tile) -> Dictionary:
 		# see PowerGridResonatorTile.gd's header.
 		if script_path.ends_with("PowerGridResonatorTile.gd"):
 			d["post_amp"] = 1.0 + tile.ENHANCED_AMPLIFY_BONUS
+	elif t == "Prime Circuit":
+		# Amplifier + Infuser + Resonator-baseline in one tile - see
+		# PrimeCircuitTile.gd's own header for why it's three formulas
+		# applied sequentially rather than three composed sub-tiles.
+		d["kind"] = KIND_PRIME_CIRCUIT
+		d["amp_mult"] = TileStatsRegistry.get_stat("PrimeCircuitTile", "amplification", 1.2) * tile._get_power_multiplier()
+		d["infuse_syn"] = int(tile.secondary_synergy)
+		var pc_rate = TileStatsRegistry.get_stat("PrimeCircuitTile", "conversion_rate_base", 0.4) \
+			+ (tile.rarity * TileStatsRegistry.get_stat("PrimeCircuitTile", "conversion_rate_rarity_coeff", 0.15)) \
+			+ ((tile.level - 1) * TileStatsRegistry.get_stat("PrimeCircuitTile", "conversion_rate_level_coeff", 0.05))
+		d["conv_rate"] = min(pc_rate, 1.0)
+		d["infuse_amount"] = TileStatsRegistry.get_stat("PrimeCircuitTile", "power_infusion", 2.0) \
+			* (1.0 + tile.rarity * TileStatsRegistry.get_stat("PrimeCircuitTile", "infusion_rarity_coeff", 0.5)) \
+			* (1.0 + (tile.level - 1) * TileStatsRegistry.get_stat("PrimeCircuitTile", "infusion_level_coeff", 0.1))
+		d["res_baseline_mult"] = 1.0 + TileStatsRegistry.get_stat("PrimeCircuitTile", "baseline_amplify", 0.15) * tile._get_power_multiplier()
+		d["res_remnant_boost"] = TileStatsRegistry.get_stat("PrimeCircuitTile", "boost_per_remnant", 1.3) * tile._get_power_multiplier()
+		d["remnant"] = _syn_dict_to_packed(tile._remnant_magnitudes)
+		d["remnant_present"] = _syn_dict_to_present(tile._remnant_magnitudes)
+	elif t == "Maneuvering Thruster":
+		# Mech-level merge (mech.thruster_accel_bonus) - same grid.get_parent()
+		# chase as Jumpjet/Actuator, replayed by the bridge after simulate_
+		# grid returns (see the mech_merges write-back below).
+		d["kind"] = KIND_THRUSTER
 	elif t == "Jumpjet":
 		# Mech-level merge (jumpjet_energy/ignore_terrain/jumpjet_rarity) -
 		# the Rust engine captures the packet that WOULD be merged; the
@@ -442,6 +477,9 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 					if not mech.get("actuator_energy"):
 						mech.set("actuator_energy", EnergyPacket.new(0.0, null))
 					mech.get("actuator_energy").merge(pkt)
+			elif tile.tile_type == "Maneuvering Thruster":
+				if mech and "thruster_accel_bonus" in mech:
+					mech.thruster_accel_bonus = max(mech.thruster_accel_bonus, tile.rarity)
 
 	# Stateful write-back: the Rust engine started each tile's state from the
 	# value we described and returns the final state - mirror it onto the
@@ -471,6 +509,10 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 			tile._remnant_magnitudes = _packed_to_syn_dict_from_present(st["remnant"], st["remnant_present"])
 		elif t == "Actuator" and "current_speed_bonus" in tile:
 			tile.current_speed_bonus = float(st["speed_bonus"])
+		elif t == "Prime Circuit" and "_remnant_magnitudes" in tile:
+			tile._remnant_magnitudes = _packed_to_syn_dict_from_present(st["remnant"], st["remnant_present"])
+		elif t == "Catalyst" and "_gate_counter" in tile:
+			tile._gate_counter = int(st.get("gate_counter", 0))
 	return true
 
 # Mirrors JumpjetTile/ActuatorTile.process_energy's own mech lookup exactly:

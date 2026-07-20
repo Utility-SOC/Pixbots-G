@@ -33,6 +33,9 @@ const ActuatorTileScript = preload("res://scripts/tiles/ActuatorTile.gd")
 const LanceMountTileScript = preload("res://scripts/tiles/LanceMountTile.gd")
 const PowerGridSplitterTileScript = preload("res://scripts/tiles/brands/PowerGridSplitterTile.gd")
 const PowerGridResonatorTileScript = preload("res://scripts/tiles/brands/PowerGridResonatorTile.gd")
+const PrimeCircuitTileScript = preload("res://scripts/tiles/brands/PrimeCircuitTile.gd")
+const CloakTileScript = preload("res://scripts/tiles/CloakTile.gd")
+const AllyCloakTileScript = preload("res://scripts/tiles/brands/AllyCloakTile.gd")
 const MechScript = preload("res://scripts/entities/Mech.gd")
 const RustGridSimScript = preload("res://scripts/core/RustGridSim.gd")
 const SaveManagerScript = preload("res://scripts/core/SaveManager.gd")
@@ -225,6 +228,69 @@ func _build_component_c():
 
 	return comp
 
+# --- Grid D: gated/inverted Catalyst, Prime Circuit, Cloak Generator ------
+#   Core(0,0) fires E, SE, W, NW.
+#   E : Mythic Inverted Catalyst(1,0, target=ICE) -> Weapon Mount - keeps
+#       only ICE, voids everything else (filter mode, no conversion).
+#   SE: gate_min_magnitude set ABOVE what the packet actually carries ->
+#       Weapon Mount - must pass through UNCONVERTED (still KINETIC, not
+#       the catalyst's target element).
+#   W : Prime Circuit (Mythic) -> Weapon Mount - amplify+infuse+resonate
+#       in one tile.
+#   NW: base Cloak Generator + AllyCloakTile (Mythic, different stats key)
+#       side by side, each its own store.
+func _build_component_d():
+	var comp = ComponentEquipmentScript.new(HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON)
+	var hexes: Array[HexCoord] = [
+		HexCoord.new(0, 0), HexCoord.new(1, 0), HexCoord.new(2, 0),
+		HexCoord.new(0, 1), HexCoord.new(1, 1),
+		HexCoord.new(-1, 0), HexCoord.new(-2, 0),
+		HexCoord.new(0, -1), HexCoord.new(1, -1),
+	]
+	comp.valid_hexes = hexes
+	comp._rebuild_valid_hex_set()
+
+	var core = CoreTileScript.new()
+	core.active_faces.clear()
+	for f in [0, 1, 3, 4, 5]:
+		core.active_faces.append(f)
+	core.set_face_output(0, EnergyPacket.SynergyType.ICE)
+	core.set_face_output(1, EnergyPacket.SynergyType.KINETIC)
+	core.set_face_output(3, EnergyPacket.SynergyType.FIRE)
+	core.set_face_output(4, EnergyPacket.SynergyType.POISON)
+	core.set_face_output(5, EnergyPacket.SynergyType.VAMPIRIC)
+	comp.hex_grid.add_tile(HexCoord.new(0, 0), core)
+
+	var inv_cat = CatalystTileScript.new()
+	inv_cat.rarity = HexTile.Rarity.MYTHIC
+	inv_cat.inverted = true
+	inv_cat.target_synergy = EnergyPacket.SynergyType.ICE
+	comp.hex_grid.add_tile(HexCoord.new(1, 0), inv_cat)
+	comp.hex_grid.add_tile(HexCoord.new(2, 0), WeaponMountTileScript.new())
+
+	var gated_cat = CatalystTileScript.new()
+	gated_cat.rarity = HexTile.Rarity.RARE
+	gated_cat.target_synergy = EnergyPacket.SynergyType.FIRE
+	gated_cat.gate_min_magnitude = 999999.0 # certainly above what Core outputs
+	comp.hex_grid.add_tile(HexCoord.new(0, 1), gated_cat)
+	comp.hex_grid.add_tile(HexCoord.new(1, 1), WeaponMountTileScript.new())
+
+	var prime = PrimeCircuitTileScript.new()
+	prime.rarity = HexTile.Rarity.MYTHIC
+	prime.secondary_synergy = EnergyPacket.SynergyType.VORTEX
+	comp.hex_grid.add_tile(HexCoord.new(-1, 0), prime)
+	comp.hex_grid.add_tile(HexCoord.new(-2, 0), WeaponMountTileScript.new())
+
+	var cloak = CloakTileScript.new()
+	cloak.rarity = HexTile.Rarity.RARE
+	comp.hex_grid.add_tile(HexCoord.new(0, -1), cloak)
+
+	var ally_cloak = AllyCloakTileScript.new()
+	ally_cloak.rarity = HexTile.Rarity.RARE
+	comp.hex_grid.add_tile(HexCoord.new(1, -1), ally_cloak)
+
+	return comp
+
 func _gen_packets(comp) -> Array:
 	var core = comp.hex_grid.get_tile(HexCoord.new(0, 0))
 	var pkts = core.generate_energy(comp.hex_grid)
@@ -385,15 +451,20 @@ func _ready():
 	_run_grid("stateless", _build_component_a)
 	_run_grid("stateful", _build_component_b)
 	_run_grid("mythic", _build_component_c)
+	_run_grid("catalyst_prime_cloak", _build_component_d)
 
-	# Fallback correctness: a grid with a still-unrouted tile (a gated
-	# Catalyst - conditional/stateful in a way the bridge deliberately
-	# doesn't describe) must be refused, not half-simulated.
+	# Fallback correctness: every real tile type in the game is now routed
+	# (gated/inverted Catalyst, Prime Circuit, and Cloak Generator/AllyCloak
+	# were the last ones - see this file's grid D) - so the safety net
+	# itself is exercised with a synthetic tile_type _describe_tile has
+	# never heard of, proving an unknown/future tile still falls back to
+	# GDScript instead of being half-simulated, rather than silently having
+	# no real coverage of that path at all now that nothing genuine trips it.
 	var comp_unsup = _build_component_a()
-	var gated_catalyst = CatalystTileScript.new()
-	gated_catalyst.gate_min_magnitude = 5.0
-	comp_unsup.hex_grid.add_tile(HexCoord.new(0, 1), gated_catalyst)
-	_check("a grid with an unrouted tile (gated Catalyst) falls back to GDScript",
+	var mystery_tile = CatalystTileScript.new()
+	mystery_tile.tile_type = "Completely Unknown Future Tile"
+	comp_unsup.hex_grid.add_tile(HexCoord.new(0, 1), mystery_tile)
+	_check("a grid with a tile_type _describe_tile has never heard of falls back to GDScript",
 		not RustGridSimScript.try_simulate(comp_unsup.hex_grid, _gen_packets(comp_unsup), true))
 
 	if failures == 0:

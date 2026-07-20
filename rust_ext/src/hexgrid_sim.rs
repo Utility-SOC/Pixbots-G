@@ -31,12 +31,15 @@ type VDict = Dictionary<Variant, Variant>;
 //   3 REFLECTOR     - direction = (entry + 3 + rotation) % 6
 //   4 CONDUIT       - pass-through, reports dominant synergy; valve mode
 //   5 INFUSER       - convert RAW -> syn at rate, then add flat amount
-//   6 CATALYST      - (ungated, non-inverted) convert everything -> target
+//   6 CATALYST      - convert everything -> target; optional magnitude/
+//                     every-Nth gating (state: gate_counter), optional
+//                     Mythic Inverted filter-instead-of-convert mode
 //   7 CORE          - redistribute incoming across active faces
 //   8 MOUNT_SINK    - Weapon Mount capture; optional range_mult (Sniper)
 //   9 LINK_SINK     - Component Link with target slot: transfer capture
 //  10 LINK_ROUTER   - Energy Intake/Accessory Return: split across faces
-//  11 STORE_SINK    - HealBeacon/Jammer/DroneBay/Cloak: bank mag * coef
+//  11 STORE_SINK    - HealBeacon/Jammer/DroneBay/Cloak (incl. AllyCloak):
+//                     bank mag * coef
 //  12 FILTER        - keep allowed+RAW, return removed mass to RAW at rate
 //  13 MAGNET        - accumulate magnetic power (state), lightning mult
 //  14 JUMPJET       - consume; emit mech-merge capture
@@ -48,6 +51,9 @@ type VDict = Dictionary<Variant, Variant>;
 //  19 RESONATOR_SYNC- Mythic: 3-path residue state + proc conferral
 //  20 PRIME_CIRCUIT - Amplifier + Infuser + Resonator-baseline in one
 //  21 LANCE         - multi-cell capture with per-face magnitude bookkeeping
+//  22 THRUSTER      - consume; emit mech-merge capture (Maneuvering
+//                     Thruster - mech.thruster_accel_bonus, no packet
+//                     merge needed, just the "was fed" event)
 
 const SYN_COUNT: usize = 10;
 const MAX_MAGNITUDE: f64 = 600000.0;
@@ -217,6 +223,7 @@ struct TileState {
     stored_energy: f64,
     stored_syn: [f64; SYN_COUNT],
     speed_bonus: f64,
+    gate_counter: i64,
 }
 
 struct TileDesc {
@@ -256,6 +263,9 @@ struct TileDesc {
     range_mult_stamp: f64,
     mythic_remnants: bool,
     extra_cells: Vec<(i64, i64)>,
+    gate_min_magnitude: f64,
+    gate_every_n: i64,
+    inverted: bool,
 }
 
 // HexCoord.get_directions(): E, SE, SW, W, NW, NE (axial q,r deltas).
@@ -377,12 +387,16 @@ fn parse_tile(d: &VDict) -> (TileDesc, TileState) {
         range_mult_stamp: get_f_or(d, "range_mult_stamp", 1.0),
         mythic_remnants: get_b(d, "mythic_remnants"),
         extra_cells,
+        gate_min_magnitude: get_f(d, "gate_min_magnitude"),
+        gate_every_n: get_i(d, "gate_every_n"),
+        inverted: get_b(d, "inverted"),
     };
 
     let mut state = TileState::default();
     state.remnant = get_f10(d, "remnant");
     state.remnant_present = get_b10(d, "remnant_present");
     state.magnetic_power = get_f(d, "magnetic_power");
+    state.gate_counter = get_i(d, "gate_counter");
     if let Some(v) = d.get("residue_syn") {
         let arr = v.to::<PackedInt32Array>();
         let s = arr.as_slice();
@@ -594,6 +608,36 @@ fn process_energy(
             if p.magnitude <= 0.0 {
                 return vec![p];
             }
+            // Gated injection: a packet failing either gate passes through
+            // UNTOUCHED (no conversion, no efficiency gain). The counter
+            // only advances on packets that cleared the magnitude gate, so
+            // "every Nth" means every Nth QUALIFYING packet.
+            if tile.gate_min_magnitude > 0.0 && p.magnitude < tile.gate_min_magnitude {
+                return vec![p];
+            }
+            if tile.gate_every_n > 1 {
+                state.gate_counter = (state.gate_counter + 1) % tile.gate_every_n;
+                if state.gate_counter != 0 {
+                    return vec![p];
+                }
+            }
+            if tile.inverted && tile.rarity == MYTHIC_RARITY {
+                // Inverted (Mythic): filter mode - keep only the target
+                // element, void everything else outright (no conversion,
+                // no efficiency gain).
+                let kept = if p.syn_present[tile.catalyst_target] {
+                    p.syn[tile.catalyst_target]
+                } else {
+                    0.0
+                };
+                p.syn = [0.0; SYN_COUNT];
+                p.syn_present = [false; SYN_COUNT];
+                p.magnitude = 0.0;
+                if kept > 0.0 {
+                    p.add_synergy(tile.catalyst_target, kept);
+                }
+                return vec![p];
+            }
             let mut total_consumed = 0.0;
             for i in 0..SYN_COUNT {
                 if p.syn_present[i] {
@@ -799,6 +843,17 @@ fn process_energy(
             out.lance_hits.push((tile_idx, cell_idx, entry_dir, p.clone()));
             vec![]
         }
+        22 => {
+            // Maneuvering Thruster: consume + mech-level merge, same shape
+            // as Jumpjet/Actuator but the bridge write-back only needs the
+            // "this tile was fed" event (mech.thruster_accel_bonus takes
+            // the tile's rarity via max(), not the packet's magnitude).
+            if p.magnitude <= 0.0 || !p.active {
+                return vec![];
+            }
+            out.mech_merges.push((tile_idx, p.clone()));
+            vec![]
+        }
         _ => vec![p],
     }
 }
@@ -995,6 +1050,7 @@ impl HexGridSim {
             let _ = d.insert("speed_bonus", st.speed_bonus);
             let _ = d.insert("residue_syn", &residue_syn);
             let _ = d.insert("residue_steps", &residue_steps);
+            let _ = d.insert("gate_counter", st.gate_counter);
             out_states.push(&d.to_variant());
         }
 

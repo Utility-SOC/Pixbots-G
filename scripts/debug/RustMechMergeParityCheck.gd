@@ -17,6 +17,8 @@ const SplitterTileScript = preload("res://scripts/tiles/SplitterTile.gd")
 const JumpjetTileScript = preload("res://scripts/tiles/JumpjetTile.gd")
 const ActuatorTileScript = preload("res://scripts/tiles/ActuatorTile.gd")
 const LanceMountTileScript = preload("res://scripts/tiles/LanceMountTile.gd")
+const ThrusterTileScript = preload("res://scripts/tiles/ManeuveringThrusterTile.gd")
+const CatalystTileScript = preload("res://scripts/tiles/CatalystTile.gd")
 const MechScript = preload("res://scripts/entities/Mech.gd")
 const RustGridSimScript = preload("res://scripts/core/RustGridSim.gd")
 
@@ -40,7 +42,7 @@ func _build_jump_actuator_mech():
 	add_child(mech)
 
 	var comp = ComponentEquipmentScript.new(HexTile.BodySlot.TORSO, HexTile.Rarity.RARE)
-	var hexes: Array[HexCoord] = [HexCoord.new(0, 0), HexCoord.new(1, 0), HexCoord.new(0, 1)]
+	var hexes: Array[HexCoord] = [HexCoord.new(0, 0), HexCoord.new(1, 0), HexCoord.new(0, 1), HexCoord.new(-1, 0)]
 	comp.valid_hexes = hexes
 	comp._rebuild_valid_hex_set()
 
@@ -48,8 +50,10 @@ func _build_jump_actuator_mech():
 	core.active_faces.clear()
 	core.active_faces.append(0)
 	core.active_faces.append(1)
+	core.active_faces.append(3)
 	core.set_face_output(0, EnergyPacket.SynergyType.FIRE)
 	core.set_face_output(1, EnergyPacket.SynergyType.KINETIC)
+	core.set_face_output(3, EnergyPacket.SynergyType.LIGHTNING)
 	comp.hex_grid.add_tile(HexCoord.new(0, 0), core)
 
 	var jet = JumpjetTileScript.new()
@@ -60,8 +64,12 @@ func _build_jump_actuator_mech():
 	act.rarity = HexTile.Rarity.RARE
 	comp.hex_grid.add_tile(HexCoord.new(0, 1), act)
 
+	var thruster = ThrusterTileScript.new()
+	thruster.rarity = HexTile.Rarity.RARE
+	comp.hex_grid.add_tile(HexCoord.new(-1, 0), thruster)
+
 	mech.equip_component(comp)
-	return {"mech": mech, "comp": comp, "jet": jet, "act": act}
+	return {"mech": mech, "comp": comp, "jet": jet, "act": act, "thruster": thruster}
 
 func _gen_packets(comp) -> Array:
 	var core = comp.hex_grid.get_tile(HexCoord.new(0, 0))
@@ -98,8 +106,45 @@ func _check_jump_actuator():
 	_check("Actuator: tile.current_speed_bonus matches (%f vs %f)" % [gd_rig.act.current_speed_bonus, rust_rig.act.current_speed_bonus],
 		_close(gd_rig.act.current_speed_bonus, rust_rig.act.current_speed_bonus) and gd_rig.act.current_speed_bonus > 0.0)
 
+	_check("Maneuvering Thruster: mech.thruster_accel_bonus matches (%d vs %d)" % [gd_rig.mech.thruster_accel_bonus, rust_rig.mech.thruster_accel_bonus],
+		gd_rig.mech.thruster_accel_bonus == rust_rig.mech.thruster_accel_bonus and gd_rig.mech.thruster_accel_bonus == HexTile.Rarity.RARE)
+
 	gd_rig.mech.queue_free()
 	rust_rig.mech.queue_free()
+
+# --- Catalyst gate_every_n: the counter is STATE that must persist across
+# repeated Simulate presses (not reset each call) - a single-pass grid
+# can't exercise this, so it's tested here across 3 separate try_simulate
+# calls on the SAME tile, matching how a player would press Simulate
+# repeatedly on an unchanged build.
+func _check_catalyst_gate_counter():
+	var comp = ComponentEquipmentScript.new(HexTile.BodySlot.TORSO, HexTile.Rarity.RARE)
+	var hexes: Array[HexCoord] = [HexCoord.new(0, 0), HexCoord.new(1, 0), HexCoord.new(2, 0)]
+	comp.valid_hexes = hexes
+	comp._rebuild_valid_hex_set()
+	var core = CoreTileScript.new()
+	core.active_faces.clear()
+	core.active_faces.append(0)
+	core.set_face_output(0, EnergyPacket.SynergyType.FIRE)
+	comp.hex_grid.add_tile(HexCoord.new(0, 0), core)
+	var cat = CatalystTileScript.new()
+	cat.target_synergy = EnergyPacket.SynergyType.ICE
+	cat.gate_every_n = 3 # only every 3rd qualifying packet actually converts
+	comp.hex_grid.add_tile(HexCoord.new(1, 0), cat)
+	var mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
+	comp.hex_grid.add_tile(HexCoord.new(2, 0), mount)
+
+	var results: Array = []
+	for i in range(3):
+		mount.clear_pending()
+		RustGridSimScript.try_simulate(comp.hex_grid, _gen_packets(comp), true)
+		var converted = false
+		for item in mount.pending_packets:
+			if item.packet.synergies.has(EnergyPacket.SynergyType.ICE):
+				converted = true
+		results.append(converted)
+	_check("gate_every_n=3 across 3 calls: only the 3rd call actually converts (got %s)" % [results],
+		results == [false, false, true])
 
 # --- Lance Mount: 3-cell footprint, fed from 3 different directions across
 # 3 different cells, so _face_magnitudes accumulates several distinct keys.
@@ -193,7 +238,8 @@ func _ready():
 
 	_check_jump_actuator()
 	_check_lance()
+	_check_catalyst_gate_counter()
 
 	if failures == 0:
-		print("PASS: Jumpjet/Actuator mech-merge and Lance Mount multi-cell capture are packet-identical across engines")
+		print("PASS: Jumpjet/Actuator/Thruster mech-merges, Lance Mount multi-cell capture, and Catalyst gate-counter state all match across engines")
 	get_tree().quit(0 if failures == 0 else 1)

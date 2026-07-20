@@ -422,7 +422,15 @@ func _serialize_tile(tile) -> Dictionary:
 	elif tile.tile_type == "Core Reactor" or tile.tile_type == "Microcore":
 		data["active_faces"] = tile.active_faces
 		data["face_outputs"] = tile.face_outputs
-	elif tile.tile_type == "Elemental Infuser":
+	elif tile.tile_type == "Elemental Infuser" or tile.tile_type == "Prime Circuit":
+		# Prime Circuit (Corporate Sponsorships brand tile) carries the exact
+		# same secondary_synergy field/semantics as Elemental Infuser (it IS
+		# an Infuser stage, among the other two) but has its own tile_type,
+		# so it silently fell outside this check entirely - a save/load
+		# round trip reset every Prime Circuit's configured element back to
+		# RAW, the same class of bug as the sync_adjustment gap found
+		# earlier this session. Caught by RustGridSimParityCheck's
+		# save-round-trip methodology, not a live playtest report.
 		data["secondary_synergy"] = tile.secondary_synergy
 	elif tile.tile_type == "Catalyst":
 		data["target_synergy"] = tile.target_synergy
@@ -504,7 +512,7 @@ func _deserialize_tile(data: Dictionary):
 		if data.has("active_faces"):
 			tile.active_faces.clear()
 			for f in data["active_faces"]: tile.active_faces.append(int(f))
-	elif tile.tile_type == "Elemental Infuser":
+	elif tile.tile_type == "Elemental Infuser" or tile.tile_type == "Prime Circuit":
 		if data.has("secondary_synergy"):
 			tile.secondary_synergy = int(data["secondary_synergy"])
 	elif tile.tile_type == "Catalyst":

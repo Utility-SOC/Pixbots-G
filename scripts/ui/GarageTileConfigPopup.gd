@@ -98,7 +98,16 @@ func on_tile_clicked(tile: HexTile):
 		scroll.custom_minimum_size = Vector2(360, 340)
 		outer_vbox.add_child(scroll)
 		var vbox = VBoxContainer.new()
-		vbox.custom_minimum_size = Vector2(360, 0)
+		# 24px narrower than the scroll viewport itself (not the same width -
+		# see this block's own comment above about why the width is forced
+		# at all) - a vertical scrollbar draws as an OVERLAY inside a
+		# ScrollContainer's viewport rather than reserving its own space, so
+		# content set to the viewport's exact width had nowhere left for the
+		# thumb to sit except on top of whatever was at the right edge - the
+		# ratio-tuning rows' "+" buttons, in a Mythic Splitter with enough
+		# rows to actually need scrolling ("plus signs almost entirely
+		# covered by scrollbar" - playtest report).
+		vbox.custom_minimum_size = Vector2(336, 0)
 		vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		scroll.add_child(vbox)
 
@@ -484,8 +493,30 @@ func on_tile_clicked(tile: HexTile):
 			)
 			vbox.add_child(mode_btn)
 
+			# Weapon Mount carries a SECOND independent Mythic knob (per the
+			# user: "choose the direction relative to the mouse that
+			# projectiles come from, making it so mythics can be mounted
+			# anywhere easily") - the firing angle offset from the mouse-aim
+			# direction, overriding the usual wiring-derived offset entirely
+			# (see HexTile._fire_combined_projectile). Beam mode always aims
+			# dead-on regardless, so the button is disabled there to avoid
+			# implying a choice that has no effect.
+			if tile.tile_type == "Weapon Mount" and "mythic_aim_direction" in tile:
+				var aim_labels = ["Mouse (0°)", "+60°", "+120°", "Back (180°)", "-120°", "-60°"]
+				var aim_btn = Button.new()
+				var is_beam_mode = int(tile.get("mythic_pattern")) == 3
+				aim_btn.text = "Aim offset: %s (click to cycle)" % aim_labels[tile.mythic_aim_direction]
+				aim_btn.disabled = is_beam_mode
+				aim_btn.tooltip_text = "Beam mode always fires dead-on at the mouse." if is_beam_mode else "Fires at this fixed offset from the mouse, regardless of which hex face feeds this mount."
+				aim_btn.pressed.connect(func():
+					tile.cycle_mythic_aim_direction()
+					aim_btn.text = "Aim offset: %s (click to cycle)" % aim_labels[tile.mythic_aim_direction]
+					garage._mark_player_grid_dirty()
+				)
+				vbox.add_child(aim_btn)
+
 		garage.add_child(popup)
-		popup.popup_centered(Vector2(300, 120))
+		popup.popup_centered(Vector2(300, 150))
 		popup.popup_hide.connect(func(): popup.queue_free())
 
 	elif tile.tile_type == "Jammer Module":

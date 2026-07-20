@@ -14,6 +14,22 @@ extends HexTile
 func cycle_mythic_pattern():
 	mythic_pattern = (mythic_pattern + 1) % 5
 
+# MYTHIC ability: aim this mount at a fixed offset from the mouse-aim
+# direction, independent of which hex face actually routes power into it
+# (see HexTile._fire_combined_projectile's angle_offset computation - a
+# non-Mythic mount's firing angle is a byproduct of grid wiring: which
+# direction the packet happened to enter from vs. this component's fixed
+# "forward" direction). The user: "choose the direction relative to the
+# mouse that projectiles come from, making it so mythics can be mounted
+# anywhere easily." 0 = dead-on at the mouse (matches default/non-Mythic
+# behavior); 1-5 step around it in the same 6-direction convention every
+# other directional tile config uses (Splitter faces, Core faces, Conduit
+# rotation) - 60 degrees per step, so 3 fires straight back from the mouse.
+@export_range(0, 5) var mythic_aim_direction: int = 0
+
+func cycle_mythic_aim_direction():
+	mythic_aim_direction = (mythic_aim_direction + 1) % 6
+
 var pending_packets: Array = [] # Stores dictionary: { "packet": packet, "step": step }
 var current_charge: float = 0.0 # Used by Mech to track accumulator charging
 

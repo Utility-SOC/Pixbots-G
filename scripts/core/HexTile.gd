@@ -352,7 +352,11 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	var proj = _ProjectileClass.new()
 	var base_damage = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
 
-	var is_crit = (packet.magnitude >= EnergyPacket.MAX_MAGNITUDE) or (randf() < 0.05)
+	# Guaranteed crit at the (former, still-normal) magnitude ceiling -
+	# tied to NORMAL_MAGNITUDE_CAP rather than MAX_MAGNITUDE so existing
+	# capacitor-bank builds keep the payoff they always had; an all-Mythic
+	# overcharge packet clears this threshold too since it's strictly above it.
+	var is_crit = (packet.magnitude >= EnergyPacket.NORMAL_MAGNITUDE_CAP) or (randf() < 0.05)
 	if is_crit:
 		base_damage *= 2.0
 
@@ -418,11 +422,20 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	elif body_slot == BodySlot.HEAD:
 		forward_dir = 1 # Northeast (Up)
 
-	var entry_dir = packet.direction
-	var diff = (entry_dir - forward_dir + 6) % 6
 	var angle_offset = 0.0
 
-	if not is_beam:
+	# Mythic mounted-anywhere aim (WeaponMountTile.mythic_aim_direction):
+	# a player-chosen offset from the mouse-aim direction that completely
+	# REPLACES the wiring-derived offset below - the whole point being a
+	# Mythic mount fires exactly where configured regardless of which hex
+	# face happens to feed it, so it can be placed/rewired freely without
+	# hunting for the "right" entry direction to get a desired firing angle.
+	var has_mythic_aim = not is_beam and rarity == Rarity.MYTHIC and "mythic_aim_direction" in self
+	if has_mythic_aim and int(get("mythic_aim_direction")) != 0:
+		angle_offset = int(get("mythic_aim_direction")) * (PI / 3.0)
+	elif not is_beam:
+		var entry_dir = packet.direction
+		var diff = (entry_dir - forward_dir + 6) % 6
 		if diff == 1: angle_offset = deg_to_rad(15)
 		elif diff == 5: angle_offset = deg_to_rad(-15)
 		elif diff == 2: angle_offset = deg_to_rad(35)

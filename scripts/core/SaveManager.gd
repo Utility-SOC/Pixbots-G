@@ -460,7 +460,7 @@ func _serialize_tile(tile) -> Dictionary:
 	# The tail entries are the tile-config knobs (Resonator per-path
 	# dropoff, Splitter ratios, Accumulator auto-dump, Catalyst gating) -
 	# same sweep, JSON-safe types only (Arrays/floats/ints/strings).
-	for prop in ["mythic_pattern", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n"]:
+	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n"]:
 		if prop in tile:
 			data[prop] = tile.get(prop)
 
@@ -527,7 +527,7 @@ func _deserialize_tile(data: Dictionary):
 			tile.visual_class = int(data["visual_class"])
 
 	# Mythic ability state + tile-config knobs (see _serialize_tile's sweep)
-	for prop in ["mythic_pattern", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n"]:
+	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n"]:
 		if data.has(prop) and prop in tile:
 			tile.set(prop, data[prop])
 

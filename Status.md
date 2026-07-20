@@ -19,6 +19,23 @@ This document tracks the active implementation targets, backlog, and design expa
 
 ---
 
+## 1a. Pixelbots 2: The 3D Vision (captured 2026-07-20, not active work)
+
+This is the actual long-term destination the `pixbots_core` split above is aimed at. Recorded here as durable design intent, not a task queue - **PB1 stays the priority**, and PB1 only picks up changes from this vision when they're cheap/natural to do anyway (e.g. work already being done for other reasons that happens to also serve PB2). Nothing below should be read as "go build this now."
+
+**The core idea:** the hex grid isn't 2D forever - it's the 2D unfolding of a **3D cube grid**. Each hex a player places today is a face-projection of a cube; when the game goes 3D, that same build data describes a genuine 3D voxel structure. Garage UX changes accordingly: selecting a limb zooms the camera into a 3D model of that limb, and the player sees/edits columns and rows of cubes directly on the model - build logic and rules stay hex-based (so PB1's balance, routing, and solver code ports largely as-is), but the *view* is a real 3D shape, not a flat schematic.
+
+**Why this is exciting, in the user's own words:** the hex-grid shape rules already produce "weird long limbed" torsos and asymmetric builds in 2D - wrapped up into 3D cube volumes, those same shapes read as genuinely strange, cool silhouettes rather than just an odd flat outline. The build-in-hex/view-in-3D duality is the whole hook: familiar hex-grid engineering, alien-looking robots.
+
+**What this implies architecturally (informs, doesn't mandate, PB1 work):**
+- The hex-grid simulation (packet routing, tile process_energy, capture/store semantics - i.e. everything `hexgrid_sim.rs`/`RustGridSim.gd` now cover) is exactly the "gameplay rules" layer meant to become the engine-agnostic `pixbots_core` crate. Every tile ported to Rust in PB1 is (long-term) a tile PB2 doesn't have to re-implement - this is the concrete throughline from "port tiles to Rust for PB1 performance" to "build the PB2 foundation." They're the same work, not competing priorities.
+- Shape-generation code (`ComponentEquipment.generate_shape`/`generate_procedural_shape`) is the other natural PB2 seed - it already reasons about hex geometry as pure data (no Godot Node coupling in the algorithm itself), which is what a cube-projection layer would need to consume.
+- The engine question is open: Godot supports 3D natively (no engine swap forced), but a 3D-heavy sequel is also the natural point to revisit whether Godot remains the right fit vs. something with more mature 3D tooling - not a decision to make now, just flagged as a real fork in the road when PB2 actually starts.
+
+**Explicit non-goal for PB1:** PB1 does not need a 3D renderer, a cube-projection layer, or any camera/zoom-into-limb UX. Its job is only to keep the simulation/shape-generation layers clean and engine-agnostic where that's low-cost, so the eventual extraction is easier.
+
+---
+
 ## 2. Execution Queue (in order)
 
 Garage QoL first (felt immediately), then small gameplay wins, then progression systems, then the big engine lift, then the feature batch.
@@ -46,6 +63,8 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 - **Synergy Effects:** Signature status marks per element are shipped; deepen the lingering effects for VORTEX and VAMPIRIC (bleed/immobilize interactions with corpse statues).
 - **Near-peer difficulty watch:** evolution now earns premiums for player/ally damage and killing blows - watch whether it needs a counterweight (rubber-banding, bounty rewards for the player) as it sharpens.
 - **HUD & UX:** damage-number noise (popup budget shipped), unify menu keys (shipped), HUD legibility (shipped). Extend Synergy Codex to cover biome interactions still open.
+- **Scout torso shape:** a Scout-role torso should be leg-shaped - 3 hexes wide, variable length (matching the existing leg silhouette code) - rather than the current symmetric-disc torso shared by every role. Note: the recent torso-link-reachability fix deliberately removed the OLD scout/brawler torso thinning (it broke peripheral-link routing); this is a from-scratch replacement silhouette, not a revert, and must keep the 6-neighbor core hub + spoke-tip link placement guarantee that fix added.
+- **War Room "recent deaths" panel:** show the last 5 bots that killed the player (name/role/build snapshot) when entering the War Room FROM THE GARAGE specifically (i.e. after a death sent you there, not just any War Room visit) - lets the player study exactly what beat them. Needs: a small rolling death-log (SaveManager or WarRoomSnapshot-adjacent), populated wherever the player's death is currently attributed (see Mech._log_incoming_damage/resolve_attacker_label), and a new UI section in WarRoomMenu.gd gated on garage-entry context.
 
 ### Future Expansions
 - **Synchronous Online Multiplayer (GodotSteam):** P2P lobby punch-through using GodotSteam (no dedicated servers required).

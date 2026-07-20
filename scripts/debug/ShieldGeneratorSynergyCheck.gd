@@ -45,15 +45,19 @@ func _ready():
 	var second_read = shield_gen.get_shield_synergies()
 	_check("ShieldGeneratorTile.get_shield_synergies() clears after read", second_read.is_empty())
 
-	# Each tile still keeps its OWN distinct energy multiplier curve (not
-	# unified/homogenized - only the missing synergy-tracking was added)
+	# CONSOLIDATED (2026-07-20): ShieldGeneratorTile's linear scaling was
+	# deprecated - it's now a thin subclass of ShieldTile, so both use the
+	# SAME tuned per-rarity curve. This used to assert they diverged; now it
+	# asserts they're identical (the whole point of removing the mixed
+	# system). See ShieldConsolidationCheck for the full consolidation proof.
 	var shield_energy = shield.get_shield_energy()
 	var gen_energy_tile = ShieldGeneratorTileScript.new()
 	gen_energy_tile.rarity = HexTile.Rarity.RARE
 	gen_energy_tile.process_energy(lightning_packet.copy(), 0)
 	var gen_energy = gen_energy_tile.get_shield_energy()
-	_check("ShieldTile and ShieldGeneratorTile keep their own distinct energy curves (%.2f vs %.2f)" % [shield_energy, gen_energy], shield_energy != gen_energy)
+	_check("ShieldGeneratorTile now banks identically to ShieldTile (%.2f == %.2f) - one canonical curve" % [shield_energy, gen_energy],
+		abs(shield_energy - gen_energy) < 0.001)
 
 	if failures == 0:
-		print("PASS: ShieldGeneratorTile now contributes to shield_synergies like ShieldTile does")
+		print("PASS: ShieldGeneratorTile consolidated onto ShieldTile - shared synergy tracking AND shared curve")
 	get_tree().quit(0 if failures == 0 else 1)

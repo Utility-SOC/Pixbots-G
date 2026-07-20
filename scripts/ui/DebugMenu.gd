@@ -365,13 +365,18 @@ func _on_upgrade_core():
 					tile.rarity = HexTile.Rarity.LEGENDARY
 					tile.active_faces.clear()
 					tile.active_faces.append_array([0, 1, 2, 3, 4, 5])
-					# Assign different synergies to each face
-					tile.set_face_output(0, 1) # KINETIC
-					tile.set_face_output(1, 2) # FIRE
-					tile.set_face_output(2, 3) # ICE
-					tile.set_face_output(3, 4) # POISON
-					tile.set_face_output(4, 5) # LIGHTNING
-					tile.set_face_output(5, 7) # VORTEX
+					# Assign different synergies to each face. Use the named
+					# constants, not raw ints - a prior version passed literal
+					# numbers that didn't match the comments next to them
+					# (e.g. "# VORTEX" passing 7, which is actually KINETIC),
+					# so debug-upgraded Cores were silently emitting synergies
+					# the player never configured anywhere in their build.
+					tile.set_face_output(0, EnergyPacket.SynergyType.KINETIC)
+					tile.set_face_output(1, EnergyPacket.SynergyType.FIRE)
+					tile.set_face_output(2, EnergyPacket.SynergyType.ICE)
+					tile.set_face_output(3, EnergyPacket.SynergyType.POISON)
+					tile.set_face_output(4, EnergyPacket.SynergyType.LIGHTNING)
+					tile.set_face_output(5, EnergyPacket.SynergyType.VORTEX)
 					print("[Debug] Core upgraded to Legendary with all synergies!")
 
 func _on_upgrade_body_parts():
@@ -470,8 +475,7 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		"res://scripts/tiles/MagnetTile.gd",
 		"res://scripts/tiles/MicrocoreTile.gd",
 		"res://scripts/tiles/ResonatorTile.gd",
-		"res://scripts/tiles/ShieldGeneratorTile.gd",
-		"res://scripts/tiles/ShieldTile.gd",
+		"res://scripts/tiles/ShieldTile.gd", # canonical Shield Generator (ShieldGeneratorTile is a deprecated shim)
 		"res://scripts/tiles/DroneBayTile.gd"
 	]
 	

@@ -1116,7 +1116,7 @@ static func create_command_backpack(p_rarity: int = HexTile.Rarity.RARE):
 	var modules = [
 		["res://scripts/tiles/HealBeaconTile.gd", HexCoord.new(1, 0)],
 		["res://scripts/tiles/JammerModuleTile.gd", HexCoord.new(-1, 0)],
-		["res://scripts/tiles/ShieldGeneratorTile.gd", HexCoord.new(1, -1)],
+		["res://scripts/tiles/ShieldTile.gd", HexCoord.new(1, -1)],
 		["res://scripts/tiles/CloakTile.gd", HexCoord.new(-1, 1)],
 	]
 	if p_rarity >= HexTile.Rarity.LEGENDARY:

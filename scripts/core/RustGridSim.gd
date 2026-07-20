@@ -170,14 +170,12 @@ static func _describe_tile(tile) -> Dictionary:
 		d["magnet_lightning_mult"] = TileStatsRegistry.get_stat("MagnetTile", "lightning_bonus_mult", 1.5)
 		d["magnetic_power"] = tile.current_magnetic_power # in-place accumulation
 	elif t == "Shield Generator":
-		# BOTH ShieldTile.gd and ShieldGeneratorTile.gd carry tile_type
-		# "Shield Generator" but use different energy multipliers - split by
-		# script path (see the task #55 reconciliation note in each file).
+		# "Shield Generator" is now a single canonical class (ShieldTile);
+		# ShieldGeneratorTile is a deprecated thin subclass of it, so both
+		# use the same per-rarity curve. Always the curve - no more
+		# script-path split.
 		d["kind"] = KIND_SHIELD_STORE
-		if script_path.ends_with("ShieldTile.gd"):
-			d["shield_mult"] = TileStatsRegistry.get_stat_by_rarity("ShieldTile", "energy_mult_by_rarity", tile.rarity, [1.1, 1.5, 2.5, 5.0, 10.0])
-		else:
-			d["shield_mult"] = 1.0 + tile.rarity * TileStatsRegistry.get_stat("ShieldGeneratorTile", "energy_storage_rarity_coeff", 0.5)
+		d["shield_mult"] = TileStatsRegistry.get_stat_by_rarity("ShieldTile", "energy_mult_by_rarity", tile.rarity, [1.1, 1.5, 2.5, 5.0, 10.0])
 		d["stored_energy"] = tile.stored_energy # in-place accumulation
 		d["stored_syn"] = _syn_dict_to_packed(tile.shield_synergies)
 		d["stored_syn_present"] = _syn_dict_to_present(tile.shield_synergies)

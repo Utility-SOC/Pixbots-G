@@ -154,17 +154,13 @@ func _ready():
 		var jam_key = InputEventKey.new()
 		jam_key.physical_keycode = KEY_J
 		InputMap.action_add_event("jam_pulse", jam_key)
-	# War Room toggle (Tab) - unify menu keys (Status.md HUD/UX backlog):
-	# WarRoomMenu used to check raw physical_keycode == KEY_TAB/KEY_ESCAPE
-	# directly, the only menu in the game that didn't go through an
-	# InputMap action (every other menu's close key is "ui_cancel", same
-	# as this file's cloak/heal_pulse/jam_pulse are real actions rather
-	# than hardcoded keys). Registered here so it follows the same pattern.
-	if not InputMap.has_action("toggle_war_room"):
-		InputMap.add_action("toggle_war_room")
-		var war_room_key = InputEventKey.new()
-		war_room_key.physical_keycode = KEY_TAB
-		InputMap.action_add_event("toggle_war_room", war_room_key)
+	# toggle_war_room (Tab) registration moved into WarRoomMenu._ready()
+	# itself - registering it only here meant the action never existed for
+	# a War Room opened from the MAIN MENU scene (its "War Room" button
+	# instantiates WarRoomMenu directly, Main.gd never runs), so Tab
+	# silently did nothing there while Esc (built-in ui_cancel) worked -
+	# playtest: "it says push tab to close the war room, but that doesn't
+	# work. esc does, tab does not."
 
 	# Per the user: every game start (new game or loaded save) should land in
 	# the Garage first, not straight into combat - the player deploys
@@ -275,6 +271,13 @@ func _setup_hud():
 	dialogue_box.position = Vector2(1280 / 2 - 400, 100)
 	dialogue_box.size = Vector2(800, 120)
 	dialogue_box.visible = false
+	# ALWAYS, not the HUD's default PAUSABLE - the 3-loss game-over line
+	# ("I have to pull your tournament registration...") shows while the
+	# tree is paused for the death-triggered Garage reopen, and a PAUSABLE
+	# dialogue is completely input-frozen there: the RichTextLabel's own
+	# scrollbar exists but never responds ("cannot scroll in the death
+	# window").
+	dialogue_box.process_mode = Node.PROCESS_MODE_ALWAYS
 	hud_canvas.add_child(dialogue_box)
 
 	dialogue_label = RichTextLabel.new()
@@ -294,6 +297,13 @@ func _setup_hud():
 func show_dialogue(speaker: String, text: String, color: Color = Color(1.0, 0.85, 0.2), duration: float = 6.0):
 	if text == "": return
 	dialogue_box.visible = true
+	# Long monologues (rival intros, the 3-loss game-over speech) overflow
+	# the fixed 120px box with most of the text unreachable - grow the box
+	# with the content up to a cap; past the cap the RichTextLabel's own
+	# scrollbar takes over (and actually works now, see the ALWAYS
+	# process_mode in _setup_hud).
+	var estimated_lines = ceil(text.length() / 70.0) + 1.0
+	dialogue_box.size.y = clamp(60.0 + estimated_lines * 28.0, 120.0, 320.0)
 	var hex_color = color.to_html(false)
 	dialogue_label.text = "[b][color=#%s]%s[/color][/b]\n%s" % [hex_color, speaker, text]
 	dialogue_timer = duration
@@ -382,16 +392,17 @@ func _process(delta: float):
 
 	_update_player_blind_state()
 
-# Spawns a companion Drone for every Drone Bay tile installed anywhere in the
-# player's Backpack that doesn't already have a live drone and isn't on
+# Spawns a companion Drone for every Drone Bay tile installed anywhere in
+# ANY of the player's equipped components (not just the Backpack - nothing
+# actually restricts where a Drone Bay can be placed, see DroneBayTile.
+# find_all_in_mech) that doesn't already have a live drone and isn't on
 # respawn cooldown - called on every deploy (_close_garage) and again
 # whenever an individual bay's respawn cooldown elapses following a
 # mid-combat drone death (see _on_drone_died).
 func _spawn_drones_if_needed():
-	if not player or not player.components.has(HexTile.BodySlot.BACKPACK):
+	if not player:
 		return
-	var backpack = player.components[HexTile.BodySlot.BACKPACK]
-	var bays = DroneBayTile.find_all_in_backpack(backpack)
+	var bays = DroneBayTile.find_all_in_mech(player.components)
 	for i in range(bays.size()):
 		var drone_bay = bays[i]
 		var bay_id = drone_bay.get_instance_id()
@@ -584,7 +595,7 @@ func _initialize_starter_inventory():
 			tile.rarity = r
 			player_inventory.append(tile)
 
-			var shield = load("res://scripts/tiles/ShieldGeneratorTile.gd").new()
+			var shield = load("res://scripts/tiles/ShieldTile.gd").new()
 			shield.rarity = r
 			player_inventory.append(shield)
 
@@ -666,18 +677,23 @@ func _start_wave():
 		t_support.spawn_weight = 70.0
 		director.register_template(t_support)
 
-		var t_command = load("res://scripts/ai/SquadTemplate.gd").new("Command Escort", {"commander": 1, "brawler": 2, "sniper": 1})
+		# Per the user: "make sure the commanders have enough support to be
+		# able to make a difference in a pitched battle" - a Command Escort
+		# used to ship with zero healing/jamming/execute-immunity backup at
+		# all (just brawler/sniper muscle). A dedicated support slot means
+		# every Commander encounter now has real backline sustain.
+		var t_command = load("res://scripts/ai/SquadTemplate.gd").new("Command Escort", {"commander": 1, "support": 1, "brawler": 1, "sniper": 1})
 		t_command.has_shields = true
 		t_command.spawn_weight = 55.0 # rare-ish: a Commander on the field should feel like an event
 		director.register_template(t_command)
 
-		# Piercing Jammer's whole value is the execute-immunity aura it
-		# throws over its escort - pair it with roles a pierce-execute
-		# player would normally love shredding (brawler/ambusher, both
-		# squishy-ish melee-range targets) so the counterplay is legible.
-		var t_pierce_escort = load("res://scripts/ai/SquadTemplate.gd").new("Pierce Escort", {"piercing_jammer": 1, "brawler": 1, "ambusher": 1})
-		t_pierce_escort.spawn_weight = 45.0 # baseline rare-ish; SquadDirector up-weights hard once PIERCE-execution share is detected
-		director.register_template(t_pierce_escort)
+		# Support's execute-immunity aura (see SupportMech.gd) is the whole
+		# value here - pair it with roles a pierce-execute player would
+		# normally love shredding (brawler/ambusher, both squishy-ish
+		# melee-range targets) so the counterplay is legible.
+		var t_support_escort = load("res://scripts/ai/SquadTemplate.gd").new("Support Escort", {"support": 1, "brawler": 1, "ambusher": 1})
+		t_support_escort.spawn_weight = 45.0 # baseline rare-ish; SquadDirector up-weights hard once PIERCE-execution share is detected
+		director.register_template(t_support_escort)
 
 		# Divers flank through water other roles have to route around -
 		# paired with a scout for the same "hit-and-fade" playstyle rather
@@ -1036,7 +1052,7 @@ func _generate_random_tile() -> HexTile:
 		preload("res://scripts/tiles/SplitterTile.gd"),
 		preload("res://scripts/tiles/CatalystTile.gd"),
 		preload("res://scripts/tiles/MagnetTile.gd"),
-		preload("res://scripts/tiles/ShieldGeneratorTile.gd")
+		preload("res://scripts/tiles/ShieldTile.gd")
 	]
 	return tile_types.pick_random().new()
 
@@ -1126,11 +1142,65 @@ func _spawn_rival(director, force_rarity = -1, force_name = ""):
 		# add child ... already has a parent 'SquadDirector'" - this was a
 		# real crash every Rival wave.
 
+		# Chloe's swarm schtick (RivalProfile.drones_have_jammers +
+		# drone_swarm_count): she carries a Jammer Module herself, EVERY
+		# drone she fields gets one too, and her swarm is topped up to
+		# "about twenty micro-bots" with clones of her bay loadout - each
+		# projects its own VISION JammerField, and the fields' proximity
+		# stacking compounds the cloud into one huge combined blanket.
+		if profile and (profile.drones_have_jammers or profile.drone_swarm_count > 0):
+			_apply_rival_drone_profile(rival, profile)
+
 		if i == 0:
 			if rival.has_method("_show_floating_text"):
 				rival._show_floating_text("RIVAL: " + rival_name, Color(1.0, 0.85, 0.2))
 			if profile and profile.dialogue_intro != "":
 				show_dialogue(rival_name, profile.dialogue_intro, Color(1.0, 0.85, 0.2), 8.0)
+
+# See the drone-schtick block in _spawn_rival above. Drone loadouts are
+# SHARED object references between the DroneBayTile and any drone already
+# spawned from it (Drone.setup stores and equips the same
+# ComponentEquipment instance), so mutating the loadout grid + recalcing
+# the live drone updates both the flying unit and any future respawn from
+# the same bay in one pass. Swarm top-up drones get their own CLONES (see
+# DroneBayTile.spawn_drone_swarm).
+func _apply_rival_drone_profile(rival, profile):
+	if profile.drones_have_jammers:
+		# Her own kit: prefer the backpack (where support modules normally
+		# live), fall back to any component with a free hex.
+		var own_done = false
+		if rival.components.has(HexTile.BodySlot.BACKPACK):
+			own_done = JammerModuleTile.ensure_on_component(rival.components[HexTile.BodySlot.BACKPACK])
+		if not own_done:
+			for slot in rival.components:
+				if JammerModuleTile.ensure_on_component(rival.components[slot]):
+					break
+
+		# Every drone bay's loadout, wherever it's installed.
+		for bay in DroneBayTile.find_all_in_mech(rival.components):
+			JammerModuleTile.ensure_on_component(bay.get_or_build_loadout())
+
+	rival._recalculate_grid()
+	# Drones for this rival were already spawned inside _spawn_bot_for_role
+	# - their equipped component is the same loadout object just modified,
+	# so a recalc picks the new jammer up immediately. Count them while
+	# we're here so the swarm top-up knows how many are missing.
+	var live_drones = 0
+	var director = world.get_node_or_null("SquadDirector") if world else null
+	if director:
+		for child in director.get_children():
+			if "drone_loadout_source" in child and child.get("owner_mech") == rival:
+				child._recalculate_grid()
+				live_drones += 1
+
+	# Megaswarm top-up ("about twenty micro-bots"): clone the first bay's
+	# loadout (jammer already ensured above) out to the profile's count.
+	if profile.drone_swarm_count > live_drones and director:
+		var bays = DroneBayTile.find_all_in_mech(rival.components)
+		if not bays.is_empty():
+			var bay = bays[0]
+			DroneBayTile.spawn_drone_swarm(rival, director, bay.get_or_build_loadout(),
+				profile.drone_swarm_count - live_drones, bay.rarity, bay.visual_class)
 
 func _on_rival_defeated(rival):
 	# Guaranteed decent-quality drop (matches the "earn merchandise" story
@@ -1241,10 +1311,15 @@ var last_garage_wave: int = 1
 var player_lives_remaining: int = SaveManager.DIFFICULTY_LIVES[SaveManager.difficulty]
 
 func _on_player_died():
-	# Extra life: respawn in place instead of the full death sequence, as
-	# long as this isn't the last one. Only the true (0-lives-left) death
-	# falls through to the existing explosion/kick-to-garage flow below.
-	if player_lives_remaining > 1:
+	# Extra life: respawn in place instead of the full death sequence.
+	# Lives = RESPAWNS REMAINING: any death while at least one remains
+	# consumes it; only a death at 0 falls through to the real game over.
+	# Was `> 1`, which game-overed while the HUD still showed "Lives: 1"
+	# (playtest: "the death thing failed when I had two lives - I died, it
+	# killed me/game over screened") AND made Hard (1 life) behave
+	# identically to the top tier (0) - with `> 0`, every tier's number is
+	# literally how many deaths you survive past.
+	if player_lives_remaining > 0:
 		player_lives_remaining -= 1
 		_update_hud()
 		player.is_dead = false
@@ -1488,6 +1563,19 @@ func _close_garage():
 		# change moment) instead of interrupting live combat input.
 		if player.has_method("_recalculate_grid"):
 			player._recalculate_grid()
+		# Live drones share their loadout OBJECT with the Drone Bay tile the
+		# garage just edited, but nothing ever marked THEIR grids dirty - an
+		# already-flying drone kept firing its stale precalculated weapons
+		# until it died and respawned ("I just made a change in the garage
+		# ... it changed in the test range, but did not update in game").
+		# Same unconditional-on-deploy reasoning as the player's own flag
+		# above: one recalc per live drone per deploy covers every drone
+		# edit path, present and future.
+		for bay_id in drone_nodes:
+			var live_drone = drone_nodes[bay_id]
+			if is_instance_valid(live_drone) and live_drone.has_method("_recalculate_grid"):
+				live_drone.is_grid_dirty = true
+				live_drone._recalculate_grid()
 		SaveManager.save_game("autosave", player, player_inventory)
 		_spawn_drones_if_needed()
 		# Reactive music: key the soundtrack to the build that just left the

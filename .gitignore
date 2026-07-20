@@ -44,3 +44,12 @@ builds/
 # Cargo.lock IS committed (cdylib/application target, not a library - locking
 # exact dependency versions matters more than it would for a published crate).
 rust_ext/target/
+
+# Claude Code session data (worktrees, local settings) - machine-local, can
+# be large; never belongs in the repo.
+.claude/
+
+# One-off dev/session artifacts
+diff.txt
+CLAUDE_CODE_HANDOFF.md
+*.log

@@ -74,19 +74,27 @@ func trample_corn(cell: Vector2i):
 func _ready():
 	add_to_group("map_generator")
 	
+	# "Normal" map type gets larger-scale terrain/obstacle features than the
+	# other types (per the user: bigger island/biome patches, wider gaps
+	# between obstacle clusters) - halving these noise frequencies doubles
+	# the real-world size of every feature they drive (biome patches AND
+	# obstacle tendril bands), since a lower-frequency noise field varies
+	# more slowly across the same tile grid.
+	var freq_scale = 0.5 if map_type == "Normal" else 1.0
+
 	noise = FastNoiseLite.new()
 	noise.seed = randi()
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
 	noise.fractal_octaves = 4
-	noise.frequency = 0.05
-	
+	noise.frequency = 0.05 * freq_scale
+
 	moisture_noise = FastNoiseLite.new()
 	moisture_noise.seed = randi()
 	moisture_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	moisture_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
 	moisture_noise.fractal_octaves = 4
-	moisture_noise.frequency = 0.04
+	moisture_noise.frequency = 0.04 * freq_scale
 
 	# Drives obstacle TENDRILS: obstacles cluster along the thin winding
 	# zero-bands of this noise (hedgerows, ridge lines, ruin streets)
@@ -94,7 +102,7 @@ func _ready():
 	obstacle_noise = FastNoiseLite.new()
 	obstacle_noise.seed = randi()
 	obstacle_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	obstacle_noise.frequency = 0.035
+	obstacle_noise.frequency = 0.035 * freq_scale
 	
 	_generate_map()
 	_draw_map_to_texture()
@@ -649,7 +657,12 @@ func _should_spawn_obstacle(biome: BiomeType, roll: float, x: int = 0, y: int = 
 	if biome == BiomeType.WATER:
 		return false
 
-	var in_tendril = abs(obstacle_noise.get_noise_2d(x, y)) < 0.08 if obstacle_noise else false
+	# Narrower tendril band on Normal (per the user: "gaps between obstacles
+	# need to be larger") - combined with this map type's already-lower
+	# obstacle_noise frequency (see _ready), obstacle clusters read as
+	# thinner AND further apart, not just further apart.
+	var tendril_band = 0.05 if map_type == "Normal" else 0.08
+	var in_tendril = abs(obstacle_noise.get_noise_2d(x, y)) < tendril_band if obstacle_noise else false
 
 	if not in_tendril:
 		return roll < 0.004 # rare lone tree/boulder

@@ -1514,6 +1514,18 @@ func _on_wave_cleared():
 		_start_intermission()
 
 func _open_garage():
+	# Idempotent: never stack a second Garage on top of an existing one.
+	# _open_garage has multiple callers (the new-game start, the tutorial's
+	# _ensure_in_garage, DebugMenu's Teleport, the extraction return) and
+	# used to create+add_child a fresh GarageMenu every time regardless -
+	# so any two firing in the same frame (e.g. the tutorial forcing the
+	# Garage open a frame before the start sequence does) left TWO garages
+	# parented at once: a doubled/ghosted inventory, and a stale orphaned
+	# copy whose "Deploy to Battlefield" button pointed at a garage that was
+	# no longer the live one ("Deploy does nothing" / "tutorial broke the
+	# game"). One live garage, always.
+	if garage_ui and is_instance_valid(garage_ui):
+		return
 	print("Opening Garage Menu...")
 	get_tree().paused = true
 	AudioManager.set_combat_state(false) # garage is downtime regardless of how we got here

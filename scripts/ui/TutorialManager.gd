@@ -393,8 +393,16 @@ func _finish():
 # the player hand-built their grid through the guided steps, and silently
 # rearranging it would trash their own work.
 func _on_skip():
+	# DISMISS FIRST. Skip must ALWAYS work - the auto-equip below is a
+	# convenience, not a gate, and an error inside it must never leave the
+	# player trapped in the tutorial ("the tutorial can't be skipped"). By
+	# the time _apply_skip_equip runs, the tutorial is already gone.
+	is_active = false
+	SaveManager.tutorial_completed = true
+	if root:
+		root.queue_free()
+		root = null
 	_apply_skip_equip()
-	_finish()
 
 func _apply_skip_equip():
 	var main = get_parent()
@@ -403,14 +411,20 @@ func _apply_skip_equip():
 	var player = main.player
 	if not ("components" in player):
 		return
-	var inventory: Array = main.player_inventory if "player_inventory" in main else []
+	if not ("player_inventory" in main):
+		return
+	var inventory: Array = main.player_inventory
 	var solver = load("res://scripts/core/AutoEquipSolver.gd").new()
 	for slot in player.components.keys():
 		var comp = player.components[slot]
 		if comp and comp.hex_grid:
-			inventory = solver.solve(comp, inventory)
-	if "player_inventory" in main:
-		main.player_inventory = inventory
+			var solved = solver.solve(comp, inventory)
+			# NEVER let a null/failed solve wipe the inventory - that emptied
+			# the player's whole tile bin ("the component inventory is
+			# empty"). Keep the prior inventory on any non-Array result.
+			if solved is Array:
+				inventory = solved
+	main.player_inventory = inventory
 	player.is_grid_dirty = true
 	if player.has_method("_recalculate_grid"):
 		player._recalculate_grid()

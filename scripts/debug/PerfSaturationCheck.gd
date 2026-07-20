@@ -49,40 +49,47 @@ func _ready():
 		print("1) unsaturated: factor 1, one volley = one projectile")
 
 	# --- 2. Saturate with dummies: tiers respond ---------------------------
+	# Tightened tiers (playtest: still "a really low framerate" under heavy
+	# fire with the old thresholds) - 200 live now falls in the [150,3]
+	# bucket, not the old [150,2].
 	var dummies: Array = []
 	for i in range(200):
 		var d = Node2D.new()
 		world.add_child(d)
 		ProjectileManager.register(d)
 		dummies.append(d)
-	if not ProjectileManager.lite_visuals() or ProjectileManager.consolidation_factor() != 2:
-		push_error("FAIL: at 200+ live, expected lite visuals + factor 2 (got factor %d)" % ProjectileManager.consolidation_factor())
+	if not ProjectileManager.lite_visuals() or ProjectileManager.consolidation_factor() != 3:
+		push_error("FAIL: at 200 live, expected lite visuals + factor 3 (got factor %d)" % ProjectileManager.consolidation_factor())
 		failures += 1
 	else:
-		print("2) 200 live: lite visuals on, consolidation factor 2")
+		print("2) 200 live: lite visuals on, consolidation factor 3")
 
-	# --- 3. Consolidation: two volleys -> one merged projectile ------------
+	# --- 3. Consolidation: K volleys -> one merged projectile (K=3 at 200 live
+	# under the tightened tiers - was K=2) ----------------------------------
 	var before = _count_projectiles(world)
 	mount._fire_combined_projectile(mech, EnergyPacket.new(50.0, null), 0)
 	var after_first = _count_projectiles(world)
 	mount._fire_combined_projectile(mech, EnergyPacket.new(50.0, null), 0)
 	var after_second = _count_projectiles(world)
-	if after_first != before or after_second != before + 1:
-		push_error("FAIL: consolidation spawned %d then %d new (expected 0 then 1)" % [after_first - before, after_second - before])
+	mount._fire_combined_projectile(mech, EnergyPacket.new(50.0, null), 0)
+	var after_third = _count_projectiles(world)
+	if after_first != before or after_second != before or after_third != before + 1:
+		push_error("FAIL: consolidation spawned %d, %d, then %d new (expected 0, 0, then 1)" % [after_first - before, after_second - before, after_third - before])
 		failures += 1
 	else:
-		# The merged shot must carry BOTH volleys' energy: damage formula is
-		# magnitude * damage_mult * power_mult (x2 if the 5% crit rolled).
+		# The merged shot must carry ALL THREE volleys' energy: damage
+		# formula is magnitude * damage_mult * power_mult (x2 if the 5%
+		# crit rolled - checking against 2.9x rather than 3x for that slop).
 		var merged = null
 		for c in world.get_children():
 			if c.is_in_group("projectile"):
 				merged = c # last one added is fine; all others are from step 1
 		var expected_single = 50.0 * mount._get_damage_multiplier() * mount._get_power_multiplier()
-		if merged.damage < expected_single * 1.9:
-			push_error("FAIL: merged damage %f < 2 volleys' worth (%f)" % [merged.damage, expected_single * 2.0])
+		if merged.damage < expected_single * 2.9:
+			push_error("FAIL: merged damage %f < 3 volleys' worth (%f)" % [merged.damage, expected_single * 3.0])
 			failures += 1
 		else:
-			print("3) two saturated volleys -> one projectile carrying both packets (dmg %.0f >= %.0f)" % [merged.damage, expected_single * 1.9])
+			print("3) three saturated volleys -> one projectile carrying all three packets (dmg %.0f >= %.0f)" % [merged.damage, expected_single * 2.9])
 
 	# --- 4. Floater budget --------------------------------------------------
 	# Fresh window: earlier fires may have spent some budget via CRIT rolls.

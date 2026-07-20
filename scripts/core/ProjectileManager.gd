@@ -34,10 +34,13 @@ var _flight_rasterizer = null
 # always-current census of how busy the screen is. Three graduated responses
 # key off it, all of which relax back to zero cost the moment the count
 # drops (nothing latches):
-#   1. lite_visuals(): above ~90 live shots, newly built projectiles skip
-#      their per-shot particle systems / helix orbiters / trail Line2Ds and
-#      keep just the core synergy shape. At that density the ornaments are
-#      unreadable overdraw anyway.
+#   1. lite_visuals() / should_show_full_ornament(): above ~90 live shots,
+#      newly built projectiles thin their per-shot particle systems / helix
+#      orbiters / trail Line2Ds at a per-synergy rate (see
+#      should_show_full_ornament's own comment) rather than dropping them
+#      all at once - at that density the ornaments are unreadable overdraw
+#      anyway, but a stable partial rate reads as a deliberate style rather
+#      than a flicker.
 #   2. consolidation_factor(): above the tiers below, weapon mounts merge
 #      every K volleys into ONE projectile carrying the combined packet
 #      (see HexTile._fire_combined_projectile) - total damage output is
@@ -48,13 +51,53 @@ var _flight_rasterizer = null
 #   3. request_floater(): global budget for damage/CRIT popups so a bullet
 #      storm doesn't also spawn hundreds of tweened Labels.
 const LITE_VISUALS_THRESHOLD = 90
-const CONSOLIDATE_TIERS = [[350, 8], [240, 4], [150, 2]] # [live count, merge-K]
+# Tightened (playtest video: still "a really low framerate" under heavy
+# fire even with the original tiers active) - two changes: consolidation
+# now starts at 90 live shots instead of 150 (catches the climb earlier,
+# before the physics-server broad-phase cost has already piled up), and a
+# new top tier (500+, merge every 16) exists for genuinely extreme counts
+# that the old ceiling (350 -> merge every 8) didn't cap hard enough. This
+# is the real lever until the full Rust broadphase port (eliminating
+# Area2D per projectile entirely) lands - see ProjectileManager's own
+# header for why that's the actual architectural fix.
+const CONSOLIDATE_TIERS = [[500, 16], [350, 8], [240, 5], [150, 3], [90, 2]] # [live count, merge-K]
 
 func live_count() -> int:
 	return _active.size()
 
 func lite_visuals() -> bool:
 	return _active.size() >= LITE_VISUALS_THRESHOLD
+
+# Per-synergy ornament thinning (playtest: "could you thin the types of
+# particles rather than fully trimming some? half as many kinetic showing
+# up on screen, and a quarter of the vortex - showing up consistently").
+# Once the overall saturation gate (lite_visuals) trips, a shot's dominant
+# synergy no longer gets a flat all-or-nothing ornament - each synergy has
+# its own "1 in N shots gets the full ornament" rate, decided by a stable
+# ROTATING counter per synergy (not a per-shot coin flip), so the ratio
+# reads as a consistent, deliberate pattern rather than random flicker.
+# Below the saturation threshold, every shot always gets the full ornament
+# (unchanged prior behavior) - this only kicks in once things are already
+# busy enough that ProjectileManager's own header docs call "unreadable
+# overdraw anyway". Synergies not listed default to
+# ORNAMENT_DEFAULT_FULL_RATE; a synergy whose current visual has no lite/
+# full distinction at all (e.g. Kinetic's plain polygon) is unaffected
+# either way - the rate just never gets consulted for it yet.
+const ORNAMENT_FULL_RATE = {
+	EnergyPacket.SynergyType.VORTEX: 4,   # 1 in 4 gets the full spiral/helix orbs
+	EnergyPacket.SynergyType.FIRE: 2,     # 1 in 2 gets the full particle trail
+	EnergyPacket.SynergyType.KINETIC: 2,  # 1 in 2 gets the full speed trail
+}
+const ORNAMENT_DEFAULT_FULL_RATE = 2
+var _ornament_counters: Dictionary = {} # synergy_type (int) -> running count
+
+func should_show_full_ornament(synergy_type: int) -> bool:
+	if not lite_visuals():
+		return true
+	var rate = ORNAMENT_FULL_RATE.get(synergy_type, ORNAMENT_DEFAULT_FULL_RATE)
+	var count = _ornament_counters.get(synergy_type, 0) + 1
+	_ornament_counters[synergy_type] = count
+	return count % rate == 0
 
 func consolidation_factor() -> int:
 	var n = _active.size()

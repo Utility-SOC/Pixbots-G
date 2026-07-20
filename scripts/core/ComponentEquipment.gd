@@ -177,7 +177,17 @@ func generate_shape():
 					valid_hexes.append(HexCoord.new(q, r))
 			
 		HexTile.BodySlot.TORSO:
-			# Torso is symmetrical. Starts at 0,0 and grows outwards
+			# Torso is symmetrical. Starts at 0,0 and grows outwards as a
+			# SOLID hex disc. The scout/brawler role thinning that used to
+			# apply here (abs(q)>1 / abs(r)>1) is deliberately gone: it
+			# produced single-file torso strips where a Common core (fires
+			# only 1 face - see CoreTile.get_max_faces [1,1,2,6,6]) has no
+			# room to fan power out through a Splitter to every limb link,
+			# and opaque links can't be stacked in a line - "geometries that
+			# limit your ability to link to all." A torso must always have
+			# branching room; that's literally the "room to power every
+			# limb" ruling in the hex-budget comment above. Role silhouette
+			# variety lives in the arms/legs, not the torso.
 			valid_hexes.append(HexCoord.new(0, 0)) # Core
 			var radius = 1
 			while valid_hexes.size() < base_count:
@@ -186,14 +196,10 @@ func generate_shape():
 					for r in range(-radius, radius + 1):
 						if valid_hexes.size() >= base_count: break
 						if abs(q + r) <= radius:
-							# Role specific filtering
-							if role_variant == "scout" and abs(q) > 1: continue # Thin scout torso
-							if role_variant == "brawler" and abs(r) > 1: continue # Wide brawler torso
-							
 							var h = HexCoord.new(q, r)
 							# In axial, symmetry across vertical axis (x=0) is: q -> -q-r, r -> r
 							var h_sym = HexCoord.new(-q - r, r)
-							
+
 							if not _valid_hex_set.has(_hex_key(h.q, h.r)):
 								valid_hexes.append(h)
 								_valid_hex_set[_hex_key(h.q, h.r)] = true
@@ -203,6 +209,16 @@ func generate_shape():
 									valid_hexes.append(h_sym)
 									_valid_hex_set[_hex_key(h_sym.q, h_sym.r)] = true
 				radius += 1
+
+			# Guarantee the full 6-neighbor hub around the core exists even
+			# at the smallest budget, so a Splitter placed next to the core
+			# can always fan power out in every direction - the routing room
+			# every peripheral link depends on.
+			for d in range(6):
+				var n = HexCoord.new(0, 0).neighbor(d)
+				if not _valid_hex_set.has(_hex_key(n.q, n.r)):
+					valid_hexes.append(n)
+					_valid_hex_set[_hex_key(n.q, n.r)] = true
 				
 		HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R:
 			# Arms are long and narrow. 
@@ -431,84 +447,66 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 	torso.hex_grid.add_tile(HexCoord.new(0, 0), core_tile)
 	torso.fixed_sinks.append(HexCoord.new(0, 0))
 
-	# Find outermost Q for arms
-	var min_q = 0
-	var max_q = 0
-	for h in torso.valid_hexes:
-		if h.q < min_q: min_q = h.q
-		if h.q > max_q: max_q = h.q
+	# Peripheral links are OPAQUE sinks - energy stops at one, so two links
+	# on the same radial line from the core leaves the far one unpowered.
+	# Place each outbound link at a SPOKE TIP: the farthest valid hex
+	# straight out along one of the six core directions. That gives every
+	# link its own independent radial corridor back to the core (a Splitter
+	# in the core hub can fan into all six), regardless of how big or which
+	# role the torso is - "space to get around" to link every limb. The six
+	# hex directions (HexCoord.neighbor order) E, SE, SW, W, NW, NE map to
+	# limbs anatomically.
+	var spoke := {
+		HexTile.BodySlot.ARM_R: 0,   # E
+		HexTile.BodySlot.LEG_R: 1,   # SE (down-right)
+		HexTile.BodySlot.LEG_L: 2,   # SW (down-left)
+		HexTile.BodySlot.ARM_L: 3,   # W
+		HexTile.BodySlot.HEAD: 4,    # NW (up)
+		HexTile.BodySlot.BACKPACK: 5, # NE (up-right / behind)
+	}
+	for target_slot in spoke:
+		var tip = _spoke_tip(torso, spoke[target_slot])
+		if tip == null or torso.hex_grid.has_tile(tip):
+			# Degenerate (tiny/odd footprint): fall back to any free hex so
+			# the link still exists and can be reached/rerouted by the solver.
+			tip = _first_free_hex(torso, [])
+		if tip == null:
+			continue
+		var link = load("res://scripts/tiles/ComponentLinkTile.gd").new(target_slot, true)
+		link.body_slot = HexTile.BodySlot.TORSO
+		link.rarity = p_rarity
+		torso.hex_grid.add_tile(tip, link)
+		torso.fixed_sinks.append(tip)
 
-	# Add Sink for Left Arm
-	var l_arm_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.ARM_L, true)
-	l_arm_sink.body_slot = HexTile.BodySlot.TORSO
-	l_arm_sink.rarity = p_rarity
-	torso.hex_grid.add_tile(HexCoord.new(min_q, 0), l_arm_sink)
-	torso.fixed_sinks.append(HexCoord.new(min_q, 0))
-
-	# Add Sink for Right Arm
-	var r_arm_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.ARM_R, true)
-	r_arm_sink.body_slot = HexTile.BodySlot.TORSO
-	r_arm_sink.rarity = p_rarity
-	torso.hex_grid.add_tile(HexCoord.new(max_q, 0), r_arm_sink)
-	torso.fixed_sinks.append(HexCoord.new(max_q, 0))
-
-	# Find outermost R for head and legs
-	var min_r = 0
-	var max_r = 0
-	for h in torso.valid_hexes:
-		if h.r < min_r: min_r = h.r
-		if h.r > max_r: max_r = h.r
-
-	# Add Sink for Head (Top)
-	var head_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.HEAD, true)
-	head_sink.body_slot = HexTile.BodySlot.TORSO
-	head_sink.rarity = p_rarity
-	torso.hex_grid.add_tile(HexCoord.new(0, min_r), head_sink)
-	torso.fixed_sinks.append(HexCoord.new(0, min_r))
-
-	# Add Sink for Left Leg (Bottom Left)
-	var l_leg_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.LEG_L, true)
-	l_leg_sink.body_slot = HexTile.BodySlot.TORSO
-	l_leg_sink.rarity = p_rarity
-	torso.hex_grid.add_tile(HexCoord.new(-1, max_r), l_leg_sink)
-	torso.fixed_sinks.append(HexCoord.new(-1, max_r))
-
-	# Add Sink for Right Leg (Bottom Right)
-	var r_leg_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.LEG_R, true)
-	r_leg_sink.body_slot = HexTile.BodySlot.TORSO
-	r_leg_sink.rarity = p_rarity
-	torso.hex_grid.add_tile(HexCoord.new(1, max_r), r_leg_sink)
-	torso.fixed_sinks.append(HexCoord.new(1, max_r))
-
-	# Add Sink for Accessory Return (receives energy from Head/Backpack, acts as Input)
+	# Accessory Return (INBOUND - receives energy back from Head/Backpack;
+	# doesn't need core power, so it can sit on any free inner hex).
 	var head_return_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new()
 	head_return_sink.body_slot = HexTile.BodySlot.TORSO
 	head_return_sink.tile_type = "Accessory Return"
 	head_return_sink.rarity = p_rarity
-	var acc_pos = HexCoord.new(0, min_r + 1)
-	for h in torso.valid_hexes:
-		if not torso.hex_grid.has_tile(h):
-			acc_pos = h
-			break
-	torso.hex_grid.add_tile(acc_pos, head_return_sink)
-	torso.fixed_sinks.append(acc_pos)
-
-	# Add Sink for Backpack
-	var backpack_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.BACKPACK, true)
-	backpack_sink.body_slot = HexTile.BodySlot.TORSO
-	backpack_sink.rarity = p_rarity
-	torso.hex_grid.add_tile(HexCoord.new(0, 1), backpack_sink)
-	torso.fixed_sinks.append(HexCoord.new(0, 1))
+	var acc_pos = _first_free_hex(torso, [])
+	if acc_pos != null:
+		torso.hex_grid.add_tile(acc_pos, head_return_sink)
+		torso.fixed_sinks.append(acc_pos)
 
 	if role != "":
 		var ai_mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
 		ai_mount.body_slot = HexTile.BodySlot.TORSO
 		ai_mount.rarity = p_rarity
-		var ai_mount_pos = HexCoord.new(1, -1)
+		# Prefer an OFF-AXIS free hex (not on any of the six core->spoke
+		# radial lines, i.e. q!=0, r!=0, q+r!=0) so this self-powered AI
+		# torso gun never sits in a limb link's corridor and starves it.
+		# The old default (1,-1) was literally on the NE spoke and blocked
+		# the Backpack link on small enemy torsos.
+		var ai_mount_pos = null
 		for h in torso.valid_hexes:
-			if not torso.hex_grid.has_tile(h):
+			if torso.hex_grid.has_tile(h):
+				continue
+			if h.q != 0 and h.r != 0 and (h.q + h.r) != 0:
 				ai_mount_pos = h
 				break
+		if ai_mount_pos == null:
+			ai_mount_pos = _first_free_hex(torso, [])
 		torso.hex_grid.add_tile(ai_mount_pos, ai_mount)
 		torso.fixed_sinks.append(ai_mount_pos)
 
@@ -690,26 +688,54 @@ static func create_starter_drone(p_rarity: int = HexTile.Rarity.COMMON) -> Compo
 
 	drone.fixed_sinks.append(HexCoord.new(0, 0)) # Core Reactor goes here on equip
 
+	# Starter Weapon Mount so a freshly-looted Drone Bay isn't a dead gun the
+	# moment it's equipped - the player can rearrange/replace it like any
+	# other tile (it's not in fixed_sinks). Placed FIRST (before the jet)
+	# and preferentially on a hex DIRECTLY ADJACENT to the core at (0,0),
+	# with the core pre-placed below aiming straight at it - the old
+	# first-free-hex placement left mount reachability to the procedurally
+	# rolled shape, and on unlucky rolls the core's default East-facing
+	# packet could never reach the mount at all: a randomly UNARMED drone
+	# (caught as intermittent DroneChaseShootCheck flakiness -
+	# "drone.precalculated_weapons: 0").
+	var mount_pos = null
+	var mount_dir = 0
+	var origin = HexCoord.new(0, 0)
+	for d in range(6):
+		var n = origin.neighbor(d)
+		if drone.can_place_tile(n) and not drone.hex_grid.has_tile(n):
+			mount_pos = n
+			mount_dir = d
+			break
+	if mount_pos == null:
+		mount_pos = _first_free_hex(drone, [origin])
+	var mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
+	mount.rarity = p_rarity
+	mount.body_slot = HexTile.BodySlot.TORSO
+	drone.hex_grid.add_tile(mount_pos, mount)
+
+	# Pre-place the Core aimed at the mount (equip_component keeps an
+	# existing Core rather than stamping a default one, so this orientation
+	# survives equip) - guarantees the starter gun is armed regardless of
+	# what shape generate_shape() rolled.
+	var core = load("res://scripts/tiles/CoreTile.gd").new()
+	core.body_slot = HexTile.BodySlot.TORSO
+	core.rarity = p_rarity
+	core.active_faces.clear()
+	core.active_faces.append(mount_dir)
+	drone.hex_grid.add_tile(origin, core)
+
 	# Pre-installed Jumpjet, matching THIS tile's rarity (the user: "comes
 	# with installed jumpjets matching the rarity of the hex in the
 	# backpack") - scales the drone's own Mech.jumpjet_rarity/
 	# current_move_speed up with rarity so it can actually keep pace with a
 	# fast player instead of trailing behind.
-	var jet_pos = _first_free_hex(drone, [HexCoord.new(0, 0)])
+	var jet_pos = _first_free_hex(drone, [origin, mount_pos])
 	var jumpjet = load("res://scripts/tiles/JumpjetTile.gd").new()
 	jumpjet.rarity = p_rarity
 	jumpjet.body_slot = HexTile.BodySlot.TORSO
 	drone.hex_grid.add_tile(jet_pos, jumpjet)
 	drone.fixed_sinks.append(jet_pos)
-
-	# Starter Weapon Mount so a freshly-looted Drone Bay isn't a dead gun the
-	# moment it's equipped - the player can rearrange/replace it like any
-	# other tile (it's not in fixed_sinks).
-	var mount_pos = _first_free_hex(drone, [HexCoord.new(0, 0), jet_pos])
-	var mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
-	mount.rarity = p_rarity
-	mount.body_slot = HexTile.BodySlot.TORSO
-	drone.hex_grid.add_tile(mount_pos, mount)
 
 	return drone
 
@@ -728,6 +754,23 @@ static func _first_free_hex(comp: ComponentEquipment, avoid: Array) -> HexCoord:
 		if not taken and not avoided:
 			return h
 	return HexCoord.new(0, 1)
+
+# Farthest valid hex straight out from the core (0,0) along one of the six
+# hex directions - the "spoke tip" a peripheral link goes on so it has its
+# own unobstructed radial corridor back to the core. Returns null only if
+# the immediate neighbour in that direction isn't part of the footprint
+# (can't happen on a torso, which guarantees all six neighbours - see
+# generate_shape's TORSO branch).
+static func _spoke_tip(comp: ComponentEquipment, direction: int) -> HexCoord:
+	var curr = HexCoord.new(0, 0)
+	var tip = null
+	while true:
+		var n = curr.neighbor(direction)
+		if not comp._valid_hex_set.has(comp._hex_key(n.q, n.r)):
+			break
+		tip = n
+		curr = n
+	return tip
 
 static func create_shield_backpack():
 	var script = load("res://scripts/core/ComponentEquipment.gd")

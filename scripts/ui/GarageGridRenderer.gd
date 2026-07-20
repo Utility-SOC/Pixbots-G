@@ -798,7 +798,13 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 			draw_arc(center, rad, -PI * 0.35, PI * 0.35, 10, jam_color * Color(1, 1, 1, 1.0 - i * 0.2), 2.0, true)
 
 	elif type == "Drone Bay":
-		# Tiny quadcopter silhouette: diamond body, four corner rotor dots.
+		# Tiny quadcopter silhouette: diamond body, four corner rotor dots,
+		# plus the bay's own Drone-tab number (playtest: "when drones are
+		# equipped the tile should have the number that corresponds to the
+		# drone's tab") - stamped onto the tile by GarageMenu._refresh_
+		# component_ui every time tabs are rebuilt, so it's always in sync
+		# with the actual "Drone N" label without the renderer re-deriving
+		# tab order itself.
 		var drone_color = Color(0.3, 0.8, 0.9)
 		var body = PackedVector2Array([
 			center + Vector2(0, -hs * 0.2), center + Vector2(hs * 0.2, 0),
@@ -808,6 +814,9 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 		for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
 			draw_circle(center + corner * hs * 0.4, 3.0, drone_color)
 			draw_line(center + corner * hs * 0.15, center + corner * hs * 0.4, drone_color, 1.5, true)
+		var bay_num = int(tile.get("bay_number")) if "bay_number" in tile else 0
+		if bay_num > 0:
+			draw_string(ThemeDB.fallback_font, center + Vector2(-5, 5), str(bay_num), HORIZONTAL_ALIGNMENT_CENTER, 20, 13, Color.WHITE)
 
 	elif type == "Shield Generator":
 		# Shield outline (rounded-top pentagon). Aegis (tank) fills solid;

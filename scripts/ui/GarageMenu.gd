@@ -221,6 +221,7 @@ func _populate_component_tabs():
 		var label = "Drone" if drone_bays.size() == 1 else "Drone %d" % (i + 1)
 		component_tabs.add_tab(label)
 		component_tabs.set_tab_metadata(component_tabs.get_tab_count() - 1, {"slot": HexTile.BodySlot.DRONE, "bay": drone_bays[i]})
+		drone_bays[i].bay_number = i + 1
 
 	var restore_index = 0
 	if prev_meta != null:

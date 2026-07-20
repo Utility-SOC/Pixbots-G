@@ -30,6 +30,18 @@ const SAVE_FLAG_PATH = "user://tutorial_completed.flag"
 
 const COL_HIGHLIGHT = Color(1.0, 0.85, 0.4)
 
+# Hand-over-hand guided build (per the user: "it needs to show where, and
+# how the hexes will work by walking the user through a good/optimized
+# build... fully hand over hand") - a step with "type": "guided_build" and
+# a "slot" (BodySlot name string, e.g. "TORSO"/"ARM_L") hands control to a
+# GuidedBuildRunner instead of showing static text. See GuidedBuildPlanner.
+# gd's header for how the plan itself gets computed (reuses AutoEquipSolver
+# against a throwaway clone, never the player's real state) and
+# GuidedBuildRunner.gd for how each individual micro-step is driven.
+const GuidedBuildRunnerScript = preload("res://scripts/ui/GuidedBuildRunner.gd")
+var guided_build_runner = null
+var _guided_build_started_for_index: int = -1
+
 var steps: Array = []
 var step_index: int = -1
 var is_active: bool = false
@@ -57,6 +69,16 @@ var hint_label: Label
 var next_button: Button
 var skip_button: Button
 var corner_hint: Label
+# Always-visible escape hatch: the panel's Skip button is hidden whenever
+# the panel is (anchor-waiting, guided-build-not-ready), which used to trap
+# the player - a guided-build step that couldn't start (wrong tab / garage
+# timing) left only a text corner note with no controls at all ("getting
+# stuck on that screen, unclear how to advance"). This button is a direct
+# child of root, shown whenever the tutorial is active, and can never be
+# hidden by the panel/spotlight logic. It skips the CURRENT step (one click
+# = unstick), so a player can always claw forward one step at a time even
+# if a single step's trigger never fires.
+var escape_button: Button
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -65,12 +87,17 @@ func _ready():
 
 	# SaveManager.tutorial_completed is the per-save-slot bit (set by
 	# _finish() below, restored by SaveManager.load_game() whenever a save
-	# is loaded). The legacy flag file is still honored as a fallback so
-	# players who already dismissed the tutorial before this bit existed
-	# don't see it replay on their next launch.
-	if SaveManager.tutorial_completed or FileAccess.file_exists(SAVE_FLAG_PATH):
-		SaveManager.tutorial_completed = true
-		return # already completed - stays dormant (see restart_tutorial() to replay)
+	# is loaded, reset on New Game). Per the user: "could it force me to do
+	# the tutorial every time I start a new game unless I click skip?" -
+	# so this is now the ONLY gate. The old machine-wide flag file
+	# (user://tutorial_completed.flag) is deliberately no longer honored:
+	# it made the tutorial one-time-ever per machine, which is exactly the
+	# behavior being replaced. Every NEW game runs the tutorial (Skip is
+	# always one click away, and skipping auto-equips a functional bot -
+	# see _on_skip); a LOADED save that already completed/skipped it stays
+	# dormant via the restored per-save bit.
+	if SaveManager.tutorial_completed:
+		return # already completed in THIS save - see restart_tutorial() to replay
 
 	_load_steps()
 	if steps.is_empty():
@@ -165,7 +192,7 @@ func _build_ui():
 
 	skip_button = Button.new()
 	skip_button.text = "Skip Tutorial"
-	skip_button.pressed.connect(_finish)
+	skip_button.pressed.connect(_on_skip)
 	btn_row.add_child(skip_button)
 
 	# Shown instead of the full panel when the current step's anchor isn't
@@ -181,6 +208,16 @@ func _build_ui():
 	corner_hint.modulate = Color(1.0, 0.9, 0.6, 0.9)
 	root.add_child(corner_hint)
 
+	# Persistent unstick control - see the field comment. Anchored just under
+	# the corner hint, always reachable while the tutorial runs.
+	escape_button = Button.new()
+	escape_button.text = "Skip this step →"
+	escape_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	escape_button.position = Vector2(-180, 92)
+	escape_button.tooltip_text = "Advance the tutorial if a step won't continue. (Skip Tutorial in the panel exits the whole thing.)"
+	escape_button.pressed.connect(_on_escape_pressed)
+	root.add_child(escape_button)
+
 func _make_dim_rect() -> ColorRect:
 	var r = ColorRect.new()
 	r.color = Color(0.0, 0.0, 0.0, 0.65)
@@ -189,8 +226,24 @@ func _make_dim_rect() -> ColorRect:
 	return r
 
 func _process(_delta):
-	if is_active:
+	if not is_active:
+		if escape_button:
+			escape_button.visible = false
+		return
+	if escape_button:
+		escape_button.visible = true # never hidden by panel/spotlight state
+	if str(_current_step().get("type", "")) == "guided_build":
+		_update_guided_build()
+	else:
 		_update_spotlight()
+
+# Persistent unstick: advance the current step regardless of whatever
+# trigger it was waiting on. If this was a guided_build step mid-plan, drop
+# the runner so the next step starts clean. Never trapped again.
+func _on_escape_pressed():
+	guided_build_runner = null
+	_guided_build_started_for_index = -1
+	_advance()
 
 func _goto_step(idx: int):
 	step_index = idx
@@ -200,6 +253,18 @@ func _goto_step(idx: int):
 	var step = steps[idx]
 	if step.get("requires_garage", false):
 		_ensure_in_garage()
+
+	if str(step.get("type", "")) == "guided_build":
+		# Text/spotlight/button visibility are all driven dynamically per
+		# micro-step from here on - see _update_guided_build().
+		guided_build_runner = null
+		_guided_build_started_for_index = -1
+		next_button.visible = false
+		hint_label.visible = true
+		hint_label.text = "(do this in the Garage to continue)"
+		_reposition_panel()
+		return
+
 	text_label.text = str(step.get("text", ""))
 	var wait_for = str(step.get("wait_for", "manual"))
 	next_button.visible = (wait_for == "manual")
@@ -210,6 +275,73 @@ func _goto_step(idx: int):
 		hint_label.text = "(do this to continue)"
 	_update_spotlight()
 	_reposition_panel()
+
+# Hand-over-hand guided build (see the GuidedBuildRunnerScript field
+# comment up top). Lazily starts the runner once the target component
+# actually exists (mirrors _update_spotlight's own "waiting_for_screen"
+# pattern for a step whose Garage anchor isn't on screen yet), then polls
+# it every frame: re-point the spotlight/instruction at whatever the
+# runner currently wants, or advance the outer tutorial step once the
+# whole plan is satisfied.
+func _start_guided_build(step: Dictionary) -> bool:
+	var main = get_parent()
+	if not main or main.get("garage_ui") == null:
+		return false
+	var garage = main.garage_ui
+	if not garage.grid_renderer or not garage.grid_renderer.is_visible_in_tree():
+		return false
+	var HexTileCls = load("res://scripts/core/HexTile.gd")
+	var slot_name = str(step.get("slot", "TORSO"))
+	var slot = HexTileCls.BodySlot.get(slot_name, HexTileCls.BodySlot.TORSO)
+	if not garage.mech_components.has(slot):
+		return false
+	var component = garage.mech_components[slot]
+	# Wait for the player to actually be looking at THIS component's tab -
+	# grid_renderer only draws whichever one is currently active, so
+	# spotlighting a hex before the tab switch would highlight the wrong
+	# position on whatever's on screen right now.
+	if garage.active_component != component:
+		return false
+	guided_build_runner = GuidedBuildRunnerScript.new()
+	guided_build_runner.start(component, garage.inventory)
+	_guided_build_started_for_index = step_index
+	return true
+
+func _update_guided_build():
+	var step = _current_step()
+	if step.is_empty():
+		return
+
+	if _guided_build_started_for_index != step_index:
+		if not _start_guided_build(step):
+			# Not ready yet (Garage not open, wrong tab, or this component
+			# doesn't exist). Give an ACTIONABLE note - the raw step text
+			# ("Building the Torso...") told a stuck player nothing about
+			# WHY it wasn't moving. The persistent "Skip this step" button
+			# (see _build_ui) is also visible the whole time as a backstop.
+			panel.visible = false
+			corner_hint.visible = true
+			var slot_label = str(step.get("slot", "TORSO")).capitalize().replace("_", " ")
+			corner_hint.text = "Open the Garage and click the %s tab to keep going.\n(Stuck? Use \"Skip this step →\" top-right.)" % slot_label
+			_hide_spotlight()
+			return
+
+	panel.visible = true
+	corner_hint.visible = false
+
+	if guided_build_runner.check_and_advance():
+		guided_build_runner = null
+		_advance()
+		return
+
+	var new_text = guided_build_runner.current_instruction()
+	if text_label.text != new_text:
+		text_label.text = new_text
+		_reposition_panel()
+
+	var main = get_parent()
+	var garage = main.garage_ui
+	_show_spotlight_on_hex(garage.grid_renderer, guided_build_runner.current_hex())
 
 # The panel's height varies with how many lines the current step's text
 # wraps to (1 line for short steps, 3+ for grid_intro/done) - it needs a
@@ -245,13 +377,43 @@ func _advance():
 
 func _finish():
 	is_active = false
+	# Per-save bit only - the old machine-wide flag file is no longer
+	# written (or honored, see _ready): the tutorial now runs on every new
+	# game by design, so persisting "done" beyond this save would defeat it.
 	SaveManager.tutorial_completed = true
-	var f = FileAccess.open(SAVE_FLAG_PATH, FileAccess.WRITE)
-	if f:
-		f.store_string("done")
-		f.close()
 	if root:
 		root.queue_free()
+
+# Skip path (per the user: "clicking skip equips the bot well enough - not
+# WELL, but functional - the player can adjust it after that"): before the
+# normal finish, run the real Auto-Equip solver over every equipped
+# component with the player's actual starting inventory, so a skipping
+# player deploys with routed, firing weapons instead of a bare Core and an
+# empty grid. Natural completion deliberately does NOT do this - by then
+# the player hand-built their grid through the guided steps, and silently
+# rearranging it would trash their own work.
+func _on_skip():
+	_apply_skip_equip()
+	_finish()
+
+func _apply_skip_equip():
+	var main = get_parent()
+	if not main or main.get("player") == null:
+		return
+	var player = main.player
+	if not ("components" in player):
+		return
+	var inventory: Array = main.player_inventory if "player_inventory" in main else []
+	var solver = load("res://scripts/core/AutoEquipSolver.gd").new()
+	for slot in player.components.keys():
+		var comp = player.components[slot]
+		if comp and comp.hex_grid:
+			inventory = solver.solve(comp, inventory)
+	if "player_inventory" in main:
+		main.player_inventory = inventory
+	player.is_grid_dirty = true
+	if player.has_method("_recalculate_grid"):
+		player._recalculate_grid()
 
 # Lets a settings/debug menu re-trigger the flow later without the player
 # having to find and delete the save flag file by hand.
@@ -325,10 +487,24 @@ func _show_full_dim():
 	highlight_border.visible = false
 
 func _show_spotlight_on(anchor: Control):
+	_show_spotlight_on_rect(anchor.get_global_rect().grow(6.0))
+
+# Same cutout as _show_spotlight_on, but for a hex cell inside a
+# GarageGridRenderer instead of a whole registered Control - used by the
+# guided-build walkthrough (see GuidedBuildRunner.gd) to point at the exact
+# hex the player needs to act on next. _hex_to_pixel already folds in the
+# renderer's current pan/zoom (see that function's own comment), so this
+# only needs to add the renderer's own screen-space origin on top.
+func _show_spotlight_on_hex(grid_renderer: Control, hex: HexCoord):
+	var local_pos: Vector2 = grid_renderer._hex_to_pixel(hex)
+	var global_pos: Vector2 = grid_renderer.get_global_transform() * local_pos
+	var half_size: float = grid_renderer.hex_size * grid_renderer.zoom
+	var target_rect = Rect2(global_pos - Vector2(half_size, half_size), Vector2(half_size, half_size) * 2.0)
+	_show_spotlight_on_rect(target_rect)
+
+func _show_spotlight_on_rect(target_rect: Rect2):
 	var full_rect = get_viewport().get_visible_rect()
 	dim_full.visible = false
-
-	var target_rect = anchor.get_global_rect().grow(6.0)
 
 	dim_top.visible = true
 	dim_top.position = Vector2(0, 0)

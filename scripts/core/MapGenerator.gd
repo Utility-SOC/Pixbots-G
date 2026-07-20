@@ -378,43 +378,83 @@ func _carve_pocket_corridors():
 		var region = regions[i]
 		if region.size() < MIN_POCKET_SIZE:
 			continue
-		# BFS from the pocket, allowed through carvable obstacle cells,
-		# until we touch the main region; parent links give the corridor.
-		var start: Vector2i = region.keys()[0]
-		var parent = {start: start}
-		var queue = [start]
-		var head = 0
-		var reached = Vector2i(-1, -1)
-		while head < queue.size() and reached.x < 0:
-			var curr = queue[head]
-			head += 1
-			for n in [Vector2i(curr.x + 1, curr.y), Vector2i(curr.x - 1, curr.y), Vector2i(curr.x, curr.y + 1), Vector2i(curr.x, curr.y - 1)]:
-				if n.x < 0 or n.x >= width or n.y < 0 or n.y >= height or parent.has(n):
-					continue
+		# Tier 1: prefer a corridor through carvable OBSTACLES only, so
+		# designed lakes/ruins stay intact where that's enough to connect.
+		if _connect_pocket(region, main_region, false):
+			continue
+		# Tier 2: the pocket is water/ruin-locked. Per the user - "EVERY map
+		# must have a clear path to any part so you never get stuck in a
+		# cul-de-sac that keeps you from the garage" - carve through water
+		# and ruin too rather than leaving it sealed. A land bridge through
+		# a lake is a fair price for guaranteed traversability.
+		_connect_pocket(region, main_region, true)
+
+# Carves a widened corridor from `region` to `main_region`. permeable_all
+# = false restricts the corridor to obstacle cells (water/RuinPart block
+# the BFS); true lets it cross water and ruin too (converting water cells
+# to walkable land and removing ruin along the path). Returns true if a
+# corridor was carved, false if no path exists under the given permeability.
+func _connect_pocket(region: Dictionary, main_region: Dictionary, permeable_all: bool) -> bool:
+	var start: Vector2i = region.keys()[0]
+	var parent = {start: start}
+	var queue = [start]
+	var head = 0
+	var reached = Vector2i(-1, -1)
+	while head < queue.size() and reached.x < 0:
+		var curr = queue[head]
+		head += 1
+		for n in [Vector2i(curr.x + 1, curr.y), Vector2i(curr.x - 1, curr.y), Vector2i(curr.x, curr.y + 1), Vector2i(curr.x, curr.y - 1)]:
+			if n.x < 0 or n.x >= width or n.y < 0 or n.y >= height or parent.has(n):
+				continue
+			if not permeable_all:
 				if terrain[n.y][n.x] == BiomeType.WATER:
 					continue
 				if obstacles.get(n, "") == "RuinPart":
 					continue
-				parent[n] = curr
-				if main_region.has(n):
-					reached = n
-					break
-				queue.append(n)
-		if reached.x < 0:
-			continue # water/ruin-locked - a designed barrier, not a bug
-
-		# Walk the path back, deleting obstacles along it (1-cell widened
-		# so the corridor is passable for a mech, not a single-tile slit).
-		var walk = reached
-		while true:
-			for dy in range(-1, 2):
-				for dx in range(-1, 2):
-					var c = Vector2i(walk.x + dx, walk.y + dy)
-					if obstacles.has(c) and obstacles[c] != "RuinPart":
-						obstacles.erase(c)
-			if walk == parent[walk]:
+			parent[n] = curr
+			if main_region.has(n):
+				reached = n
 				break
-			walk = parent[walk]
+			queue.append(n)
+	if reached.x < 0:
+		return false
+
+	# Walk the path back, clearing everything along it (1-cell widened so
+	# the corridor is passable for a mech, not a single-tile slit). Ruin and
+	# obstacles are erased; water is converted to land (biome of the nearest
+	# land neighbor, else GRASSLAND) so it renders and paths as walkable.
+	var walk = reached
+	while true:
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				var c = Vector2i(walk.x + dx, walk.y + dy)
+				if c.x < 0 or c.x >= width or c.y < 0 or c.y >= height:
+					continue
+				if obstacles.has(c):
+					obstacles.erase(c)
+				if permeable_all and terrain[c.y][c.x] == BiomeType.WATER:
+					# Convert to a land bridge. The generation-time
+					# water_tile_count (used only for the whole-map
+					# water_fraction / is_mostly_water heuristic) is a local
+					# in _generate_map and out of scope here; a handful of
+					# carved cells out of 100k shifts that fraction by
+					# <0.001, so it's left as-is rather than threaded through.
+					terrain[c.y][c.x] = _nearest_land_biome(c)
+		if walk == parent[walk]:
+			break
+		walk = parent[walk]
+	return true
+
+# Biome to stamp on a water cell being carved into a land bridge - copies
+# an adjacent non-water tile so the bridge blends with the shoreline,
+# falling back to GRASSLAND if the whole neighborhood is water.
+func _nearest_land_biome(pos: Vector2i) -> int:
+	for n in [Vector2i(pos.x + 1, pos.y), Vector2i(pos.x - 1, pos.y), Vector2i(pos.x, pos.y + 1), Vector2i(pos.x, pos.y - 1)]:
+		if n.x < 0 or n.x >= width or n.y < 0 or n.y >= height:
+			continue
+		if terrain[n.y][n.x] != BiomeType.WATER:
+			return terrain[n.y][n.x]
+	return BiomeType.GRASSLAND
 
 func _analyze_connectivity() -> Dictionary:
 	var visited = {}

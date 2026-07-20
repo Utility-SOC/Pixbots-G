@@ -2,10 +2,15 @@ extends Node
 
 # Regression harness for the boxed-in fix (MapGenerator._carve_pocket_corridors
 # + TreeObstacle nav-clearing):
-#   1. On generated maps, NO walkable pocket of meaningful size may remain
-#      sealed behind carvable obstacles - every such pocket must have been
-#      corridor-carved into the main continent. (Water/ruin-locked pockets
-#      are legitimate and stay.)
+#   1. FULL CONNECTIVITY (strengthened per the user: "EVERY map must have a
+#      clear path to any part so you never get stuck in a cul-de-sac that
+#      keeps you from the garage"): every generated map, across every
+#      obstacle-heavy type, must resolve to exactly ONE walkable region at
+#      or above MIN_POCKET_SIZE. The carver now runs a second tier that
+#      carves through water/ruin when a pocket is otherwise sealed, so
+#      water/ruin-locked pockets are no longer left behind. Sub-threshold
+#      slivers stay allowed - a fully sealed 5-cell pocket can't trap a
+#      player who can't get into it.
 #   2. A destroyed tree must clear its obstacles-dict entry and astar
 #      solidity (it used to leave an invisible AI wall), and FIRE must do
 #      double damage to it.
@@ -14,11 +19,20 @@ const MapGeneratorScript = preload("res://scripts/core/MapGenerator.gd")
 
 func _ready():
 	var failures = 0
-	for attempt in range(3): # three fresh random maps
+	# Each generation is the full 400x250 map (size is hardcoded in
+	# _generate_map) plus nav-grid build, so this is deliberately one map
+	# per representative LAND type - the obstacle-heavy ones the boxed-in
+	# reports came from, plus Normal for its required_size regen path. The
+	# "Water" map type is deliberately excluded: it floods the whole map by
+	# design (crossed by hover/jumpjets, not on foot), so a single connected
+	# LAND region is neither expected nor meaningful there. Small lakes on
+	# these land maps still exercise the new water-carving tier.
+	for t in ["Forest", "Volcano", "Tabletop", "Desert", "Normal"]:
 		var map = MapGeneratorScript.new()
-		map.map_type = "Normal"
-		add_child(map) # _ready generates + builds nav
-		failures += _assert_no_sealed_pockets(map, attempt)
+		map.map_type = t
+		add_child(map) # _ready generates + carves + builds nav
+		failures += _assert_fully_connected(map, t, 0)
+		failures += _assert_no_sealed_pockets(map, 0)
 		map.queue_free()
 		await get_tree().process_frame
 
@@ -48,6 +62,42 @@ func _ready():
 	if failures == 0:
 		print("PASS: no sealed pockets on 3 generated maps; tree demolition clears nav")
 	get_tree().quit(0 if failures == 0 else 1)
+
+# Full-connectivity assertion: exactly one walkable region at or above
+# MIN_POCKET_SIZE. Any second meaningful region means a pocket the player
+# could stand in but not walk out of (or into from the main landmass).
+func _assert_fully_connected(map, map_type: String, attempt: int) -> int:
+	var visited = {}
+	var big_regions = 0
+	var largest = 0
+	for y in range(map.height):
+		for x in range(map.width):
+			var pos = Vector2i(x, y)
+			if visited.has(pos) or map.terrain[y][x] == map.BiomeType.WATER or map.obstacles.has(pos):
+				continue
+			var size = 0
+			var queue = [pos]
+			visited[pos] = true
+			var head = 0
+			while head < queue.size():
+				var c = queue[head]
+				head += 1
+				size += 1
+				for n in [Vector2i(c.x + 1, c.y), Vector2i(c.x - 1, c.y), Vector2i(c.x, c.y + 1), Vector2i(c.x, c.y - 1)]:
+					if n.x < 0 or n.x >= map.width or n.y < 0 or n.y >= map.height or visited.has(n):
+						continue
+					if map.terrain[n.y][n.x] == map.BiomeType.WATER or map.obstacles.has(n):
+						continue
+					visited[n] = true
+					queue.append(n)
+			if size >= map.MIN_POCKET_SIZE:
+				big_regions += 1
+			largest = max(largest, size)
+	if big_regions != 1:
+		push_error("FAIL: [%s] map %d has %d meaningful walkable regions (want 1) - a cul-de-sac survived" % [map_type, attempt, big_regions])
+		return 1
+	print("[%s] map %d: fully connected (1 region, largest %d cells)" % [map_type, attempt, largest])
+	return 0
 
 # Mirrors the carve pass's region analysis: finds walkable regions, then for
 # each non-main pocket >= MIN_POCKET_SIZE checks whether it could reach the

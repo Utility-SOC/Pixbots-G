@@ -390,6 +390,14 @@ func _serialize_tile(tile) -> Dictionary:
 		"rarity": tile.rarity,
 		"body_slot": tile.body_slot,
 		"level": tile.level,
+		# sync_adjustment is ROLLED RANDOMLY inside the rarity setter
+		# (HexTile._roll_sync_adjustment - RARE/LEGENDARY tiles get a
+		# once-per-tile traversal-timing quirk). It was never serialized,
+		# so every load re-rolled it: a saved build's packet timing (and
+		# therefore weapon charge cadence) silently changed on every
+		# load - a long-standing "load changes behavior" report, finally
+		# pinned down by RustGridSimParityCheck's cloned-grid divergence.
+		"sync_adjustment": tile.sync_adjustment,
 		"q": tile.grid_position.q if tile.grid_position else 0,
 		"r": tile.grid_position.r if tile.grid_position else 0
 	}
@@ -473,6 +481,11 @@ func _deserialize_tile(data: Dictionary):
 	tile.tile_type = data.get("tile_type", "Unknown")
 	tile.category = int(data.get("category", 0))
 	tile.rarity = int(data.get("rarity", 0))
+	# AFTER the rarity assignment above - its setter re-rolls
+	# sync_adjustment, and the saved value must win (see _serialize_tile's
+	# matching comment). Old saves without the key keep the fresh roll.
+	if data.has("sync_adjustment"):
+		tile.sync_adjustment = int(data["sync_adjustment"])
 	tile.body_slot = int(data.get("body_slot", 0))
 	tile.level = int(data.get("level", 1))
 	tile.grid_position = HexCoord.new(int(data.get("q", 0)), int(data.get("r", 0)))

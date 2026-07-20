@@ -257,7 +257,7 @@ var _magnet_accum_delta: float = 0.0
 # (Splitter/Reflector/Resonator circuits, explicitly allowed up to the
 # 100-step cap in _simulate_grid) can route the same packet through one
 # magnet many times in a single recalculation. With EnergyPacket.MAX_MAGNITUDE
-# at 150000 (raised for capacitor-bank builds), a handful of loop passes on a
+# raised well past its original 30,000/100 for capacitor-bank builds, a handful of loop passes on a
 # dense Mythic grid used to blow total_magnetic_power into the millions,
 # feeding pull_radius/pull-speed formulas that were LINEAR in power with no
 # ceiling - a legitimately powerful build could make every loot pickup on
@@ -376,8 +376,11 @@ const FLEE_THRESHOLDS = {
 	"scout": 0.5,
 	"jammer": 0.45,
 	"sniper": 0.4,
-	"support": 0.35,
-	"piercing_jammer": 0.3,
+	# Raised from 0.35 to the old Piercing Jammer's braver 0.3 - the merged
+	# support role (see SupportMech.gd) now also carries the pierce-
+	# execution-immunity aura, which only protects a squad if the unit
+	# stays IN the fight rather than bailing at the first sign of trouble.
+	"support": 0.3,
 	"flamethrower": 0.2,
 	"commander": 0.15,
 	"brawler": 0.0,
@@ -1794,7 +1797,22 @@ func _route_to_peripheral(pkts: Array, comp):
 		pkt.position = HexCoord.new(0, 0).neighbor(opp_dir)
 		pkt.is_active = true
 
-func _simulate_grid(grid: HexGridComponent, starting_packets: Array):
+const RustGridSimBridge = preload("res://scripts/core/RustGridSim.gd")
+
+# force_gdscript: parity-harness escape hatch (RustGridSimParityCheck.gd
+# runs both paths on identical grids and diffs the results) - never set in
+# real gameplay.
+func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscript: bool = false):
+	# Rust fast path (rust_ext/src/hexgrid_sim.rs, Phase 1 of the
+	# pixbots_core split): one FFI call runs the whole packet-routing loop
+	# for grids composed entirely of supported tile kinds, with results
+	# written back onto the real tiles - identical to the loop below by
+	# construction and held identical by the parity check. Any grid with an
+	# unsupported (stateful/conditional) tile falls through to the original
+	# GDScript path automatically.
+	if not force_gdscript and RustGridSimBridge.try_simulate(grid, starting_packets):
+		return
+
 	var active_packets: Array[EnergyPacket] = []
 	for pkt in starting_packets:
 		if pkt.position == null:
@@ -1803,8 +1821,20 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array):
 		active_packets.append(pkt)
 		
 	var steps = 0
-	# Max 100 routing steps to prevent infinite loops from closed circuits
-	while active_packets.size() > 0 and steps < 100:
+	# Safety cap to prevent infinite loops from closed circuits (this still
+	# runs once per loadout change via _recalculate_grid, never per-frame,
+	# so a generous cap costs nothing in practice). Raised from the
+	# original 100 - the Mythic-overcharge feature (see EnergyPacket.
+	# NORMAL_MAGNITUDE_CAP) deliberately rewards long closed annexes of
+	# Mythic tiles that build energy for a while before dropping it to a
+	# sink/weapon; on a large Mythic torso, simply CROSSING the grid once
+	# can take well over 100 steps on its own, which silently dropped every
+	# packet before it ever reached a Link tile - "tons of energy going to
+	# the left arm link, nothing inside the left arm" (the Torso's own live
+	# view uses a separate, uncapped-until-natural-drain engine, so it
+	# looked like the energy was there and simply never arriving).
+	const SIMULATE_GRID_STEP_CAP = 1000
+	while active_packets.size() > 0 and steps < SIMULATE_GRID_STEP_CAP:
 		steps += 1
 		var next_packets: Array[EnergyPacket] = []
 		
@@ -1819,8 +1849,19 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array):
 				if "sync_adjustment" in tile:
 					p.traversal_steps += tile.sync_adjustment
 					p.traversal_steps = max(0, p.traversal_steps)
-					
-				var out_pkts = tile.process_energy(p, (dir + 3) % 6, grid, next_pos)
+
+				var entering = p
+				# Mythic overcharge cap (EnergyPacket.NORMAL_MAGNITUDE_CAP):
+				# a packet that built past the normal cap by staying inside
+				# an all-Mythic path/loop can't dump all of that into a
+				# lesser tile - only NORMAL_MAGNITUDE_CAP worth enters, the
+				# rest reflects back into the loop it came from.
+				if tile.rarity != HexTile.Rarity.MYTHIC and p.magnitude > EnergyPacket.NORMAL_MAGNITUDE_CAP:
+					entering = p.split(EnergyPacket.NORMAL_MAGNITUDE_CAP / p.magnitude)
+					p.direction = (dir + 3) % 6
+					next_packets.append(p)
+
+				var out_pkts = tile.process_energy(entering, (dir + 3) % 6, grid, next_pos)
 				for out in out_pkts:
 					out.position = next_pos
 					out.traversal_steps = p.traversal_steps
@@ -1892,7 +1933,10 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array):
 # Checked on a timer (SIGHT_CHECK_HZ), not every physics frame - a
 # raycast per mech per frame across a full wave is real cost for something
 # that doesn't need frame-perfect precision.
-const SIGHT_RANGE = 1000.0
+# Raised from 1000 - per the user: "the npc's should be given longer
+# visual range/better sensors." Paired with SensorTile's own sight_bonus
+# stat bump (see SensorTile.gd) for enemies actually carrying that tile.
+const SIGHT_RANGE = 1400.0
 const SIGHT_CHECK_HZ = 3.0
 # Per the user: lost (or never-had) sight should trigger an ONGOING search,
 # not a freeze - "enemies don't seem to be searching at all... they should
@@ -2321,21 +2365,23 @@ func _deflect_overflow(amount: float):
 const PIERCE_EXECUTION_CHANCE = 0.04
 
 # Locked exemption list (FEATURE_ROADMAP.md Decision Log): bosses,
-# Commanders, Piercing Jammers, and anyone standing in a Piercing Jammer's
-# aura are immune to the instant-execution roll above. PiercingJammerMech
-# (scripts/entities/PiercingJammerMech.gd) adds itself to the
-# "piercing_jammer_aura" group on _ready(); the aura check below is a plain
-# distance test against every live one, done only at execution-roll time
-# (a PIERCE hit that got past shields) rather than every frame - this is a
-# rare event, so an O(k) scan over however many piercing jammers are alive
-# is cheap and avoids any per-frame cached-flag sync complexity.
+# Commanders, Support units, and anyone standing in a Support unit's aura
+# are immune to the instant-execution roll above. This was originally the
+# single-purpose PiercingJammerMech's whole reason for existing; it's now
+# one of three functions on the general-purpose SupportMech (scripts/
+# entities/SupportMech.gd - see its header), which adds itself to the
+# "pierce_immunity_aura" group on _ready(). The aura check below is a
+# plain distance test against every live one, done only at execution-roll
+# time (a PIERCE hit that got past shields) rather than every frame - this
+# is a rare event, so an O(k) scan over however many support units are
+# alive is cheap and avoids any per-frame cached-flag sync complexity.
 func _is_pierce_execution_exempt() -> bool:
 	if is_boss:
 		return true
-	if combat_role == "commander" or combat_role == "piercing_jammer":
+	if combat_role == "commander" or combat_role == "support":
 		return true
-	for pj in get_tree().get_nodes_in_group("piercing_jammer_aura"):
-		# Only PiercingJammerMech instances ever join this group, so
+	for pj in get_tree().get_nodes_in_group("pierce_immunity_aura"):
+		# Only SupportMech instances ever join this group, so
 		# PIERCE_AURA_RADIUS (one of its own script constants) is always
 		# present - no membership guard needed beyond instance validity.
 		if is_instance_valid(pj) and global_position.distance_to(pj.global_position) <= pj.PIERCE_AURA_RADIUS:
@@ -2891,7 +2937,20 @@ func die():
 	LootManager.generate_loot_for_mech(self)
 
 	died.emit()
-	
+
+	# Extra lives (Main._on_player_died, see SaveManager.DIFFICULTY_LIVES):
+	# that handler revives in place by resetting is_dead back to false
+	# DURING this exact signal, synchronously, before died.emit() above
+	# returns. Without this check, die() ran to completion regardless and
+	# queue_free()'d the mech a few lines below no matter what the signal
+	# handler just did - the revival reset HP/is_dead correctly, and then
+	# the node got destroyed anyway a moment later ("dead dead" with lives
+	# still remaining, per the playtest report). If a life was actually
+	# consumed, this mech survives and none of the destruction below
+	# should run at all.
+	if not is_dead:
+		return
+
 	var is_over_water = false
 	var maps = get_tree().get_nodes_in_group("map_generator")
 	if maps.size() > 0:

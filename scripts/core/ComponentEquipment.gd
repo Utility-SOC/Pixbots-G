@@ -479,12 +479,21 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 		torso.fixed_sinks.append(tip)
 
 	# Accessory Return (INBOUND - receives energy back from Head/Backpack;
-	# doesn't need core power, so it can sit on any free inner hex).
+	# doesn't need core power, so it doesn't need its own spoke - BUT it
+	# must never sit ON one, or it silently blocks that spoke's outbound
+	# routing. _first_free_hex just grabs the first empty hex in generation
+	# order, which reliably landed on (-1,0) - directly between the core
+	# and the West (Left Arm) spoke tip, one hex closer in - and silently
+	# zeroed out every West-routed packet before it could ever reach the
+	# Arm Left link ("simulate energy flow is broken for extremities").
+	# Reuse the same off-axis test the AI mount below uses.
 	var head_return_sink = load("res://scripts/tiles/ComponentLinkTile.gd").new()
 	head_return_sink.body_slot = HexTile.BodySlot.TORSO
 	head_return_sink.tile_type = "Accessory Return"
 	head_return_sink.rarity = p_rarity
-	var acc_pos = _first_free_hex(torso, [])
+	var acc_pos = _first_free_off_axis_hex(torso)
+	if acc_pos == null:
+		acc_pos = _first_free_hex(torso, [])
 	if acc_pos != null:
 		torso.hex_grid.add_tile(acc_pos, head_return_sink)
 		torso.fixed_sinks.append(acc_pos)
@@ -493,18 +502,11 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 		var ai_mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
 		ai_mount.body_slot = HexTile.BodySlot.TORSO
 		ai_mount.rarity = p_rarity
-		# Prefer an OFF-AXIS free hex (not on any of the six core->spoke
-		# radial lines, i.e. q!=0, r!=0, q+r!=0) so this self-powered AI
-		# torso gun never sits in a limb link's corridor and starves it.
-		# The old default (1,-1) was literally on the NE spoke and blocked
-		# the Backpack link on small enemy torsos.
-		var ai_mount_pos = null
-		for h in torso.valid_hexes:
-			if torso.hex_grid.has_tile(h):
-				continue
-			if h.q != 0 and h.r != 0 and (h.q + h.r) != 0:
-				ai_mount_pos = h
-				break
+		# Off-axis so this self-powered AI torso gun never sits in a limb
+		# link's corridor and starves it - the old default (1,-1) was
+		# literally on the NE spoke and blocked the Backpack link on small
+		# enemy torsos.
+		var ai_mount_pos = _first_free_off_axis_hex(torso)
 		if ai_mount_pos == null:
 			ai_mount_pos = _first_free_hex(torso, [])
 		torso.hex_grid.add_tile(ai_mount_pos, ai_mount)
@@ -771,6 +773,20 @@ static func _spoke_tip(comp: ComponentEquipment, direction: int) -> HexCoord:
 		tip = n
 		curr = n
 	return tip
+
+# First free hex NOT on any of the 6 core-to-spoke-tip radial lines through
+# the origin (q==0, r==0, or q+r==0 covers all six - each axial/cube
+# coordinate being zero means the hex lies on one of the three lines that
+# together form the six spokes). Used for anything on a torso that must
+# never accidentally block a limb link's routing corridor: the Accessory
+# Return sink and the AI-only torso's self-powered weapon mount.
+static func _first_free_off_axis_hex(comp: ComponentEquipment) -> HexCoord:
+	for h in comp.valid_hexes:
+		if comp.hex_grid.has_tile(h):
+			continue
+		if h.q != 0 and h.r != 0 and (h.q + h.r) != 0:
+			return h
+	return null
 
 static func create_shield_backpack():
 	var script = load("res://scripts/core/ComponentEquipment.gd")

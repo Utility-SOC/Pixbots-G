@@ -27,6 +27,21 @@ if (!(Test-Path $GodotExe)) {
     exit 1
 }
 
+# Warm-up pass: a completely fresh checkout (every CI run, and .godot/ is
+# gitignored) has no global script-class cache yet. The FIRST headless
+# Godot launch after that builds it but can bail mid-scan with cascading
+# "Identifier X not declared" errors across every class_name script -
+# confirmed by hand this session (a `--headless --quit` pass alone wasn't
+# enough to force the full rebuild; `--editor` is required to actually
+# trigger the EditorFileSystem project scan headlessly). Without this, the
+# real export below risks failing outright, or worse, silently shipping a
+# build where autoloads never finished loading.
+Write-Host "Warming up the script-class cache (first launch after a fresh checkout)..." -ForegroundColor DarkGray
+& ".\$GodotExe" --headless --editor --quit
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[WARNING] Cache warm-up pass exited with code $LASTEXITCODE - continuing, but watch the export step below for cascading class errors." -ForegroundColor Yellow
+}
+
 $BuildDir = "builds\windows"
 if (!(Test-Path $BuildDir)) {
     New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
@@ -34,8 +49,15 @@ if (!(Test-Path $BuildDir)) {
     Remove-Item -Path "$BuildDir\*" -Force -Recurse
 }
 
-# Run Godot export
-Start-Process -FilePath ".\$GodotExe" -ArgumentList "--headless", "--export-release", "`"Windows Desktop`"" -NoNewWindow -Wait
+# Run Godot export. Call operator (&), not Start-Process -ArgumentList - the
+# latter's array-of-strings quoting mangled the "Windows Desktop" preset
+# name (embedded space) unreliably; & passes it through cleanly. -PassThru
+# equivalent for exit code: $LASTEXITCODE after a call-operator invocation.
+& ".\$GodotExe" --headless --export-release "Windows Desktop"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Godot export process exited with code $LASTEXITCODE" -ForegroundColor Red
+    exit 1
+}
 
 # Verify export
 $ExportedExe = Join-Path $BuildDir "Pixbots-G-2026-07-14.exe"

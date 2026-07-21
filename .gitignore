@@ -35,6 +35,7 @@ Thumbs.db
 obj/
 bin/
 builds/
+Pixbots-Installer.exe
 
 # Rust GDExtension (rust_ext/) - built DLLs are large, platform-specific,
 # and regenerable via `cargo build [--release]` in rust_ext/. See

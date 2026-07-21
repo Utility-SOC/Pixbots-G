@@ -26,8 +26,8 @@ var valid_hexes: Array[HexCoord] = [] # Defines the irregular shape of the compo
 # checked branches (head/backpack/arm/leg/fallback just append in bulk).
 var _valid_hex_set: Dictionary = {}
 
-static func _hex_key(q: int, r: int) -> int:
-	return (q + 4096) * 8192 + (r + 4096)
+static func _hex_key(q: int, r: int) -> Vector2i:
+	return Vector2i(q, r)
 
 func _rebuild_valid_hex_set():
 	_valid_hex_set.clear()

@@ -72,6 +72,7 @@ func build():
 	# whole bar by themselves.
 	garage.component_tabs.clip_tabs = true
 	garage.component_tabs.max_tab_width = 110
+	garage.component_tabs.add_to_group("tutorial:component_tabs") # onboarding spotlight anchor - see TutorialManager.gd
 	garage.component_tabs.tab_changed.connect(garage._on_tab_changed)
 	tab_hbox.add_child(garage.component_tabs)
 
@@ -163,8 +164,20 @@ func build():
 	test_range_button.text = "Test Range"
 	test_range_button.custom_minimum_size = Vector2(100, 50)
 	test_range_button.tooltip_text = "Fire your actual weapon mounts at a target dummy - real projectiles, real spread, real damage numbers."
+	test_range_button.add_to_group("tutorial:test_range_button") # onboarding spotlight anchor - see TutorialManager.gd
 	test_range_button.pressed.connect(garage._on_test_range_pressed)
 	bottom_bar.add_child(test_range_button)
+
+	# War Room (task #9: "accessible from Garage") - previously only
+	# reachable from the Main Menu (before a run even starts) or the in-run
+	# TAB shortcut; a player deep in a build session between waves had no
+	# way to check enemy doctrine analysis without leaving the Garage.
+	var war_room_button = Button.new()
+	war_room_button.text = "War Room"
+	war_room_button.custom_minimum_size = Vector2(100, 50)
+	war_room_button.tooltip_text = "Enemy doctrine analysis: threat board, squad lineages, boss kits, and your own death log."
+	war_room_button.pressed.connect(garage._on_war_room_pressed)
+	bottom_bar.add_child(war_room_button)
 
 	var sep_fire_toggle = CheckButton.new()
 	sep_fire_toggle.text = "Separate L/R Firing"

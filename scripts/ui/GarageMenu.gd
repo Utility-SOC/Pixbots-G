@@ -989,6 +989,21 @@ func _on_test_range_pressed():
 	add_child(range_popup)
 	range_popup.popup_centered(Vector2(940, 540))
 
+# Same reuse-a-single-instance pattern as MainMenu._on_war_room_pressed -
+# toggles an existing instance back open instead of stacking duplicates.
+# Parented to the Garage (not Main) so it still exists/toggles correctly
+# even if the Garage itself is what's currently on screen with Main paused
+# underneath.
+func _on_war_room_pressed():
+	var existing = get_node_or_null("WarRoomInstance")
+	if existing:
+		existing._toggle()
+		return
+	var wr = load("res://scripts/ui/WarRoomMenu.gd").new()
+	wr.name = "WarRoomInstance"
+	add_child(wr)
+	wr._toggle()
+
 # --- Named build/part slots ----------------------------------------------
 # Unlimited named save slots for full builds and single parts (playtest
 # ruling: "a wider variety of builds ... not just 3 slots"). One popup

@@ -1341,6 +1341,11 @@ func _on_player_died():
 	# Snapshot the death report now, while player.recent_damage_log is still
 	# populated - see Mech.gd's field comment. Per the user's request:
 	# "what squad got me, what elements they used".
+	# Record ONCE, here (not inside _show_death_report - that runs twice,
+	# once sync + once call_deferred below, and current_wave is about to get
+	# reset to last_garage_wave by the kick-back-to-garage timer further
+	# down) - the War Room's death log (task #9).
+	SaveManager.record_death(current_wave, _top_damage_label(player.recent_damage_log))
 	_show_death_report(player.recent_damage_log)
 
 	var explosion = load("res://scripts/visuals/DeathExplosion.gd").new()
@@ -1409,6 +1414,22 @@ func _on_player_died():
 # attacker label and by element, then shows a small non-blocking panel over
 # the death explosion. Doesn't block anything - it just auto-frees after a
 # few seconds (or whenever the player backs out via the Garage/menu).
+# Shared by the death-log entry above and _show_death_report's own "what
+# killed you" breakdown below - same by_label aggregation either way. Static:
+# a pure function of `log`, no instance state - lets tests exercise it
+# without spinning up a full Main.gd scene.
+static func _top_damage_label(log: Array) -> String:
+	if log.is_empty():
+		return "Unknown"
+	var by_label: Dictionary = {}
+	for entry in log:
+		var l = str(entry.get("label", "Environment"))
+		var amt = float(entry.get("amount", 0.0))
+		by_label[l] = by_label.get(l, 0.0) + amt
+	var labels_sorted = by_label.keys()
+	labels_sorted.sort_custom(func(a, b): return by_label[a] > by_label[b])
+	return labels_sorted[0]
+
 func _show_death_report(log: Array):
 	if log.is_empty():
 		return

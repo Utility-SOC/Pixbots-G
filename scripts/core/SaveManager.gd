@@ -42,6 +42,23 @@ var first_boss_encountered: bool = false
 # it acquires another one).
 var discovered_tile_types: Dictionary = {}
 
+# Player-only death log (task #9: War Room "death log" - deliberately player
+# deaths only, not a kill log). Append-only, capped like SquadTemplate.
+# fitness_history (SquadTemplate.gd), persisted per-save via record_death()
+# below - the first list-shaped field directly in this save payload (every
+# other per-save field here is a scalar or a flags Dictionary).
+const DEATH_LOG_CAP = 20
+var death_log: Array = [] # [{wave: int, killed_by: String, timestamp: String}, ...], oldest first
+
+func record_death(wave: int, killed_by: String):
+	death_log.append({
+		"wave": wave,
+		"killed_by": killed_by,
+		"timestamp": Time.get_datetime_string_from_system(),
+	})
+	if death_log.size() > DEATH_LOG_CAP:
+		death_log = death_log.slice(death_log.size() - DEATH_LOG_CAP, death_log.size())
+
 # Tracks the highest wave ever achieved on this save file (used to unlock Boss Rush).
 var max_wave_reached: int = 1
 
@@ -156,7 +173,8 @@ func save_game(save_name: String, mech: Node, inventory: Array):
 		"tournament_arc_unlocked": tournament_arc_unlocked,
 		"first_boss_encountered": first_boss_encountered,
 		"max_wave_reached": max_wave_reached,
-		"discovered_tile_types": discovered_tile_types
+		"discovered_tile_types": discovered_tile_types,
+		"death_log": death_log
 	}
 
 	# NOTE: was mech.get_parent() - that broke when the player mech moved
@@ -273,6 +291,11 @@ func load_game(save_name: String) -> Dictionary:
 			var tile = _deserialize_tile(tdata)
 			if tile:
 				result["inventory"].append(tile)
+
+	if json.has("death_log") and json["death_log"] is Array:
+		death_log = json["death_log"]
+	else:
+		death_log = []
 
 	# See discovered_tile_types' own comment above. A save that already has
 	# the key just trusts it outright; one that doesn't (predates this

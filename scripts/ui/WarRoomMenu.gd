@@ -24,6 +24,7 @@ var tree_view: DendrogramView
 var doctrine_vbox: VBoxContainer
 var boss_vbox: VBoxContainer
 var captures_vbox: VBoxContainer
+var death_vbox: VBoxContainer
 var status_label: Label
 
 # profile_name -> bool, remembers which boss rows are expanded across a
@@ -47,6 +48,19 @@ const COL_GHOST = Color(0.45, 0.45, 0.5)
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 99 # under the debug menu (100)
+
+	# Register our own toggle action instead of relying on Main.gd to have
+	# done it - this menu is ALSO instantiated directly by the Main Menu's
+	# "War Room" button (MainMenu._on_war_room_pressed), where Main.gd's
+	# registrations never ran, so Tab silently did nothing there while Esc
+	# (built-in ui_cancel) still closed it. Registering here (idempotent,
+	# same runtime-registered-action pattern as Main.gd's cloak/heal_pulse/
+	# jam_pulse) makes Tab work in every context that can show this menu.
+	if not InputMap.has_action("toggle_war_room"):
+		InputMap.add_action("toggle_war_room")
+		var war_room_key = InputEventKey.new()
+		war_room_key.physical_keycode = KEY_TAB
+		InputMap.action_add_event("toggle_war_room", war_room_key)
 
 	root_panel = PanelContainer.new()
 	root_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -116,6 +130,14 @@ func _ready():
 	captures_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	captures_scroll.add_child(captures_vbox)
 
+	# --- Tab: Death Log (task #9) - player deaths only, not a kill log ----
+	var death_scroll = ScrollContainer.new()
+	death_scroll.name = "Death Log"
+	tabs.add_child(death_scroll)
+	death_vbox = VBoxContainer.new()
+	death_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	death_scroll.add_child(death_vbox)
+
 func _input(event):
 	# Unify menu keys (Status.md HUD/UX backlog): routed through InputMap
 	# actions like every other menu (ui_cancel, plus the same
@@ -136,6 +158,77 @@ func _toggle():
 	get_tree().paused = is_open
 	if is_open:
 		_refresh()
+
+# --- Portraits (task #9: "a boss chunk, a squad chunk, and an individual
+# unit chunk") -------------------------------------------------------------
+# Reuses ChampionCard._render_sprite_portrait wholesale (the same real-mech-
+# in-a-private-SubViewport renderer Champion Card exports already use)
+# rather than building a second render path. Cached by a string key (role
+# name, or "boss:"+profile_name) so the real cost - constructing a Mech,
+# letting it build a role loadout, spinning up a SubViewport - is paid ONCE
+# per distinct role/boss ever shown, not on every _refresh(). Rendering is
+# async (SubViewport capture needs a frame), so _get_portrait returns null
+# immediately on a cache miss, kicks off the render in the background, and
+# the row just shows a blank swatch until the next _refresh() picks up the
+# now-cached texture - _refresh() already runs cheaply and idempotently
+# (it's a full-rebuild-from-data design, same as every other tab here).
+var _portrait_cache: Dictionary = {} # cache_key (String) -> Texture2D
+var _portrait_pending: Dictionary = {} # cache_key (String) -> true while a render is in flight
+var _portrait_rig_parent: Node = null
+const PORTRAIT_SIZE = 64
+
+func _get_portrait(cache_key: String, role: String, rarity: int, boss_visual: bool) -> Texture2D:
+	if _portrait_cache.has(cache_key):
+		return _portrait_cache[cache_key]
+	if not _portrait_pending.get(cache_key, false):
+		_portrait_pending[cache_key] = true
+		_render_portrait_async(cache_key, role, rarity, boss_visual)
+	return null
+
+func _render_portrait_async(cache_key: String, role: String, rarity: int, boss_visual: bool):
+	# Kicked off synchronously from mid-_refresh() (building a boss/threat
+	# row), which is itself often mid-add_child() further up the call stack
+	# (e.g. this whole menu's own _ready()) - Godot rejects a nested
+	# add_child() on a node that's still busy setting up children. One frame
+	# of breathing room sidesteps that without changing the fire-and-forget
+	# call site (_get_portrait never awaits this).
+	await get_tree().process_frame
+
+	if not _portrait_rig_parent or not is_instance_valid(_portrait_rig_parent):
+		_portrait_rig_parent = Node.new()
+		_portrait_rig_parent.name = "PortraitRigs"
+		get_tree().root.add_child(_portrait_rig_parent)
+
+	var rig = load("res://scripts/entities/Mech.gd").new()
+	rig.is_player = false
+	rig.combat_role = role
+	rig.base_rarity = clamp(rarity, 0, 4)
+	_portrait_rig_parent.add_child(rig) # _ready() fires here: builds a real role-appropriate loadout
+	if boss_visual:
+		rig.is_boss = true
+		if rig.has_method("refresh_boss_visuals"):
+			rig.refresh_boss_visuals()
+
+	var img = await ChampionCard._render_sprite_portrait(rig)
+	rig.queue_free()
+	_portrait_pending.erase(cache_key)
+	if img:
+		var tex = ImageTexture.create_from_image(img)
+		_portrait_cache[cache_key] = tex
+		if is_open: # popped closed while we were rendering - don't fight a fresh _refresh()
+			_refresh()
+
+# Builds a small portrait swatch (blank until the async render above lands)
+# for use inline in a boss/threat row.
+func _portrait_rect(cache_key: String, role: String, rarity: int, boss_visual: bool) -> TextureRect:
+	var rect = TextureRect.new()
+	rect.custom_minimum_size = Vector2(PORTRAIT_SIZE, PORTRAIT_SIZE)
+	rect.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	var tex = _get_portrait(cache_key, role, rarity, boss_visual)
+	if tex:
+		rect.texture = tex
+	return rect
 
 const WarRoomSnapshot = preload("res://scripts/ai/WarRoomSnapshot.gd")
 
@@ -183,6 +276,12 @@ func _refresh():
 	_clear(doctrine_vbox)
 	_clear(boss_vbox)
 	_clear(captures_vbox)
+	_clear(death_vbox)
+
+	# Death log is pure SaveManager data, independent of a live SquadDirector -
+	# builds even from the Main Menu (before any run/Director exists) or
+	# right after a fresh death kicked the player back to the Garage.
+	_build_death_log()
 
 	if not director:
 		_lbl(threat_vbox, "No combat data yet - the Director deploys with the first wave.", COL_DIM)
@@ -227,8 +326,11 @@ func _build_threat_board(director):
 		row.add_theme_stylebox_override("panel", row_style)
 		threat_vbox.add_child(row)
 
+		var row_vbox = VBoxContainer.new()
+		row.add_child(row_vbox)
+
 		var h = HBoxContainer.new()
-		row.add_child(h)
+		row_vbox.add_child(h)
 
 		var info = VBoxContainer.new()
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -245,6 +347,21 @@ func _build_threat_board(director):
 		spark.data = t.fitness_history.duplicate()
 		spark.custom_minimum_size = Vector2(260, 64)
 		h.add_child(spark)
+
+		# Squad chunk / individual unit chunk: one portrait per distinct
+		# role this template actually deploys, cached by role name (shared
+		# across every template that uses the same role - a "sniper" looks
+		# the same everywhere), labeled with the role's headcount in THIS
+		# template.
+		var units_row = HBoxContainer.new()
+		row_vbox.add_child(units_row)
+		for role in t.required_roles:
+			var unit_col = VBoxContainer.new()
+			unit_col.alignment = BoxContainer.ALIGNMENT_CENTER
+			units_row.add_child(unit_col)
+			unit_col.add_child(_portrait_rect("role:" + str(role), str(role), HexTile.Rarity.RARE, false))
+			var count_lbl = _lbl(unit_col, "%dx %s" % [int(t.required_roles[role]), str(role).capitalize()], COL_DIM, 10)
+			count_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	# Intel + field status below the board
 	_lbl(threat_vbox, "\nINTEL: YOUR OBSERVED DOCTRINE", COL_SECTION, 15)
@@ -322,7 +439,7 @@ func _build_doctrines(director):
 	var role_order: Array = SquadTemplateMutator.ALL_ROLES.duplicate()
 	for r in by_role:
 		if not role_order.has(r):
-			role_order.append(r) # diver/piercing_jammer/legacy-unassigned etc.
+			role_order.append(r) # diver/legacy-unassigned etc.
 
 	for role in role_order:
 		if not by_role.has(role):
@@ -348,15 +465,15 @@ func _build_doctrines(director):
 	btn_export.text = "Export AI Profile to Clipboard"
 	btn_export.pressed.connect(func():
 		var d = _get_director()
-		# A WarRoomSnapshot (no live game - opened from the Main Menu) has
-		# no export/import methods, just data - reading learned_state.json
-		# straight from disk works fine for the read-only tabs, but sharing
-		# needs a real SquadDirector to drive it.
+		# AI profiles aren't tied to any save/session - a live SquadDirector
+		# and a no-live-game WarRoomSnapshot (see that class) both implement
+		# export/import against the exact same on-disk learned_state.json,
+		# so this works identically whether a game is running or not.
 		if d and d.has_method("export_learned_state_to_clipboard"):
 			d.export_learned_state_to_clipboard()
 			status_label.text = "Exported - paste anywhere to share."
 		elif status_label:
-			status_label.text = "Start a game to export/import AI profiles."
+			status_label.text = "Couldn't access AI profile data."
 	)
 	share_bar.add_child(btn_export)
 	var btn_import = Button.new()
@@ -365,7 +482,7 @@ func _build_doctrines(director):
 		var d = _get_director()
 		if not (d and d.has_method("import_learned_state_from_clipboard")):
 			if status_label:
-				status_label.text = "Start a game to export/import AI profiles."
+				status_label.text = "Couldn't access AI profile data."
 		elif d.import_learned_state_from_clipboard():
 			_refresh()
 			status_label.text = "Imported and merged."
@@ -459,6 +576,37 @@ func _build_captures(director):
 		_lbl(captures_vbox, "\n%s  [%s]" % [str(role).capitalize(), RARITY_NAMES[rarity_idx]], COL_CORE, 14)
 		_lbl(captures_vbox, "   fitness %.0f | %d components | %d tiles | %s" % [float(entry.get("fitness", 0.0)), components.size(), tile_count, ", ".join(breakdown)], COL_GOOD, 12)
 
+# --- Death Log ---------------------------------------------------------------
+# Player deaths only (deliberately not a kill log - the user's own scoping
+# call). SaveManager.death_log is append-only, capped, oldest-first;
+# reversed here so the most recent death reads first.
+func _build_death_log():
+	_lbl(death_vbox, "DEATH LOG", COL_SECTION, 16)
+	_lbl(death_vbox, "Every time you've died on this save - wave reached, what got you, when.", COL_DIM, 11)
+
+	var log: Array = SaveManager.death_log
+	if log.is_empty():
+		_lbl(death_vbox, "\n(no deaths recorded yet)", COL_DIM, 12)
+		return
+
+	for i in range(log.size() - 1, -1, -1):
+		var entry = log[i]
+		var row = PanelContainer.new()
+		var row_style = StyleBoxFlat.new()
+		row_style.bg_color = Color(0.11, 0.12, 0.16)
+		row_style.content_margin_left = 10
+		row_style.content_margin_right = 10
+		row_style.content_margin_top = 4
+		row_style.content_margin_bottom = 4
+		row.add_theme_stylebox_override("panel", row_style)
+		death_vbox.add_child(row)
+
+		var h = HBoxContainer.new()
+		row.add_child(h)
+		_lbl(h, "Wave %s" % str(entry.get("wave", "?")), COL_TITLE, 13).custom_minimum_size = Vector2(80, 0)
+		_lbl(h, "killed by " + str(entry.get("killed_by", "Unknown")), COL_BAD, 13).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_lbl(h, str(entry.get("timestamp", "")), COL_DIM, 11)
+
 # --- Bosses ------------------------------------------------------------------
 # Readable labels for BossProfile's raw ability/style id strings.
 const ABILITY_LABELS = {
@@ -506,8 +654,17 @@ func _build_boss_row(bp):
 	card.add_theme_stylebox_override("panel", card_style)
 	boss_vbox.add_child(card)
 
+	var card_h = HBoxContainer.new()
+	card.add_child(card_h)
+	# Boss chunk: one portrait per boss, cached by profile_name - visually
+	# distinct bosses that share a base_role (e.g. two "brawler" bosses)
+	# still each get rendered, since the cache key is the boss identity, not
+	# just its role.
+	card_h.add_child(_portrait_rect("boss:" + bp.profile_name, bp.base_role, HexTile.Rarity.LEGENDARY, true))
+
 	var card_vbox = VBoxContainer.new()
-	card.add_child(card_vbox)
+	card_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card_h.add_child(card_vbox)
 
 	var avg = bp.get_average_fitness()
 	var status = "TRIAL" if bp.is_experimental else "CORE"

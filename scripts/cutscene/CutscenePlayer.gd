@@ -17,6 +17,9 @@ extends CanvasLayer
 #       "evan": {"texture": "res://assets/cutscenes/evan.png",
 #                "hframes": 4, "vframes": 1, "fps": 6, "scale": 4,
 #                "placeholder_color": "#4d8bd4"}  # used if texture missing
+#       "case": {"kind": "prop", "texture": "res://assets/cutscenes/glass_case.png",
+#                "scale": 4, "placeholder_color": "#6a7a8a"}  # shop set-dressing -
+#                # see _make_prop_placeholder_texture for the untextured look
 #     },
 #     "steps": [                                  # run strictly in order
 #       {"cmd": "enter", "actor": "evan", "from": [-0.1, 0.7], "to": [0.3, 0.7], "duration": 1.2},
@@ -180,10 +183,16 @@ func _build_actor(actor_name: String, def: Dictionary) -> Sprite2D:
 	sprite.name = actor_name
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var tex_path = str(def.get("texture", ""))
+	var kind = str(def.get("kind", "character"))
 	if tex_path != "" and ResourceLoader.exists(tex_path):
 		sprite.texture = load(tex_path)
 		sprite.hframes = max(1, int(def.get("hframes", 1)))
 		sprite.vframes = max(1, int(def.get("vframes", 1)))
+	elif kind == "prop":
+		# Shop set-dressing (glass card case, cash register, ...) - a plain
+		# furniture silhouette, not the humanoid pixel-bot placeholder below,
+		# so a scene can be staged/reviewed before real prop art lands too.
+		sprite.texture = _make_prop_placeholder_texture(Color.html(str(def.get("placeholder_color", "#6a7a8a"))))
 	else:
 		# No art yet: procedurally generated pixel-bot placeholder, so a
 		# scene can be scripted, staged, and reviewed before the PNG lands.
@@ -206,6 +215,27 @@ static func _make_placeholder_texture(body: Color) -> ImageTexture:
 	# antenna
 	img.set_pixel(8, 0, dark)
 	img.set_pixel(8, 1, dark)
+	return ImageTexture.create_from_image(img)
+
+# Wide flat-topped counter/case silhouette - deliberately NOT the tall
+# narrow humanoid shape above, so shop set-dressing (a glass card case, a
+# cash register, a parts shelf) reads as furniture at a glance even before
+# real prop art exists. A lighter "glass" band near the top reads as a
+# display case; swap placeholder_color per prop to distinguish them.
+static func _make_prop_placeholder_texture(body: Color) -> ImageTexture:
+	var img = Image.create(28, 18, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var dark = body.darkened(0.45)
+	var glass = body.lightened(0.5)
+	glass.a = 0.55
+	for y in range(4, 18):
+		for x in range(1, 27):
+			var edge = (y == 4 or y == 17 or x == 1 or x == 26)
+			img.set_pixel(x, y, dark if edge else body)
+	# glass band near the top - suggests a display case front
+	for x in range(3, 25):
+		img.set_pixel(x, 6, glass)
+		img.set_pixel(x, 7, glass)
 	return ImageTexture.create_from_image(img)
 
 func _norm_to_px(norm) -> Vector2:

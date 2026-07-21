@@ -104,6 +104,43 @@ func _ready():
 		print("6) manifest: wave 2 maps once per session, unmapped waves are null")
 		from_manifest.free()
 
+	# --- 4. Prop actors (shop set-dressing: glass card case, cash register,
+	# ...) get a furniture placeholder, not the humanoid character one, and
+	# don't need to say/exit - they can just sit in the scene the whole time.
+	var prop_scene_data = {
+		"background": {"color": "#101018"},
+		"actors": {
+			"evan": {"placeholder_color": "#4d8bd4"},
+			"case": {"kind": "prop", "placeholder_color": "#6a7a8a"},
+		},
+		"steps": [
+			{"cmd": "enter", "actor": "case", "from": [0.7, 0.6], "to": [0.7, 0.6], "duration": 0.01},
+			{"cmd": "enter", "actor": "evan", "from": [0.75, 0.9], "to": [0.7, 0.55], "duration": 0.5},
+			{"cmd": "say", "actor": "evan", "name": "Evan", "text": "Testing.", "auto": 0.1},
+			{"cmd": "exit", "actor": "evan", "to": [1.1, 0.55], "duration": 0.3},
+		],
+	}
+	var player3 = load("res://scripts/cutscene/CutscenePlayer.gd").new()
+	player3.cutscene_data = prop_scene_data
+	add_child(player3)
+	var case_actor = player3._actors.get("case")
+	var evan_actor = player3._actors.get("evan")
+	if case_actor == null or evan_actor == null:
+		push_error("FAIL: prop and character actors should both be built")
+		failures += 1
+	elif case_actor.texture.get_size() == evan_actor.texture.get_size() and case_actor.texture.get_image().get_data() == evan_actor.texture.get_image().get_data():
+		push_error("FAIL: prop placeholder should look different from the character placeholder")
+		failures += 1
+	else:
+		print("7) prop actors get a distinct furniture-silhouette placeholder, not the humanoid one")
+	_drive(player3, 3.0)
+	if case_actor.visible != true:
+		push_error("FAIL: a prop that never gets an 'exit' step should just stay visible for the whole scene")
+		failures += 1
+	else:
+		print("8) a prop with no exit step stays visible for the whole scene")
+	player3.skip()
+
 	if failures == 0:
-		print("PASS: cutscene framework - load, act, say, advance, skip, manifest gate")
+		print("PASS: cutscene framework - load, act, say, advance, skip, manifest gate, prop actors")
 	get_tree().quit(0 if failures == 0 else 1)

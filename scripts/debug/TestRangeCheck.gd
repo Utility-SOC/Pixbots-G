@@ -186,6 +186,80 @@ func _ready():
 	else:
 		print("12) clearing the filter restores full visibility")
 
+	# 13-17: Drones in the range (playtest: "I also want drones in the test
+	# area"). Give the same player a Backpack with one Drone Bay tile - its
+	# loadout is null, so DroneBayTile.get_or_build_loadout() (called by the
+	# spawn_drones_for helper GarageTestRange reuses) lazily builds a real
+	# create_starter_drone() loadout, which guarantees an armed Weapon Mount
+	# by construction (see that function's own comment on avoiding
+	# "randomly UNARMED drone" flakiness) - deterministic, no solver RNG.
+	var backpack = ComponentEquipmentScript.new(HexTile.BodySlot.BACKPACK, HexTile.Rarity.RARE)
+	backpack.generate_shape()
+	var bay = load("res://scripts/tiles/DroneBayTile.gd").new()
+	bay.rarity = HexTile.Rarity.RARE
+	bay.body_slot = HexTile.BodySlot.BACKPACK
+	backpack.hex_grid.add_tile(backpack.valid_hexes[0], bay)
+	player.equip_component(backpack)
+	player._recalculate_grid()
+
+	var range_popup_2 = GarageTestRangeScript.new()
+	range_popup_2.setup(player)
+	add_child(range_popup_2)
+
+	if range_popup_2._drones.size() != 1:
+		push_error("FAIL: expected exactly 1 drone spawned for 1 Drone Bay, got %d" % range_popup_2._drones.size())
+		failures += 1
+	else:
+		print("13) one Drone Bay tile spawns exactly one live Drone in the range")
+
+	var drone = range_popup_2._drones[0] if range_popup_2._drones.size() == 1 else null
+	if not drone or drone.is_physics_processing():
+		push_error("FAIL: spawned drone should be frozen (no autonomous chase/orbit) in the range")
+		failures += 1
+	else:
+		print("14) spawned drone is frozen, not chasing/orbiting on its own")
+
+	var drone_row_idx = -1
+	for i in range(range_popup_2._mount_rows.size()):
+		if range_popup_2._mount_rows[i].source == drone:
+			drone_row_idx = i
+			break
+	if drone_row_idx == -1:
+		push_error("FAIL: no checklist row is sourced from the spawned drone")
+		failures += 1
+	elif not range_popup_2._mount_rows[drone_row_idx].checkbox.text.begins_with("Drone 1:"):
+		push_error("FAIL: drone row isn't labeled 'Drone 1: ...' (got '%s')" % range_popup_2._mount_rows[drone_row_idx].checkbox.text)
+		failures += 1
+	else:
+		print("15) drone's weapon is listed in the checklist, labeled 'Drone 1: ...'")
+
+	if drone_row_idx != -1:
+		range_popup_2._solo_row(drone_row_idx)
+		var before = _count_projectiles(range_popup_2._world_root)
+		range_popup_2._fire_selected()
+		var fired: Node = null
+		for c in range_popup_2._world_root.get_children():
+			if c.is_in_group("projectile"):
+				fired = c
+		if _count_projectiles(range_popup_2._world_root) != before + 1 or not fired or fired.source_mech != drone:
+			push_error("FAIL: solo-firing the drone's mount should spawn exactly 1 projectile sourced from the drone itself")
+			failures += 1
+		else:
+			print("16) solo-firing the drone's mount fires a real projectile sourced from the drone, not the rig")
+
+	# 17. Closing the range must not corrupt the REAL Drone Bay tile's
+	# persistent loadout - Drone._exit_tree() is responsible for detaching
+	# drone_loadout_source before the drone node frees (see that function's
+	# own comment on why this matters for save-state integrity).
+	range_popup_2.queue_free()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if bay.drone_loadout == null or not is_instance_valid(bay.drone_loadout) or bay.drone_loadout.get_parent() != null:
+		push_error("FAIL: closing the range corrupted the Drone Bay's real persistent loadout")
+		failures += 1
+	else:
+		print("17) closing the range leaves the Drone Bay's real loadout intact and unparented")
+
 	if failures == 0:
-		print("PASS: test range - checklist isolation (single/group/all/none), search filter, real projectiles, real hits")
+		print("PASS: test range - checklist isolation (single/group/all/none), search filter, drones, real projectiles, real hits")
 	get_tree().quit(0 if failures == 0 else 1)

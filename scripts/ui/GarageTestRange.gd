@@ -36,8 +36,16 @@ var player: Node = null
 var _world_root: Node2D = null
 var _rig: Node = null
 var _dummy: Node = null
-# One entry per armed mount, in the same order as player.precalculated_weapons
-# at the moment this popup opened: {checkbox: CheckButton, data: Dictionary}.
+# One live Drone per Drone Bay tile anywhere in the player's build (same
+# DroneBayTile.spawn_drones_for used by real combat/Main.gd), frozen in
+# place here (no chase/orbit AI) so its OWN precalculated_weapons can be
+# test-fired the same way the rig's are.
+var _drones: Array = []
+# One entry per armed mount (player body + every spawned drone), in the
+# order populated: {checkbox: CheckButton, data: Dictionary, source: Node,
+# row: Control, search_text: String}. `source` is whichever Mech the shot
+# should actually fire from - the rig for the player's own mounts, or the
+# specific Drone instance for a drone's mounts.
 var _mount_rows: Array = []
 var _mount_list: VBoxContainer = null
 var _search_box: LineEdit = null
@@ -96,7 +104,8 @@ func _ready():
 	_mount_list = VBoxContainer.new()
 	_mount_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mount_scroll.add_child(_mount_list)
-	_populate_mounts()
+	# _populate_mounts() is called further down, once the rig/dummy/drones
+	# all exist - it needs _drones populated to list their weapons too.
 
 	# Fire controls row
 	var controls = HBoxContainer.new()
@@ -173,6 +182,20 @@ func _ready():
 	_dummy.max_hp = 1e12
 	_dummy.hp = _dummy.max_hp
 
+	# Drones (playtest: "I also want drones in the test area") - real Drone
+	# instances built from the player's real Drone Bay loadout(s), same spawn
+	# helper real combat uses. Frozen (no chase AI, no auto-fire loop of
+	# their own) so the checklist below is the only thing that fires them,
+	# same as the rig.
+	if player and is_instance_valid(player):
+		_drones = DroneBayTile.spawn_drones_for(player, _world_root)
+	for i in range(_drones.size()):
+		var drone = _drones[i]
+		drone.set_physics_process(false)
+		drone.global_position = RIG_POS + Vector2(0, 60 + i * 40)
+
+	_populate_mounts()
+
 	_stats_label = Label.new()
 	_stats_label.text = "No shots fired yet."
 	vbox.add_child(_stats_label)
@@ -197,13 +220,35 @@ func _populate_mounts():
 		HexTile.BodySlot.LEG_R: "R.Leg", HexTile.BodySlot.HEAD: "Head",
 		HexTile.BodySlot.BACKPACK: "Backpack",
 	}
-	for data in player.precalculated_weapons:
+	_add_weapon_rows(player.precalculated_weapons, "", _rig, slot_names)
+	for i in range(_drones.size()):
+		var drone = _drones[i]
+		if drone.is_grid_dirty:
+			drone._recalculate_grid()
+		_add_weapon_rows(drone.precalculated_weapons, "Drone %d: " % (i + 1), drone, slot_names)
+
+	if _mount_rows.is_empty():
+		var lbl = Label.new()
+		lbl.text = "(no armed mounts - wire energy to a Weapon Mount first)"
+		_mount_list.add_child(lbl)
+
+	_apply_search_filter()
+
+# Shared by the player's own precalculated_weapons and each spawned drone's -
+# `source` is whichever Mech FIRE should actually invoke
+# _fire_combined_projectile on (the rig, or the specific drone), and
+# `label_prefix` distinguishes drone rows ("Drone 1: ...") in the list/search
+# without needing a separate slot-name scheme for drones (their own tiny grid
+# still uses the same BodySlot enum internally, so slot_names.get still
+# resolves sensibly).
+func _add_weapon_rows(weapons: Array, label_prefix: String, source: Node, slot_names: Dictionary):
+	for data in weapons:
 		var kind = "bank shot" if data.get("bank_mode", "") == "bank" else "normal fire"
 		var elem = EnergyPacket.element_name(data.packet.get_dominant_synergy())
 		var row = HBoxContainer.new()
 		var check = CheckButton.new()
-		check.text = "%s %s - %s, %s (%.0f energy)" % [
-			slot_names.get(data.slot_type, "?"), data.mount.tile_type, kind, elem, data.packet.magnitude]
+		check.text = "%s%s %s - %s, %s (%.0f energy)" % [
+			label_prefix, slot_names.get(data.slot_type, "?"), data.mount.tile_type, kind, elem, data.packet.magnitude]
 		check.button_pressed = true # everything armed by default - FIRE reproduces a real full volley out of the box
 		check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(check)
@@ -214,14 +259,7 @@ func _populate_mounts():
 		solo_btn.pressed.connect(func(): _solo_row(row_index))
 		row.add_child(solo_btn)
 		_mount_list.add_child(row)
-		_mount_rows.append({"checkbox": check, "data": data, "row": row, "search_text": check.text.to_lower()})
-
-	if _mount_rows.is_empty():
-		var lbl = Label.new()
-		lbl.text = "(no armed mounts - wire energy to a Weapon Mount first)"
-		_mount_list.add_child(lbl)
-
-	_apply_search_filter()
+		_mount_rows.append({"checkbox": check, "data": data, "source": source, "row": row, "search_text": check.text.to_lower()})
 
 func _set_all_checked(on: bool):
 	for row in _mount_rows:
@@ -255,7 +293,7 @@ func _checked_weapons() -> Array:
 	var out: Array = []
 	for row in _mount_rows:
 		if row.checkbox.button_pressed:
-			out.append(row.data)
+			out.append(row)
 	return out
 
 func _fire_selected():
@@ -264,12 +302,21 @@ func _fire_selected():
 	var to_fire = _checked_weapons()
 	if to_fire.is_empty():
 		return
+	# Every possible source (rig + each drone) aims at the dummy - a mount
+	# fires from whichever Mech it actually lives on, drones included.
 	_rig.last_aim_position = _dummy.global_position
-	for data in to_fire:
+	for drone in _drones:
+		if is_instance_valid(drone):
+			drone.last_aim_position = _dummy.global_position
+	for row in to_fire:
+		var data = row.data
 		var packet = data.packet.copy()
 		if data.get("bank_mode", "") == "bank":
 			packet.is_banked_shot = true
-		data.mount._fire_combined_projectile(_rig, packet, 0)
+		var source = row.get("source", _rig)
+		if not is_instance_valid(source):
+			continue
+		data.mount._fire_combined_projectile(source, packet, 0)
 		_shots_fired += 1
 	_volleys_fired += 1
 	_update_stats()

@@ -258,6 +258,7 @@ func purchase_tile(i: int, main) -> bool:
 		return false
 	main.player_scrap -= offer.price
 	garage.inventory.append(offer.tile)
+	TileDiscoveryPopup.announce_if_new(offer.tile)
 	garage._refresh_inventory_ui()
 	garage._show_scrap_float("Delivered to tile inventory", Color(0.4, 0.9, 1.0))
 	_tile_offers[i] = _make_tile_offer(offer.script_path)

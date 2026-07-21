@@ -624,6 +624,12 @@ func _initialize_starter_inventory():
 		jj.rarity = HexTile.Rarity.UNCOMMON
 		player_inventory.append(jj)
 
+	# Mark every starter tile type as already-discovered, silently - a brand
+	# new player shouldn't get hit with a wall of "new tile!" cards before
+	# they've even opened the garage (see TileDiscoveryPopup.gd).
+	for tile in player_inventory:
+		SaveManager.note_tile_discovered(tile.tile_type)
+
 func _start_intermission():
 	show_dialogue("Shopkeeper", DialogueManager.get_intermission_quip(), Color(0.7, 0.85, 1.0), 5.0)
 	_show_countdown()

@@ -84,5 +84,6 @@ func _on_body_entered(body: Node2D):
 			var main = body.get_tree().current_scene
 			if main and "player_inventory" in main:
 				main.player_inventory.append(tile_data)
+				TileDiscoveryPopup.announce_if_new(tile_data)
 			
 		queue_free()

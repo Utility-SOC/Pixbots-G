@@ -30,6 +30,18 @@ var tournament_arc_unlocked: bool = false
 # pattern as tournament_arc_unlocked above.
 var first_boss_encountered: bool = false
 
+# "New tile discovered" popup tracking (the user: "In a perfect world it
+# would pop up any time someone got a new tile... explanation and maybe a
+# graphic" - TileDiscoveryPopup.gd is the reader/writer via
+# note_tile_discovered() below). Keyed by tile_type string, same
+# per-save singleton pattern as first_boss_encountered above. Same
+# has()-guarded default-false-equivalent handling in load_game(), except an
+# old save missing this key gets a BACKFILL instead of a blank slate - see
+# load_game()'s own comment on why (a save from before this feature existed
+# shouldn't get a "new!" popup for tiles it's had for 50 hours the next time
+# it acquires another one).
+var discovered_tile_types: Dictionary = {}
+
 # Tracks the highest wave ever achieved on this save file (used to unlock Boss Rush).
 var max_wave_reached: int = 1
 
@@ -143,7 +155,8 @@ func save_game(save_name: String, mech: Node, inventory: Array):
 		"tutorial_completed": tutorial_completed,
 		"tournament_arc_unlocked": tournament_arc_unlocked,
 		"first_boss_encountered": first_boss_encountered,
-		"max_wave_reached": max_wave_reached
+		"max_wave_reached": max_wave_reached,
+		"discovered_tile_types": discovered_tile_types
 	}
 
 	# NOTE: was mech.get_parent() - that broke when the player mech moved
@@ -260,8 +273,38 @@ func load_game(save_name: String) -> Dictionary:
 			var tile = _deserialize_tile(tdata)
 			if tile:
 				result["inventory"].append(tile)
-				
+
+	# See discovered_tile_types' own comment above. A save that already has
+	# the key just trusts it outright; one that doesn't (predates this
+	# feature) gets backfilled from everything it currently owns, so the
+	# next NEW acquisition is the only thing that pops - not every tile type
+	# this save has had for ages.
+	if json.has("discovered_tile_types") and json["discovered_tile_types"] is Dictionary:
+		discovered_tile_types = json["discovered_tile_types"]
+	else:
+		discovered_tile_types = {}
+		for tile in result["inventory"]:
+			discovered_tile_types[tile.tile_type] = true
+		for comp in result["components"].values():
+			for tile in comp.hex_grid.get_all_tiles():
+				discovered_tile_types[tile.tile_type] = true
+
 	return result
+
+# Shared choke point every "player gains a genuinely new tile" call site
+# calls right after adding it to an inventory/grid (loot pickup, market
+# purchase, debug grant...) - returns true (and marks it seen) only the
+# FIRST time this tile_type is ever seen on this save, so
+# TileDiscoveryPopup knows whether to actually show anything. Starter-
+# inventory grants on a brand new game deliberately do NOT route through
+# this (see Main.gd's _initialize_starter_inventory) - marking them
+# silently instead, so a new player isn't hit with 7 popups before they've
+# even opened the garage.
+func note_tile_discovered(tile_type: String) -> bool:
+	if discovered_tile_types.has(tile_type):
+		return false
+	discovered_tile_types[tile_type] = true
+	return true
 
 func _serialize_component(comp) -> Dictionary:
 	var comp_data = {

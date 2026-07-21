@@ -130,6 +130,7 @@ func _ready():
 			var tile = script.new()
 			tile.rarity = HexTile.Rarity.MYTHIC
 			main.player_inventory.append(tile)
+			TileDiscoveryPopup.announce_if_new(tile)
 			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
 				if main.garage_ui.inventory != main.player_inventory:
 					main.garage_ui.inventory.append(tile)
@@ -487,6 +488,10 @@ func _on_give_god_inventory(is_mythic: bool = false):
 			var tile = script.new()
 			tile.rarity = Rarity.MYTHIC if is_mythic else Rarity.LEGENDARY
 			main.player_inventory.append(tile)
+			# Bulk debug cheat (50x every tile type at once) - mark silently
+			# rather than queuing up ~11 sequential discovery cards, same
+			# treatment as the real starter-inventory grant.
+			SaveManager.note_tile_discovered(tile.tile_type)
 
 			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
 				if main.garage_ui.inventory != main.player_inventory:

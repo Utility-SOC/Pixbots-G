@@ -42,6 +42,20 @@ const GuidedBuildRunnerScript = preload("res://scripts/ui/GuidedBuildRunner.gd")
 var guided_build_runner = null
 var _guided_build_started_for_index: int = -1
 
+# Cinematic steps ("type": "cinematic", per the user: "Evan cinematics
+# should be used for most of the tutorial phases") - a full pixel-art
+# CutscenePlayer scene (res://config/cutscenes/<file>) instead of the plain
+# spotlight/text panel, for steps that don't need to point at any live
+# Garage UI (grid_intro/component_tabs/switch_to_arm/simulate/test_range
+# still anchor to real buttons and stay as spotlight overlays - a full-
+# screen cinematic would cover the exact thing being explained). Falls back
+# to the step's own "text" as a normal dialogue step if the cutscene file is
+# missing/malformed - unlike the OPTIONAL between-wave cutscenes, a tutorial
+# step is mandatory content and must never silently vanish.
+const CutscenePlayerScript = preload("res://scripts/cutscene/CutscenePlayer.gd")
+const CUTSCENE_DIR = "res://config/cutscenes/"
+var _active_cutscene = null
+
 var steps: Array = []
 var step_index: int = -1
 var is_active: bool = false
@@ -230,6 +244,14 @@ func _process(_delta):
 		if escape_button:
 			escape_button.visible = false
 		return
+	# The cutscene has its own Skip (Esc) affordance and full-screen
+	# presentation - TutorialManager's own overlay (panel/spotlight/escape
+	# button, all on a HIGHER layer than the cutscene) stays fully hidden
+	# and inert for the duration, rather than drawing on top of it.
+	if _active_cutscene:
+		if escape_button:
+			escape_button.visible = false
+		return
 	if escape_button:
 		escape_button.visible = true # never hidden by panel/spotlight state
 	if str(_current_step().get("type", "")) == "guided_build":
@@ -243,6 +265,13 @@ func _process(_delta):
 func _on_escape_pressed():
 	guided_build_runner = null
 	_guided_build_started_for_index = -1
+	# Defensive: escape_button is hidden while a cutscene plays (see
+	# _process), so this shouldn't be reachable normally - but if it ever is,
+	# skip() the cutscene rather than advancing out from under it, which
+	# would leave a paused, dangling CutscenePlayer instance behind.
+	if _active_cutscene:
+		_active_cutscene.skip()
+		return
 	_advance()
 
 func _goto_step(idx: int):
@@ -265,6 +294,16 @@ func _goto_step(idx: int):
 		_reposition_panel()
 		return
 
+	if str(step.get("type", "")) == "cinematic":
+		_start_cinematic(step)
+		return
+
+	_render_dialogue_step(step)
+
+# Shared by the normal per-step render below AND _start_cinematic's
+# fallback (a missing/malformed cutscene file must degrade to the plain
+# text panel, never silently skip mandatory tutorial content).
+func _render_dialogue_step(step: Dictionary):
 	text_label.text = str(step.get("text", ""))
 	var wait_for = str(step.get("wait_for", "manual"))
 	next_button.visible = (wait_for == "manual")
@@ -275,6 +314,30 @@ func _goto_step(idx: int):
 		hint_label.text = "(do this to continue)"
 	_update_spotlight()
 	_reposition_panel()
+
+# Cinematic step (see the CutscenePlayerScript field comment up top) - loads
+# res://config/cutscenes/<step's "cutscene" filename> and hides this menu's
+# own panel/spotlight for the duration; the cutscene draws and paces itself
+# entirely, and _on_cinematic_finished advances the outer tutorial exactly
+# like a manual Next click would once it's done.
+func _start_cinematic(step: Dictionary):
+	var path = CUTSCENE_DIR + str(step.get("cutscene", ""))
+	var player = CutscenePlayerScript.create_from_file(path)
+	if not player:
+		push_warning("TutorialManager: cinematic step '%s' couldn't load %s - falling back to plain text" % [str(step.get("id", "")), path])
+		next_button.visible = true
+		_render_dialogue_step(step)
+		return
+	panel.visible = false
+	corner_hint.visible = false
+	_hide_spotlight()
+	_active_cutscene = player
+	player.finished.connect(_on_cinematic_finished)
+	add_child(player)
+
+func _on_cinematic_finished():
+	_active_cutscene = null
+	_advance()
 
 # Hand-over-hand guided build (see the GuidedBuildRunnerScript field
 # comment up top). Lazily starts the runner once the target component

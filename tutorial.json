@@ -2,7 +2,9 @@
   "steps": [
     {
       "id": "welcome",
-      "text": "Hey! You made it. I'm Evan - I run this place. That the birthday PixBot? Solid starter frame. Corp sponsors our trainer table so new pilots can learn without scratching the paint. Hop on, I'll walk you through it. (Next to continue - or Skip, if you're one of those prodigies.)",
+      "type": "cinematic",
+      "cutscene": "tutorial_welcome.json",
+      "text": "Hey! You made it. I'm Evan - I run this place. That the birthday PixBot? Solid starter frame. Corp sponsors our trainer table so new pilots can learn without scratching the paint. Hop on, I'll walk you through it.",
       "anchor": "",
       "wait_for": "manual"
     },
@@ -14,10 +16,42 @@
       "requires_garage": true
     },
     {
-      "id": "place_any_tile",
-      "text": "Grab any tile out of your bin and drop it on a connected cell. Go on, you can't break the trainer. Well. You can, but the Corp pays for those.",
-      "anchor": "tutorial:inventory_panel",
-      "wait_for": "tile_placed:any",
+      "id": "component_tabs",
+      "text": "See those tabs up top? Torso, both arms, both legs, head, backpack - each one's its OWN hex grid, and yeah, you gotta build every one you want to matter. Torso's the heart: Core Reactor lives there, plus a little sink tile for every limb. Skip a limb's sink and that limb just never sees power - I've watched pilots swear their arm cannon is broken for a week before somebody points that out.",
+      "anchor": "tutorial:component_tabs",
+      "wait_for": "manual",
+      "requires_garage": true
+    },
+    {
+      "id": "guided_build_torso",
+      "text": "Let's build this properly instead of me just talking at you. I'll point at exactly where each piece goes, given what's actually in your bin - grab the tile I call out and drop it on the glowing hex. If it needs pointing somewhere too, I'll show you that next.",
+      "anchor": "",
+      "wait_for": "manual",
+      "requires_garage": true
+    },
+    {
+      "id": "guided_build_torso_run",
+      "type": "guided_build",
+      "slot": "TORSO",
+      "text": "Building the Torso...",
+      "anchor": "",
+      "wait_for": "manual",
+      "requires_garage": true
+    },
+    {
+      "id": "switch_to_arm",
+      "text": "Torso's live. Now click the 'L. Arm' tab up top - let's get you a weapon.",
+      "anchor": "tutorial:component_tabs",
+      "wait_for": "manual",
+      "requires_garage": true
+    },
+    {
+      "id": "guided_build_arm_run",
+      "type": "guided_build",
+      "slot": "ARM_L",
+      "text": "Building the Left Arm...",
+      "anchor": "",
+      "wait_for": "manual",
       "requires_garage": true
     },
     {
@@ -28,15 +62,15 @@
       "requires_garage": true
     },
     {
-      "id": "accumulators",
-      "text": "Quick tip before your first match: route power through an Accumulator and it banks a BIG shot on keys 1, 2, or 3. Your regular trigger keeps working - at half strength while the bank fills, full once it's ready. Press the key, watch the fireworks. The kids call it the nuke button. I also call it the nuke button.",
-      "anchor": "",
+      "id": "test_range",
+      "text": "Simulating shows you where the energy GOES. Test Range shows you what it actually DOES - real shots, real spread, real damage numbers, fired at a dummy that won't shoot back. Use it before you trust a build with your life out there.",
+      "anchor": "tutorial:test_range_button",
       "wait_for": "manual",
       "requires_garage": true
     },
     {
-      "id": "heat",
-      "text": "One more thing - stored energy runs HOT. Firing vents it, and Ice in the circuit keeps everything cool if you build for it. If your bot starts arcing, that's it telling you to shoot something. If you smell ozone, that was not the carpet, and we don't discuss it.",
+      "id": "accumulators",
+      "text": "Quick tip before your first match: route power through an Accumulator and it banks a BIG shot on keys 1, 2, or 3. Your regular trigger keeps working - at half strength while the bank fills, full once it's ready. Press the key, watch the fireworks. The kids call it the nuke button. I also call it the nuke button.",
       "anchor": "",
       "wait_for": "manual",
       "requires_garage": true
@@ -50,7 +84,7 @@
     },
     {
       "id": "black_market_and_chips",
-      "text": "Two more before I let you loose. Extract a modifier off a spare part and it becomes a chip - stack a few into one component and it runs hot on that stat. And that case in the back is the Black Market: rotating oversized experimental gear, no refunds, restock every ten minutes. Corp doesn't officially endorse it. I don't officially discourage it.",
+      "text": "One more before I let you loose: infuse a chip you've extracted into ANOTHER tile and that tile runs hot on that stat - stack a few and it really cooks. And that case in the back is the Black Market: rotating oversized experimental gear, no refunds, restock every ten minutes. Corp doesn't officially endorse it. I don't officially discourage it.",
       "anchor": "",
       "wait_for": "manual",
       "requires_garage": true
@@ -69,7 +103,7 @@
     },
     {
       "id": "done",
-      "text": "That's the whole loop: build, brawl, salvage, rebuild better. Your bot's registered with the Corp now - win matches, earn parts, and maybe someday it's YOUR name on the tournament bracket out front. Door's always open. Now go make some noise.",
+      "text": "That's the whole loop: build, brawl, salvage, rebuild better. Your bot's registered with the Corp now - win matches, earn parts, and maybe someday it's YOUR name on the tournament bracket out front. Door's always open. Except after 10:00 PM Weeknights, and Tuesdays after 4 PM Now go make some noise.",
       "anchor": "",
       "wait_for": "manual"
     }

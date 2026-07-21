@@ -625,9 +625,7 @@ func _initialize_starter_inventory():
 		player_inventory.append(jj)
 
 func _start_intermission():
-	var dm = load("res://scripts/core/DialogueManager.gd").new()
-	dm._ready()
-	show_dialogue("Shopkeeper", dm.get_intermission_quip(), Color(0.7, 0.85, 1.0), 5.0)
+	show_dialogue("Shopkeeper", DialogueManager.get_intermission_quip(), Color(0.7, 0.85, 1.0), 5.0)
 	_show_countdown()
 
 func _show_countdown():
@@ -745,9 +743,7 @@ func _start_wave():
 				# same call would clobber this banner before it's ever seen.
 				# Delay the spawn a few seconds so the gauntlet intro actually
 				# gets read first.
-				var dm_intro = load("res://scripts/core/DialogueManager.gd").new()
-				dm_intro._ready()
-				show_dialogue("Shopkeeper", dm_intro.get_boss_rush_intro(), Color(1.0, 0.7, 0.3), 8.0)
+				show_dialogue("Shopkeeper", DialogueManager.get_boss_rush_intro(), Color(1.0, 0.7, 0.3), 8.0)
 				var intro_timer = Timer.new()
 				intro_timer.wait_time = 3.0
 				intro_timer.one_shot = true
@@ -761,9 +757,7 @@ func _start_wave():
 				# Same clobbering concern as the intro banner above - _spawn_boss
 				# can show its own "first boss" dialogue in the rare case a Boss
 				# Rush save somehow never triggered it in the campaign proper.
-				var dm_completion = load("res://scripts/core/DialogueManager.gd").new()
-				dm_completion._ready()
-				show_dialogue("Shopkeeper", dm_completion.get_boss_rush_completion(), Color(1.0, 0.7, 0.3), 8.0)
+				show_dialogue("Shopkeeper", DialogueManager.get_boss_rush_completion(), Color(1.0, 0.7, 0.3), 8.0)
 				var completion_timer = Timer.new()
 				completion_timer.wait_time = 3.0
 				completion_timer.one_shot = true
@@ -985,9 +979,7 @@ func _spawn_boss(director, is_mega: bool):
 	# defeat line to show without re-checking the (by-then-flipped) flag.
 	boss.set_meta("is_first_boss", not SaveManager.first_boss_encountered)
 	if not SaveManager.first_boss_encountered:
-		var dm = load("res://scripts/core/DialogueManager.gd").new()
-		dm._ready()
-		show_dialogue("Shopkeeper", dm.get_first_boss_intro(), Color(1.0, 0.6, 0.2), 8.0)
+		show_dialogue("Shopkeeper", DialogueManager.get_first_boss_intro(), Color(1.0, 0.6, 0.2), 8.0)
 
 func _on_boss_died(boss):
 	# Feed the fight's outcome back into the boss profile's fitness (same
@@ -999,14 +991,12 @@ func _on_boss_died(boss):
 		if director:
 			director._on_boss_defeated(boss.boss_profile, boss.get_boss_fitness())
 
-	var dm = load("res://scripts/core/DialogueManager.gd").new()
-	dm._ready()
 	if boss.get_meta("is_first_boss", false):
-		show_dialogue("Shopkeeper", dm.get_first_boss_defeat(), Color(1.0, 0.6, 0.2), 8.0)
+		show_dialogue("Shopkeeper", DialogueManager.get_first_boss_defeat(), Color(1.0, 0.6, 0.2), 8.0)
 		SaveManager.first_boss_encountered = true
 		SaveManager.save_game("autosave", player, player_inventory)
 	else:
-		show_dialogue("Shopkeeper", dm.get_boss_defeat(), Color(1.0, 0.6, 0.2), 6.0)
+		show_dialogue("Shopkeeper", DialogueManager.get_boss_defeat(), Color(1.0, 0.6, 0.2), 6.0)
 
 	# NOTE: the actual guaranteed component drop (shield/jetpack/missile/
 	# drone backpack, keyed off this same "boss_drop" meta) already happened
@@ -1215,9 +1205,7 @@ func _on_rival_defeated(rival):
 			var prof = director.all_rival_profiles[r_name]
 			var win_text = prof.dialogue_win
 			if win_text == "":
-				var dm = load("res://scripts/core/DialogueManager.gd").new()
-				dm._ready()
-				win_text = dm.get_generic_rival_win()
+				win_text = DialogueManager.get_generic_rival_win()
 			show_dialogue("Shopkeeper", win_text, Color(0.8, 1.0, 0.8), 6.0)
 
 	var drop = load("res://scripts/core/ComponentEquipment.gd").create_starter_backpack("brawler", max(rarity, HexTile.Rarity.RARE))
@@ -1272,9 +1260,12 @@ func _spawn_traveling_champion(ghost: Dictionary):
 	champ.scale = Vector2(1.3, 1.3)
 	if champ.has_method("_show_floating_text"):
 		champ._show_floating_text("CHAMPION: " + pilot, Color(0.6, 0.9, 1.0))
-	var dm = load("res://scripts/core/DialogueManager.gd").new()
-	dm._ready()
-	var champ_dialogue = dm.get_travelling_champion()
+	# get_travelling_champion_data() - was calling the nonexistent
+	# get_travelling_champion() before this autoload conversion; load().new()
+	# on a dynamically-typed var meant GDScript never caught the bad method
+	# name at parse time, so a travelling champion spawn would have thrown a
+	# runtime "Invalid call" error every time this ran.
+	var champ_dialogue = DialogueManager.get_travelling_champion_data()
 	if champ_dialogue is Dictionary and champ_dialogue.get("intro", "") != "":
 		show_dialogue(pilot, str(champ_dialogue["intro"]), Color(0.6, 0.9, 1.0), 8.0)
 
@@ -1370,9 +1361,7 @@ func _on_player_died():
 					# existing autosave call for the same "player, player_inventory"
 					# pattern used everywhere else in this file.
 					SaveManager.save_game("autosave", player, player_inventory)
-					var dm = load("res://scripts/core/DialogueManager.gd").new()
-					dm._ready()
-					show_dialogue("Shopkeeper", dm.get_game_over_3_loss(), Color(1.0, 0.5, 0.5), 10.0)
+					show_dialogue("Shopkeeper", DialogueManager.get_game_over_3_loss(), Color(1.0, 0.5, 0.5), 10.0)
 					loss_text_shown = true
 				else:
 					var r_name = mech.get_meta("rival_name")
@@ -1380,17 +1369,13 @@ func _on_player_died():
 						var prof = director.all_rival_profiles[r_name]
 						var loss_text = prof.dialogue_loss
 						if loss_text == "":
-							var dm2 = load("res://scripts/core/DialogueManager.gd").new()
-							dm2._ready()
-							loss_text = dm2.get_generic_rival_loss()
+							loss_text = DialogueManager.get_generic_rival_loss()
 						show_dialogue("Shopkeeper", loss_text, Color(1.0, 0.5, 0.5), 6.0)
 						loss_text_shown = true
 				break
 	
 	if not loss_text_shown:
-		var dm = load("res://scripts/core/DialogueManager.gd").new()
-		dm._ready()
-		var footer = dm.get_death_footer()
+		var footer = DialogueManager.get_death_footer()
 		if footer != "":
 			show_dialogue("Shopkeeper", footer, Color(0.8, 0.8, 0.8), 6.0)
 	

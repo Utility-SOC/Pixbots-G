@@ -126,9 +126,7 @@ func _setup_ui():
 	if not SaveManager.tournament_arc_unlocked:
 		btn_tournament.text = "Tournament (Locked)"
 		btn_tournament.modulate = Color(0.6, 0.6, 0.6)
-		var dm = load("res://scripts/core/DialogueManager.gd").new()
-		dm._ready()
-		btn_tournament.tooltip_text = dm.get_tournament_teaser()
+		btn_tournament.tooltip_text = DialogueManager.get_tournament_teaser()
 	vbox.add_child(btn_tournament)
 
 	var spacer2 = Control.new()

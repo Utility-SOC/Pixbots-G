@@ -32,9 +32,7 @@ func open_popup():
 	if not main or main.get("player_scrap") == null:
 		return
 	if main.has_method("show_dialogue"):
-		var dm = load("res://scripts/core/DialogueManager.gd").new()
-		dm._ready()
-		main.show_dialogue("Shopkeeper", dm.get_black_market_quip(), Color(1.0, 0.5, 0.9), 6.0)
+		main.show_dialogue("Shopkeeper", DialogueManager.get_black_market_quip(), Color(1.0, 0.5, 0.9), 6.0)
 	var cycle = int(Time.get_unix_time_from_system()) / MARKET_CYCLE_SECONDS
 	var rng = RandomNumberGenerator.new()
 	rng.seed = cycle

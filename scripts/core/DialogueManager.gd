@@ -1,5 +1,12 @@
-class_name DialogueManager
 extends Node
+
+# Autoload (project.godot). Previously every call site did
+# `load("res://scripts/core/DialogueManager.gd").new()` followed by a manual
+# `dm._ready()` - re-parsing config/dialogue.json from disk on every single
+# dialogue trigger, AND leaking the Node itself (extends Node, not
+# RefCounted, and none of those ~14 call sites ever add_child()'d or freed
+# it). As an autoload, _ready() runs exactly once at game startup and the
+# parsed data is reused for the rest of the session.
 
 var dialogue_data: Dictionary = {}
 

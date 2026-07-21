@@ -9,6 +9,7 @@ const TemplateEvolution = preload("res://scripts/ai/TemplateEvolution.gd")
 const ProfileEvolution = preload("res://scripts/ai/ProfileEvolution.gd")
 const BossEvolution = preload("res://scripts/ai/BossEvolution.gd")
 const DroneBayTileScript = preload("res://scripts/tiles/DroneBayTile.gd")
+const WarRoomSnapshotScript = preload("res://scripts/ai/WarRoomSnapshot.gd")
 
 # --- AI evolution: three near-identical evolutionary subsystems (squad
 # composition, loadout doctrine, boss kits), each mutate/crossover/cull/
@@ -77,11 +78,9 @@ func _ready():
 	boss_evolution.register_defaults()
 
 	# Load Rival profiles
-	var dm = load("res://scripts/core/DialogueManager.gd").new()
-	dm._ready()
 	var factory = load("res://scripts/ai/RivalProfilesFactory.gd")
 	if factory:
-		all_rival_profiles = factory.create_profiles(dm.dialogue_data)
+		all_rival_profiles = factory.create_profiles(DialogueManager.dialogue_data)
 		# Initialize pool if empty
 		if active_rival_pool.is_empty():
 			active_rival_pool = all_rival_profiles.keys()
@@ -128,53 +127,12 @@ func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss
 # Merge path for a CROSS-PILOT clipboard import - see _merge_learned above
 # for the same-pilot load/save-restore path, which stays overwrite-based
 # ("resume where I left off" should update your own templates in place).
-# This one is "someone else's doctrine showed up": on a name collision the
-# incoming item is renamed with its origin_pilot attribution and registered
-# as a SEPARATE new entry instead of clobbering local progress (the user:
-# "if they have the same name can they be appended with the name of the
-# user you originally got it from (Silently, it should be visible in the
-# war room, but not advertised in menus unduly)"). Imports also always land
-# at full weight/standing (is_experimental = false) rather than the trial
-# gate every locally-bred mutant has to earn its way through - a
-# battle-tested import from someone else's game has already proven itself
-# and shouldn't need to re-prove itself here too ("Crossover templates
-# should all come in with their full weight").
+# The actual merge logic now lives on WarRoomSnapshot.merge_imported() -
+# shared with the no-live-game War Room import path (see that class's own
+# header on why export/import shouldn't need a live game at all) - this is
+# a thin wrapper so the two can never drift apart.
 func _merge_imported(loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = []):
-	for lt in loaded_templates:
-		var collision = false
-		for t in templates:
-			if t.template_name == lt.template_name:
-				collision = true
-				break
-		if collision:
-			var tag = lt.origin_pilot if lt.origin_pilot != "" else "Unknown Pilot"
-			lt.template_name = "%s (%s)" % [lt.template_name, tag]
-		lt.is_experimental = false
-		register_template(lt)
-
-	for lp in loaded_profiles:
-		var collision_p = false
-		for p in solver_profiles:
-			if p.profile_name == lp.profile_name:
-				collision_p = true
-				break
-		if collision_p:
-			var tag = lp.origin_pilot if lp.origin_pilot != "" else "Unknown Pilot"
-			lp.profile_name = "%s (%s)" % [lp.profile_name, tag]
-		lp.is_experimental = false
-		solver_profiles.append(lp)
-
-	for lbp in loaded_boss_profiles:
-		var collision_b = false
-		for bp in boss_profiles:
-			if bp.profile_name == lbp.profile_name:
-				collision_b = true
-				break
-		if collision_b:
-			var tag = lbp.origin_pilot if lbp.origin_pilot != "" else "Unknown Pilot"
-			lbp.profile_name = "%s (%s)" % [lbp.profile_name, tag]
-		lbp.is_experimental = false
-		boss_profiles.append(lbp)
+	WarRoomSnapshotScript.merge_imported(templates, solver_profiles, boss_profiles, loaded_templates, loaded_profiles, loaded_boss_profiles)
 
 func load_learned_state():
 	if not profile_manager:
@@ -519,11 +477,11 @@ func broadcast_jammer_alert(approx_pos: Vector2):
 #      the offending element (see _spawn_bot_for_role's ready callback)
 # Pressure is gentle and continuous per kill, so diversifying lets the
 # weights relax naturally through normal fitness learning. PIERCE-execution
-# over-reliance gets a third, targeted front on top of the two above: the
-# "Pierce Escort" template (piercing_jammer + brawler + ambusher, registered
-# in Main.gd) gets up-weighted harder specifically, since PiercingJammerMech's
-# aura (Mech._is_pierce_execution_exempt) is the actual counter to the
-# execute build, not just a generic jammer/commander presence.
+# over-reliance gets a third, targeted front on top of the two above: any
+# template with a "support" role slot (e.g. "Support Escort", registered in
+# Main.gd) gets up-weighted harder specifically, since SupportMech's pierce-
+# immunity aura (Mech._is_pierce_execution_exempt) is the actual counter to
+# the execute build, not just a generic jammer/commander presence.
 const KILL_OVERUSE_SHARE = 0.5
 const KILL_OVERUSE_MIN_KILLS = 15
 
@@ -561,11 +519,11 @@ func _apply_kill_method_counter_pressure():
 		if t.required_roles.has("jammer") or t.required_roles.has("commander"):
 			t.spawn_weight = min(250.0, t.spawn_weight * 1.06)
 		# PIERCE cut-in-half executions specifically get answered with the
-		# purpose-built counter (Piercing Jammer's execute-immunity aura),
+		# purpose-built counter (the Support role's execute-immunity aura),
 		# up-weighted harder than the generic jammer bump above - per
 		# FEATURE_ROADMAP.md §4: "over-reliance on the execute build gets
 		# countered automatically" via templates containing this role.
-		if top_element == "PIERCE" and t.required_roles.has("piercing_jammer"):
+		if top_element == "PIERCE" and t.required_roles.has("support"):
 			t.spawn_weight = min(300.0, t.spawn_weight * 1.12)
 	if _counter_announced_element != top_element:
 		_counter_announced_element = top_element
@@ -722,8 +680,8 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	var bot
 	if role == "jammer":
 		bot = load("res://scripts/entities/JammerMech.gd").new()
-	elif role == "piercing_jammer":
-		bot = load("res://scripts/entities/PiercingJammerMech.gd").new()
+	elif role == "support":
+		bot = load("res://scripts/entities/SupportMech.gd").new()
 	else:
 		bot = load("res://scripts/entities/Mech.gd").new()
 		
@@ -893,13 +851,6 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			base_hp = 300.0 # High HP, moves slow, stays near backline
 			bot.base_speed = 60.0
 			bot.engagement_distance = 600.0
-		"piercing_jammer":
-			# Same backline-support shape as a standard jammer, slightly
-			# tougher (it's the thing execute-focused players will want to
-			# focus down first once they clock what the aura does).
-			base_hp = 340.0
-			bot.base_speed = 55.0
-			bot.engagement_distance = 650.0
 		"sniper":
 			base_hp = 60.0
 			bot.base_speed = 100.0
@@ -932,9 +883,14 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			bot.base_speed = 140.0
 			bot.engagement_distance = 150.0
 		"support":
-			base_hp = 130.0 # Squishier than a brawler - it's meant to hang back
-			bot.base_speed = 110.0
-			bot.engagement_distance = 500.0
+			# Raised from 130/110/500 - this role absorbed PiercingJammerMech's
+			# job too (see SupportMech.gd), including its execute-immunity
+			# aura, which only protects a squad if the unit survives long
+			# enough to matter and is worth focusing down once its healing/
+			# jamming/immunity are noticed.
+			base_hp = 300.0
+			bot.base_speed = 70.0
+			bot.engagement_distance = 550.0
 		"commander":
 			# The squad's spine: slow, tough, deep backline, and its Command
 			# Suite backpack stacks up to 5 support modules (heal/jammer/

@@ -23,6 +23,7 @@ config/icon="res://icon.svg"
 
 LootManager="*res://scripts/core/LootManager.gd"
 DebugMenu="*res://scripts/ui/DebugMenu.gd"
+DialogueManager="*res://scripts/core/DialogueManager.gd"
 AudioManager="*res://scripts/audio/AudioManager.gd"
 SaveManager="*res://scripts/core/SaveManager.gd"
 ProceduralMusic="*res://scripts/core/ProceduralMusic.gd"

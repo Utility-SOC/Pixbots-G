@@ -6,8 +6,76 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Gate before the expensive job runs at all - a tag push alone shouldn't
+  # be enough to burn a full Rust+Godot export+installer build. Compares
+  # this tag against the previous v* release tag and only lets the real
+  # build proceed if there's a meaningful amount of change between them.
+  # Manual runs (workflow_dispatch) always bypass this - that's an explicit
+  # "build it now regardless" action, not something to second-guess.
+  check-changes:
+    name: Check for meaningful changes
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - name: Checkout (full history - need every tag to compare against)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare against the previous release tag
+        id: check
+        shell: bash
+        run: |
+          CURRENT_TAG="${GITHUB_REF#refs/tags/}"
+          # Newest OTHER v* tag, ordered by the date of the commit it
+          # points at (not alphabetically - v1.0.9 must sort before
+          # v1.0.10, which plain string sort gets wrong).
+          PREV_TAG=$(git tag -l 'v*' --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -n 1 || true)
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous release tag found - first release, building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Comparing $CURRENT_TAG against previous release $PREV_TAG"
+
+          if [ "$(git rev-parse "$PREV_TAG")" = "$(git rev-parse "$CURRENT_TAG")" ]; then
+            echo "This tag points at the exact same commit as $PREV_TAG - nothing changed, skipping."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # "Enough changes" bar: at least MIN_COMMITS commits OR MIN_FILES
+          # distinct non-doc files touched since the previous release.
+          # Deliberately a rough heuristic, not a precise science - the
+          # goal is "worthwhile for players to download," not a strict
+          # formula. Tune these two numbers if the bar feels wrong.
+          MIN_COMMITS=3
+          MIN_FILES=5
+
+          COMMIT_COUNT=$(git rev-list --count "${PREV_TAG}..${CURRENT_TAG}")
+          # Markdown docs (README, STORY_SCRIPT, Status.md, ...) don't
+          # change what ships in the game - excluded so a doc-only tag
+          # doesn't false-positive its way past the file-count bar.
+          FILE_COUNT=$(git diff --name-only "${PREV_TAG}..${CURRENT_TAG}" -- . ':!*.md' | wc -l)
+
+          echo "Commits since $PREV_TAG: $COMMIT_COUNT"
+          echo "Non-doc files changed since $PREV_TAG: $FILE_COUNT"
+
+          if [ "$COMMIT_COUNT" -ge "$MIN_COMMITS" ] || [ "$FILE_COUNT" -ge "$MIN_FILES" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Below the meaningful-change threshold (need >= $MIN_COMMITS commits or >= $MIN_FILES non-doc files) - skipping."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          fi
+
   export-windows:
     name: Windows Export
+    needs: check-changes
+    if: github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.should_build == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -22,10 +90,10 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_win64.exe.zip" -OutFile godot.zip
           Expand-Archive -Path godot.zip -DestinationPath . -Force
-          
+
           $TemplatesDir = "$env:APPDATA\Godot\export_templates\4.6.3.stable"
           New-Item -ItemType Directory -Force -Path $TemplatesDir | Out-Null
-          
+
           Invoke-WebRequest -Uri "https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_export_templates.tpz" -OutFile templates.zip
           Expand-Archive -Path templates.zip -DestinationPath . -Force
           Move-Item -Path "templates\*" -Destination $TemplatesDir -Force
@@ -34,7 +102,7 @@ jobs:
       - name: Build Installer
         run: .\build_installer.ps1
         shell: pwsh
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')

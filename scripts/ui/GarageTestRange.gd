@@ -40,6 +40,7 @@ var _dummy: Node = null
 # at the moment this popup opened: {checkbox: CheckButton, data: Dictionary}.
 var _mount_rows: Array = []
 var _mount_list: VBoxContainer = null
+var _search_box: LineEdit = null
 var _stats_label: Label = null
 var _auto_toggle: CheckButton = null
 var _auto_timer: float = 0.0
@@ -73,6 +74,21 @@ func _ready():
 	none_btn.text = "None"
 	none_btn.pressed.connect(func(): _set_all_checked(false))
 	select_controls.add_child(none_btn)
+
+	# Search/filter box (playtest: "there is a long list of projectiles - but
+	# it is only kinda organized. I want a search box, that will let me
+	# filter the emitters/projectiles to just right arm, or just torso, or
+	# whatever, or like - torso+lightning"). Multi-term: every space/+
+	# separated word must match somewhere in the row's own label (slot name,
+	# tile type, element) - "torso+lightning" narrows to rows that mention
+	# BOTH. All/None below only ever touch currently-visible rows, so the
+	# intended workflow is filter -> All -> FIRE to isolate exactly the
+	# filtered set instead of the whole build.
+	_search_box = LineEdit.new()
+	_search_box.placeholder_text = "filter: torso, right arm, lightning, torso+lightning..."
+	_search_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_search_box.text_changed.connect(func(_t): _apply_search_filter())
+	select_controls.add_child(_search_box)
 
 	var mount_scroll = ScrollContainer.new()
 	mount_scroll.custom_minimum_size = Vector2(0, 110)
@@ -198,16 +214,38 @@ func _populate_mounts():
 		solo_btn.pressed.connect(func(): _solo_row(row_index))
 		row.add_child(solo_btn)
 		_mount_list.add_child(row)
-		_mount_rows.append({"checkbox": check, "data": data})
+		_mount_rows.append({"checkbox": check, "data": data, "row": row, "search_text": check.text.to_lower()})
 
 	if _mount_rows.is_empty():
 		var lbl = Label.new()
 		lbl.text = "(no armed mounts - wire energy to a Weapon Mount first)"
 		_mount_list.add_child(lbl)
 
+	_apply_search_filter()
+
 func _set_all_checked(on: bool):
 	for row in _mount_rows:
-		row.checkbox.button_pressed = on
+		if row.row.visible: # All/None only touch what the current filter shows
+			row.checkbox.button_pressed = on
+
+# Splits the search text on spaces/'+' and requires every term to appear
+# somewhere in the row's own label (case-insensitive substring match) -
+# "torso+lightning" hides every row that isn't both.
+func _apply_search_filter():
+	if not _search_box:
+		return
+	var raw = _search_box.text.strip_edges().to_lower()
+	var terms: Array = []
+	for t in raw.replace("+", " ").split(" "):
+		if t != "":
+			terms.append(t)
+	for row in _mount_rows:
+		var visible = true
+		for t in terms:
+			if not row.search_text.contains(t):
+				visible = false
+				break
+		row.row.visible = visible
 
 func _solo_row(index: int):
 	for i in range(_mount_rows.size()):

@@ -145,6 +145,47 @@ func _ready():
 	else:
 		print("8) reset restores the dummy and both shot/volley counters")
 
+	# 9. Search filter (playtest: "I want a search box... let me filter the
+	# emitters/projectiles to just right arm, or just torso, or whatever,
+	# or like - torso+lightning"). Both mounts here are TORSO/RAW (no
+	# element set on the packet, so it reads as RAW) - a filter for "torso"
+	# should keep both, a filter for a body slot that doesn't exist here
+	# ("head") should hide both, and clearing the filter must restore both.
+	range_popup._search_box.text = "torso"
+	range_popup._apply_search_filter()
+	if not (range_popup._mount_rows[0].row.visible and range_popup._mount_rows[1].row.visible):
+		push_error("FAIL: filtering for 'torso' should keep both torso-slot rows visible")
+		failures += 1
+	else:
+		print("9) filter 'torso' keeps both matching rows visible")
+
+	range_popup._search_box.text = "head"
+	range_popup._apply_search_filter()
+	if range_popup._mount_rows[0].row.visible or range_popup._mount_rows[1].row.visible:
+		push_error("FAIL: filtering for 'head' should hide both torso-only rows")
+		failures += 1
+	else:
+		print("10) filter 'head' hides every non-matching row")
+
+	# 11. All/None only touch currently-visible (filtered) rows - filter to
+	# nothing, None should leave the (already-checked-from-step-6) rows
+	# untouched since neither is visible to act on.
+	var checked_before_filtered_none = [range_popup._mount_rows[0].checkbox.button_pressed, range_popup._mount_rows[1].checkbox.button_pressed]
+	range_popup._set_all_checked(false)
+	if [range_popup._mount_rows[0].checkbox.button_pressed, range_popup._mount_rows[1].checkbox.button_pressed] != checked_before_filtered_none:
+		push_error("FAIL: None while everything is filtered-out shouldn't change any checkbox")
+		failures += 1
+	else:
+		print("11) All/None only act on currently-visible (filtered) rows")
+
+	range_popup._search_box.text = ""
+	range_popup._apply_search_filter()
+	if not (range_popup._mount_rows[0].row.visible and range_popup._mount_rows[1].row.visible):
+		push_error("FAIL: clearing the filter should restore every row's visibility")
+		failures += 1
+	else:
+		print("12) clearing the filter restores full visibility")
+
 	if failures == 0:
-		print("PASS: test range - checklist isolation (single/group/all/none), real projectiles, real hits")
+		print("PASS: test range - checklist isolation (single/group/all/none), search filter, real projectiles, real hits")
 	get_tree().quit(0 if failures == 0 else 1)

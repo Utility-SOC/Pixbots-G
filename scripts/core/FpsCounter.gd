@@ -14,6 +14,19 @@ extends CanvasLayer
 # green = fine, yellow = notice, red = a real problem.
 
 var label: Label
+# Second line: a physics/script-process time breakdown plus live entity
+# counts, so the NEXT time framerate tanks in a real session we get
+# trustworthy numbers correlated with what's actually on screen, instead of
+# another video or a guess. (A synthetic headless stress-test harness was
+# tried first - scripts/debug/ProjectileBroadphaseProfileDiagnostic.gd - but its
+# own timing methodology proved unreliable: wall-clock across awaited
+# physics frames just measures engine frame-pacing, and summing
+# Performance.TIME_PHYSICS_PROCESS across those same awaits produced
+# self-contradicting numbers. The one trustworthy signal it DID surface -
+# PHYSICS_2D_ACTIVE_OBJECTS/COLLISION_PAIRS staying near zero even with 60
+# mechs + 300 projectiles live - argues against Area2D broadphase being the
+# bottleneck, but real in-session numbers beat a shaky synthetic one.)
+var breakdown_label: Label
 var _frame_times: Array[float] = []
 const SMOOTH_WINDOW = 20 # rolling average - raw per-frame jitter is noisy
 
@@ -30,6 +43,17 @@ func _ready():
 	label.add_theme_constant_override("outline_size", 4)
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	add_child(label)
+
+	breakdown_label = Label.new()
+	breakdown_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	breakdown_label.position = Vector2(-220, 26)
+	breakdown_label.custom_minimum_size = Vector2(216, 0)
+	breakdown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	breakdown_label.add_theme_font_size_override("font_size", 12)
+	breakdown_label.add_theme_constant_override("outline_size", 3)
+	breakdown_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	breakdown_label.modulate = Color(0.85, 0.85, 0.85)
+	add_child(breakdown_label)
 
 func _process(delta: float):
 	if not visible:
@@ -54,6 +78,15 @@ func _process(delta: float):
 		label.modulate = Color(1.0, 0.85, 0.2)
 	else:
 		label.modulate = Color(0.4, 1.0, 0.5)
+
+	var physics_ms = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	var process_ms = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	var proj_count = ProjectileManager.live_count() if ProjectileManager else 0
+	var enemy_count = EntityCache.get_group("enemy").size() if EntityCache else 0
+	var collision_pairs = Performance.get_monitor(Performance.PHYSICS_2D_COLLISION_PAIRS)
+	breakdown_label.text = "phys %.1fms  proc %.1fms  |  %d shots  %d enemies  %d pairs" % [
+		physics_ms, process_ms, proj_count, enemy_count, collision_pairs
+	]
 
 func _unhandled_input(event: InputEvent):
 	# F3: the common cross-game convention for a debug/perf overlay toggle.

@@ -26,6 +26,7 @@ func _ready():
 	_check("FpsCounter draws above every other layer (999)", counter.layer == 999)
 	_check("FpsCounter is visible by default", counter.visible)
 	_check("FpsCounter has a real Label child", counter.label != null and counter.label is Label)
+	_check("FpsCounter has a real breakdown_label child", counter.breakdown_label != null and counter.breakdown_label is Label)
 
 	# Let a couple of real frames tick so _process actually populates text.
 	await get_tree().process_frame
@@ -33,6 +34,10 @@ func _ready():
 	_check("label text was populated from real frame data (contains 'fps')",
 		counter.label.text.contains("fps"))
 	_check("label text also shows frame time in ms", counter.label.text.contains("ms"))
+	_check("breakdown label shows a physics/process time split (contains 'phys' and 'proc')",
+		counter.breakdown_label.text.contains("phys") and counter.breakdown_label.text.contains("proc"))
+	_check("breakdown label shows live shot/enemy counts (contains 'shots' and 'enemies')",
+		counter.breakdown_label.text.contains("shots") and counter.breakdown_label.text.contains("enemies"))
 
 	# F3 toggle.
 	var was_visible = counter.visible

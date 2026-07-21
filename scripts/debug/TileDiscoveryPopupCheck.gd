@@ -71,26 +71,26 @@ func _ready():
 	_check("a second new type while a card is showing queues instead of interrupting",
 		popup._queue.size() == 1 and popup._showing)
 
-	# 6. Dismissing the first card shows the queued second one automatically.
-	var first_card = popup._card
-	popup._dismiss()
-	await get_tree().process_frame
-	_check("dismissing a card frees it", not is_instance_valid(first_card))
-	_check("the queued second card shows automatically after the first dismisses",
-		popup._showing and is_instance_valid(popup._card) and popup._queue.is_empty())
+	# 6. Chaining (per the user: "when tutorials can be combined... they
+	# should chain together, removing any popping in and out"): the SAME
+	# card instance (and Timer) carries through to the next queued tile
+	# instead of being torn down and rebuilt - only its content crossfades.
+	var chained_card = popup._card
+	var chained_timer = popup._card_timer
+	_check("the card carries a one-shot auto-dismiss Timer", chained_timer != null and chained_timer.one_shot and chained_timer.wait_time > 0.0)
+	popup._on_card_timeout() # simulates the Timer firing with a tile still queued
+	await get_tree().create_timer(popup.CROSSFADE_OUT_SECONDS + popup.FADE_SECONDS + 0.1).timeout
+	_check("chaining into the next queued tile reuses the SAME card (no pop out/in)",
+		popup._card == chained_card and is_instance_valid(chained_card))
+	_check("the queue drained by exactly one and the chained card's timer restarted",
+		popup._queue.is_empty() and popup._showing and chained_timer.time_left > 0.0)
 
-	# 7. Card auto-dismisses via its own Timer (don't wait the real 7s -
-	# just confirm the Timer is armed and one_shot, and that manually
-	# firing it clears _showing the same way step 6 proved _dismiss() does).
-	var timer = null
-	for c in popup._card.get_children():
-		if c is Timer:
-			timer = c
-	_check("the card carries a one-shot auto-dismiss Timer", timer != null and timer.one_shot and timer.wait_time > 0.0)
-	popup._dismiss()
-	await get_tree().process_frame
-	_check("after the second card dismisses too, nothing is showing and the queue is empty",
-		not popup._showing and popup._queue.is_empty())
+	# 7. With nothing left queued, the next timeout fully dismisses (fades
+	# out and frees) instead of chaining.
+	popup._on_card_timeout()
+	await get_tree().create_timer(popup.FADE_SECONDS + 0.2).timeout
+	_check("with an empty queue, the timeout fully dismisses instead of chaining",
+		not popup._showing and not is_instance_valid(chained_card) and popup._card == null)
 
 	# NOTE: save/load round-trip and old-save backfill (SaveManager.gd's
 	# discovered_tile_types read/write, mirroring first_boss_encountered's

@@ -4,11 +4,23 @@ var jammer_radius: float = 800.0
 var jammer_power: float = 0.5 # 50% reduction early game
 var is_jamming: bool = false
 
-# Domain-of-effect ring color - PiercingJammerMech overrides this to red so
-# players can visually tell "this one is protecting kills" from "this one is
+# Domain-of-effect ring color - SupportMech overrides this to teal so
+# players can visually tell "this one heals/protects/jams" from "this one is
 # muting my damage" at a glance (was previously done by re-tinting a filled
 # Polygon2D disc; see _draw() below for why that's gone).
 var ring_glow_color: Color = Color(0.3, 0.65, 1.0)
+
+# Draw-batching (task #14): _draw() below issues 3 draw_arc calls at 64
+# segments each (SupportMech's own _draw() adds 2 more on top via super) -
+# was queue_redraw()'d unconditionally every _process tick. The pulse it's
+# animating (see _draw()) has a ~1s period (sin(msec/150)), so redrawing
+# at 60Hz captures motion nobody can perceive between frames - same
+# "redraw throttle" idea already applied to MinimapOverlay/GarageGridRenderer.
+# Randomized starting offset (not synced to 0) so every Jammer/Support on
+# the field doesn't redraw on the exact same tick - same desync trick
+# Projectile.gd already uses for its homing/vortex query timers.
+const REDRAW_HZ = 20.0
+var _redraw_timer: float = 0.0
 
 func _ready():
 	super._ready()
@@ -19,6 +31,7 @@ func _ready():
 		# Starts at 0.5 (50%), reaches 0.1 (90% reduction) around wave 30+
 		jammer_power = max(0.1, 0.5 - (main.current_wave * 0.015))
 	z_index = -5
+	_redraw_timer = randf() * (1.0 / REDRAW_HZ)
 
 func _process(delta: float):
 	if is_instance_valid(target) and target.has_method("apply_jammer_debuff"):
@@ -28,7 +41,10 @@ func _process(delta: float):
 			target.apply_jammer_debuff(jammer_power)
 	else:
 		is_jamming = false
-	queue_redraw()
+	_redraw_timer -= delta
+	if _redraw_timer <= 0.0:
+		_redraw_timer = 1.0 / REDRAW_HZ
+		queue_redraw()
 
 # Glowing boundary-outline visual for the aura's domain of effect - was a
 # flat translucent filled disc (dimmed the whole interior with no clear

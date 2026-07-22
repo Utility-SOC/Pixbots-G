@@ -1,6 +1,28 @@
 extends Node2D
 
+# Draw-batching / GPU load (task #14): each death spawns 2 GPUParticles2D
+# bursts (100 + 50 particles). Fine for an isolated kill, but an AoE wipe
+# can queue_free() dozens of enemies in the same frame, spiking dozens of
+# these simultaneously. Same saturation-tier LOD idea already established
+# for ProjectileManager (thin under load, full effect for an isolated
+# death) - a simple static live-count tracked here directly rather than
+# reaching into that unrelated system. _live_count tracks alive
+# DeathExplosion NODES (their full 3s lifetime, not just active emission),
+# which is the right proxy for "how much is happening around now."
+static var _live_count: int = 0
+
+# [concurrent explosions, particle-count multiplier]
+const SATURATION_TIERS = [[24, 0.25], [12, 0.5], [6, 0.75]]
+
+static func _particle_scale() -> float:
+	for tier in SATURATION_TIERS:
+		if _live_count >= tier[0]:
+			return tier[1]
+	return 1.0
+
 func _ready():
+	_live_count += 1
+	var particle_scale = _particle_scale()
 	# 1. Shockwave Ring
 	var shockwave = Polygon2D.new()
 	var pts = PackedVector2Array()
@@ -18,7 +40,7 @@ func _ready():
 	
 	# 2. Debris Particles
 	var debris = GPUParticles2D.new()
-	debris.amount = 100
+	debris.amount = max(1, int(100 * particle_scale))
 	debris.lifetime = 2.0
 	debris.one_shot = true
 	debris.explosiveness = 0.95
@@ -40,7 +62,7 @@ func _ready():
 	
 	# 3. Fireball Core
 	var core = GPUParticles2D.new()
-	core.amount = 50
+	core.amount = max(1, int(50 * particle_scale))
 	core.lifetime = 0.8
 	core.one_shot = true
 	core.explosiveness = 0.9
@@ -86,3 +108,6 @@ func _ready():
 	)
 	add_child(timer)
 	timer.start()
+
+func _exit_tree():
+	_live_count -= 1

@@ -30,6 +30,19 @@ var drone_ref: Node = null
 var last_render_scale: float = 0.55 # read by MechStatusBars for bar position scaling
 var _spin: float = 0.0
 
+# Draw-batching (task #14): was queue_redraw()'d unconditionally every
+# _process tick. A spinning-rotor animation reads faster than the JammerMech
+# aura's slow pulse (see that file's own throttle for the same idea at a
+# gentler rate), so this stays closer to full framerate rather than dropping
+# all the way to a slow-pulse rate - 30Hz halves the redraw cost while still
+# reading as smooth rotation. Randomized starting offset so a multi-drone
+# build doesn't redraw every companion on the same tick.
+const REDRAW_HZ = 30.0
+var _redraw_timer: float = 0.0
+
+func _ready():
+	_redraw_timer = randf() * (1.0 / REDRAW_HZ)
+
 const RARITY_COLORS = [
 	Color(0.55, 0.6, 0.65),  # Common - gunmetal
 	Color(0.3, 0.75, 0.4),   # Uncommon - green
@@ -66,7 +79,10 @@ func _rebuild_visuals():
 
 func _process(delta):
 	_spin += delta * 4.0
-	queue_redraw()
+	_redraw_timer -= delta
+	if _redraw_timer <= 0.0:
+		_redraw_timer = 1.0 / REDRAW_HZ
+		queue_redraw()
 
 func _draw():
 	var col = RARITY_COLORS[_get_rarity()]

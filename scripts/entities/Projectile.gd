@@ -177,6 +177,32 @@ static func _ensure_flight_rust():
 		if ClassDB.class_exists("ProjectileFlight"):
 			_flight_rasterizer = ClassDB.instantiate("ProjectileFlight")
 
+# Draw-batching (task #14): Godot's 2D batcher keys off Material RESOURCE
+# IDENTITY (RID), not property-value equality - two separate
+# CanvasItemMaterial.new() instances with the exact same blend_mode still
+# break the batch run between them. _build_visuals() used to allocate a
+# fresh CanvasItemMaterial per projectile for a blend_mode that's always
+# the same fixed value (BLEND_MODE_ADD, or BLEND_MODE_MIX for the fire
+# trail) - with up to hundreds of live shots (see ProjectileManager's
+# saturation tiers), that's hundreds of distinct material RIDs interleaved
+# with every other CanvasItem in the scene, actively fighting the batcher.
+# One shared static instance per blend mode (checked-then-cached, same
+# pattern as _flight_rasterizer above) fixes that for free.
+static var _add_material: CanvasItemMaterial = null
+static var _mix_material: CanvasItemMaterial = null
+
+static func _get_add_material() -> CanvasItemMaterial:
+	if not _add_material:
+		_add_material = CanvasItemMaterial.new()
+		_add_material.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	return _add_material
+
+static func _get_mix_material() -> CanvasItemMaterial:
+	if not _mix_material:
+		_mix_material = CanvasItemMaterial.new()
+		_mix_material.blend_mode = CanvasItemMaterial.BLEND_MODE_MIX
+	return _mix_material
+
 # --- Perf: throttled physics queries -----------------------------------
 # With combat spam (radial/shotgun Mythic patterns, several squads all
 # firing) it's easy to have 100+ live projectiles at once, and every one of
@@ -492,17 +518,8 @@ func _calculate_stats():
 func _build_visuals():
 	visual_node = Node2D.new()
 	add_child(visual_node)
-	var add_mat = CanvasItemMaterial.new()
-	add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	visual_node.material = add_mat
+	visual_node.material = _get_add_material()
 
-	# Saturation LOD (see ProjectileManager.lite_visuals): past ~90 live
-	# shots, skip the per-shot ornaments (particle systems, helix orbiters,
-	# trail lines) and keep just the core synergy shape + signature ring.
-	# Checked once at build time - a shot is born lite or full and stays
-	# that way; nothing pops mid-flight.
-	var lite = ProjectileManager.lite_visuals()
-	
 	# Determine dominant and secondary synergies for shape generation
 	var sorted_synergies = []
 	for k in synergies:
@@ -510,16 +527,28 @@ func _build_visuals():
 			continue # Ignore RAW if we have other synergies
 		sorted_synergies.append({"type": k, "power": synergies[k]})
 	sorted_synergies.sort_custom(func(a, b): return a.power > b.power)
-	
+
 	var dominant = -1
 	var secondary = -1
 	if sorted_synergies.size() > 0: dominant = sorted_synergies[0].type
 	if sorted_synergies.size() > 1: secondary = sorted_synergies[1].type
-	
+
+	# Saturation LOD (see ProjectileManager.should_show_full_ornament): past
+	# ~90 live shots, this synergy's OWN rate decides whether THIS shot gets
+	# its full ornament (particle systems, helix orbiters, trail lines,
+	# Vortex's spiral) or the cheap saturation stand-in - a stable rotating
+	# count per synergy, not a per-shot coin flip, so the ratio reads as a
+	# consistent, deliberate style rather than random flicker. Checked once
+	# at build time - a shot is born lite or full and stays that way;
+	# nothing pops mid-flight.
+	var full_ornament = ProjectileManager.should_show_full_ornament(dominant)
+
 	# Procedural Shape based on Dominant Element - this is the ONE place
 	# magnitude drives visual size (see _calculate_stats() for why it's not
 	# also duplicated there anymore). Log growth is gentle/self-limiting on
-	# its own (only reaches ~4.3 even at the 150,000 magnitude ceiling), so
+	# its own (reaches the 5.0 clamp right around the new 600,000 Mythic-
+	# overcharge ceiling, EnergyPacket.MAX_MAGNITUDE - it hit ~4.3 at the
+	# older 150,000 ceiling), so
 	# this cap is mostly just a hard safety ceiling, not the thing actually
 	# doing the limiting day to day.
 	var p_scale = 1.0 + log(1.0 + total_power / 200.0) * 0.5
@@ -544,7 +573,7 @@ func _build_visuals():
 		poly.scale = Vector2.ONE * p_scale
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.FIRE:
-		if lite:
+		if not full_ornament:
 			# Saturation stand-in: a simple ember wedge instead of a whole
 			# CPUParticles2D system per bullet.
 			var poly = Polygon2D.new()
@@ -560,9 +589,7 @@ func _build_visuals():
 			fire_trail.scale_amount_min *= p_scale
 			fire_trail.scale_amount_max *= p_scale
 			# Use MIX instead of ADD so the black soot is visible
-			var mix_mat = CanvasItemMaterial.new()
-			mix_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_MIX
-			fire_trail.material = mix_mat
+			fire_trail.material = _get_mix_material()
 			visual_node.add_child(fire_trail)
 	elif dominant == EnergyPacket.SynergyType.ICE:
 		# Crystalline, jagged shape
@@ -629,9 +656,10 @@ func _build_visuals():
 		poly.scale = Vector2.ONE * p_scale
 		visual_node.add_child(poly)
 		
-		# Purple spiral (skipped under saturation - the diamond core carries
-		# the identity on a crowded screen)
-		if not lite:
+		# Purple spiral (thinned to 1-in-4 shots under saturation - the
+		# diamond core carries the identity the rest of the time on a
+		# crowded screen)
+		if full_ornament:
 			var spiral = Line2D.new()
 			var s_pts = PackedVector2Array()
 			for i in range(30):
@@ -655,7 +683,7 @@ func _build_visuals():
 		visual_node.add_child(circ)
 		
 	# Secondary Element modifies properties
-	if secondary == EnergyPacket.SynergyType.POISON and not lite:
+	if secondary == EnergyPacket.SynergyType.POISON and ProjectileManager.should_show_full_ornament(EnergyPacket.SynergyType.POISON):
 		# Toxic trail
 		var trail = GPUParticles2D.new()
 		trail.amount = 20
@@ -678,8 +706,10 @@ func _build_visuals():
 		core.scale = Vector2.ONE * p_scale
 		visual_node.add_child(core)
 		
-	# Setup helix for multi-synergy combos
-	if sorted_synergies.size() >= 2 and not lite:
+	# Setup helix for multi-synergy combos - tied to the shot's overall
+	# (dominant-synergy) ornament decision rather than any one element,
+	# since this ornament isn't attributable to a single synergy.
+	if sorted_synergies.size() >= 2 and full_ornament:
 		for k in synergies:
 			if k != EnergyPacket.SynergyType.RAW:
 				var h = Polygon2D.new()
@@ -697,15 +727,24 @@ func _build_visuals():
 					"radius": (8.0 + ratios[k] * 12.0) * p_scale
 				})
 	
-	# Kinetic Trail
-	if ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0) > 0.1 and not lite:
+	# Kinetic Trail - reuse full_ornament's decision when Kinetic is already
+	# the dominant synergy (it was computed for exactly this type then; a
+	# fresh call here would double-consume ProjectileManager's rotating
+	# counter for the same shot), otherwise consult it fresh for its own
+	# rate. Only consulted at all when the ratio gate below would otherwise
+	# show the trail - a shot with no real Kinetic presence must never
+	# spend a tick of Kinetic's counter.
+	if ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0) > 0.1 and (full_ornament if dominant == EnergyPacket.SynergyType.KINETIC else ProjectileManager.should_show_full_ornament(EnergyPacket.SynergyType.KINETIC)):
 		var trail = Trail2D.new()
 		trail.width = 4.0
 		trail.default_color = final_color * Color(1,1,1,0.5)
 		visual_node.add_child(trail)
 		
-	# Vortex Helix Orbs
-	if ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) > 0.05 and not lite:
+	# Vortex Helix Orbs - same reuse-if-already-dominant rule as the Kinetic
+	# trail above (avoids double-consuming Vortex's counter on a shot where
+	# it's already dominant, and never spends a tick on a shot with no real
+	# Vortex presence at all).
+	if ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) > 0.05 and (full_ornament if dominant == EnergyPacket.SynergyType.VORTEX else ProjectileManager.should_show_full_ornament(EnergyPacket.SynergyType.VORTEX)):
 		for i in range(3):
 			var orb = Polygon2D.new()
 			var pts = PackedVector2Array()

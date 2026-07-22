@@ -27,6 +27,13 @@ var label: Label
 # mechs + 300 projectiles live - argues against Area2D broadphase being the
 # bottleneck, but real in-session numbers beat a shaky synthetic one.)
 var breakdown_label: Label
+# Third line: real rendering metrics (draw calls, objects, primitives) -
+# task #14's "draw batching" scope needs its OWN direct evidence, same
+# lesson as the physics/process breakdown above: don't touch rendering
+# code on a guess. These are Godot's actual render-server counters, not an
+# inferred/timing-based proxy, so they're trustworthy the instant they're
+# read - no synthetic-harness pitfalls to worry about here.
+var render_label: Label
 var _frame_times: Array[float] = []
 const SMOOTH_WINDOW = 20 # rolling average - raw per-frame jitter is noisy
 
@@ -54,6 +61,17 @@ func _ready():
 	breakdown_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	breakdown_label.modulate = Color(0.85, 0.85, 0.85)
 	add_child(breakdown_label)
+
+	render_label = Label.new()
+	render_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	render_label.position = Vector2(-220, 44)
+	render_label.custom_minimum_size = Vector2(216, 0)
+	render_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	render_label.add_theme_font_size_override("font_size", 12)
+	render_label.add_theme_constant_override("outline_size", 3)
+	render_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	render_label.modulate = Color(0.75, 0.85, 0.95)
+	add_child(render_label)
 
 func _process(delta: float):
 	if not visible:
@@ -87,6 +105,11 @@ func _process(delta: float):
 	breakdown_label.text = "phys %.1fms  proc %.1fms  |  %d shots  %d enemies  %d pairs" % [
 		physics_ms, process_ms, proj_count, enemy_count, collision_pairs
 	]
+
+	var draw_calls = Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+	var objects = Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)
+	var primitives = Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
+	render_label.text = "%d draws  %d objs  %.0fk verts" % [draw_calls, objects, primitives / 1000.0]
 
 func _unhandled_input(event: InputEvent):
 	# F3: the common cross-game convention for a debug/perf overlay toggle.

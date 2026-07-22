@@ -14,6 +14,13 @@ static var _live_count: int = 0
 # [concurrent explosions, particle-count multiplier]
 const SATURATION_TIERS = [[24, 0.25], [12, 0.5], [6, 0.75]]
 
+# Persisted crater decals (see the cleanup-timer callback below) survive
+# their own DeathExplosion's teardown - capped so a very long wave-survival
+# session doesn't accumulate an unbounded number of leftover Polygon2D
+# nodes forever. Oldest evicted first once the cap is hit.
+const MAX_PERSISTED_CRATERS = 60
+static var _persisted_craters: Array = []
+
 static func _particle_scale() -> float:
 	for tier in SATURATION_TIERS:
 		if _live_count >= tier[0]:
@@ -86,24 +93,43 @@ func _ready():
 	if cam and cam.has_method("shake"):
 		cam.shake(3.0, 1.5)
 		
-	# 5. Crater Sprite / Decal
+	# 5. Crater Sprite / Decal - a permanent scorch mark meant to outlive the
+	# rest of the explosion (particles/shockwave/timer, all cleaned up below).
 	var crater = Polygon2D.new()
 	crater.polygon = pts
 	crater.color = Color(0.1, 0.1, 0.1, 0.8) # Dark scorch mark
 	crater.scale = Vector2(80, 80)
 	crater.z_index = -10 # Below everything
 	add_child(crater)
-	
-	# Cleanup timer for the emitters (Crater stays forever since it's added to world?)
-	# Wait, if we queue_free, the crater disappears.
-	# We should unparent the crater and leave it in the scene.
-	crater.top_level = true
-	crater.global_position = global_position
-	
+
 	var timer = Timer.new()
 	timer.wait_time = 3.0
 	timer.one_shot = true
 	timer.timeout.connect(func():
+		# Persisting the crater by reparenting the SAME node (remove_child +
+		# add_child, called from inside a Timer's own timeout callback while
+		# that Timer is still this node's child) reliably crashed the engine
+		# in testing - modifying this node's children mid-signal-dispatch
+		# from one of those same children is apparently unsafe in this Godot
+		# version. Spawning an independent replacement decal on the parent
+		# sidesteps the whole hazard: no children-list surgery on `self` at
+		# all, and it swaps in at the exact instant the original (still a
+		# child of `self`, freed normally below) disappears, so there's no
+		# visible handoff.
+		var parent = get_parent()
+		if parent:
+			var persisted = Polygon2D.new()
+			persisted.polygon = crater.polygon
+			persisted.color = crater.color
+			persisted.scale = crater.scale
+			persisted.z_index = crater.z_index
+			persisted.global_position = global_position
+			parent.add_child(persisted)
+			_persisted_craters.append(persisted)
+			if _persisted_craters.size() > MAX_PERSISTED_CRATERS:
+				var oldest = _persisted_craters.pop_front()
+				if is_instance_valid(oldest):
+					oldest.queue_free()
 		queue_free()
 	)
 	add_child(timer)

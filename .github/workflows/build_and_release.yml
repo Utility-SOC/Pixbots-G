@@ -5,6 +5,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   # Gate before the expensive job runs at all - a tag push alone shouldn't
   # be enough to burn a full Rust+Godot export+installer build. Compares

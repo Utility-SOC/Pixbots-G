@@ -1,0 +1,20 @@
+{
+	"_comment": "Sample scene demonstrating the framework: Frank uses a procedural placeholder sprite until assets/cutscenes/frank.png exists - drop the PNG in and set hframes/vframes/fps and it becomes a real flipbook, no other changes.",
+	"background": { "color": "#101018" },
+	"actors": {
+		"frank": {
+			"texture": "res://assets/cutscenes/frank.png",
+			"hframes": 4, "vframes": 1, "fps": 6,
+			"scale": 5,
+			"placeholder_color": "#4d8bd4"
+		}
+	},
+	"steps": [
+		{ "cmd": "enter", "actor": "frank", "from": [-0.08, 0.62], "to": [0.28, 0.62], "duration": 1.1 },
+		{ "cmd": "say", "actor": "frank", "name": "Frank", "text": "One wave in and you're still bolted together. I respect that.", "auto": 4.0 },
+		{ "cmd": "shake", "actor": "frank", "duration": 0.35, "strength": 4 },
+		{ "cmd": "say", "actor": "frank", "name": "Frank", "text": "Scrap's worth more than sentiment out here. Anything that isn't shooting, sell it to me.", "auto": 4.5 },
+		{ "cmd": "flip", "actor": "frank" },
+		{ "cmd": "exit", "actor": "frank", "to": [1.1, 0.62], "duration": 0.9 }
+	]
+}

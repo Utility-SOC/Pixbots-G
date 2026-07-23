@@ -7,9 +7,9 @@
 		"Loose tile on lane three, watch your footing. The bots won't.",
 		"Remember. It is only a game, and assault WILL get you banned from the store. Keep it on the table.",
 		"Closed Wednesdays for FightShovel 1920.",
-		"PixBot Market - Thursday night. Bring scrap, leave with regrets.",
+		"PixBot Market - Thursday Night.\"",
 		"10:00 PM, You don't have to go home, but you can't stay here.",
-		"Flat paint job? Dry brush the edges, ink wash the recesses. Your bot fights better when it looks loved. That's science.",
+		"Consider Ink Wash.\"",
 		"Jump-Jets allow your Pixel Bot to survive water levels.",
 		"Combine different synergies for unique effects.",
 		"The meta is a suggestion. Play what makes you happy, as long as it wins.",
@@ -26,23 +26,9 @@
 		"There is no 'luck' in PixBots. Just probability and poor planning.",
 		"I've seen kids cry over this game. I've seen parents rage over it.",
 		"Remember to hydrate. Water Bottles are free. Soda has a 10% discount for players.",
-		"Basic Hygiene Required.",
-		"Mortars are legal now. The insurance called. We're 'in discussions.'",
-		"Saw a bot teleport across the whole table yesterday. Lightning builds, man. I miss when this was a walking game.",
-		"The Director doesn't sleep. It just sits there. Learning. Anyway, cocoa's fresh.",
-		"Somebody cloaked their bot and forgot where they parked it. Check under the counter if yours is missing.",
-		"If your torso tab ever goes missing, scroll left. Trust me on this one.",
-		"New house rule: if your bot boxes itself in behind terrain, you buy the table snacks.",
-		"A kid asked me what RAW does. Everything, kid. It does everything. Just not WELL.",
-		"Watched two drones and a mortar carry a match while the pilot ate a sandwich. Beautiful game.",
-		"Champion cards from out of town keep showing up in my mailbox. You people have friends EVERYWHERE.",
-		"The shop cat is not a legal target. The shop cat has never been a legal target.",
-		"Your shield doesn't need a button. Your cloak does. C, by the way. The manual's under the register somewhere.",
-		"Pierce for speed, kinetic for range. I will put it on a shirt if I have to.",
-		"Someone left a full-vortex bot running overnight. Everything in aisle two is now in aisle three.",
-		"The Corp rep asked why our tables win so much. I said 'good coaching.' Buy something so it's not a lie."
+        "Basic Hygiene Required."
 	],
-	"first_boss_intro": "Heads up — that's a Corp centerpiece model. They ship one big chassis per trainer kit so new pilots learn to fight something SCARY. Kill the legs out from under the drama.",
+	"first_boss_intro": "Heads up \u2014 that's a Corp centerpiece model. They ship one big chassis per trainer kit so new pilots learn to fight something SCARY. Kill the legs out from under the drama.",
 	"first_boss_defeat": "And THAT is why we keep the good salvage behind the counter. Take your pick, champ.",
 	"boss_defeats": [
 		"Down goes the big one! Somebody get the broom.",
@@ -77,7 +63,7 @@
 		"That boss was a menace. Now it's a paperweight.",
 		"I'll add that kill to the chalkboard. It's getting full.",
 		"You just gave that AI a complex. It's going to need therapy.",
-		"Not bad. Not bad at all. Now do it again."
+        "Not bad. Not bad at all. Now do it again."
 	],
 	"rivals": {
 		"Arthur": {
@@ -234,6 +220,55 @@
 				"round_2": "So you tweaked your build. Cute. I downloaded your new schematic ten minutes ago.",
 				"round_3": "You've mastered this loadout. I can copy the parts, but I can't copy your instincts. Show me the masterclass."
 			}
+		},
+		"Hrothgar": {
+			"intro": "Hrothgar runs the historical wargaming nights - Thursdays, if you're ever free. Doesn't talk much until the bot's actually dented. Then he won't shut up. Something about 'the old ways.' Keep moving. I mean that literally - keep MOVING.",
+			"win": "You never let him get a mortar to land clean. Smart. Ask him about it after - he loves explaining exactly how you won.",
+			"loss": "There it is. The big one. I've seen it land a hundred times and it still gets me.",
+			"gimmick": "Huge AoE mortars - fireball energy, not melee. Lobs slow, telegraphed, devastating area blasts rather than chasing you down; the threat is standing in the wrong place, not getting caught by him directly. Keeps a thread of the \"ancient warfare\" framing (a wizard who studies siege history, not just spellbooks) and the escalation idea from the original draft - his mortars get bigger/more frequent the longer the fight runs, like he's building toward something.",
+			"monologues": {
+				"round_1": "You fight like the moderns do. All caution, no conviction. Artillery doesn't care about conviction.",
+				"round_2": "You're learning the blast radius. Good. I've adjusted it."
+			}
+		},
+		"Dan": {
+			"intro": "This is Dan. He works at the hardware store two doors down. Never bought a Mythic part in his life. Hits like he's still mad about something from 2019. Nobody can explain how he's undefeated in this bracket. I've stopped trying.",
+			"win": "You beat Dan. I don't - I genuinely don't know what to tell you. Nobody's done that.",
+			"loss": "Common parts. Uncommon pilot. That's the whole secret and it's still not enough for most people.",
+			"gimmick": "Starter-tier gear, zero customization, zero Mythic parts, full aggression - wins purely on positioning and timing, not power. Reads as pure unga-bunga simplicity on paper and is a real problem in practice.",
+			"monologues": {
+				"round_1": "Nice bot. Real nice. Mine's the starter frame. Let's see which one of us actually knows how to use theirs.",
+				"round_2": "You're better than last time. I'm exactly the same. That's kind of the point.",
+				"round_3": "Honestly? This is the most fun I've had all week. Don't tell my wife I said that about a hobby."
+			}
+		},
+		"Evan": {
+			"intro": "...I don't actually know Evan. He just started showing up. Says he's 'evaluating the venue.' Nobody invited him. He knows an unusual amount about your last three builds. I'd ask him about it, but something about how he says 'that's not important right now' keeps me from following up.",
+			"win": "Evan packs up without a word. Doesn't seem upset. Writes something down. I really don't like that guy.",
+			"loss": "Well. He knew exactly how to beat you before you even queued up. Make of that what you will.",
+			"gimmick": "Deliberately UNDER-powers every shot instead of racing for bigger ones - low individual damage, constant chip-fire, evasive, hard to pin down. First concrete face on the dystopian-hints thread (see the Worldbuilding section below) - his whole kit is built around staying under whatever threshold keeps a sensor sweep from flagging him.",
+			"monologues": {
+				"round_1": "Interesting build. Interesting history, too. I've read the whole file.",
+				"round_2": "You adapted. Noted. I'll adjust the file.",
+				"round_3": "You're better than the file suggested. That's... actually a problem for someone. Not for me."
+			}
+		},
+		"Joe": {
+			"intro": "",
+			"win": "",
+			"loss": "",
+			"gimmick": "Not fully worked out yet - the seed idea is a build that routes/uses hex tiles in configurations nobody else would, getting value out of \"wrong\" placements the solver/meta would never suggest. May get bespoke part geometry (a shape or footprint no other loadout has access to) as his signature edge, on top of the unconventional-usage angle. Needs a real design pass before this is playable - captured here as direction, not a finished kit.",
+			"monologues": {}
+		},
+		"Frank": {
+			"intro": "Look. I wasn't going to do this. But you cleared the others, and there's a rule - shop owner's gotta close out the bracket personally, or the trophy doesn't count. Full disclosure: I've been taking notes since your first wave. Might've built something that knows your bot a little too well.",
+			"win": "...Yeah. Okay. That's - that's fair. That's a fair win. Go put it on the chalkboard yourself, I need a minute.",
+			"loss": "Come on now. I run this place. Did you think I just watch you all day for fun? ...Okay, partially for fun.",
+			"gimmick": "Adaptive/mirror build with a support-caster's ear for a room - he's been quietly taking notes on the player's own dominant synergy/element all game (and, bard-style, seems to know a little about everyone else's builds too) and built something that specifically counters it. The Director's own evolution trick, but personal.",
+			"monologues": {
+				"round_1": "Nine years of watching people build. I've picked up a thing or two. Let's see if I remember how to actually pilot one of these.",
+				"round_2": "You've got a tell. Everyone does. I've just had more time to notice yours than most."
+			}
 		}
 	},
 	"travelling_champion": {
@@ -256,7 +291,7 @@
 		"They put up a fight, but you had the edge.",
 		"You stayed cool under pressure. That's what wins matches.",
 		"They're walking away with a bruised ego and a broken bot.",
-		"You just sent them back to the drawing board."
+        "You just sent them back to the drawing board."
 	],
 	"generic_rival_losses": [
 		"Losing is just a lesson with a higher repair bill.",
@@ -273,14 +308,14 @@
 		"You hesitated. In this game, hesitation is scrap.",
 		"They brought a better tool for the job. Adapt and overcome.",
 		"You got steamrolled. Dust yourself off and get back to the garage.",
-		"Losing stings, but it's the only way to get better. Go fix your bot."
+        "Losing stings, but it's the only way to get better. Go fix your bot."
 	],
 	"milestones": {
-		"10_bosses": "Ten centerpiece kills. That's Sponsored Pilot tier — Corp merch box, don't ask me what shipping cost. One Legendary chassis piece, two Legendary tiles. Spend them loud.",
+		"10_bosses": "Ten centerpiece kills. That's Sponsored Pilot tier \u2014 Corp merch box, don't ask me what shipping cost. One Legendary chassis piece, two Legendary tiles. Spend them loud.",
 		"level_100": "Kid. Level one hundred. I've had the shop nine years and I've rarely seen a pilot reach this point. Based on your record and how much you've forced the AI to evolve, the system's authorizing a payout. I'm looking at up to fifteen Mythic tiles for you. Fifteen. Corp says 'tournament-grade.' I say try not to vaporize my east wall."
 	},
 	"black_market": [
-		"Officially, that case is 'returns pending inspection.' Unofficially — players sell to each other. That kid, Silas? He always has the strangest, glitchiest, non-regulation components. I don't know where he gets them, and the rotation changes every ten minutes. Nothing has a warranty. You didn't hear it from me."
+        "Officially, that case is 'returns pending inspection.' Unofficially \u2014 players sell to each other. That kid, Silas? He always has the strangest, glitchiest, non-regulation components. I don't know where he gets them, and the rotation changes every ten minutes. Nothing has a warranty. You didn't hear it from me."
 	],
 	"death_footers": [
 		"Bots break. Pilots learn. Bench is that way, I'll put the kettle on.",
@@ -288,10 +323,10 @@
 		"That arm's fixable. Your pride, also fixable. Scrap's in the bin.",
 		"Don't let it get to your head. I lost my first twenty matches in a row.",
 		"Go tweak your loadout. A minor adjustment is the difference between scrap and glory.",
-		"You're getting predictable. The AI learns. You have to learn faster."
+        "You're getting predictable. The AI learns. You have to learn faster."
 	],
 	"game_over_3_loss": "Three straight losses in the brackets. Look, kid, I'm sorry... but Corp rules are Corp rules. I have to pull your tournament registration for this circuit. Take some time, build a new rig, and we'll try again next season.",
-	"tournament_teaser": "You've seen the bracket out front, right? Regional qualifiers run through sponsored shops like mine. Keep this up and I'm signing you up — and I do NOT put my shop's name on just anybody. Ask Rudy... Actually, don't ask Rudy. Just keep winning.",
+	"tournament_teaser": "You've seen the bracket out front, right? Regional qualifiers run through sponsored shops like mine. Keep this up and I'm signing you up \u2014 and I do NOT put my shop's name on just anybody. Ask Rudy... Actually, don't ask Rudy. Just keep winning.",
 	"boss_rush": {
 		"intro": "So, you want to run the gauntlet. No breaks, no easy waves, just the heavy hitters back to back. If you survive, you keep what you salvage. If you don't... well, let's hope you survive.",
 		"completion": "You actually cleared the board. I don't think I've seen anyone do that since Rudy before... well, never mind. Take your loot, you earned every piece."

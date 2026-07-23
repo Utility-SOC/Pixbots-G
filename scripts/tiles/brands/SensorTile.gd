@@ -46,7 +46,9 @@ func get_sensor_mode() -> String:
 	return mode
 
 func get_sight_bonus() -> float:
-	return TileStatsRegistry.get_stat("SensorTile", "sight_bonus", 400.0)
+	# Raised from 400 - per the user: "the npc's should be given longer
+	# visual range/better sensors," paired with Mech.SIGHT_RANGE's own bump.
+	return TileStatsRegistry.get_stat("SensorTile", "sight_bonus", 600.0)
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	return [packet]

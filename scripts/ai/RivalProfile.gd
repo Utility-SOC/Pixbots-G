@@ -26,6 +26,24 @@ extends BossProfile
 # For Leo & Luna: 2v1 match. If > 1, SquadDirector spawns multiple Mechs.
 @export var mech_count: int = 1
 
+# For Chloe (the drone swarm rival): she carries a Jammer Module herself
+# AND every one of her drones gets one too - each drone projects its own
+# VISION-mode JammerField, and JammerField's existing proximity stacking
+# (stack_multiplier compounds multiplicatively for same-side fields within
+# JAMMER_LINK_RANGE) turns a clustered swarm into one huge combined
+# jamming field, per the user: "she comes with a jammer, each of her
+# drones should have one too so she has a huge jamming field built from
+# their combined power." See Main._apply_rival_drone_jammers.
+@export var drones_have_jammers: bool = false
+
+# Total live drones this rival fields at spawn (0 = just whatever the
+# build's Drone Bays naturally produce). Chloe's megaswarm: her intro
+# promises "about twenty micro-bots" - extra drones beyond the bays are
+# spawned from clones of her bay loadout (see Main._apply_rival_drone_
+# profile / DroneBayTile.spawn_drone_swarm), each carrying its own jammer
+# when drones_have_jammers is set, so the whole swarm's fields compound.
+@export var drone_swarm_count: int = 0
+
 func _init(_name: String = "Rival", _base_role: String = "brawler"):
 	super(_name, _base_role)
 	rival_name = _name
@@ -42,6 +60,8 @@ func to_dict() -> Dictionary:
 	d["gimmick"] = gimmick
 	d["monologues"] = monologues
 	d["mech_count"] = mech_count
+	d["drones_have_jammers"] = drones_have_jammers
+	d["drone_swarm_count"] = drone_swarm_count
 	return d
 
 func from_dict(data: Dictionary):
@@ -56,3 +76,5 @@ func from_dict(data: Dictionary):
 	if data.has("gimmick"): gimmick = str(data["gimmick"])
 	if data.has("monologues"): monologues = data["monologues"].duplicate()
 	if data.has("mech_count"): mech_count = int(data["mech_count"])
+	if data.has("drones_have_jammers"): drones_have_jammers = bool(data["drones_have_jammers"])
+	if data.has("drone_swarm_count"): drone_swarm_count = int(data["drone_swarm_count"])

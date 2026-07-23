@@ -101,8 +101,8 @@ func _count_experimental_profiles() -> int:
 # Coverage-seeking: picks whichever combat role currently has the FEWEST
 # registered profiles (ties broken randomly), so new experimental doctrine
 # growth spreads across every role instead of all piling onto whichever
-# role happened to get lucky first. "diver"/"piercing_jammer" aren't in
-# this canonical list - they're rare enough to grow reactively/via the
+# role happened to get lucky first. "diver" isn't in
+# this canonical list - it's rare enough to grow reactively/via the
 # per-bot jitter in SquadDirector._spawn_bot_for_role instead of being
 # proactively seeded.
 func _pick_role_needing_profiles() -> String:

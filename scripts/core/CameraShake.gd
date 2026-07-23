@@ -15,7 +15,11 @@ var shake_duration: float = 0.0
 # camera detaches from the pixbot and SNAPS to frame the whole table.
 # Wheel-up exits back to tactical follow-cam at max zoom-out.
 var base_zoom: float = 0.75
-const FACTOR_MIN = 0.35 # tactical zoom-out limit (~2.9x classic framing)
+# Lowered from 0.35 - per the user: "could you make it zoom out a little
+# more before snapping? It makes a moderate strategic view challenging
+# (right now it goes from tactical view to - whole map)." Gives roughly
+# 1.75x more zoom-out room in tactical mode before the hard strategic snap.
+const FACTOR_MIN = 0.2 # tactical zoom-out limit (~5.0x classic framing)
 const FACTOR_MAX = 1.0
 const ZOOM_STEP = 1.15
 const ZOOM_GLIDE = 9.0 # exponential approach rate per second

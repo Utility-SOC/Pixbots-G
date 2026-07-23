@@ -10,7 +10,7 @@ extends Node
 const CutscenePlayer = preload("res://scripts/cutscene/CutscenePlayer.gd")
 
 const DT := 1.0 / 30.0
-const SAMPLE := "res://config/cutscenes/evan_scrap_pitch.json"
+const SAMPLE := "res://config/cutscenes/frank_scrap_pitch.json"
 
 var _finished_count := 0
 
@@ -38,16 +38,16 @@ func _ready():
 	if not get_tree().paused:
 		push_error("FAIL: cutscene didn't pause the tree")
 		failures += 1
-	var evan = player._actors.get("evan")
-	if evan == null or evan.texture == null:
+	var frank = player._actors.get("frank")
+	if frank == null or frank.texture == null:
 		push_error("FAIL: actor missing or placeholder texture not generated")
 		failures += 1
 	else:
-		print("1) scene loaded, tree paused, placeholder actor built (%dx%d)" % [evan.texture.get_width(), evan.texture.get_height()])
+		print("1) scene loaded, tree paused, placeholder actor built (%dx%d)" % [frank.texture.get_width(), frank.texture.get_height()])
 
 	# enter (1.1s) finishes, then the scene sits on a say step
 	_drive(player, 1.5)
-	if str(player._step.get("cmd", "")) != "say" or not evan.visible:
+	if str(player._step.get("cmd", "")) != "say" or not frank.visible:
 		push_error("FAIL: expected to be on the first say with actor visible, on '%s'" % str(player._step))
 		failures += 1
 	else:
@@ -74,7 +74,7 @@ func _ready():
 	elif get_tree().paused:
 		push_error("FAIL: tree still paused after the scene ended")
 		failures += 1
-	elif evan.visible:
+	elif frank.visible:
 		push_error("FAIL: exit step didn't hide the actor")
 		failures += 1
 	else:
@@ -110,25 +110,25 @@ func _ready():
 	var prop_scene_data = {
 		"background": {"color": "#101018"},
 		"actors": {
-			"evan": {"placeholder_color": "#4d8bd4"},
+			"frank": {"placeholder_color": "#4d8bd4"},
 			"case": {"kind": "prop", "placeholder_color": "#6a7a8a"},
 		},
 		"steps": [
 			{"cmd": "enter", "actor": "case", "from": [0.7, 0.6], "to": [0.7, 0.6], "duration": 0.01},
-			{"cmd": "enter", "actor": "evan", "from": [0.75, 0.9], "to": [0.7, 0.55], "duration": 0.5},
-			{"cmd": "say", "actor": "evan", "name": "Evan", "text": "Testing.", "auto": 0.1},
-			{"cmd": "exit", "actor": "evan", "to": [1.1, 0.55], "duration": 0.3},
+			{"cmd": "enter", "actor": "frank", "from": [0.75, 0.9], "to": [0.7, 0.55], "duration": 0.5},
+			{"cmd": "say", "actor": "frank", "name": "Frank", "text": "Testing.", "auto": 0.1},
+			{"cmd": "exit", "actor": "frank", "to": [1.1, 0.55], "duration": 0.3},
 		],
 	}
 	var player3 = load("res://scripts/cutscene/CutscenePlayer.gd").new()
 	player3.cutscene_data = prop_scene_data
 	add_child(player3)
 	var case_actor = player3._actors.get("case")
-	var evan_actor = player3._actors.get("evan")
-	if case_actor == null or evan_actor == null:
+	var frank_actor = player3._actors.get("frank")
+	if case_actor == null or frank_actor == null:
 		push_error("FAIL: prop and character actors should both be built")
 		failures += 1
-	elif case_actor.texture.get_size() == evan_actor.texture.get_size() and case_actor.texture.get_image().get_data() == evan_actor.texture.get_image().get_data():
+	elif case_actor.texture.get_size() == frank_actor.texture.get_size() and case_actor.texture.get_image().get_data() == frank_actor.texture.get_image().get_data():
 		push_error("FAIL: prop placeholder should look different from the character placeholder")
 		failures += 1
 	else:

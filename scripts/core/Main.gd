@@ -712,14 +712,14 @@ func _start_wave():
 		# updates them in place instead of duplicating them.
 		director.load_learned_state()
 
-	# Director tells (see SquadDirector.get_intel_line): Evan tips the player
+	# Director tells (see SquadDirector.get_intel_line): Frank tips the player
 	# off when the learning loop is genuinely reacting to them. Skipped in
 	# Boss Rush, which runs its own intro dialogue on the same channel.
 	director.note_wave_started()
 	if SaveManager.current_game_mode != "boss_rush":
 		var intel = director.get_intel_line(current_wave)
 		if intel != "":
-			show_dialogue("Evan", intel, Color(0.7, 0.9, 1.0), 6.0)
+			show_dialogue("Frank", intel, Color(0.7, 0.9, 1.0), 6.0)
 
 	# Periodically let the director try out a new experimental squad
 	# composition (mutation or fresh random template). Not every wave, so
@@ -1352,6 +1352,10 @@ func _on_player_died():
 	explosion.global_position = player.global_position
 	world.add_child(explosion)
 
+	var game_over_cinematic = load("res://scripts/visuals/GameOverCinematic.gd").new()
+	game_over_cinematic.death_position = player.global_position
+	world.add_child(game_over_cinematic)
+
 	var director = world.get_node_or_null("SquadDirector")
 	var loss_text_shown = false
 	if director:
@@ -1510,7 +1514,7 @@ func _on_wave_cleared():
 	if tell_director:
 		var debrief = tell_director.get_debrief_line()
 		if debrief != "":
-			show_dialogue("Evan", debrief, Color(0.7, 0.9, 1.0), 5.0)
+			show_dialogue("Frank", debrief, Color(0.7, 0.9, 1.0), 5.0)
 	current_wave += 1
 	if current_wave > SaveManager.max_wave_reached:
 		SaveManager.max_wave_reached = current_wave

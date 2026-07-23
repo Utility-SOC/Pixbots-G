@@ -43,8 +43,13 @@ static func create_profiles(dialogue_data: Dictionary) -> Dictionary:
 	zane.position_style = "circler"
 	profiles["Zane"] = zane
 
-	# 8. Chloe
+	# 8. Chloe - the drone-swarm rival ("she never fights alone"). Her
+	# schtick: she carries a jammer and EVERY drone carries one too, so the
+	# clustered swarm compounds into one huge jamming field via
+	# JammerField's proximity stacking - see RivalProfile.drones_have_jammers.
 	var chloe = RivalProfile.new("Chloe", "commander")
+	chloe.drones_have_jammers = true
+	chloe.drone_swarm_count = 20 # "expect about twenty micro-bots" - her intro line, honored literally
 	profiles["Chloe"] = chloe
 
 	# 9. Vance

@@ -9,3 +9,4 @@ mod hexmath;
 mod part_rasterizer;
 mod projectile_flight;
 mod hexgrid_sim;
+mod terrain_rasterizer;

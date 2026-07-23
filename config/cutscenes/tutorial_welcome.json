@@ -1,20 +1,20 @@
 {
-	"_comment": "Tutorial step 'welcome' as a cinematic (task: 'Evan cinematics should be used for most of the tutorial phases... this is a good place to start adding shop flavor'). Evan slides in sideways from behind the glass card case near the register, rather than the flat horizontal glide-from-offscreen every other scene uses - first thing the player ever sees, so it's the natural place to establish the shop's physical space.",
+	"_comment": "Tutorial step 'welcome' as a cinematic (task: 'Frank cinematics should be used for most of the tutorial phases... this is a good place to start adding shop flavor'). Frank slides in sideways from behind the glass card case near the register, rather than the flat horizontal glide-from-offscreen every other scene uses - first thing the player ever sees, so it's the natural place to establish the shop's physical space.",
 	"background": { "color": "#0d0e14" },
 	"actors": {
 		"register": { "kind": "prop", "placeholder_color": "#8a8a90", "scale": 3 },
 		"case": { "kind": "prop", "placeholder_color": "#5f7a8a", "scale": 3 },
-		"evan": { "placeholder_color": "#4d8bd4", "scale": 5 }
+		"frank": { "placeholder_color": "#4d8bd4", "scale": 5 }
 	},
 	"steps": [
 		{ "cmd": "enter", "actor": "register", "from": [0.86, 0.66], "to": [0.86, 0.66], "duration": 0.01 },
 		{ "cmd": "enter", "actor": "case", "from": [0.68, 0.68], "to": [0.68, 0.68], "duration": 0.01 },
-		{ "cmd": "enter", "actor": "evan", "from": [0.68, 0.82], "to": [0.34, 0.6], "duration": 1.4 },
-		{ "cmd": "say", "actor": "evan", "name": "Evan", "text": "Hey! You made it. I'm Evan - I run this place.", "auto": 2.6 },
-		{ "cmd": "say", "actor": "evan", "name": "Evan", "text": "That the birthday PixBot? Solid starter frame.", "auto": 2.4 },
-		{ "cmd": "shake", "actor": "evan", "duration": 0.3, "strength": 3 },
-		{ "cmd": "say", "actor": "evan", "name": "Evan", "text": "Corp sponsors our trainer table so new pilots can learn without scratching the paint. Hop on, I'll walk you through it.", "auto": 4.5 },
-		{ "cmd": "move", "actor": "evan", "to": [0.6, 0.68], "duration": 0.8 },
-		{ "cmd": "exit", "actor": "evan", "to": [0.68, 0.82], "duration": 0.9 }
+		{ "cmd": "enter", "actor": "frank", "from": [0.68, 0.82], "to": [0.34, 0.6], "duration": 1.4 },
+		{ "cmd": "say", "actor": "frank", "name": "Frank", "text": "Hey! You made it. I'm Frank - I run this place.", "auto": 2.6 },
+		{ "cmd": "say", "actor": "frank", "name": "Frank", "text": "That the birthday PixBot? Solid starter frame.", "auto": 2.4 },
+		{ "cmd": "shake", "actor": "frank", "duration": 0.3, "strength": 3 },
+		{ "cmd": "say", "actor": "frank", "name": "Frank", "text": "Corp sponsors our trainer table so new pilots can learn without scratching the paint. Hop on, I'll walk you through it.", "auto": 4.5 },
+		{ "cmd": "move", "actor": "frank", "to": [0.6, 0.68], "duration": 0.8 },
+		{ "cmd": "exit", "actor": "frank", "to": [0.68, 0.82], "duration": 0.9 }
 	]
 }

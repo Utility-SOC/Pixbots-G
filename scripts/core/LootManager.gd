@@ -31,6 +31,29 @@ var DROP_RATES = {
 func _get_mythic_drop_rate() -> float:
 	return clamp(0.002 * float(current_wave), DROP_RATES[4], 0.08)
 
+# Per the user: "the hex tiles that are core (accessory return, torso
+# return, core reactor, links) should all drop at a much lower rate.
+# Microcores should ALSO drop at a lower rate than they are now, but I'm
+# happy for them to spawn more often than the returns, core and links."
+# Every equipped tile independently rolls a drop by RARITY alone - but a
+# Torso structurally REQUIRES one Core Reactor, one Accessory Return, and
+# one Link per limb/head/backpack (7 mandatory "plumbing" tiles) regardless
+# of build, while only a handful of tiles are ever genuinely interesting
+# processors (Amplifier/Splitter/Resonator/Catalyst/...). With no per-type
+# adjustment, that plumbing majority dominates what actually drops. This
+# multiplier applies on top of the normal rarity-based chance.
+const STRUCTURAL_TILE_TYPES = ["Core Reactor", "Accessory Return", "Torso Return", "Energy Intake",
+	"Left Arm Link", "Right Arm Link", "Left Leg Link", "Right Leg Link", "Head Link", "Backpack Link"]
+const STRUCTURAL_DROP_MULTIPLIER = 0.2
+const MICROCORE_DROP_MULTIPLIER = 0.5
+
+func _tile_type_drop_multiplier(tile_type: String) -> float:
+	if tile_type in STRUCTURAL_TILE_TYPES:
+		return STRUCTURAL_DROP_MULTIPLIER
+	if tile_type == "Microcore":
+		return MICROCORE_DROP_MULTIPLIER
+	return 1.0
+
 # Chance for a NON-boss kill to drop a full procedural component (salvage
 # fodder for the component-upgrade loop). Bosses keep their guaranteed drop.
 const COMPONENT_DROP_CHANCE = 0.03
@@ -114,6 +137,7 @@ func generate_loot_for_mech(mech: Node):
 				_spawn_loot_drop(mech, tile)
 		else:
 			var chance = _get_mythic_drop_rate() if tile.rarity == HexTile.Rarity.MYTHIC else DROP_RATES.get(tile.rarity, 0.0)
+			chance *= _tile_type_drop_multiplier(tile.tile_type)
 			if randf() <= chance:
 				_spawn_loot_drop(mech, tile)
 
@@ -165,6 +189,7 @@ func generate_ghost_loot(mech: Node):
 		if dropped.has(tile):
 			continue
 		var chance = _get_mythic_drop_rate() if tile.rarity == HexTile.Rarity.MYTHIC else DROP_RATES.get(tile.rarity, 0.0)
+		chance *= _tile_type_drop_multiplier(tile.tile_type)
 		if randf() <= chance:
 			dropped[tile] = true
 			_spawn_loot_drop(mech, tile)

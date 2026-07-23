@@ -21,6 +21,14 @@ var owner_renderer: Node = null
 var _last_hp_pct: float = -1.0
 var _last_shld_pct: float = -1.0
 
+# Perf instrumentation (temporary, see FpsCounter.gd's breakdown line) -
+# _process() itself is cheap (a couple of float compares), but it has no
+# distance/LOD gate at all and calls queue_redraw() -> _draw() on ANY
+# hp/shield change, which during heavy sustained combat with 70-90 mechs is
+# most of them, most frames. Aggregate _draw() cost across every instance,
+# read + reset once a second by FpsCounter.
+static var _perf_draw_usec: int = 0
+
 func _process(_delta):
 	if not owner_mech or not is_instance_valid(owner_mech) or not "hp" in owner_mech:
 		return
@@ -41,6 +49,7 @@ func _get_render_scale() -> float:
 func _draw():
 	if not owner_mech or not is_instance_valid(owner_mech) or not "hp" in owner_mech:
 		return
+	var _t_draw = Time.get_ticks_usec()
 
 	var scale_f = _get_render_scale()
 	var bar_width = 44.0
@@ -85,3 +94,5 @@ func _draw():
 		draw_rect(Rect2(-bar_width / 2.0, shld_y, bar_width, bar_height), Color(0.12, 0.12, 0.12))
 		if shld_pct > 0.0:
 			draw_rect(Rect2(-bar_width / 2.0, shld_y, bar_width * shld_pct, bar_height), Color(0.3, 0.65, 1.0))
+
+	_perf_draw_usec += Time.get_ticks_usec() - _t_draw

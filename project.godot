@@ -12,6 +12,23 @@ config_version=5
 
 compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
+[display]
+
+; No [display] section existed before - the project ran on Godot's built-in
+; default window (1152x648, not maximized), which is smaller than several
+; screens assume (Garage's bottom action bar, including Deploy to
+; Battlefield, sits below an expanding hex-grid panel with nothing to
+; scroll it into view; FpsCounter's overlay had a similar assumption before
+; being hardened directly). Godot doesn't shrink UI content below its
+; combined minimum size on a small window - it just lets it run past the
+; visible area with no way to reach it - so the real fix is starting with
+; enough room by default rather than patching every screen's layout
+; individually. window/size/mode=2 is WINDOW_MODE_MAXIMIZED (still a normal
+; titled/resizable window, not fullscreen).
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/mode=2
+
 [application]
 
 config/name="Pixbots-G"

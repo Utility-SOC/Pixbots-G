@@ -112,6 +112,22 @@ func _ready():
 	base_rarity = drone_rarity
 	_target_rescan_timer = randf() * TARGET_RESCAN_INTERVAL # desync - see Mech.gd/Projectile.gd's matching fix
 
+	# Drone._ready() fully overrides Mech._ready() (never calls super) so it
+	# never picked up Mech.gd:578's add_to_group("enemy") for enemy-owned
+	# drones - the exact same class of bug that line's own comment already
+	# warned about ("silently broke every system that looks up
+	# get_nodes_in_group('enemy')"), just unnoticed here since drones were
+	# added later. Fixes jammer-pulse targeting, lightning-arc targeting,
+	# Heal Beacon's ally lookup, Main.gd's enemy cleanup on player death, the
+	# minimap's enemy dots, and this file's own perf-overlay entity count -
+	# all of which were silently blind to enemy-owned drones until now.
+	# "drone" is a separate group (not "player", which several call sites
+	# assume names exactly the one real player mech) so both sides' drones
+	# can be counted without disturbing that assumption.
+	add_to_group("drone")
+	if not is_player:
+		add_to_group("enemy")
+
 	if drone_loadout_source:
 		equip_component(drone_loadout_source)
 	else:
@@ -256,18 +272,18 @@ func _find_nearest_enemy() -> Node2D:
 		# inherited from the base class this extends) - not the "enemy" group,
 		# which from this drone's own side means its squadmates.
 		var p = _get_player_ref()
-		if p and is_instance_valid(p) and global_position.distance_to(p.global_position) <= search_radius:
+		if p and is_instance_valid(p) and global_position.distance_squared_to(p.global_position) <= search_radius * search_radius:
 			return p
 		return null
 
 	var best: Node2D = null
-	var best_dist = search_radius
+	var best_dist_sq = search_radius * search_radius
 	for e in EntityCache.get_group("enemy"):
 		if not is_instance_valid(e) or e.get("is_dead"):
 			continue
-		var d = global_position.distance_to(e.global_position)
-		if d < best_dist:
-			best_dist = d
+		var d_sq = global_position.distance_squared_to(e.global_position)
+		if d_sq < best_dist_sq:
+			best_dist_sq = d_sq
 			best = e
 	return best
 
@@ -336,7 +352,7 @@ func _update_chinook_heal(delta: float):
 
 	if not is_instance_valid(owner_mech) or not ("hp" in owner_mech) or not ("max_hp" in owner_mech):
 		return
-	if global_position.distance_to(owner_mech.global_position) > heal_pulse_radius:
+	if global_position.distance_squared_to(owner_mech.global_position) > heal_pulse_radius * heal_pulse_radius:
 		return
 	var healed = min(owner_mech.max_hp, owner_mech.hp + heal_pulse_power) - owner_mech.hp
 	if healed > 0.0:

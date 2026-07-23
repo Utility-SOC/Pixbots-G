@@ -52,5 +52,13 @@ rust_ext/target/
 
 # One-off dev/session artifacts
 diff.txt
+*.patch
 CLAUDE_CODE_HANDOFF.md
 *.log
+
+# Godot editor binaries / export templates kept locally for headless test
+# runs and exports - large, platform-specific, redownloadable, never
+# project source.
+Godot_v*-stable_*.exe
+templates/
+templates*.zip

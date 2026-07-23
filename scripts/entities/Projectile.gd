@@ -64,6 +64,14 @@ const BLINK_ACQUIRE_RANGE = 420.0
 const LIGHTNING_BLINK_MIN = 0.05
 var _blink_timer: float = 0.0
 var _lightning_hops_left: int = 0
+# Starting budgets (set once in _calculate_stats, never decremented) - used
+# to compute how far through a chain the CURRENT hit is, so per-hit effects
+# that ride along a chain (Explosion AoE, Vampiric heal - see _handle_hit's
+# hit_decay) can taper toward zero on the final hop/pierce instead of firing
+# at full strength every single time for free. 0 means "no chain of this
+# type" (a plain single-hit shot).
+var _lightning_hops_max: int = 0
+var _pierce_count_max: int = 1
 
 var damage: float = 10.0
 var is_crit: bool = false
@@ -435,6 +443,7 @@ func _calculate_stats():
 	var r_ltg_stats = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	if r_ltg_stats > LIGHTNING_BLINK_MIN:
 		_lightning_hops_left = int(round(4.0 * r_ltg_stats))
+		_lightning_hops_max = _lightning_hops_left
 
 	# Size/Mass (ratio-driven only - magnitude-driven size lives entirely in
 	# _build_visuals()'s p_scale below. An earlier pass also added a
@@ -466,6 +475,7 @@ func _calculate_stats():
 		pierce_count = 1 + int(4.0 * r_prc)
 	else:
 		pierce_count = 1
+	_pierce_count_max = pierce_count
 		
 	# Homing check
 	if ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0) > 0.05:
@@ -880,7 +890,23 @@ func _prepare_flight_request(delta: float) -> Dictionary:
 		"lightning_state": {"segment_index": _lightning_segment_index, "prev_offset": _lightning_prev_offset, "target_offset": _lightning_target_offset},
 	}
 
+# Thin timing wrapper (see FpsCounter.gd's breakdown line and Mech.gd's
+# matching _shoot/_shoot_impl split) - renamed the real body to
+# _physics_process_body rather than threading Time.get_ticks_usec() around
+# every early-return inside a ~190-line function with several exit points.
+# Aggregate per-projectile physics cost across every live projectile, read +
+# reset once a second by FpsCounter - the direct test of "do the throttled
+# homing/vortex queries and Rust flight-math readback add up once shot
+# volume gets high" (441 live shots was the real number that raised this
+# question).
+static var _perf_physics_usec: int = 0
+
 func _physics_process(delta: float):
+	var _t_phys = Time.get_ticks_usec()
+	_physics_process_body(delta)
+	_perf_physics_usec += Time.get_ticks_usec() - _t_phys
+
+func _physics_process_body(delta: float):
 	time_alive += delta
 
 	if _is_poison_mine:
@@ -1360,6 +1386,28 @@ func _on_body_entered(body: Node2D):
 func _on_area_entered(area: Area2D):
 	_handle_hit(area)
 
+# Per-hit decay (per the user: Explosion and Vampiric don't have their own
+# way of reaching more than one target - they "ride along" whichever
+# chain-type synergy is actually delivering multiple hits (Lightning's hop
+# budget or Pierce's pass-through count), so their contribution on each hit
+# should taper against THAT budget instead of firing at full strength on
+# every single hop/pierce for free. 1.0 = first hit (full strength), 0.0 =
+# the final hop/pierce (Explosion/Vampiric contribute nothing - only the
+# non-decaying damage types, e.g. Kinetic/Lightning's own bolt, land). A
+# plain single-hit shot (no active chain) always gets 1.0 - this only ever
+# reduces chained hits, never a normal shot. Lightning takes priority over
+# Pierce when both are present, mirroring the same priority the hop/pierce
+# decrement logic in _handle_hit already has (a lightning-hopping shot
+# doesn't also burn pierce count mid-chain). Extracted as its own function
+# (not inlined in _handle_hit) so it's directly unit-testable without
+# needing a full hit pipeline (a real target, physics world, etc.).
+func _compute_hit_decay() -> float:
+	if _lightning_hops_max > 0:
+		return float(_lightning_hops_left) / float(_lightning_hops_max)
+	elif _pierce_count_max > 1:
+		return float(pierce_count - 1) / float(_pierce_count_max - 1)
+	return 1.0
+
 func _handle_hit(target: Node2D):
 	if not target.has_method("apply_damage"):
 		return
@@ -1494,15 +1542,17 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 	# its FULL on-hit pipeline to every leg's target instead of a decaying
 	# side-channel zap.)
 			
+	var hit_decay = _compute_hit_decay()
+
 	# Vampiric Heal
-	if ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0) > 0.1:
+	if ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0) > 0.1 and hit_decay > 0.0:
 		var players = EntityCache.get_group("player")
 		if players.size() > 0 and is_instance_valid(players[0]) and players[0].has_method("apply_damage"):
-			players[0].apply_damage(-damage * 0.3 * ratios[EnergyPacket.SynergyType.VAMPIRIC])
-			
+			players[0].apply_damage(-damage * 0.3 * ratios[EnergyPacket.SynergyType.VAMPIRIC] * hit_decay)
+
 	# Explosion AoE
-	if ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) > 0.1:
-		_trigger_explosion()
+	if ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) > 0.1 and hit_decay > 0.0:
+		_trigger_explosion(hit_decay)
 		
 	# --- BIOME SYNERGIES ---
 	var maps = EntityCache.get_group("map_generator")
@@ -1586,12 +1636,32 @@ func _draw_lightning_arc(from_local: Vector2, to_local: Vector2):
 	tw.tween_property(arc, "modulate:a", 0.0, 0.2)
 	tw.tween_callback(arc.queue_free)
 
-func _trigger_explosion():
+# Shared with MortarShell.gd (per the user: "AOE Radius can just scale off
+# the amount of the explosion/explosive synergy... a high kinetic explosive
+# packet might be a big explosion when it hits a target") - a static
+# function rather than duplicating the formula in two files, so Mortar's
+# splash-detection radius and impact-ring visual can compute the SAME real
+# number this uses, instead of MortarShell's own separate flat AOE_RADIUS
+# constant silently disagreeing with what actually happens on impact.
+# Kinetic amplifies an EXISTING explosion (multiplicative, inside the
+# EXPLOSION-ratio term) rather than creating one on its own - a pure-Kinetic
+# packet with zero Explosion still computes a radius of 0.
+static func explosion_radius_for(ratios: Dictionary, aoe_bonus: float) -> float:
+	var r_explosion = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
+	var r_kinetic = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
+	return 100.0 * r_explosion * (1.0 + 0.5 * aoe_bonus + 0.6 * r_kinetic)
+
+# decay: per-hit falloff along a Lightning/Pierce chain (see _handle_hit's
+# hit_decay - "string of pearls," progressively smaller explosions at each
+# hop/pierce rather than the same full blast repeating for free). Applied to
+# BOTH radius and damage, not just damage - a "smaller explosion" should
+# visibly and functionally shrink, not just hit softer at the same size.
+# 1.0 (default) for a normal single-hit shot - unchanged from before.
+func _trigger_explosion(decay: float = 1.0):
 	var space_state = get_world_2d().direct_space_state
 	var query = PhysicsShapeQueryParameters2D.new()
 	var shape = CircleShape2D.new()
-	# aoe_bonus: Mythic AoE-focused Amplifiers widen the blast
-	shape.radius = 100.0 * ratios[EnergyPacket.SynergyType.EXPLOSION] * (1.0 + 0.5 * aoe_bonus)
+	shape.radius = explosion_radius_for(ratios, aoe_bonus) * decay
 	query.shape = shape
 	query.transform = global_transform
 	query.collision_mask = collision_mask
@@ -1599,7 +1669,7 @@ func _trigger_explosion():
 	for res in results:
 		var col = res["collider"]
 		if col.has_method("apply_damage"):
-			col.apply_damage(damage * 0.5)
+			col.apply_damage(damage * 0.5 * decay)
 
 func _trigger_biome_explosion(radius: float, dmg: float, type: String):
 	var space_state = get_world_2d().direct_space_state

@@ -539,6 +539,15 @@ func _ready():
 		_sight_check_timer = randf() * (1.0 / SIGHT_CHECK_HZ)
 		_separation_query_timer = randf() * SEPARATION_QUERY_INTERVAL
 		_search_waypoint_timer = randf() * SEARCH_WAYPOINT_INTERVAL
+		_mosey_timer = randf() * MOSEY_UPDATE_INTERVAL
+		# Per-mech personal drift bias for _mosey_toward_target - without
+		# this every far mech beelines the exact same flow-field direction,
+		# which reads as a single-file conga line and (per the user) has a
+		# whole wave's worth of mechs arriving at the LOD boundary bunched
+		# together instead of spread out. A small fixed heading offset,
+		# rolled once and kept for the mech's whole life, gives each one its
+		# own consistent amble angle instead of a robotic identical line.
+		_mosey_wander_offset = randf_range(-0.4, 0.4)
 
 	if not is_player:
 		build_loadout_for_role(combat_role)
@@ -698,6 +707,19 @@ func _update_obstacle_phasing():
 	else:
 		collision_mask |= OBSTACLE_LAYER
 
+# --- Perf instrumentation (temporary, for the drones/enemies-tanking-fps
+# investigation - see FpsCounter.gd's 4th breakdown line) - aggregate
+# wall-clock time spent in the AI-tactics path, weapon-fire path, and
+# move_and_slide() across every mech/drone, read + reset once a second by
+# FpsCounter. Not mutually exclusive: an AI mech's ai_tactics time INCLUDES
+# its own _shoot() call (that's what _execute_ai_tactics invokes to fire) -
+# shoot_usec counts that same cost again on its own so weapon-fire cost can
+# be read in isolation, and also captures the player's + drones' own shots,
+# neither of which go through _execute_ai_tactics at all.
+static var _perf_ai_tactics_usec: int = 0
+static var _perf_shoot_usec: int = 0
+static var _perf_move_usec: int = 0
+
 func _physics_process(delta: float):
 	_own_time_alive += delta
 	current_jammer_debuff = 1.0 # Reset every frame, JammerMech will re-apply it before we shoot if near
@@ -770,23 +792,42 @@ func _physics_process(delta: float):
 	else:
 		var is_far = false
 		if target and is_instance_valid(target):
-			is_far = global_position.distance_to(target.global_position) > 1400.0
+			is_far = global_position.distance_squared_to(target.global_position) > 1400.0 * 1400.0
 
 		if is_far:
-			_lod_ai_timer -= delta
-			if _lod_ai_timer <= 0.0:
-				_lod_ai_timer = 0.25 # 4 AI ticks per second when far
-				_execute_ai_tactics(0.25)
+			if is_boss:
+				# Bosses keep full AI tactics even far - only ever one at a
+				# time, so the perf case for mosey (up to 80 far mechs
+				# paying for search/sight logic they don't need yet) doesn't
+				# apply, and a boss's kit/behavior matters more than the
+				# savings would.
+				_lod_ai_timer -= delta
+				if _lod_ai_timer <= 0.0:
+					_lod_ai_timer = 0.25 # 4 AI ticks per second when far
+					var _t_ai = Time.get_ticks_usec()
+					_execute_ai_tactics(0.25)
+					_perf_ai_tactics_usec += Time.get_ticks_usec() - _t_ai
+			elif not _update_flee_state(delta):
+				# Not fleeing/wild - mosey instead of full _execute_ai_tactics
+				# (see _mosey_toward_target's own header comment for why).
+				_mosey_toward_target(delta)
+			# else: _update_flee_state already set velocity itself (FLEE/WILD)
 			# move_and_slide runs every frame so they slide properly
 			velocity += external_force
 			velocity = _avoid_water_in_velocity(velocity, delta)
+			var _t_move = Time.get_ticks_usec()
 			move_and_slide()
+			_perf_move_usec += Time.get_ticks_usec() - _t_move
 			# Skipped: _process_ramming(delta) and visual updates when far
 		else:
+			var _t_ai2 = Time.get_ticks_usec()
 			_execute_ai_tactics(delta)
+			_perf_ai_tactics_usec += Time.get_ticks_usec() - _t_ai2
 			velocity += external_force
 			velocity = _avoid_water_in_velocity(velocity, delta)
+			var _t_move2 = Time.get_ticks_usec()
 			move_and_slide()
+			_perf_move_usec += Time.get_ticks_usec() - _t_move2
 			_process_ramming(delta)
 			
 		var lerp_weight = 10.0 * delta
@@ -807,6 +848,55 @@ func _physics_process(delta: float):
 
 var external_force: Vector2 = Vector2.ZERO
 var _lod_ai_timer: float = 0.0
+
+# --- Mosey: cheap passive approach for far (LOD'd) mechs -------------------
+# Per the user: far mechs shouldn't pay for full _execute_ai_tactics (sight
+# raycast, separation shape query, flow-field consultation, weapon-fire
+# dispatch) just to end up running _execute_search's frontier-wander anyway,
+# since a mech >1400 units out essentially never has sight of the player.
+# Mosey replaces all of that with a direction lookup + a slow, personally-
+# offset amble - no physics queries at all, deferring the real (expensive)
+# AI decision-making until the mech is actually close enough for it to
+# matter, same "defer to later" idea as the user's own framing of this.
+# Also directly addresses the observed "cluster of enemies arriving at once
+# causes a frame-time spike" pattern: a slower, staggered approach means
+# far mechs cross into full-AI range spread out over time instead of all at
+# once - "mosey, because we don't want them cramming in."
+const MOSEY_SPEED_MULT = 0.45 # unhurried amble, not a beeline sprint
+const MOSEY_UPDATE_INTERVAL = 0.5 # how often the heading itself is recomputed
+var _mosey_timer: float = 0.0
+var _mosey_wander_offset: float = 0.0
+var _mosey_velocity: Vector2 = Vector2.ZERO
+
+func _mosey_toward_target(delta: float):
+	if not target:
+		# Same auto-acquire _execute_ai_tactics does - a mech that hasn't
+		# been given a target yet (or lost it) must still be able to find
+		# the player on its own rather than sitting frozen at the LOD
+		# boundary forever.
+		target = _get_player_ref()
+	if not target or not is_instance_valid(target):
+		velocity = Vector2.ZERO
+		return
+	if _ai_state_label:
+		_ai_state_label.text = "MOSEY"
+		_ai_state_label.modulate = Color(0.6, 0.7, 0.5)
+
+	_mosey_timer -= delta
+	if _mosey_timer <= 0.0:
+		_mosey_timer = MOSEY_UPDATE_INTERVAL
+		var dir: Vector2
+		if not is_amphibious:
+			var map = _get_map_ref()
+			if map and map.has_method("get_flow_direction"):
+				dir = map.get_flow_direction(global_position, target.global_position)
+			else:
+				dir = global_position.direction_to(target.global_position)
+		else:
+			dir = global_position.direction_to(target.global_position)
+		_mosey_velocity = dir.rotated(_mosey_wander_offset) * current_move_speed * speed_modifier * MOSEY_SPEED_MULT
+
+	velocity = _mosey_velocity
 
 # Melee/mass physics pillar: automatic contact damage on a fast enough
 # collision with an opposing mech - no dedicated input, matches the user's
@@ -1088,7 +1178,17 @@ func _tick_weapon_charges(delta: float):
 		elif lance.ready_to_fire:
 			lance.fire(self)
 
+# Thin timing wrapper (see the perf-instrumentation block above
+# _physics_process) - renamed the real body to _shoot_impl rather than
+# threading Time.get_ticks_usec() around every early-return inside it, so
+# every caller (AI tactics, PlayerController, drones, and the weapon-bank
+# auto-release in _tick_weapon_charges) gets counted uniformly from one spot.
 func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, delta: float = 0.0):
+	var _t_shoot = Time.get_ticks_usec()
+	_shoot_impl(target_pos, is_outward, fire_left_arm, delta)
+	_perf_shoot_usec += Time.get_ticks_usec() - _t_shoot
+
+func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, delta: float = 0.0):
 	last_aim_position = target_pos
 	is_firing_outward = is_outward
 
@@ -1443,6 +1543,21 @@ func _simulate_energy_flow(torso):
 # Cloak/Jammer/Heal Beacon capacity) in the same loop they were always
 # scanned together in - kept as ONE pass (not split further) so nothing
 # about iteration order can change.
+# Rapid-fire energy cost (per the user: "the shots spraying so fast
+# everywhere is cool... it should cost more than it currently does" -
+# specifically as an energy-economy cost, reusing the EXISTING charge_
+# required/fire_rate infrastructure rather than a new heat/stamina
+# resource). Applied ONLY to normal (mouse/AI) fire, not Accumulator bank
+# shots - bank shots are ALREADY the deliberate "wait longer, hit much
+# harder" playstyle and don't need more pressure. This uses the discrete
+# normal-vs-bank distinction the code already has, rather than inferring
+# "weak" from a packet's raw magnitude - magnitude legitimately ranges from
+# ~100 (early game) to 150,000+ (endgame Mythic loops - see EnergyPacket.
+# NORMAL_MAGNITUDE_CAP), so a magnitude-threshold curve would need real
+# playtesting data to calibrate safely; a flat, clearly-tunable multiplier
+# on the specific playstyle in question is the safer first pass.
+const RAPID_FIRE_CHARGE_MULT = 1.4
+
 func _collect_weapon_mounts_and_tile_capabilities():
 	for comp in components.values():
 		for tile in comp.hex_grid.get_all_tiles():
@@ -1464,12 +1579,17 @@ func _collect_weapon_mounts_and_tile_capabilities():
 				var bank_amplify = 0.0
 				var bank_quality = 1.0
 				var bank_auto_dump = 0.0
+				var reverse_discount = 0.0
 				if tile.tile_type == "Weapon Mount" and tile.grid_position:
 					var bank = _get_adjacent_accumulator_bonus(comp.hex_grid, tile.grid_position)
 					bank_charge = bank.charge
 					bank_amplify = bank.amplify
 					bank_quality = bank.quality
 					bank_auto_dump = bank.auto_dump
+					# Reverse Accumulator: floored at 0.75 total so a mount can
+					# never be discounted below 25% of its real charge time,
+					# no matter how many adjacent tiles contribute.
+					reverse_discount = min(0.75, _get_adjacent_reverse_accumulator_discount(comp.hex_grid, tile.grid_position))
 
 				# Detect routed-through accumulators via the recorded mults
 				var probe = tile.pending_packets[0].packet
@@ -1495,7 +1615,7 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					# (_tick_weapon_charges). The mouse never fires this.
 					var enhanced = combined.copy()
 					enhanced.amplify(combined.acc_damage_mult * (1.0 + bank_amplify))
-					enhanced.charge_required = combined.charge_required * combined.acc_charge_mult + bank_charge
+					enhanced.charge_required = (combined.charge_required * combined.acc_charge_mult + bank_charge) * (1.0 - reverse_discount)
 					enhanced.trigger_key = combined.trigger_key if combined.trigger_key != "None" else "1"
 					# Auto-dump: routed-through accumulators stamped the packet
 					# already (copy/merge carry it); adjacent bank accumulators
@@ -1507,9 +1627,11 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					# While the bank below is still charging, _shoot() halves
 					# this entry's payload (the accumulator is siphoning);
 					# bank_required is stashed here so _shoot can tell.
+					var normal_entry = combined.copy()
+					normal_entry.charge_required *= RAPID_FIRE_CHARGE_MULT * (1.0 - reverse_discount)
 					precalculated_weapons.append({
 						"mount": tile,
-						"packet": combined.copy(),
+						"packet": normal_entry,
 						"step": 0,
 						"slot_type": comp.slot_type,
 						"bank_mode": "normal",
@@ -1534,6 +1656,7 @@ func _collect_weapon_mounts_and_tile_capabilities():
 							step_groups[step].merge(item.packet)
 
 					for step in step_groups:
+						step_groups[step].charge_required *= RAPID_FIRE_CHARGE_MULT * (1.0 - reverse_discount)
 						precalculated_weapons.append({
 							"mount": tile,
 							"packet": step_groups[step],
@@ -1778,6 +1901,24 @@ func _get_adjacent_accumulator_bonus(grid: HexGridComponent, coord: HexCoord) ->
 					worst_quality = min(worst_quality, neighbor_tile.get_quality_factor())
 				max_auto_dump = max(max_auto_dump, float(neighbor_tile.get("auto_dump_threshold")))
 	return {"charge": total_charge, "amplify": total_amplify, "quality": worst_quality, "auto_dump": max_auto_dump}
+
+# Mirror of _get_adjacent_accumulator_bonus above, for ReverseAccumulatorTile
+# (the literal inverse - shaves charge_required down instead of up). Kept as
+# a separate scan rather than folded into the one above since the two tile
+# types contribute to entirely different things (bank charge/amplify vs a
+# flat discount on whatever charge_required a mount already has) and mixing
+# them into one Dictionary return would make both harder to read. Multiple
+# adjacent Reverse Accumulators stack additively; floored at the call site
+# (see below) so a mount can never reach free/negative charge time.
+func _get_adjacent_reverse_accumulator_discount(grid: HexGridComponent, coord: HexCoord) -> float:
+	var total_discount = 0.0
+	for d in range(6):
+		var n = coord.neighbor(d)
+		if grid.has_tile(n):
+			var neighbor_tile = grid.get_tile(n)
+			if neighbor_tile.tile_type == "Reverse Accumulator" and neighbor_tile.has_method("get_charge_discount"):
+				total_discount += neighbor_tile.get_charge_discount()
+	return total_discount
 
 func _collect_transfers(comp) -> Dictionary:
 	var result = {}

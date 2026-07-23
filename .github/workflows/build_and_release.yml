@@ -86,6 +86,10 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Setup Inno Setup
+        run: choco install innosetup --no-progress -y
+        shell: pwsh
+
       - name: Setup Godot 4.6.3
         run: |
           Invoke-WebRequest -Uri "https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_win64.exe.zip" -OutFile godot.zip

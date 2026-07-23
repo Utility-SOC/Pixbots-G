@@ -511,7 +511,7 @@ func _fire_mortar(mech, packet: EnergyPacket):
 	var flight_time = clamp(muzzle.distance_to(target_pos) / effective_mortar_speed, 0.12, 2.2)
 	var dmg = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
 	var shell = load("res://scripts/attacks/MortarShell.gd").new()
-	shell.setup(muzzle, target_pos, flight_time, dmg, packet.synergies.duplicate(), mech.get("is_player") == true, mech)
+	shell.setup(muzzle, target_pos, flight_time, dmg, packet.synergies.duplicate(), mech.get("is_player") == true, mech, packet.aoe_bonus)
 	world.add_child(shell)
 
 # WeaponMountTile has an explicit @export damage_multiplier; other tiles

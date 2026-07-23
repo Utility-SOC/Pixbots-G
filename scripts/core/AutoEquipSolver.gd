@@ -170,10 +170,7 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 			if entry_dir == exit_dir:
 				# Straight path -> Amplifier, Catalyst, Infuser
 				var tile_types = _straight_tile_priority(profile)
-				var idx = -1
-				for t in tile_types:
-					idx = _find_tile_index(inventory, t)
-					if idx >= 0: break
+				var idx = _find_tile_index_by_priority(inventory, tile_types)
 
 				if idx >= 0:
 					var tile = inventory[idx]
@@ -277,6 +274,26 @@ func _find_tile_index(inventory: Array, type_name: String) -> int:
 		if inventory[i].tile_type == type_name:
 			return i
 	return -1
+
+# Same result as calling _find_tile_index once per entry in type_priority and
+# taking the first hit (highest-priority type wins, first array occurrence of
+# that type breaks ties) - but one pass over inventory instead of up to
+# type_priority.size() separate passes. Only worth doing where a call site
+# actually loops _find_tile_index over a priority list (see the straight-path
+# tile search in solve()); single fixed-name lookups elsewhere in this file
+# stay as plain _find_tile_index calls, inventory here is small enough that
+# rewriting those too wouldn't pay for the extra bookkeeping risk.
+func _find_tile_index_by_priority(inventory: Array, type_priority: Array) -> int:
+	var best_idx = -1
+	var best_rank = type_priority.size()
+	for i in range(inventory.size()):
+		var rank = type_priority.find(inventory[i].tile_type)
+		if rank >= 0 and rank < best_rank:
+			best_rank = rank
+			best_idx = i
+			if best_rank == 0:
+				break
+	return best_idx
 
 func _lengthen_path(path: Array, valid_map: Dictionary, max_length: int) -> Array:
 	var current_path = path.duplicate()

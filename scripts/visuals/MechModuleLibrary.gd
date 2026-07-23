@@ -427,7 +427,7 @@ static func pick_head_module(role: String, tier: String, rng: RandomNumberGenera
 	if tier == "hero":
 		return "mono_eye"
 	match role:
-		"jammer", "piercing_jammer", "scout":
+		"jammer", "scout":
 			return "sensor"
 		"support", "diver":
 			return "dome"
@@ -506,7 +506,7 @@ static func pick_leg_module(role: String, tier: String, rng: RandomNumberGenerat
 			return "hover" if roll < 0.6 else "biped"
 		"diver":
 			return "hover" if roll < 0.7 else "spider"
-		"jammer", "piercing_jammer", "support":
+		"jammer", "support":
 			if roll < 0.3: return "spider"
 			return "tread" if roll < 0.5 else "biped"
 		_:

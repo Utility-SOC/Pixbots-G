@@ -1,6 +1,6 @@
 # PixBots — Story Script
 
-Voice: **Evan**, owner of the local game shop. Warm, dry, a little proud of the place. Talks to the player like a kid he's decided to mentor. Never mean, occasionally deadpan. The Corp is referenced the way hobby shops talk about the publisher: gratitude with an eyebrow raised.
+Voice: **Frank**, owner of the local game shop. Warm, dry, a little proud of the place. Talks to the player like a kid he's decided to mentor. Never mean, occasionally deadpan. The Corp is referenced the way hobby shops talk about the publisher: gratitude with an eyebrow raised.
 
 Delivery targets: intermission toasts between waves, boss intro/defeat banners, rival challenge dialogs, milestone reward popups, death-report footer lines.
 
@@ -209,6 +209,53 @@ These are the 15 kids that frequent the shop. Each has a thematic, highly optimi
 - **Round 2 Monologue:** "So you tweaked your build. Cute. I downloaded your new schematic ten minutes ago."
 - **Round 3 Monologue:** "You've mastered this loadout. I can copy the parts, but I can't copy your instincts. Show me the masterclass."
 
+## Elite Four (unlocked after all 15 Regulars are beaten at least once)
+
+True masters most players never get to see - the shop's real measuring stick, one tier above the Regulars. Named "Elite Four" but open-ended (Joe below makes five already) - a growing roster, not a hard cap. Unlock framing (Frank):
+- "...you beat all fifteen. Regulars. Okay. There's a next tier. I don't usually mention it this early. You'll want to sit down for at least one of them."
+
+Each carries a loose D&D-class flavor on top of their gimmick (not a mechanical class system, just a lens for how their kit should read): Hrothgar's a wizard, Dan's a barbarian, Evan's a rogue, Frank's a bard.
+
+### 1. Hrothgar (The Battle-Wizard)
+- **Gimmick:** Huge AoE mortars - fireball energy, not melee. Lobs slow, telegraphed, devastating area blasts rather than chasing you down; the threat is standing in the wrong place, not getting caught by him directly. Keeps a thread of the "ancient warfare" framing (a wizard who studies siege history, not just spellbooks) and the escalation idea from the original draft - his mortars get bigger/more frequent the longer the fight runs, like he's building toward something.
+- **Intro:** "Hrothgar runs the historical wargaming nights - Thursdays, if you're ever free. Doesn't talk much until the bot's actually dented. Then he won't shut up. Something about 'the old ways.' Keep moving. I mean that literally - keep MOVING."
+- **Win:** "You never let him get a mortar to land clean. Smart. Ask him about it after - he loves explaining exactly how you won."
+- **Loss:** "There it is. The big one. I've seen it land a hundred times and it still gets me."
+- **Round 1 Monologue:** "You fight like the moderns do. All caution, no conviction. Artillery doesn't care about conviction."
+- **Round 2 Monologue:** "You're learning the blast radius. Good. I've adjusted it."
+- **Late-Fight Monologue:** "Ah - there. NOW we begin."
+
+### 2. Dan (The Barbarian)
+- **Gimmick:** Starter-tier gear, zero customization, zero Mythic parts, full aggression - wins purely on positioning and timing, not power. Reads as pure unga-bunga simplicity on paper and is a real problem in practice.
+- **Intro:** "This is Dan. He works at the hardware store two doors down. Never bought a Mythic part in his life. Hits like he's still mad about something from 2019. Nobody can explain how he's undefeated in this bracket. I've stopped trying."
+- **Win:** "You beat Dan. I don't - I genuinely don't know what to tell you. Nobody's done that."
+- **Loss:** "Common parts. Uncommon pilot. That's the whole secret and it's still not enough for most people."
+- **Round 1 Monologue:** "Nice bot. Real nice. Mine's the starter frame. Let's see which one of us actually knows how to use theirs."
+- **Round 2 Monologue:** "You're better than last time. I'm exactly the same. That's kind of the point."
+- **Round 3 Monologue:** "Honestly? This is the most fun I've had all week. Don't tell my wife I said that about a hobby."
+
+### 3. Evan (The Rogue)
+- **Gimmick:** Deliberately UNDER-powers every shot instead of racing for bigger ones - low individual damage, constant chip-fire, evasive, hard to pin down. First concrete face on the dystopian-hints thread (see the Worldbuilding section below) - his whole kit is built around staying under whatever threshold keeps a sensor sweep from flagging him.
+- **Intro:** "...I don't actually know Evan. He just started showing up. Says he's 'evaluating the venue.' Nobody invited him. He knows an unusual amount about your last three builds. I'd ask him about it, but something about how he says 'that's not important right now' keeps me from following up."
+- **Win:** "Evan packs up without a word. Doesn't seem upset. Writes something down. I really don't like that guy."
+- **Loss:** "Well. He knew exactly how to beat you before you even queued up. Make of that what you will."
+- **Round 1 Monologue:** "Interesting build. Interesting history, too. I've read the whole file."
+- **Round 2 Monologue:** "You adapted. Noted. I'll adjust the file."
+- **Round 3 Monologue:** "You're better than the file suggested. That's... actually a problem for someone. Not for me."
+
+### 4. Joe (uses parts in unexpected ways - open design, captured 2026-07-22)
+- **Gimmick:** Not fully worked out yet - the seed idea is a build that routes/uses hex tiles in configurations nobody else would, getting value out of "wrong" placements the solver/meta would never suggest. May get bespoke part geometry (a shape or footprint no other loadout has access to) as his signature edge, on top of the unconventional-usage angle. Needs a real design pass before this is playable - captured here as direction, not a finished kit.
+- **Intro (placeholder, needs a real pass once the gimmick is locked):** "Joe's... look, just watch. I can't explain what he's doing with that grid and I've been staring at hex tiles for nine years."
+
+### 5. Frank (the shop owner himself - the twist finale, The Bard)
+- **Gimmick:** Adaptive/mirror build with a support-caster's ear for a room - he's been quietly taking notes on the player's own dominant synergy/element all game (and, bard-style, seems to know a little about everyone else's builds too) and built something that specifically counters it. The Director's own evolution trick, but personal.
+- **Intro:** "Look. I wasn't going to do this. But you cleared the others, and there's a rule - shop owner's gotta close out the bracket personally, or the trophy doesn't count. Full disclosure: I've been taking notes since your first wave. Might've built something that knows your bot a little too well."
+- **Win:** "...Yeah. Okay. That's - that's fair. That's a fair win. Go put it on the chalkboard yourself, I need a minute."
+- **Loss:** "Come on now. I run this place. Did you think I just watch you all day for fun? ...Okay, partially for fun."
+- **Round 1 Monologue:** "Nine years of watching people build. I've picked up a thing or two. Let's see if I remember how to actually pilot one of these."
+- **Round 2 Monologue:** "You've got a tell. Everyone does. I've just had more time to notice yours than most."
+- **Round 3 Monologue (final):** "Alright, kid. No more shopkeeper. No more nice guy behind the counter. Let's see what you've actually got."
+
 ## Travelling Champion (PvP profile swap)
 
 - Intro: "Now THIS is an occasion. A travelling champion's AI, fresh off someone else's table, somewhere out there in the world. Different shop, different habits, different homework. Beat the ghost, take the glory."
@@ -261,7 +308,7 @@ These are the 15 kids that frequent the shop. Each has a thematic, highly optimi
 
 ## Black Market flavor
 
-[The glass case in the back that Evan pretends not to see. Run by Silas, the shady kid.] 
+[The glass case in the back that Frank pretends not to see. Run by Silas, the shady kid.] 
 - "Officially, that case is 'returns pending inspection.' Unofficially — players sell to each other. That kid, Silas? He always has the strangest, glitchiest, non-regulation components. I don't know where he gets them, and the rotation changes every ten minutes. Nothing has a warranty. You didn't hear it from me."
 
 ## Death / kicked back to garage (rotating footer lines)
@@ -285,3 +332,13 @@ These are the 15 kids that frequent the shop. Each has a thematic, highly optimi
 [An alternate mode where the player faces back-to-back bosses and rivals using a continued save file, carrying over any earned loot back to their main save. Only unlocks after reaching Wave 100 on a save.]
 - Intro: "So, you want to run the gauntlet. No breaks, no easy waves, just the heavy hitters back to back. If you survive, you keep what you salvage. If you don't... well, let's hope you survive."
 - Completion: "You actually cleared the board. I don't think I've seen anyone do that since Rudy before... well, never mind. Take your loot, you earned every piece."
+
+## Worldbuilding thread: dystopian hints (not yet written into dialogue - captured 2026-07-22)
+
+Direction for future flavor-writing passes (challenge intros, rotating quips, milestone lines) - **not a thing to write in a single pass**, a thread to seed gradually. The world outside the shop is a lot less cozy than Frank's warm, dry voice suggests. Never stated outright, always sideways, delivered completely deadpan in Frank's established voice (a guy who's fully normalized it, not alarmed by it - that contrast IS the joke/unease, same register as "No running in the shop" sitting right next to "the Corp is watching these matches, no, I don't know why").
+
+Seed ideas:
+- Periodic "Neighborhood Watch" sweeps checking for unauthorized electronics, thermal signatures, and non-registered building materials - mentioned in passing the way Frank mentions closing early or a shipment delay, never dwelt on.
+- First concrete gameplay hook: **"The Eye" challenge enemy** (see Status.md's Gameplay & Balance Improvements - Frank's Challenges) - a sensor-sweep unit that needs LOW power weapon signatures to stay undetected/vulnerable; full power blinds/interferes with it. The challenge's own flavor text is a natural place to introduce the sweep concept concretely for the first time.
+- Treat the existing "Corp is watching these matches, no, I don't know why" line as the surface of something bigger rather than just corporate-sponsorship flavor - future lines can lean on that ambiguity instead of introducing a whole new entity.
+- Keep it texture, not a reveal - background detail in rotating quips/intros, never a cutscene infodump or a tonal break into genuine dread. The shop stays warm. The world outside just... isn't, and Frank doesn't comment on it any more than he'd comment on the weather.

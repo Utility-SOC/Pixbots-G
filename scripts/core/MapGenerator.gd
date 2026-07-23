@@ -1,6 +1,13 @@
 class_name MapGenerator
 extends Node2D
 
+# preload rather than bare class_name reference - a freshly-added
+# class_name script isn't in a headless run's global class cache until the
+# editor has rescanned the project (same "fresh-checkout class-cache bug"
+# build_installer.ps1 works around with a warm-up pass), so a bare
+# `DestructibleObstacle.OBSTACLE_STATS` reference can fail to resolve.
+const DestructibleObstacleScript = preload("res://scripts/core/DestructibleObstacle.gd")
+
 var width: int = 400
 var height: int = 250
 var tile_size: int = 32
@@ -140,6 +147,15 @@ const FLOW_FIELD_RECENTER_CELLS = 6.0 # target moving this many cells forces an 
 const _FLOW_NEIGHBOR_OFFSETS = [
 	Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
 	Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1),
+]
+
+# Shared 4-directional offsets for the flood-fill connectivity scans
+# (_carve_pocket_corridors/_connect_pocket/_analyze_connectivity) - these
+# used to each allocate a fresh 4-element Vector2i array literal per visited
+# cell (100k+ times per full-map pass); reusing one const array avoids that
+# allocation churn without changing which cells get visited.
+const _CARDINAL_NEIGHBOR_OFFSETS = [
+	Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
 ]
 
 var flow_field: Dictionary = {} # Vector2i grid coord -> Vector2 step direction
@@ -367,7 +383,8 @@ func _carve_pocket_corridors():
 			while head < queue.size():
 				var curr = queue[head]
 				head += 1
-				for n in [Vector2i(curr.x + 1, curr.y), Vector2i(curr.x - 1, curr.y), Vector2i(curr.x, curr.y + 1), Vector2i(curr.x, curr.y - 1)]:
+				for off in _CARDINAL_NEIGHBOR_OFFSETS:
+					var n = curr + off
 					if n.x < 0 or n.x >= width or n.y < 0 or n.y >= height:
 						continue
 					if visited.has(n) or terrain[n.y][n.x] == BiomeType.WATER or obstacles.has(n):
@@ -411,7 +428,8 @@ func _connect_pocket(region: Dictionary, main_region: Dictionary, permeable_all:
 	while head < queue.size() and reached.x < 0:
 		var curr = queue[head]
 		head += 1
-		for n in [Vector2i(curr.x + 1, curr.y), Vector2i(curr.x - 1, curr.y), Vector2i(curr.x, curr.y + 1), Vector2i(curr.x, curr.y - 1)]:
+		for off in _CARDINAL_NEIGHBOR_OFFSETS:
+			var n = curr + off
 			if n.x < 0 or n.x >= width or n.y < 0 or n.y >= height or parent.has(n):
 				continue
 			if not permeable_all:
@@ -477,25 +495,21 @@ func _analyze_connectivity() -> Dictionary:
 				
 			var current_continent = {}
 			var queue = [pos]
+			var head = 0
 			current_continent[pos] = true
 			visited[pos] = true
-			
-			while queue.size() > 0:
-				var curr = queue.pop_front()
-				
-				var neighbors = [
-					Vector2i(curr.x + 1, curr.y),
-					Vector2i(curr.x - 1, curr.y),
-					Vector2i(curr.x, curr.y + 1),
-					Vector2i(curr.x, curr.y - 1)
-				]
-				
-				for n in neighbors:
+
+			while head < queue.size():
+				var curr = queue[head]
+				head += 1
+
+				for off in _CARDINAL_NEIGHBOR_OFFSETS:
+					var n = curr + off
 					if n.x >= 0 and n.x < width and n.y >= 0 and n.y < height:
 						if not visited.has(n) and terrain[n.y][n.x] != BiomeType.WATER and not obstacles.has(n):
 							visited[n] = true
 							current_continent[n] = true
-							queue.push_back(n)
+							queue.append(n)
 							
 			if current_continent.size() > max_size:
 				max_size = current_continent.size()
@@ -755,6 +769,18 @@ func _draw_map_to_texture():
 	_create_wall_collision(Vector2(wall_thickness/2.0, map_h/2), Vector2(wall_thickness, map_h)) # Left
 	_create_wall_collision(Vector2(map_w - wall_thickness/2.0, map_h/2), Vector2(wall_thickness, map_h)) # Right
 
+# Optional native accelerator (rust_ext GDExtension, see ../../rust_ext/) for
+# the per-tile "fat pixel" painting loop below - by far the largest confirmed
+# map-load cost (a 400x250 Normal map runs ~1.6 million Image.fill_rect calls
+# across this, all synchronous in _ready() with zero frame-yielding). Same
+# lazy-check/graceful-fallback pattern as MechPartRenderer.gd's
+# _rasterizer/_rasterizer_checked - _paint_textured_tile/
+# _get_textured_pixel_color/_get_biome_color are kept as the reference
+# implementation and fallback (used verbatim if the extension DLL isn't
+# built), not dead code.
+var _terrain_rasterizer = null
+var _terrain_rasterizer_checked: bool = false
+
 # Draws one chunk's worth of terrain (+ obstacle squares + any outer-wall
 # strip it touches) into its own small Image/Sprite2D. Purely visual - no
 # collision is created here (see _build_collisions_and_obstacles).
@@ -768,31 +794,55 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 	if chunk_w_tiles <= 0 or chunk_h_tiles <= 0:
 		return
 
-	var img = Image.create(chunk_w_tiles * tile_size, chunk_h_tiles * tile_size, false, Image.FORMAT_RGBA8)
+	if not _terrain_rasterizer_checked:
+		_terrain_rasterizer_checked = true
+		if ClassDB.class_exists("TerrainRasterizer"):
+			_terrain_rasterizer = ClassDB.instantiate("TerrainRasterizer")
 
-	for ty in range(tile_y0, tile_y1):
-		for tx in range(tile_x0, tile_x1):
-			var biome = terrain[ty][tx]
-			var local_x = (tx - tile_x0) * tile_size
-			var local_y = (ty - tile_y0) * tile_size
-			var pos = Vector2i(tx, ty)
-			_paint_textured_tile(img, local_x, local_y, biome, pos)
+	var img: Image
+	if _terrain_rasterizer:
+		var biomes := PackedInt32Array()
+		var obstacle_names := PackedStringArray()
+		var corn_mask := PackedByteArray()
+		biomes.resize(chunk_w_tiles * chunk_h_tiles)
+		obstacle_names.resize(chunk_w_tiles * chunk_h_tiles)
+		corn_mask.resize(chunk_w_tiles * chunk_h_tiles)
+		for ty in range(tile_y0, tile_y1):
+			for tx in range(tile_x0, tile_x1):
+				var idx = (ty - tile_y0) * chunk_w_tiles + (tx - tile_x0)
+				var pos = Vector2i(tx, ty)
+				biomes[idx] = terrain[ty][tx]
+				obstacle_names[idx] = obstacles.get(pos, "")
+				corn_mask[idx] = 1 if corn_field_cells.has(pos) else 0
+		var bytes = _terrain_rasterizer.rasterize_chunk(biomes, obstacle_names, corn_mask, chunk_w_tiles, chunk_h_tiles, tile_size, map_type, randi())
+		img = Image.create_from_data(chunk_w_tiles * tile_size, chunk_h_tiles * tile_size, false, Image.FORMAT_RGBA8, bytes)
+	else:
+		img = Image.create(chunk_w_tiles * tile_size, chunk_h_tiles * tile_size, false, Image.FORMAT_RGBA8)
 
-			# Trees and RuinParts have real scene nodes drawing them - only
-			# flat obstacle types get a painted square (name-specific color
-			# for FightShovel's Tractor so it reads as distinct rusted farm
-			# equipment rather than the generic grey clutter block).
-			if obstacles.has(pos) and obstacles[pos] != "Tree" and obstacles[pos] != "RuinPart":
-				var obs_rect = Rect2i(local_x + 8, local_y + 8, tile_size - 16, tile_size - 16)
-				var obs_color = Color(0.2, 0.2, 0.2)
-				if obstacles[pos] == "Tractor":
-					obs_color = Color(0.55, 0.28, 0.12) # rusted orange-red
-					img.fill_rect(obs_rect, obs_color)
-					# Two darker "wheel" accents at the front/back corners.
-					img.fill_rect(Rect2i(local_x + 6, local_y + tile_size - 12, 8, 8), Color(0.15, 0.13, 0.12))
-					img.fill_rect(Rect2i(local_x + tile_size - 14, local_y + tile_size - 12, 8, 8), Color(0.15, 0.13, 0.12))
-				else:
-					img.fill_rect(obs_rect, obs_color)
+		for ty in range(tile_y0, tile_y1):
+			for tx in range(tile_x0, tile_x1):
+				var biome = terrain[ty][tx]
+				var local_x = (tx - tile_x0) * tile_size
+				var local_y = (ty - tile_y0) * tile_size
+				var pos = Vector2i(tx, ty)
+				_paint_textured_tile(img, local_x, local_y, biome, pos)
+
+				# Trees, RuinParts, and the DestructibleObstacle-backed flat
+				# types (Boulder/Cactus/IceBoulder/LavaRock/StoneWall) have
+				# real scene nodes drawing them now - only the remaining
+				# genuinely flat/indestructible types (Tractor, Fence) get a
+				# painted square baked into the static terrain texture.
+				if obstacles.has(pos) and obstacles[pos] != "Tree" and obstacles[pos] != "RuinPart" and not DestructibleObstacleScript.OBSTACLE_STATS.has(obstacles[pos]):
+					var obs_rect = Rect2i(local_x + 8, local_y + 8, tile_size - 16, tile_size - 16)
+					var obs_color = Color(0.2, 0.2, 0.2)
+					if obstacles[pos] == "Tractor":
+						obs_color = Color(0.55, 0.28, 0.12) # rusted orange-red
+						img.fill_rect(obs_rect, obs_color)
+						# Two darker "wheel" accents at the front/back corners.
+						img.fill_rect(Rect2i(local_x + 6, local_y + tile_size - 12, 8, 8), Color(0.15, 0.13, 0.12))
+						img.fill_rect(Rect2i(local_x + tile_size - 14, local_y + tile_size - 12, 8, 8), Color(0.15, 0.13, 0.12))
+					else:
+						img.fill_rect(obs_rect, obs_color)
 
 	# Paint whichever outer-wall strip(s) this chunk touches
 	if tile_y0 == 0:
@@ -862,15 +912,17 @@ func _build_collisions_and_obstacles():
 			var pos = Vector2i(x, y)
 			if obstacles.has(pos):
 				var obs_name = obstacles[pos]
-				if obs_name == "Tree" or obs_name == "RuinPart":
+				if obs_name == "Tree" or obs_name == "RuinPart" or DestructibleObstacleScript.OBSTACLE_STATS.has(obs_name):
 					# Node-based obstacles bring their own collision
-					# (TreeObstacle / RuinObstacle) - exclude them from the
-					# merged flat-collision run.
+					# (TreeObstacle / RuinObstacle / DestructibleObstacle) -
+					# exclude them from the merged flat-collision run.
 					if obstacle_start_x != -1:
 						_create_merged_collision(obstacle_start_x, y, x - obstacle_start_x, 32)
 						obstacle_start_x = -1
 					if obs_name == "Tree":
 						_spawn_tree(Vector2(x * tile_size, y * tile_size))
+					elif DestructibleObstacleScript.OBSTACLE_STATS.has(obs_name):
+						_spawn_destructible_obstacle(Vector2(x * tile_size, y * tile_size), obs_name)
 				else:
 					if obstacle_start_x == -1:
 						obstacle_start_x = x
@@ -948,6 +1000,14 @@ func _spawn_tree(pos: Vector2):
 	body.global_position = pos + Vector2(tile_size/2, tile_size/2)
 	# So the tree can clear its nav footprint when destroyed (same pattern
 	# as RuinObstacle) - without this, dead trees left invisible AI walls.
+	body.map_ref = self
+	body.cell = Vector2i(int(pos.x / tile_size), int(pos.y / tile_size))
+	add_child(body)
+
+func _spawn_destructible_obstacle(pos: Vector2, obs_name: String):
+	var body = load("res://scripts/core/DestructibleObstacle.gd").new()
+	body.obstacle_name = obs_name
+	body.global_position = pos + Vector2(tile_size/2, tile_size/2)
 	body.map_ref = self
 	body.cell = Vector2i(int(pos.x / tile_size), int(pos.y / tile_size))
 	add_child(body)

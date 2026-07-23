@@ -20,6 +20,7 @@ const PartHitboxScript = preload("res://scripts/entities/PartHitbox.gd")
 const CorpseHuskScript = preload("res://scripts/entities/CorpseHusk.gd")
 const RuinObstacleScript = preload("res://scripts/core/RuinObstacle.gd")
 const TreeObstacleScript = preload("res://scripts/core/TreeObstacle.gd")
+const DestructibleObstacleScript = preload("res://scripts/core/DestructibleObstacle.gd")
 const MechScript = preload("res://scripts/entities/Mech.gd")
 
 var failures = 0
@@ -49,6 +50,10 @@ func _ready():
 	var tree = TreeObstacleScript.new()
 	add_child(tree)
 	_check("TreeObstacle", tree)
+
+	var destructible = DestructibleObstacleScript.new()
+	add_child(destructible)
+	_check("DestructibleObstacle", destructible)
 
 	var mech = MechScript.new()
 	mech.is_player = true

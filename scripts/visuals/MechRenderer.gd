@@ -69,12 +69,6 @@ func _get_role_visual_profile(role: String) -> Dictionary:
 			return {"color": Color(0.15, 0.5, 0.55), "scale": 0.8, "accent": "diver"}
 		"jammer":
 			return {"color": Color(0.25, 0.15, 0.45), "scale": 1.1, "accent": "jammer"}
-		"piercing_jammer":
-			# Distinct from the standard Warden jammer - a bladed, aggressive
-			# silhouette (dish swapped for a spike array) reading as the
-			# "protects allies from execution" support unit it is, rather
-			# than the vision/synergy-mute Warden it's descended from.
-			return {"color": Color(0.5, 0.1, 0.15), "scale": 1.1, "accent": "piercing_jammer"}
 		"support":
 			return {"color": Color(0.2, 0.7, 0.75), "scale": 1.0, "accent": "support"}
 		"commander":
@@ -470,8 +464,8 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 		visor_color = Color(0.6, 0.05, 0.05) # single glowing red slit reads as sneaky/predatory
 	elif accent == "jammer":
 		visor_color = Color(0.5, 0.2, 0.9)
-	elif accent == "piercing_jammer":
-		visor_color = Color(0.95, 0.2, 0.15) # hot red slit, reads as "sharp/dangerous" not "sensor dish"
+	elif accent == "support":
+		visor_color = Color(0.3, 0.9, 0.95) # bright cyan sensor glow, reads as "scanning," not combat-red
 	elif accent == "diver":
 		visor_color = Color(0.3, 0.9, 0.95) # bright aqua, reads as a diving mask/goggle
 	elif accent == "hero":
@@ -559,19 +553,17 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 				var a = PI + i * (PI / 9.0)
 				dish.append(Vector2(cos(a), sin(a) * 0.6) * dish_r + Vector2(0, -h - dish_r * 0.3))
 			part.renderer.add_fill(dish, color.lightened(0.25))
-		elif accent == "piercing_jammer":
-			# A ring of small blade-spikes instead of the Warden's dish -
-			# same "thing sticking up off the head" silhouette language, but
-			# reads as bladed/aggressive rather than a sensor array.
-			var spike_count = 5
-			for i in range(spike_count):
-				var a = PI + (i + 0.5) * (PI / float(spike_count))
-				var base_pt = Vector2(cos(a), sin(a) * 0.6) * (w * 0.9) + Vector2(0, -h)
-				var tip_pt = base_pt + Vector2(cos(a), sin(a)) * (h * 0.9)
-				var spike = PackedVector2Array([
-					base_pt + Vector2(-2.0, 0), base_pt + Vector2(2.0, 0), tip_pt
-				])
-				part.renderer.add_fill(spike, color.lightened(0.3))
+		elif accent == "support":
+			# A smaller, lighter dish than the Warden's - same sensor-array
+			# language (this role jams too), scaled down since sensing/
+			# healing reads as its secondary function, not its whole identity
+			# (see the medic-cross chest accent below for the primary one).
+			var dish_r = w * 0.6
+			var dish = PackedVector2Array()
+			for i in range(8):
+				var a = PI + i * (PI / 7.0)
+				dish.append(Vector2(cos(a), sin(a) * 0.6) * dish_r + Vector2(0, -h - dish_r * 0.3))
+			part.renderer.add_fill(dish, color.lightened(0.35))
 		elif accent == "diver":
 			# A single dorsal fin along the back-center of the head, instead
 			# of a dish/spikes - the clearest silhouette shorthand for

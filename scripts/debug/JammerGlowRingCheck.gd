@@ -1,12 +1,12 @@
 extends Node
 
-# Exercises JammerMech/PiercingJammerMech's new _draw()-based glow ring for
-# a few frames headlessly to catch any script errors in the draw path
-# itself (queue_redraw() defers to the next frame, so this needs at least
-# one process tick, not just _ready()). Safe to delete once validated.
+# Exercises JammerMech/SupportMech's _draw()-based glow ring for a few
+# frames headlessly to catch any script errors in the draw path itself
+# (queue_redraw() defers to the next frame, so this needs at least one
+# process tick, not just _ready()). Safe to delete once validated.
 
 const JammerMech = preload("res://scripts/entities/JammerMech.gd")
-const PiercingJammerMech = preload("res://scripts/entities/PiercingJammerMech.gd")
+const SupportMech = preload("res://scripts/entities/SupportMech.gd")
 
 var _frames := 0
 
@@ -16,12 +16,12 @@ func _ready():
 	j.combat_role = "jammer"
 	add_child(j)
 
-	var pj = PiercingJammerMech.new()
-	pj.is_player = false
-	pj.combat_role = "piercing_jammer"
-	add_child(pj)
+	var sm = SupportMech.new()
+	sm.is_player = false
+	sm.combat_role = "support"
+	add_child(sm)
 
-	print("Spawned JammerMech (radius=", j.jammer_radius, ") and PiercingJammerMech (radius=", pj.jammer_radius, ", pierce_radius=", pj.PIERCE_AURA_RADIUS, ")")
+	print("Spawned JammerMech (radius=", j.jammer_radius, ") and SupportMech (radius=", sm.jammer_radius, ", pierce_radius=", sm.PIERCE_AURA_RADIUS, ")")
 
 func _process(_delta):
 	_frames += 1

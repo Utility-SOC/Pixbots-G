@@ -39,8 +39,8 @@ func _ready():
 		main_source.contains("var player_lives_remaining: int = SaveManager.DIFFICULTY_LIVES[SaveManager.difficulty]"))
 	_check("_close_garage() refills lives from the difficulty table on every deploy (same checkpoint as last_garage_wave)",
 		main_source.contains("player_lives_remaining = SaveManager.DIFFICULTY_LIVES[SaveManager.difficulty]"))
-	_check("_on_player_died() checks lives before running the full death sequence",
-		main_source.contains("if player_lives_remaining > 1:"))
+	_check("_on_player_died() treats lives as respawns-remaining (game over only when dying at 0, not at 1)",
+		main_source.contains("if player_lives_remaining > 0:") and not main_source.contains("if player_lives_remaining > 1:"))
 	_check("a life-saved respawn heals hp back to max",
 		main_source.contains("player.hp = player.max_hp") and main_source.contains("player.is_dead = false"))
 	_check("a life-saved respawn restores shield_hp to max",

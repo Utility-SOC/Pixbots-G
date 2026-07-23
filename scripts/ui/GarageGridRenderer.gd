@@ -749,6 +749,18 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 		if trig != "None":
 			draw_string(ThemeDB.fallback_font, center + Vector2(-6, 5), trig, HORIZONTAL_ALIGNMENT_CENTER, 20, 14, acc_color)
 
+	elif type == "Reverse Accumulator":
+		# The literal mirror of Accumulator's icon: same capacitor plates,
+		# but drawn with inward-pointing arrows (discharging, not charging)
+		# and a distinct color so the two read as opposites at a glance.
+		var rev_color = Color(1.0, 0.55, 0.2)
+		draw_line(center + Vector2(-hs * 0.35, -hs * 0.3), center + Vector2(-hs * 0.35, hs * 0.3), rev_color, 4.0, true)
+		draw_line(center + Vector2(hs * 0.35, -hs * 0.3), center + Vector2(hs * 0.35, hs * 0.3), rev_color, 4.0, true)
+		draw_line(center + Vector2(-hs * 0.2, 0), center, rev_color, 2.5, true)
+		draw_line(center + Vector2(hs * 0.2, 0), center, rev_color, 2.5, true)
+		draw_circle(center + Vector2(-hs * 0.2, 0), 3.0, rev_color)
+		draw_circle(center + Vector2(hs * 0.2, 0), 3.0, rev_color)
+
 	elif type == "Resonator":
 		# Concentric pulse rings. Mythic Sync adds a crossing tri-spoke
 		# motif (echoing the 3-path E/W-SE/NW-SW/NE crossing the tile's

@@ -42,7 +42,7 @@ const GuidedBuildRunnerScript = preload("res://scripts/ui/GuidedBuildRunner.gd")
 var guided_build_runner = null
 var _guided_build_started_for_index: int = -1
 
-# Cinematic steps ("type": "cinematic", per the user: "Evan cinematics
+# Cinematic steps ("type": "cinematic", per the user: "Frank cinematics
 # should be used for most of the tutorial phases") - a full pixel-art
 # CutscenePlayer scene (res://config/cutscenes/<file>) instead of the plain
 # spotlight/text panel, for steps that don't need to point at any live

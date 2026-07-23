@@ -217,11 +217,13 @@ func refresh(mech_components: Dictionary):
 
 	# Drone isn't a real mech_components entry (see HexTile.BodySlot.DRONE's
 	# comment) - its data lives nested on whatever Drone Bay tile is
-	# installed in the Backpack, if any. Look that up once here rather than
-	# duplicating the lookup per-frame; the whole callout hides itself when
-	# there's no Drone Bay equipped at all, distinct from an anatomical slot
-	# just sitting "(empty)".
-	var drone_bay = PreloadedDroneBayTile.find_in_backpack(mech_components.get(HexTile.BodySlot.BACKPACK))
+	# installed anywhere in the mech (not just the Backpack - see
+	# DroneBayTile.find_all_in_mech), if any. Look that up once here rather
+	# than duplicating the lookup per-frame; the whole callout hides itself
+	# when there's no Drone Bay equipped at all, distinct from an anatomical
+	# slot just sitting "(empty)".
+	var mech_drone_bays = PreloadedDroneBayTile.find_all_in_mech(mech_components)
+	var drone_bay = mech_drone_bays[0] if not mech_drone_bays.is_empty() else null
 
 	for info in _slot_defs:
 		var lbl = _slot_labels.get(info.slot)

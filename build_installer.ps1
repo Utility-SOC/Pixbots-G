@@ -21,7 +21,14 @@ if (Test-Path "rust_ext") {
 
 # 3. Export Godot Project
 Write-Host "`n--- 3. Exporting Godot Project ---" -ForegroundColor Yellow
-$GodotExe = "Godot_v4.6.3-stable_win64.exe"
+# The console variant, not the windowed Godot_v4.6.3-stable_win64.exe - the
+# windowed exe does not reliably block the calling process for headless CLI
+# invocations (confirmed by hand: the call operator returned in ~6ms with no
+# process left running and no exit code set), which let the warm-up pass
+# below race against the real export pass that follows it, corrupting both.
+# The console exe blocks and reports a real exit code, same as every
+# headless test run in this project already relies on.
+$GodotExe = "Godot_v4.6.3-stable_win64_console.exe"
 if (!(Test-Path $GodotExe)) {
     Write-Host "[ERROR] Godot executable not found! Make sure $GodotExe is in this folder." -ForegroundColor Red
     exit 1
@@ -62,10 +69,11 @@ if ($LASTEXITCODE -ne 0) {
 # Verify export
 $ExportedExe = Join-Path $BuildDir "Pixbots-G-2026-07-14.exe"
 if (!(Test-Path $ExportedExe)) {
-    $ExportedExe = Get-ChildItem $BuildDir -Filter "*.exe" | Select-Object -ExpandProperty FullName -First 1
+    $Found = Get-ChildItem $BuildDir -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1
+    $ExportedExe = if ($Found) { $Found } else { $null }
 }
 
-if (!(Test-Path $ExportedExe)) {
+if (!$ExportedExe -or !(Test-Path $ExportedExe)) {
     Write-Host "[ERROR] Godot export failed! No executable found in $BuildDir" -ForegroundColor Red
     exit 1
 }
@@ -84,6 +92,51 @@ if ($ExportedExe -ne $FinalExePath) {
 # but let's double check what's in the build dir.
 $FilesToPackage = Get-ChildItem -Path $BuildDir -File
 
-# 5. Generate C# Installer
+# 5. Generate Installer (Inno Setup - real Start Menu/Desktop shortcuts,
+# Add/Remove Programs uninstall entry, chosen install directory. Replaces
+# the old build_csharp_installer.ps1 zip-extractor stub.)
 Write-Host "`n--- 5. Generating Installer ---" -ForegroundColor Yellow
-.\build_csharp_installer.ps1
+$ISCC = "ISCC.exe"
+$IsccCandidates = @(
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+)
+$IsccPath = Get-Command $ISCC -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+if (!$IsccPath) {
+    foreach ($candidate in $IsccCandidates) {
+        if (Test-Path $candidate) {
+            $IsccPath = $candidate
+            break
+        }
+    }
+}
+if (!$IsccPath) {
+    Write-Host "[ERROR] Inno Setup's ISCC.exe not found. Install Inno Setup (https://jrsoftware.org/isinfo.php) or, on CI, add the Inno Setup provisioning step to the workflow." -ForegroundColor Red
+    exit 1
+}
+
+# Version from the pushed git tag when one points at HEAD (CI release
+# builds), otherwise the .iss script's own "1.0.0" default (local dev
+# builds off a tag-less checkout). The common case (no exact tag) makes
+# git write to stderr, which $ErrorActionPreference = "Stop" (set at the
+# top of this script) turns into a terminating NativeCommandError - swap
+# to SilentlyContinue just for this call so a tag-less checkout doesn't
+# abort the whole build.
+$VersionArgs = @()
+$PrevEAP = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
+$GitTag = git describe --tags --exact-match 2>$null
+$ErrorActionPreference = $PrevEAP
+if ($LASTEXITCODE -eq 0 -and $GitTag) {
+    $VersionNumber = $GitTag -replace '^v', ''
+    Write-Host "Building installer version $VersionNumber (from tag $GitTag)" -ForegroundColor DarkGray
+    $VersionArgs = @("/DMyAppVersion=$VersionNumber")
+}
+
+& $IsccPath $VersionArgs "installer\pixbots.iss"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Inno Setup compilation failed with code $LASTEXITCODE" -ForegroundColor Red
+    exit 1
+}
+Write-Host "Successfully generated Pixbots-Installer.exe" -ForegroundColor Green

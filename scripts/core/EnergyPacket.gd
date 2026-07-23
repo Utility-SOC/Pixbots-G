@@ -14,7 +14,20 @@ enum SynergyType {
 # duplicated as a literal inside amplify() below - a classic way for two
 # copies of the same limit to quietly drift apart) so raising it again
 # later is a one-line change.
-const MAX_MAGNITUDE = 150000.0
+#
+# NORMAL_MAGNITUDE_CAP is the effective ceiling any tile that isn't Mythic
+# rarity will ever pass along - Mech._simulate_grid/GarageSimulationRunner.
+# _advance_step enforce this at the moment a packet ENTERS a non-Mythic
+# tile: only NORMAL_MAGNITUDE_CAP worth continues in (via split()), the
+# rest reflects back the way it came. A packet that stays entirely within
+# Mythic-rarity tiles (a "closed annex" bouncing energy back on itself, or
+# just a straight all-Mythic path) is never touched by that rule and can
+# keep building all the way up to MAX_MAGNITUDE - per the user: "if every
+# piece of that loop is mythic it goes up to 600000, if it hits anything
+# non mythic it does a split, 150000 goes to the non mythic tile, the rest
+# bounces back."
+const NORMAL_MAGNITUDE_CAP = 150000.0
+const MAX_MAGNITUDE = 600000.0
 const MAX_CHARGE_REQUIRED = 500.0 # ~100s at base fire rate - a genuinely long charge-up for the biggest builds
 
 var magnitude: float = 100.0 :

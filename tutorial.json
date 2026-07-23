@@ -4,7 +4,7 @@
       "id": "welcome",
       "type": "cinematic",
       "cutscene": "tutorial_welcome.json",
-      "text": "Hey! You made it. I'm Evan - I run this place. That the birthday PixBot? Solid starter frame. Corp sponsors our trainer table so new pilots can learn without scratching the paint. Hop on, I'll walk you through it.",
+      "text": "Hey! You made it. I'm Frank - I run this place. That the birthday PixBot? Solid starter frame. Corp sponsors our trainer table so new pilots can learn without scratching the paint. Hop on, I'll walk you through it.",
       "anchor": "",
       "wait_for": "manual"
     },

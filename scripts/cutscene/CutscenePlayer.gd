@@ -14,7 +14,7 @@ extends CanvasLayer
 #   {
 #     "background": {"color": "#101018"},        # or {"texture": "res://..."}
 #     "actors": {
-#       "evan": {"texture": "res://assets/cutscenes/evan.png",
+#       "frank": {"texture": "res://assets/cutscenes/frank.png",
 #                "hframes": 4, "vframes": 1, "fps": 6, "scale": 4,
 #                "placeholder_color": "#4d8bd4"}  # used if texture missing
 #       "case": {"kind": "prop", "texture": "res://assets/cutscenes/glass_case.png",
@@ -22,13 +22,13 @@ extends CanvasLayer
 #                # see _make_prop_placeholder_texture for the untextured look
 #     },
 #     "steps": [                                  # run strictly in order
-#       {"cmd": "enter", "actor": "evan", "from": [-0.1, 0.7], "to": [0.3, 0.7], "duration": 1.2},
-#       {"cmd": "say",   "actor": "evan", "name": "Evan", "text": "...", "auto": 4.0},
-#       {"cmd": "move",  "actor": "evan", "to": [0.5, 0.7], "duration": 0.8},
-#       {"cmd": "shake", "actor": "evan", "duration": 0.4, "strength": 6},
-#       {"cmd": "flip",  "actor": "evan"},
+#       {"cmd": "enter", "actor": "frank", "from": [-0.1, 0.7], "to": [0.3, 0.7], "duration": 1.2},
+#       {"cmd": "say",   "actor": "frank", "name": "Frank", "text": "...", "auto": 4.0},
+#       {"cmd": "move",  "actor": "frank", "to": [0.5, 0.7], "duration": 0.8},
+#       {"cmd": "shake", "actor": "frank", "duration": 0.4, "strength": 6},
+#       {"cmd": "flip",  "actor": "frank"},
 #       {"cmd": "wait",  "duration": 0.5},
-#       {"cmd": "exit",  "actor": "evan", "to": [1.1, 0.7], "duration": 1.0}
+#       {"cmd": "exit",  "actor": "frank", "to": [1.1, 0.7], "duration": 1.0}
 #     ]
 #   }
 # Positions are normalized [0..1] viewport fractions (resolution-safe).

@@ -67,9 +67,10 @@ func _update_player_sight(delta: float):
 		blind_field.report_jam_contact(mech.global_position)
 		return
 
-	var dist = mech.global_position.distance_to(mech.target.global_position)
+	var dist_sq = mech.global_position.distance_squared_to(mech.target.global_position)
 	var visible = false
-	if dist <= _effective_sight_range():
+	var sight_range = _effective_sight_range()
+	if dist_sq <= sight_range * sight_range:
 		var space_state = mech.get_world_2d().direct_space_state
 		# Collision mask 1 = World/obstacles only (same convention as the
 		# strafe-into-walls and boss-retreat-clearance raycasts elsewhere in
@@ -131,11 +132,11 @@ func _execute_search(delta: float):
 	# on datum drift - the frontier escalation in _advance_search_leg moves
 	# the datum away from last_known on purpose, and comparing datum vs
 	# last_known here would snap the pattern straight back to the stale spot.
-	if not mech._search_pattern_initialized or mech._search_intel_pos.distance_to(mech.last_known_player_pos) > mech.SEARCH_REDATUM_DIST:
+	if not mech._search_pattern_initialized or mech._search_intel_pos.distance_squared_to(mech.last_known_player_pos) > mech.SEARCH_REDATUM_DIST * mech.SEARCH_REDATUM_DIST:
 		mech._search_intel_pos = mech.last_known_player_pos
 		_start_search_pattern(mech.last_known_player_pos)
 
-	if mech.global_position.distance_to(mech._search_leg_target) < 24.0:
+	if mech.global_position.distance_squared_to(mech._search_leg_target) < 24.0 * 24.0:
 		_advance_search_leg()
 
 	# Stuck detection: straight-line legs + move_and_slide means an obstacle
@@ -145,7 +146,7 @@ func _execute_search(delta: float):
 	# the last interval, abandon the leg instead of pushing the wall.
 	mech._search_stuck_timer -= delta
 	if mech._search_stuck_timer <= 0.0:
-		if mech._search_progress_pos != Vector2.INF and mech.global_position.distance_to(mech._search_progress_pos) < SEARCH_STUCK_MIN_PROGRESS:
+		if mech._search_progress_pos != Vector2.INF and mech.global_position.distance_squared_to(mech._search_progress_pos) < SEARCH_STUCK_MIN_PROGRESS * SEARCH_STUCK_MIN_PROGRESS:
 			_advance_search_leg()
 		mech._search_stuck_timer = SEARCH_STUCK_INTERVAL
 		mech._search_progress_pos = mech.global_position
@@ -231,7 +232,7 @@ func _advance_search_leg():
 # datum search everyone else runs.
 func _execute_scout_search(delta: float):
 	mech._search_waypoint_timer -= delta
-	if mech._search_waypoint_timer <= 0.0 or mech.global_position.distance_to(mech._search_waypoint) < 40.0:
+	if mech._search_waypoint_timer <= 0.0 or mech.global_position.distance_squared_to(mech._search_waypoint) < 40.0 * 40.0:
 		mech._search_waypoint_timer = mech.SEARCH_WAYPOINT_INTERVAL * 1.5
 		mech._search_waypoint = _pick_frontier_point()
 

@@ -1,6 +1,6 @@
 {
 	"_comment": "wave number -> cutscene file in this directory. Plays ONCE per session, between clearing the previous wave and the intermission countdown. See scripts/cutscene/CutscenePlayer.gd for the scene JSON format.",
 	"waves": {
-		"2": "evan_scrap_pitch.json"
+		"2": "frank_scrap_pitch.json"
 	}
 }

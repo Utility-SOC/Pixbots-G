@@ -35,8 +35,32 @@ func _show_popup(popup: PopupPanel, size: Vector2):
 	popup.popup_centered(size)
 	popup.popup_hide.connect(func(): popup.queue_free())
 	popup.focus_exited.connect(func():
-		if is_instance_valid(popup):
+		if not is_instance_valid(popup):
+			return
+		# Deferred, and re-checked, rather than hiding immediately: an
+		# OptionButton inside this popup opening its own dropdown (a child
+		# PopupMenu - itself a Window) ALSO fires focus_exited on us the
+		# instant it opens, since embedded window-level focus moves to that
+		# dropdown - closing the whole config popup before the player could
+		# ever pick an option. Accumulator's trigger-key/auto-dump menus are
+		# the only OptionButtons in this file, which is why this only ever
+		# broke that one popup ("I can no longer click anything in the
+		# accumulator menu"). Wait a frame so a legitimate child dropdown has
+		# a chance to actually open, then only close if none of this popup's
+		# own children currently have a popup visible - NOT by re-checking
+		# has_focus(), which reflects real window-manager focus and stays
+		# stale/unreliable for anything that isn't a genuine engine-driven
+		# focus transition (a real outside click still leaves no child
+		# popup visible, so this test is equivalent for that case and
+		# correct for the dropdown case too).
+		(func():
+			if not is_instance_valid(popup):
+				return
+			for w in popup.find_children("*", "Window", true, false):
+				if is_instance_valid(w) and w.visible:
+					return
 			popup.hide()
+		).call_deferred()
 	)
 
 # BFS through hex-adjacency (not through packet routing - two Accumulators

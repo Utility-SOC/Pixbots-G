@@ -113,8 +113,8 @@ func _rasterize_polygon(img: Image, polygon: PackedVector2Array, color: Color):
 	var min_p := Vector2.INF
 	var max_p := -Vector2.INF
 	for p in polygon:
-		min_p = min_p.min(p)
-		max_p = max_p.max(p)
+		min_p = Vector2(min(min_p.x, p.x), min(min_p.y, p.y))
+		max_p = Vector2(max(max_p.x, p.x), max(max_p.y, p.y))
 	var center := (min_p + max_p) * 0.5
 	var half_extent: float = max((max_p - min_p).length() * 0.5, 1.0)
 

@@ -139,12 +139,14 @@ func _setup_ui():
 	var btn_import_ai = _create_button("Import AI Templates", _on_import_ai)
 	var btn_import_mods = _create_button("Import Mods", _on_import_mods)
 	var btn_settings = _create_button("Settings", _on_settings_pressed)
+	var btn_credits = _create_button("Credits & Licenses", _on_credits_pressed)
 	var btn_quit = _create_button("Quit", _on_quit_pressed)
 
 	vbox.add_child(btn_war_room)
 	vbox.add_child(btn_import_ai)
 	vbox.add_child(btn_import_mods)
 	vbox.add_child(btn_settings)
+	vbox.add_child(btn_credits)
 	vbox.add_child(btn_quit)
 
 func _create_button(text: String, callable: Callable) -> Button:
@@ -206,6 +208,10 @@ func _on_import_mods():
 func _on_settings_pressed():
 	var settings = load("res://scripts/ui/SettingsMenu.gd").new()
 	add_child(settings)
+
+func _on_credits_pressed():
+	var credits = load("res://scripts/ui/CreditsPanel.gd").new()
+	add_child(credits)
 
 func _on_quit_pressed():
 	get_tree().quit()

@@ -87,12 +87,77 @@ func run_simulation():
 # always populated with a real, fresh number the instant you switch which
 # component you're looking at (see GarageMenu._on_tab_changed), whether or
 # not you've ever pressed Simulate on this component OR the torso.
+# Cache of completed silent snapshots, keyed by component instance id ->
+# {"total_steps": int, "snapshot": Array[EnergyPacket]}. The full snapshot
+# is EXPENSIVE (a dummy cross-component Mech._simulate_grid pass - up to
+# 1000 steps since the Mythic-overcharge work - plus a up-to-200-step
+# replay), and _on_tab_changed runs it on EVERY component switch - playtest:
+# "the garage is so slow/freezie. I switch components and it just hangs for
+# several moments." Nothing about the result changes unless the BUILD
+# changes, so any real edit invalidates the whole cache (GarageMenu.
+# _mark_player_grid_dirty -> invalidate_snapshot_cache; wholesale, not
+# per-component, since a torso edit changes what every peripheral
+# receives). Tile-level pending_packets from the cached run are still
+# sitting on the tiles themselves (nothing clears them between snapshots),
+# so update_stats() stays accurate on a cache hit.
+var _snapshot_cache: Dictionary = {}
+# Debug/regression counter: how many times a FULL snapshot compute has
+# actually run (i.e. cache misses). SilentSnapshotCacheCheck asserts on it.
+var _snapshot_computes: int = 0
+
+func invalidate_snapshot_cache():
+	_snapshot_cache.clear()
+
+# Cheap fingerprint of every tile across EVERY equipped component (type,
+# position, and each orientation/config knob the simulation reads). The
+# cache validates against this on every hit rather than trusting
+# invalidate_snapshot_cache() alone - several grid-mutation paths
+# (drag-drop placement, right-click removal, Auto-Equip, Clear Grid) never
+# went through _mark_player_grid_dirty at all, so a purely event-driven
+# invalidation went stale the moment the player placed a tile and switched
+# tabs ("the simulation bug persists - I don't know what triggered it").
+# Hashing ~100 tiles of strings is microseconds against the multi-second
+# sim it guards; ALL components are hashed together since a peripheral's
+# snapshot depends on the Torso's contents too.
+func _build_state_hash() -> int:
+	var parts: Array = []
+	for slot in garage.mech_components:
+		var comp = garage.mech_components[slot]
+		if not comp or not comp.hex_grid:
+			continue
+		for tile in comp.hex_grid.get_all_tiles():
+			var q = tile.grid_position.q if tile.grid_position else 0
+			var r = tile.grid_position.r if tile.grid_position else 0
+			var sig = "%s|%d|%d,%d" % [tile.tile_type, slot, q, r]
+			if "active_faces" in tile: sig += "|f" + str(tile.active_faces)
+			if "face_outputs" in tile: sig += "|o" + str(tile.face_outputs)
+			if "rotation_steps" in tile: sig += "|r" + str(tile.rotation_steps)
+			if "secondary_synergy" in tile: sig += "|s" + str(tile.secondary_synergy)
+			if "target_synergy" in tile: sig += "|t" + str(tile.target_synergy)
+			if "output_ratios" in tile: sig += "|w" + str(tile.output_ratios)
+			if "auto_dump_threshold" in tile: sig += "|a" + str(tile.auto_dump_threshold)
+			parts.append(sig)
+	parts.sort()
+	return hash(parts)
+
 func run_silent_snapshot():
 	if not garage.grid_renderer.hex_grid or not garage.active_component:
 		return
 	if garage.is_simulating:
 		return # a live animated run already owns the visible state - don't fight it
 
+	var cache_key = garage.active_component.get_instance_id()
+	var state_hash = _build_state_hash()
+	if _snapshot_cache.has(cache_key) and _snapshot_cache[cache_key]["hash"] == state_hash:
+		var cached = _snapshot_cache[cache_key]
+		total_steps = cached["total_steps"]
+		_initial_packets_snapshot = cached["snapshot"]
+		garage.grid_renderer.active_packets = []
+		garage.grid_renderer.simulation_step = 0
+		update_stats()
+		return
+
+	_snapshot_computes += 1
 	var initial_packets = _compute_initial_packets()
 	for p in initial_packets:
 		p.set_meta("source_hex", p.position)
@@ -118,6 +183,7 @@ func run_silent_snapshot():
 	# tile objects during the replay above - clearing the moving-dot
 	# markers here doesn't touch that.
 	total_steps = _discover_total_steps()
+	_snapshot_cache[cache_key] = {"total_steps": total_steps, "snapshot": _initial_packets_snapshot, "hash": state_hash}
 	garage.grid_renderer.active_packets = []
 	garage.grid_renderer.simulation_step = 0
 	update_stats()
@@ -153,6 +219,7 @@ func _compute_initial_packets() -> Array[EnergyPacket]:
 						for p in pkts: p.position = HexCoord.new(h.x, h.y)
 						t_pkts.append_array(pkts)
 
+				_reset_grid_state(torso_comp.hex_grid)
 				var dummy_mech = load("res://scripts/entities/Mech.gd").new()
 				dummy_mech._simulate_grid(torso_comp.hex_grid, t_pkts)
 				var transfers = dummy_mech._collect_transfers(torso_comp)
@@ -181,6 +248,7 @@ func _compute_initial_packets() -> Array[EnergyPacket]:
 			var dummy_t_pkts: Array[EnergyPacket] = []
 			for p in initial_packets:
 				dummy_t_pkts.append(p.copy())
+			_reset_grid_state(garage.active_component.hex_grid)
 			dummy_mech._simulate_grid(garage.active_component.hex_grid, dummy_t_pkts)
 			var dummy_transfers = dummy_mech._collect_transfers(garage.active_component)
 
@@ -203,6 +271,7 @@ func _compute_initial_packets() -> Array[EnergyPacket]:
 							for p in pkts: p.position = HexCoord.new(h.x, h.y)
 							p_pkts.append_array(pkts)
 
+					_reset_grid_state(p_comp.hex_grid)
 					dummy_mech._simulate_grid(p_comp.hex_grid, p_pkts)
 					var transfers = dummy_mech._collect_transfers(p_comp)
 
@@ -260,11 +329,26 @@ func _advance_step() -> void:
 		if garage.grid_renderer.hex_grid.has_tile(next_pos):
 			var tile = garage.grid_renderer.hex_grid.get_tile(next_pos)
 			var entry_dir = (dir + 3) % 6
+
+			# Mythic overcharge cap (EnergyPacket.NORMAL_MAGNITUDE_CAP) -
+			# mirrors Mech._simulate_grid so the Garage preview matches
+			# actual combat behavior. A packet that built past the normal
+			# cap inside an all-Mythic path can't dump all of that into a
+			# lesser tile - only NORMAL_MAGNITUDE_CAP worth enters, the
+			# rest reflects back into the loop it came from.
+			var entering = pkt
+			if tile.rarity != HexTile.Rarity.MYTHIC and pkt.magnitude > EnergyPacket.NORMAL_MAGNITUDE_CAP:
+				entering = pkt.split(EnergyPacket.NORMAL_MAGNITUDE_CAP / pkt.magnitude)
+				pkt.direction = entry_dir
+				pkt.set_meta("source_hex", pos)
+				pkt.set_meta("target_hex", pos)
+				pkt.set_meta("anim_progress", 0.0)
+				new_packets.append(pkt)
 			# Packet Inspector history (Status.md queue) - recorded on
 			# whatever ENTERED this tile, before process_energy transforms
 			# it, so the inspector shows what actually arrived.
-			tile.record_packet_history(entry_dir, pkt)
-			out_pkts = tile.process_energy(pkt, entry_dir)
+			tile.record_packet_history(entry_dir, entering)
+			out_pkts = tile.process_energy(entering, entry_dir)
 			for out in out_pkts:
 				if out.magnitude < 0.5:
 					out.is_active = false
@@ -348,7 +432,25 @@ static func _clone_packets(packets: Array) -> Array[EnergyPacket]:
 
 func _reset_active_grid_state() -> void:
 	if garage.grid_renderer.hex_grid:
-		for tile in garage.grid_renderer.hex_grid.get_all_tiles():
+		_reset_grid_state(garage.grid_renderer.hex_grid)
+
+# Shared by _reset_active_grid_state (the currently-viewed component) and
+# _compute_initial_packets' dummy cross-component passes below. Every
+# dummy_mech._simulate_grid() call in _compute_initial_packets runs on a
+# REAL, persistent hex_grid (the Torso's, or a Head/Backpack's) even though
+# it's only ever meant to be a disposable preview computation - stateful
+# tiles (Resonator/Mythic Splitter remnants, Catalyst gate counters) were
+# never reset before those passes, so each Simulate press on a PERIPHERAL
+# left the Torso's own tiles a little more drifted than the last, with no
+# way back short of revisiting the Torso tab (whose own _discover_total_
+# steps call happens to reset whatever grid is currently active). Resetting
+# right before every dummy pass makes each one a true, deterministic
+# preview again - see ArmResimDiagnostic.gd for the repro that caught this
+# (a Resonator's remnant carried a transfer packet's magnitude from 10 up
+# past 126 over three straight Simulate presses on an Arm, no tab changes).
+static func _reset_grid_state(grid) -> void:
+	if grid:
+		for tile in grid.get_all_tiles():
 			tile.reset_simulation_state()
 
 # Silent replay used only to find where the run naturally ends (every

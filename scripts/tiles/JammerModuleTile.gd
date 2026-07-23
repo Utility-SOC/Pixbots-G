@@ -53,6 +53,76 @@ func cycle_target_synergy():
 func get_weight() -> float:
 	return TileStatsRegistry.get_stat("JammerModuleTile", "weight", 4.0) # a pulse-jammer emitter, moderate hardware
 
+# Ensures `component` carries at least one VISION-mode Jammer Module,
+# placing a fresh one on the first free valid hex if none is present.
+# Returns true if the component ends up with one (already had it, or one
+# was placed), false only when there was no free hex to put it on.
+# Used by Main._apply_rival_drone_jammers (Chloe: her own kit + every
+# drone loadout) - VISION mode is forced because the whole point there is
+# the spatial JammerField (which stacks multiplicatively across her
+# clustered drones), not the SYNERGY damage-mute pulse. Mech capacity
+# detection (_recalculate_grid's has_jammer_module) keys off tile PRESENCE,
+# so placement alone is sufficient - no energy routing required.
+static func ensure_on_component(component) -> bool:
+	if not component or not component.hex_grid:
+		return false
+	for tile in component.hex_grid.get_all_tiles():
+		if tile.tile_type == "Jammer Module":
+			return true
+
+	var target = null
+	for h in component.valid_hexes:
+		if component.hex_grid.has_tile(h):
+			continue
+		# Never place on a reserved sink hex - (0,0) on a torso-type
+		# loadout is empty right up until equip_component force-installs
+		# the Core Reactor there and REMOVES any other tile it finds (see
+		# Mech.equip_component's torso branch) - a jammer parked there
+		# would be silently deleted at equip time.
+		var reserved = false
+		if "fixed_sinks" in component:
+			for s in component.fixed_sinks:
+				if s.q == h.q and s.r == h.r:
+					reserved = true
+					break
+		if reserved:
+			continue
+		target = h
+		break
+
+	# A small/low-rarity drone grid can be COMPLETELY full (core + jumpjet
+	# + starter mount fill every hex of a Common drone loadout) - bolt one
+	# extra valid hex onto the footprint rather than silently skipping the
+	# jammer. Reads as an external jammer pod; the shape-absorption safety
+	# net in SaveManager._deserialize_component already tolerates
+	# beyond-default footprints, so this round-trips fine.
+	if target == null:
+		for h in component.valid_hexes:
+			for d in range(6):
+				var n = h.neighbor(d)
+				var taken = false
+				for v in component.valid_hexes:
+					if v.q == n.q and v.r == n.r:
+						taken = true
+						break
+				if not taken:
+					component.valid_hexes.append(n)
+					if component.has_method("_rebuild_valid_hex_set"):
+						component._rebuild_valid_hex_set()
+					target = n
+					break
+			if target != null:
+				break
+
+	if target == null:
+		return false
+	var jammer = load("res://scripts/tiles/JammerModuleTile.gd").new()
+	jammer.jam_mode = JamMode.VISION
+	jammer.rarity = component.rarity
+	jammer.body_slot = component.slot_type
+	component.hex_grid.add_tile(HexCoord.new(target.q, target.r), jammer)
+	return true
+
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active: return []
 

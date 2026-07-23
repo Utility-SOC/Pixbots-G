@@ -623,6 +623,7 @@ const TILE_TYPE_BLURBS = {
 	"Weapon Mount": "Fires accumulated energy as a projectile - this is where damage actually leaves the mech.",
 	"Lance Mount": "3-hex capital weapon. Fires itself once 6 of its faces are each fed 10,000+ energy - a long-range beam that leaves a lingering damage field, then a 10s cooldown.",
 	"Accumulator": "Banks energy for one big charged shot on a trigger key (1/2/3) instead of firing immediately.",
+	"Reverse Accumulator": "Adjacent to a Weapon Mount: shaves down how long that mount takes to charge, making rapid fire cheaper - the inverse of Accumulator's slower-but-bigger tradeoff.",
 	"Actuator": "Drives melee/ramming behavior and movement speed bonuses.",
 	"Directional Conduit": "A wire - passes energy through, rotatable to bias flow direction.",
 	"Magnet": "Pulls loot toward the mech - Mythic adds a rarity filter and can flip to reflecting enemy shots.",

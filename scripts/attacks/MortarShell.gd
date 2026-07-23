@@ -26,11 +26,23 @@ var _elapsed: float = 0.0
 var _landed: bool = false
 var _impact_elapsed: float = 0.0
 
-const AOE_RADIUS = 95.0
+# Effective blast radius for THIS shell, computed once in setup() from its
+# own synergies (see Projectile.explosion_radius_for - shared formula, not
+# duplicated) - replaces the old flat AOE_RADIUS=95.0 constant, which never
+# reflected the packet's actual Explosion/Kinetic ratio and could silently
+# disagree with what _detonate() -> Projectile._trigger_explosion() computes
+# for the direct-hit target. Used for BOTH the flight telegraph/impact
+# visuals (_draw()) and splash-victim classification (_detonate()), so what
+# the player sees warned about during flight is what actually happens on
+# impact - the whole point of the telegraph's "you can see it coming" design.
+# Floored so a near-zero-Explosion mortar (rare, but PIERCE/LIGHTNING-heavy
+# builds can still choose Mortar delivery) still reads as a real, visible
+# impact rather than an invisible pinprick.
+var effective_radius: float = 40.0
 const ARC_HEIGHT = 70.0
 const IMPACT_FLASH_TIME = 0.28
 
-func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_source: Node):
+func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_source: Node, p_aoe_bonus: float = 0.0):
 	start_pos = p_start
 	target_pos = p_target
 	flight_time = max(0.15, p_flight_time)
@@ -40,6 +52,15 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 	source_mech = p_source
 	source_label = Mech.resolve_attacker_label(p_source)
 	global_position = p_target # node sits at the impact point; shell is drawn offset
+
+	var total_mag = 0.0
+	for k in synergies:
+		total_mag += synergies[k]
+	var ratios = {}
+	if total_mag > 0.0:
+		for k in synergies:
+			ratios[k] = synergies[k] / total_mag
+	effective_radius = max(40.0, Projectile.explosion_radius_for(ratios, p_aoe_bonus))
 
 func _process(delta: float):
 	if _landed:
@@ -79,13 +100,13 @@ func _detonate():
 		victims = EntityCache.get_group("player")
 
 	var direct_target = null
-	var direct_dist = AOE_RADIUS
+	var direct_dist = effective_radius
 	var splash: Array = []
 	for v in victims:
 		if not is_instance_valid(v) or v.get("is_dead"):
 			continue
 		var dist = v.global_position.distance_to(target_pos)
-		if dist > AOE_RADIUS:
+		if dist > effective_radius:
 			continue
 		if dist < direct_dist:
 			if direct_target:
@@ -136,7 +157,7 @@ func _detonate():
 	for v in splash:
 		if not is_instance_valid(v) or not v.has_method("apply_damage"):
 			continue
-		var falloff = 1.0 - 0.5 * (v.global_position.distance_to(target_pos) / AOE_RADIUS)
+		var falloff = 1.0 - 0.5 * (v.global_position.distance_to(target_pos) / effective_radius)
 		v.apply_damage(damage * 0.6 * falloff, element, src, false, source_label)
 
 func _dominant_synergy() -> int:
@@ -153,15 +174,15 @@ func _draw():
 		# Impact flash: expanding filled ring.
 		var t = _impact_elapsed / IMPACT_FLASH_TIME
 		var color = EnergyPacket.get_color_blend(synergies)
-		draw_circle(Vector2.ZERO, AOE_RADIUS * (0.5 + 0.5 * t), Color(color.r, color.g, color.b, 0.45 * (1.0 - t)))
-		draw_arc(Vector2.ZERO, AOE_RADIUS, 0, TAU, 24, Color(color.r, color.g, color.b, 0.9 * (1.0 - t)), 3.0)
+		draw_circle(Vector2.ZERO, effective_radius * (0.5 + 0.5 * t), Color(color.r, color.g, color.b, 0.45 * (1.0 - t)))
+		draw_arc(Vector2.ZERO, effective_radius, 0, TAU, 24, Color(color.r, color.g, color.b, 0.9 * (1.0 - t)), 3.0)
 		return
 
 	var t = _elapsed / flight_time
 	# Ground telegraph at the impact point: tightening dashed ring.
 	var warn = Color(1.0, 0.35, 0.2, 0.55) if not fired_by_player else Color(0.4, 0.8, 1.0, 0.45)
-	draw_arc(Vector2.ZERO, AOE_RADIUS, 0, TAU, 24, warn, 2.0)
-	draw_arc(Vector2.ZERO, AOE_RADIUS * (1.0 - t * 0.85), 0, TAU, 20, Color(warn.r, warn.g, warn.b, 0.8), 2.0)
+	draw_arc(Vector2.ZERO, effective_radius, 0, TAU, 24, warn, 2.0)
+	draw_arc(Vector2.ZERO, effective_radius * (1.0 - t * 0.85), 0, TAU, 20, Color(warn.r, warn.g, warn.b, 0.8), 2.0)
 
 	# The shell itself: straight-line lerp with a fake parabolic height,
 	# drawn relative to this node (which sits at the target).

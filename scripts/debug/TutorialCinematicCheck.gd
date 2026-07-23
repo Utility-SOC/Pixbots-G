@@ -1,6 +1,6 @@
 extends Node
 
-# Regression harness for: "Evan cinematics should be used for most of the
+# Regression harness for: "Frank cinematics should be used for most of the
 # tutorial phases." TutorialManager steps with "type": "cinematic" run a
 # real CutscenePlayer instead of the plain spotlight/text panel, and fall
 # back to the plain panel if the referenced cutscene file is missing -

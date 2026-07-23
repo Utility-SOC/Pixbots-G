@@ -531,7 +531,7 @@ func _apply_kill_method_counter_pressure():
 
 # --- Director "tells" -------------------------------------------------------
 # The learning loop is the game's most interesting system and it was
-# invisible outside the War Room. These build short Evan-voiced lines from
+# invisible outside the War Room. These build short Frank-voiced lines from
 # the REAL telemetry (never invented flavor): pre-wave intel when the
 # counter-doctrine or resistance profiling is actually active, and an
 # occasional post-wave debrief when the director just logged a lopsided

@@ -116,6 +116,15 @@ if (!$IsccPath) {
     exit 1
 }
 
+# Bundled VC++ Redistributable (rust_ext.dll's runtime dependency) - fetched
+# once and cached here rather than committed to the repo (~25MB third-party
+# binary). Re-downloaded only if missing, so repeat local builds are fast.
+$VcRedistPath = "installer\vc_redist.x64.exe"
+if (!(Test-Path $VcRedistPath)) {
+    Write-Host "Downloading VC++ Redistributable (bundled so the installer doesn't need one)..." -ForegroundColor DarkGray
+    Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $VcRedistPath
+}
+
 # Version from the pushed git tag when one points at HEAD (CI release
 # builds), otherwise the .iss script's own "1.0.0" default (local dev
 # builds off a tag-less checkout). The common case (no exact tag) makes

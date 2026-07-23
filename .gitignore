@@ -62,3 +62,8 @@ CLAUDE_CODE_HANDOFF.md
 Godot_v*-stable_*.exe
 templates/
 templates*.zip
+
+# Official Microsoft VC++ Redistributable, bundled into the installer by
+# build_installer.ps1 (downloaded fresh from Microsoft's aka.ms permanent
+# link each build) - a ~25MB third-party binary, not project source.
+installer/vc_redist.x64.exe

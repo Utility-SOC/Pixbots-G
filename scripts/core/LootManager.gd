@@ -42,12 +42,27 @@ func _get_mythic_drop_rate() -> float:
 # processors (Amplifier/Splitter/Resonator/Catalyst/...). With no per-type
 # adjustment, that plumbing majority dominates what actually drops. This
 # multiplier applies on top of the normal rarity-based chance.
-const STRUCTURAL_TILE_TYPES = ["Core Reactor", "Accessory Return", "Torso Return", "Energy Intake",
+#
+# Follow-up (per the user): "links, intakes, returns, actuators, and
+# microcores need to drop less frequently at all tiers except mythic."
+# Two changes from the original pass: Energy Intake was already covered
+# but Actuator wasn't (a plain 1.0x tile until now) - added alongside the
+# other plumbing types. And Mythic tier is now EXEMPT from this multiplier
+# entirely (returns 1.0) - a Mythic-tier Link/Return/Intake/Actuator/
+# Microcore is a genuinely exciting drop worth keeping at full odds, unlike
+# the low-tier plumbing this reduction is really aimed at. Both
+# multipliers also cut further (0.2->0.12, 0.5->0.3) since the ask was
+# "less frequently," not just "mythic-exempt" - the microcore-more-common-
+# than-structural relationship the user asked to preserve the first time
+# stays intact (0.3 > 0.12, same ~2.5x ratio as before).
+const STRUCTURAL_TILE_TYPES = ["Core Reactor", "Accessory Return", "Torso Return", "Energy Intake", "Actuator",
 	"Left Arm Link", "Right Arm Link", "Left Leg Link", "Right Leg Link", "Head Link", "Backpack Link"]
-const STRUCTURAL_DROP_MULTIPLIER = 0.2
-const MICROCORE_DROP_MULTIPLIER = 0.5
+const STRUCTURAL_DROP_MULTIPLIER = 0.12
+const MICROCORE_DROP_MULTIPLIER = 0.3
 
-func _tile_type_drop_multiplier(tile_type: String) -> float:
+func _tile_type_drop_multiplier(tile_type: String, rarity: int = HexTile.Rarity.COMMON) -> float:
+	if rarity == HexTile.Rarity.MYTHIC:
+		return 1.0
 	if tile_type in STRUCTURAL_TILE_TYPES:
 		return STRUCTURAL_DROP_MULTIPLIER
 	if tile_type == "Microcore":
@@ -137,7 +152,7 @@ func generate_loot_for_mech(mech: Node):
 				_spawn_loot_drop(mech, tile)
 		else:
 			var chance = _get_mythic_drop_rate() if tile.rarity == HexTile.Rarity.MYTHIC else DROP_RATES.get(tile.rarity, 0.0)
-			chance *= _tile_type_drop_multiplier(tile.tile_type)
+			chance *= _tile_type_drop_multiplier(tile.tile_type, tile.rarity)
 			if randf() <= chance:
 				_spawn_loot_drop(mech, tile)
 
@@ -189,7 +204,7 @@ func generate_ghost_loot(mech: Node):
 		if dropped.has(tile):
 			continue
 		var chance = _get_mythic_drop_rate() if tile.rarity == HexTile.Rarity.MYTHIC else DROP_RATES.get(tile.rarity, 0.0)
-		chance *= _tile_type_drop_multiplier(tile.tile_type)
+		chance *= _tile_type_drop_multiplier(tile.tile_type, tile.rarity)
 		if randf() <= chance:
 			dropped[tile] = true
 			_spawn_loot_drop(mech, tile)

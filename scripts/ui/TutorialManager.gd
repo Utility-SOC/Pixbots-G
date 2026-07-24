@@ -171,6 +171,16 @@ func _build_ui():
 	style.content_margin_top = 12
 	style.content_margin_bottom = 10
 	panel.add_theme_stylebox_override("panel", style)
+	panel.custom_minimum_size = Vector2(640, 0)
+	# add_child BEFORE set_anchors_preset - a Control has no parent rect to
+	# anchor against while it's still orphaned, so computing the preset's
+	# offsets first freezes them against a phantom zero-size parent. Simply
+	# parenting it afterward doesn't retroactively fix them: real playtest
+	# report was the instruction panel never appearing at all (just the
+	# spotlight highlight) - panel.global_position was landing at literally
+	# panel.position with no anchor-fraction-of-parent-size contribution
+	# added, i.e. off past the top-left corner of the screen.
+	root.add_child(panel)
 	panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	# Vertical position is NOT set here with a fixed guess anymore - it used
 	# to be position -= Vector2(320, 110), which assumed a ~110px-tall panel.
@@ -179,8 +189,6 @@ func _build_ui():
 	# extra height overflowed past the visible screen instead of growing
 	# upward - see _reposition_panel(), called after every text change once
 	# the real post-layout size is known.
-	panel.custom_minimum_size = Vector2(640, 0)
-	root.add_child(panel)
 
 	var vbox = VBoxContainer.new()
 	panel.add_child(vbox)
@@ -404,23 +412,48 @@ func _update_guided_build():
 
 	var main = get_parent()
 	var garage = main.garage_ui
-	_show_spotlight_on_hex(garage.grid_renderer, guided_build_runner.current_hex())
+	var target_faces: Array = []
+	if guided_build_runner.sub_phase == "orientation":
+		var cur_step = guided_build_runner._current_step()
+		if cur_step and cur_step.target_active_faces.size() > 0:
+			target_faces = cur_step.target_active_faces
+		elif cur_step and cur_step.target_rotation_steps >= 0:
+			# Reflector (rotation_steps, not active_faces) - playtest report:
+			# "it isn't clear the direction it wants it pointing" for this
+			# tile specifically, since it doesn't use active_faces at all.
+			# Same fixed-preview convention GarageGridRenderer's own generic
+			# icon fallback already uses to draw a Reflector's CURRENT
+			# exit line (default_travel_dir=3 -> entry_face=0), so the
+			# target marker lines up with the exact same visual language
+			# the tile's own icon is already drawn in - "rotate until your
+			# icon's line points here."
+			target_faces = [(3 + cur_step.target_rotation_steps) % 6]
+	_show_spotlight_on_hex(garage.grid_renderer, guided_build_runner.current_hex(), target_faces)
 
 # The panel's height varies with how many lines the current step's text
 # wraps to (1 line for short steps, 3+ for grid_intro/done) - it needs a
 # real post-layout size to position correctly, which isn't available until
-# a frame after the text/VBoxContainer actually resize. Both of panel's
-# anchors are pinned to the bottom edge (PRESET_CENTER_BOTTOM), so position
-# here is plain local offset from that anchor point, not "the panel's rect" -
-# this keeps the panel's bottom edge a fixed margin above the screen bottom
-# no matter how tall it grows, instead of the old hardcoded -110 guess that
-# only fit a single line of text and let anything taller run off-screen.
+# a frame after the text/VBoxContainer actually resize.
+#
+# Playtest report: the panel/text never appeared at all for grid_intro -
+# just the spotlight highlight, no explanation. Root cause: set_anchors_
+# preset()'s default keep_offsets=true changes the anchor FRACTIONS but
+# does not move the control - panel.position stayed (0,0) (root's
+# top-left) the whole time. .position is plain parent-local coordinates
+# with NO automatic anchor-fraction contribution when set directly (that
+# assumption in the old comment here - "plain local offset from the
+# anchor point" - was simply wrong), so the old formula below was missing
+# the anchor's own contribution entirely (root.size.x*0.5, root.size.y*1.0)
+# and landed hundreds of pixels up and to the left of the screen -
+# invisible off past the top-left corner. Compute the real target
+# position directly against root's known size instead of trusting the
+# anchor system to contribute it via a bare position= assignment.
 const PANEL_BOTTOM_MARGIN = 20.0
 func _reposition_panel():
 	await get_tree().process_frame
 	if not is_instance_valid(panel):
 		return
-	panel.position = Vector2(-panel.size.x / 2.0, -panel.size.y - PANEL_BOTTOM_MARGIN)
+	panel.position = Vector2(root.size.x / 2.0 - panel.size.x / 2.0, root.size.y - panel.size.y - PANEL_BOTTOM_MARGIN)
 
 # Steps flagged "requires_garage" (grid_intro/place_any_tile/simulate - all
 # three teach Garage-only UI) used to just passively wait for their anchor
@@ -572,14 +605,34 @@ func _show_spotlight_on(anchor: Control):
 # hex the player needs to act on next. _hex_to_pixel already folds in the
 # renderer's current pan/zoom (see that function's own comment), so this
 # only needs to add the renderer's own screen-space origin on top.
-func _show_spotlight_on_hex(grid_renderer: Control, hex: HexCoord):
+#
+# target_faces (direction indices 0-5, same convention GarageGridRenderer.
+# _draw_descriptive_icon uses: angle = i * 60 degrees) draws an EXTERNAL
+# arrow marker pointing at each one - playtest report: the instruction text
+# promises "match the highlighted direction(s)" but nothing ever actually
+# highlighted a direction, only the hex itself. Only meaningful during a
+# guided_build "orientation" sub-step; empty otherwise.
+func _show_spotlight_on_hex(grid_renderer: Control, hex: HexCoord, target_faces: Array = []):
 	var local_pos: Vector2 = grid_renderer._hex_to_pixel(hex)
 	var global_pos: Vector2 = grid_renderer.get_global_transform() * local_pos
 	var half_size: float = grid_renderer.hex_size * grid_renderer.zoom
 	var target_rect = Rect2(global_pos - Vector2(half_size, half_size), Vector2(half_size, half_size) * 2.0)
 	_show_spotlight_on_rect(target_rect)
+	highlight_border.set_meta("_hex_center", global_pos)
+	highlight_border.set_meta("_hex_half_size", half_size)
+	highlight_border.set_meta("_target_faces", target_faces)
+	highlight_border.queue_redraw()
 
 func _show_spotlight_on_rect(target_rect: Rect2):
+	# Direction markers only apply to a hex spotlight - clear them by
+	# default so a later non-hex step (or a hex step with no target faces)
+	# doesn't keep drawing a stale arrow from whatever the previous hex
+	# step wanted. _show_spotlight_on_hex re-sets these AFTER this call
+	# when it actually has faces to show.
+	highlight_border.remove_meta("_hex_center")
+	highlight_border.remove_meta("_hex_half_size")
+	highlight_border.remove_meta("_target_faces")
+
 	var full_rect = get_viewport().get_visible_rect()
 	dim_full.visible = false
 
@@ -603,8 +656,37 @@ func _show_spotlight_on_rect(target_rect: Rect2):
 	highlight_border.set_meta("_target_rect", target_rect)
 	highlight_border.queue_redraw()
 
+const COL_DIRECTION = Color(0.35, 1.0, 0.45) # bright green - distinct from
+# COL_HIGHLIGHT's amber (the spotlight border AND every tile's own
+# procedural icon already use amber/orange) so the direction markers below
+# read as "an instruction pointing at this edge," not more tile art.
+
 func _draw_highlight_border():
 	if not highlight_border.has_meta("_target_rect"):
 		return
 	var r: Rect2 = highlight_border.get_meta("_target_rect")
 	highlight_border.draw_rect(r, COL_HIGHLIGHT, false, 3.0)
+
+	var target_faces: Array = highlight_border.get_meta("_target_faces", [])
+	if target_faces.is_empty():
+		return
+	var center: Vector2 = highlight_border.get_meta("_hex_center")
+	var half_size: float = highlight_border.get_meta("_hex_half_size")
+	for face in target_faces:
+		var angle = deg_to_rad(60.0 * float(face))
+		var dir = Vector2(cos(angle), sin(angle))
+		# Drawn OUTSIDE the hex (0.95x-1.5x radius), not overlapping the
+		# tile's own icon at the hex's center - a separate arrow pointing
+		# in at the edge, not more clutter inside the tile.
+		var inner = center + dir * half_size * 0.95
+		var outer = center + dir * half_size * 1.5
+		highlight_border.draw_line(inner, outer, COL_DIRECTION, 4.0, true)
+		# Arrowhead pointing back toward the hex (the direction to route
+		# TOWARD), a small filled triangle at the inner end.
+		var perp = Vector2(-dir.y, dir.x)
+		var tip = inner
+		var back = inner + dir * half_size * 0.28
+		highlight_border.draw_colored_polygon(
+			PackedVector2Array([tip, back + perp * half_size * 0.14, back - perp * half_size * 0.14]),
+			COL_DIRECTION
+		)

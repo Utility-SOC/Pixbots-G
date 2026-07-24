@@ -124,8 +124,20 @@ func _setup_fixed_sinks():
 	pass
 
 func generate_shape():
-	valid_hexes.clear()
-	_valid_hex_set.clear()
+	if ClassDB.class_exists("ProceduralShapeGen"):
+		var gen = ClassDB.instantiate("ProceduralShapeGen")
+		var result = gen.generate_shape(slot_type, rarity, role_variant, grid_width, grid_height)
+		valid_hexes.clear()
+		_valid_hex_set.clear()
+		for d in result:
+			var h = HexCoord.new(d.get("q"), d.get("r"))
+			valid_hexes.append(h)
+		_rebuild_valid_hex_set()
+		return
+	
+	_generate_shape_fallback()
+
+func _generate_shape_fallback():
 
 	# Hex budget by rarity, with a sixth "beyond Mythic" entry because
 	# TORSOS read one tier above their printed rarity (design ruling: a
@@ -268,8 +280,24 @@ func generate_shape():
 	_rebuild_valid_hex_set()
 
 func generate_procedural_shape():
-	valid_hexes.clear()
-	_valid_hex_set.clear()
+	var seed_val = randi()
+	_generate_procedural_shape_with_seed(seed_val)
+
+func _generate_procedural_shape_with_seed(seed_val: int):
+	if ClassDB.class_exists("ProceduralShapeGen"):
+		var gen = ClassDB.instantiate("ProceduralShapeGen")
+		var result = gen.generate_procedural_shape(slot_type, rarity, role_variant, seed_val)
+		valid_hexes.clear()
+		_valid_hex_set.clear()
+		for d in result:
+			var h = HexCoord.new(d.get("q"), d.get("r"))
+			valid_hexes.append(h)
+		_rebuild_valid_hex_set()
+		return
+	
+	_generate_procedural_shape_fallback(seed_val)
+
+func _generate_procedural_shape_fallback(seed_val: int):
 	# Same budget ladder + torso bonus as generate_shape() - procedural
 	# (enemy/boss/salvage/Black Market) parts follow the same rules, and
 	# Mythic now gets a real 72 instead of Legendary's hand-me-down 48.
@@ -284,7 +312,7 @@ func generate_procedural_shape():
 	_valid_hex_set[_hex_key(start.q, start.r)] = true
 
 	var rng = RandomNumberGenerator.new()
-	rng.randomize()
+	rng.seed = seed_val
 
 	var role = role_variant
 	if role == "":

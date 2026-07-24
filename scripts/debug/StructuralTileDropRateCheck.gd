@@ -40,6 +40,9 @@ func _ready():
 		_check("%s gets the structural multiplier" % link_name,
 			lm._tile_type_drop_multiplier(link_name) == LootManagerScript.STRUCTURAL_DROP_MULTIPLIER)
 
+	_check("Actuator gets the structural multiplier (follow-up: was previously unreduced)",
+		lm._tile_type_drop_multiplier("Actuator") == LootManagerScript.STRUCTURAL_DROP_MULTIPLIER)
+
 	_check("Microcore gets its own reduced multiplier, distinct from the structural group",
 		lm._tile_type_drop_multiplier("Microcore") == LootManagerScript.MICROCORE_DROP_MULTIPLIER)
 	_check("Microcore's multiplier is higher (more common) than the structural group's",
@@ -49,6 +52,22 @@ func _ready():
 		lm._tile_type_drop_multiplier("Amplifier") == 1.0)
 	_check("Splitter (a real configurable tool, not mandatory plumbing) is unaffected",
 		lm._tile_type_drop_multiplier("Splitter") == 1.0)
+
+	# Follow-up (per the user): "...need to drop less frequently at all
+	# tiers except mythic" - a Mythic-rarity structural/microcore tile
+	# should NOT be reduced, unlike every lower rarity.
+	_check("a MYTHIC Core Reactor is exempt from the structural reduction (full 1.0x)",
+		lm._tile_type_drop_multiplier("Core Reactor", HexTile.Rarity.MYTHIC) == 1.0)
+	_check("a MYTHIC Left Arm Link is exempt from the structural reduction",
+		lm._tile_type_drop_multiplier("Left Arm Link", HexTile.Rarity.MYTHIC) == 1.0)
+	_check("a MYTHIC Actuator is exempt from the structural reduction",
+		lm._tile_type_drop_multiplier("Actuator", HexTile.Rarity.MYTHIC) == 1.0)
+	_check("a MYTHIC Microcore is exempt from its reduction",
+		lm._tile_type_drop_multiplier("Microcore", HexTile.Rarity.MYTHIC) == 1.0)
+	_check("a COMMON Core Reactor is still reduced (mythic exemption doesn't leak to other tiers)",
+		lm._tile_type_drop_multiplier("Core Reactor", HexTile.Rarity.COMMON) == LootManagerScript.STRUCTURAL_DROP_MULTIPLIER)
+	_check("a LEGENDARY Microcore is still reduced (mythic exemption doesn't leak to other tiers)",
+		lm._tile_type_drop_multiplier("Microcore", HexTile.Rarity.LEGENDARY) == LootManagerScript.MICROCORE_DROP_MULTIPLIER)
 
 	if failures == 0:
 		print("PASS: structural/plumbing tiles and Microcores drop less often than genuine processing tiles")

@@ -1,14 +1,14 @@
 {
-	"_comment": "Tutorial step 'welcome' as a cinematic (task: 'Frank cinematics should be used for most of the tutorial phases... this is a good place to start adding shop flavor'). Frank slides in sideways from behind the glass card case near the register, rather than the flat horizontal glide-from-offscreen every other scene uses - first thing the player ever sees, so it's the natural place to establish the shop's physical space.",
-	"background": { "color": "#0d0e14" },
+	"_comment": "Tutorial step 'welcome' as a cinematic (task: 'Frank cinematics should be used for most of the tutorial phases... this is a good place to start adding shop flavor'). Frank slides in sideways from behind the glass card case near the register, rather than the flat horizontal glide-from-offscreen every other scene uses - first thing the player ever sees, so it's the natural place to establish the shop's physical space. Register's y is deliberately NOT the same as case's - the register sits ON the counter (its own base has no table/legs, see CutscenePlayer._make_register_texture), so its center is offset upward by half the counter's on-screen height plus half the register's own, against a ~648px reference viewport height (CutscenePlayer._viewport_size()'s own fallback default): case scale 2 * 30px tex = 60px tall (half=30px=0.046 of 648) register scale 2 * 20px tex = 40px tall (half=20px=0.031) -> register.y = case.y - 0.046 - 0.031.",
+	"background": { "scene": "shop" },
 	"actors": {
-		"register": { "kind": "prop", "placeholder_color": "#8a8a90", "scale": 3 },
-		"case": { "kind": "prop", "placeholder_color": "#5f7a8a", "scale": 3 },
+		"register": { "kind": "prop", "prop_type": "register", "placeholder_color": "#8a8a90", "scale": 2 },
+		"case": { "kind": "prop", "prop_type": "case", "placeholder_color": "#5f7a8a", "scale": 2 },
 		"frank": { "placeholder_color": "#4d8bd4", "scale": 5 }
 	},
 	"steps": [
-		{ "cmd": "enter", "actor": "register", "from": [0.86, 0.66], "to": [0.86, 0.66], "duration": 0.01 },
-		{ "cmd": "enter", "actor": "case", "from": [0.68, 0.68], "to": [0.68, 0.68], "duration": 0.01 },
+		{ "cmd": "enter", "actor": "case", "from": [0.58, 0.64], "to": [0.58, 0.64], "duration": 0.01 },
+		{ "cmd": "enter", "actor": "register", "from": [0.66, 0.563], "to": [0.66, 0.563], "duration": 0.01 },
 		{ "cmd": "enter", "actor": "frank", "from": [0.68, 0.82], "to": [0.34, 0.6], "duration": 1.4 },
 		{ "cmd": "say", "actor": "frank", "name": "Frank", "text": "Hey! You made it. I'm Frank - I run this place.", "auto": 2.6 },
 		{ "cmd": "say", "actor": "frank", "name": "Frank", "text": "That the birthday PixBot? Solid starter frame.", "auto": 2.4 },

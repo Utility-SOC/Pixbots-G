@@ -17,6 +17,10 @@ func _check(label: String, cond: bool):
 		failures += 1
 
 func _ready():
+	# Headless default viewport is tiny (64x64) - the drag-clamp test below
+	# needs a realistic size, otherwise a small drag delta gets clamped
+	# against the tiny viewport and looks like a bug that isn't one.
+	get_tree().root.size = Vector2i(1920, 1080)
 	var counter = get_tree().root.get_node_or_null("FpsCounter")
 	_check("FpsCounter autoload is present in the tree", counter != null)
 	if not counter:
@@ -61,6 +65,55 @@ func _ready():
 	await get_tree().process_frame
 	_check("no label updates while hidden (early-out in _process)", counter.label.text == text_before)
 	counter.visible = true # restore for the rest of the real session
+
+	# --- Drag-to-move (playtest report: fixed top-left position overlapped
+	# the Garage's component tab row) ---
+	var start_pos = counter.panel.position
+	var mouse_within_panel = counter.panel.get_global_rect().position + Vector2(10, 5)
+	var down = InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	down.position = mouse_within_panel
+	counter._unhandled_input(down)
+	_check("mouse-down inside the panel starts a drag", counter._dragging)
+
+	var motion = InputEventMouseMotion.new()
+	motion.position = mouse_within_panel + Vector2(150, 80)
+	counter._unhandled_input(motion)
+	_check("dragging actually moves the panel", counter.panel.position != start_pos)
+	_check("panel moved by roughly the mouse delta (150, 80)",
+		(counter.panel.position - start_pos).distance_to(Vector2(150, 80)) < 1.0)
+
+	var up = InputEventMouseButton.new()
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.pressed = false
+	up.position = motion.position
+	counter._unhandled_input(up)
+	_check("mouse-up ends the drag", not counter._dragging)
+
+	# Off-screen clamp: drag far past the viewport edge, position should
+	# clamp back to visible bounds instead of vanishing off-screen forever.
+	counter._unhandled_input(down) # start a fresh drag from the same spot
+	var far_motion = InputEventMouseMotion.new()
+	far_motion.position = Vector2(-5000, -5000)
+	counter._unhandled_input(far_motion)
+	var vp_size = counter.get_viewport().get_visible_rect().size
+	_check("dragging past the viewport edge clamps in bounds, doesn't vanish off-screen",
+		counter.panel.position.x >= 0.0 and counter.panel.position.y >= 0.0)
+	counter._unhandled_input(up)
+
+	# --- Position persistence: round-trip against a SCRATCH file, never
+	# the real SaveManager.SETTINGS_PATH (user:// is the real save dir). ---
+	var scratch_path = "C:/Users/Utility/AppData/Local/Temp/claude/fps_overlay_test_scratch.cfg"
+	if FileAccess.file_exists(scratch_path):
+		DirAccess.remove_absolute(scratch_path)
+	counter.panel.position = Vector2(321, 654)
+	counter._save_position(scratch_path)
+	_check("position round-trips through save/load", counter._load_position(scratch_path) == Vector2(321, 654))
+	_check("a missing/fresh settings file falls back to DEFAULT_POSITION",
+		counter._load_position("C:/Users/Utility/AppData/Local/Temp/claude/does_not_exist.cfg") == counter.DEFAULT_POSITION)
+	if FileAccess.file_exists(scratch_path):
+		DirAccess.remove_absolute(scratch_path)
 
 	if failures == 0:
 		print("PASS: FpsCounter autoload shows live FPS/frame-time on every screen, toggleable with F3")

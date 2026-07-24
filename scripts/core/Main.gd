@@ -26,6 +26,22 @@ var campaign_data: Dictionary = {}
 var active_enemies: int = 0
 var garage_timer: float = 90.0
 
+# Per-run map rotation (design ruling, see _setup_environment) - Tabletop is
+# weighted double since it's the game's eventual identity.
+const MAP_ROTATION_TYPES = ["Tabletop", "Tabletop", "Normal", "Open Field", "Forest", "Desert", "Tundra", "Volcano", "Dungeon", "Water", "FightShovel"]
+
+# Per the user: "in campaign mode, the map should change every ten waves, or
+# every 3 minutes, whichever is faster. (I'd like to be able to tune that
+# later because I don't know how 3m actually feels)" - two independent
+# triggers, whichever fires first regenerates the terrain (see
+# _should_rotate_map/_rotate_campaign_map). Kept as plain top-of-file
+# constants rather than buried in a config resource - the whole point was
+# "so I can tune it," and this is the fastest place to find and change them.
+const MAP_ROTATION_MAX_WAVES = 10
+const MAP_ROTATION_MAX_SECONDS = 180.0
+var _map_rotation_wave_start: int = 1
+var _map_rotation_elapsed: float = 0.0
+
 var map: MapGenerator
 var garage_ui: CanvasLayer
 var player: Mech
@@ -111,6 +127,10 @@ func _ready():
 	_load_campaign()
 	_setup_environment()
 	_setup_player()
+	# _setup_player() may have just overwritten current_wave from a loaded
+	# save - anchor the map-rotation wave counter to wherever the run
+	# actually starts, not always wave 1.
+	_map_rotation_wave_start = current_wave
 
 	_setup_hud()
 
@@ -357,6 +377,9 @@ func _update_hud():
 
 
 func _process(delta: float):
+	if SaveManager.current_game_mode == "campaign":
+		_map_rotation_elapsed += delta
+
 	if garage_timer > 0:
 		garage_timer -= delta
 		_update_hud()
@@ -482,13 +505,30 @@ func _load_campaign():
 
 func _setup_environment():
 	map = MapGenerator.new()
-	# Per-run map rotation (design ruling). Tabletop is weighted double -
-	# it's the game's eventual identity; long-term every biome here becomes
-	# a themed tabletop mat (grass mat, tundra mat...) rather than "terrain".
-	var map_rotation = ["Tabletop", "Tabletop", "Normal", "Open Field", "Forest", "Desert", "Tundra", "Volcano", "Dungeon", "Water", "FightShovel"]
-	map.map_type = map_rotation[randi() % map_rotation.size()]
+	# Long-term every biome here becomes a themed tabletop mat (grass mat,
+	# tundra mat...) rather than "terrain".
+	var pool = _water_eligible_map_types()
+	map.map_type = pool[randi() % pool.size()]
 	map.name = "GameMap"
 	world.add_child(map)
+
+# Per the user: "the water map should be pushed later since default player
+# builds don't include jumpjets yet (and jumpjets should be provided to the
+# player prior to a water level)" - a mech with no jumpjets equipped drowns
+# on contact with water (Mech._check_drowning/_has_jumpjets), and nothing in
+# the starter inventory/auto-equip/demo-build path guarantees a Jumpjet tile
+# actually ends up EQUIPPED (as opposed to just sitting unplaced in
+# inventory) by the time a Water map could be rolled. Excludes "Water" from
+# the pool unless `player` exists AND its live _has_jumpjets() check passes
+# - reuses the mech's own real drowning-check logic rather than duplicating
+# it. `player` is still null when this is called from _setup_environment()
+# (which runs before _setup_player() in _ready()), so the very first map of
+# any run naturally falls through to "no Water" too - exactly the "pushed
+# later" the user asked for, with no separate first-map special case needed.
+func _water_eligible_map_types() -> Array:
+	if player and player.has_method("_has_jumpjets") and player._has_jumpjets():
+		return MAP_ROTATION_TYPES
+	return MAP_ROTATION_TYPES.filter(func(t): return t != "Water")
 
 func _setup_player():
 	player = Mech.new()
@@ -1518,6 +1558,8 @@ func _on_wave_cleared():
 	current_wave += 1
 	if current_wave > SaveManager.max_wave_reached:
 		SaveManager.max_wave_reached = current_wave
+	if _should_rotate_map():
+		_rotate_campaign_map()
 	# Pixel-art cutscene beat, if the manifest maps one to the upcoming
 	# wave (config/cutscenes/manifest.json). Plays once per session,
 	# pauses the tree itself, and hands off to the normal intermission
@@ -1528,6 +1570,55 @@ func _on_wave_cleared():
 		add_child(cutscene)
 	else:
 		_start_intermission()
+
+func _should_rotate_map() -> bool:
+	if SaveManager.current_game_mode != "campaign":
+		return false
+	if current_wave - _map_rotation_wave_start >= MAP_ROTATION_MAX_WAVES:
+		return true
+	return _map_rotation_elapsed >= MAP_ROTATION_MAX_SECONDS
+
+# Regenerates the battlefield terrain (see MAP_ROTATION_MAX_WAVES/
+# MAP_ROTATION_MAX_SECONDS above). Only ever called from _on_wave_cleared,
+# a safe checkpoint with zero active enemies - this tears down and rebuilds
+# the whole map, so anything tied to the old layout has to go with it.
+#
+# Live Mechs (player, drones) don't need to be manually repointed at the
+# new map: Mech._get_map_ref() already self-heals onto whatever node is
+# currently in the "map_generator" group the instant its cached reference
+# goes stale, which happens automatically the moment the old map is freed
+# below (see Mech.gd:60-64). Existing enemies and dropped loot have no such
+# self-heal (their AI/pickup state is meaningless on a different layout
+# anyway), so those get cleared instead - same pattern _on_player_died()
+# already uses for its own "clear the field" cleanup.
+func _rotate_campaign_map():
+	for loot in get_tree().get_nodes_in_group("loot"):
+		if is_instance_valid(loot):
+			loot.queue_free()
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		if is_instance_valid(enemy):
+			enemy.queue_free()
+	active_enemies = 0
+
+	var old_type = map.map_type if is_instance_valid(map) else ""
+	if is_instance_valid(map):
+		map.queue_free()
+
+	map = MapGenerator.new()
+	# Avoid immediately re-rolling the same biome the player is leaving, and
+	# keep Water gated on the player's live jumpjet state (see
+	# _water_eligible_map_types above).
+	var pool = _water_eligible_map_types()
+	var choices = pool.filter(func(t): return t != old_type)
+	map.map_type = choices[randi() % choices.size()] if not choices.is_empty() else pool[randi() % pool.size()]
+	map.name = "GameMap"
+	world.add_child(map)
+
+	if player:
+		player.global_position = map.get_valid_spawn_position(Vector2(map.width * map.tile_size / 2.0, map.height * map.tile_size / 2.0))
+
+	_map_rotation_wave_start = current_wave
+	_map_rotation_elapsed = 0.0
 
 func _open_garage():
 	# Idempotent: never stack a second Garage on top of an existing one.

@@ -4,6 +4,34 @@ extends Area2D
 var mech: Node2D
 var body_slot: int = -1
 
+# Projectile hit-broadphase (see scripts/core/ProjectileBroadphase.gd) - a
+# bounding-circle radius computed once from whichever shape a caller
+# attached (MechRenderer._attach_part_hitbox uses a CollisionPolygon2D per
+# body part; Drone.gd's single whole-body hitbox uses a CircleShape2D
+# instead), so this works for both without either caller needing to know
+# about broadphase_radius at all.
+var broadphase_radius: float = 0.0
+
+func _ready():
+	add_to_group("part_hitbox")
+	for c in get_children():
+		if c is CollisionPolygon2D and c.polygon.size() > 0:
+			var centroid = Vector2.ZERO
+			for pt in c.polygon:
+				centroid += pt
+			centroid /= c.polygon.size()
+			var max_dist = 0.0
+			for pt in c.polygon:
+				max_dist = max(max_dist, pt.distance_to(centroid))
+			broadphase_radius = max_dist
+			break
+		elif c is CollisionShape2D and c.shape:
+			if c.shape is CircleShape2D:
+				broadphase_radius = c.shape.radius
+			elif c.shape is RectangleShape2D:
+				broadphase_radius = c.shape.size.length() / 2.0
+			break
+
 func _physics_process(_delta: float):
 	if is_instance_valid(mech) and "collision_layer" in mech:
 		collision_layer = mech.collision_layer

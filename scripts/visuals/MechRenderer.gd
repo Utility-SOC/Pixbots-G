@@ -658,9 +658,43 @@ func _draw_conduit_glows(comp, part, rng, scale_mult):
 			glow_pts.append(offset + Vector2(cos(a), sin(a)) * 3.0 * scale_mult)
 		part.renderer.add_fill(glow_pts, glow_color)
 
+# Perf investigation (real playtest: 2 FPS hitch on enemy-wave spawn,
+# traced via scripts/debug/MechPhysicsCostDiagnostic.gd - see that file's
+# header for the full A/B methodology). Isolated cost: equipping ONE real
+# component onto a fresh Mech cost ~8.4ms, while MechPartRenderer.finish()
+# itself (the Rust-accelerated rasterizer) measured ~32us/call in isolation
+# - the actual cost is HERE, in the iterative Geometry2D.merge_polygons
+# union loop below, which fires 4x per mech (once per _draw_X part
+# function) and scales with valid_hexes.size() (up to O(n^2-3) merge
+# attempts per call, not O(n)).
+#
+# The result depends ONLY on comp.valid_hexes + scale_mult - it's the part's
+# outer SILHOUETTE from its hex layout, computed before any color/pattern
+# work happens (that's rng/visual_seed-driven, entirely separate, and stays
+# untouched by this cache). Many enemies in the same wave share an identical
+# component archetype (same slot/rarity/role -> same valid_hexes), so this
+# expensive union was being recomputed from scratch for every single mech
+# even when the answer was guaranteed identical to one already computed
+# moments earlier. Cached here, keyed by the hex layout's own content (not
+# an assumed "same rarity = same shape", since higher-rarity torsos can have
+# procedurally-varied shapes) - persists for the process lifetime, shared
+# across every MechRenderer instance.
+static var _component_polygon_cache: Dictionary = {}
+
+func _valid_hexes_cache_key(comp: Node, scale_mult: float) -> String:
+	var coords: Array = []
+	for h in comp.valid_hexes:
+		coords.append("%d,%d" % [h.q, h.r])
+	coords.sort()
+	return "%.4f|%s" % [scale_mult, "|".join(coords)]
+
 func _get_component_polygon(comp: Node, scale_mult: float) -> PackedVector2Array:
 	if not comp or not "valid_hexes" in comp or comp.valid_hexes.is_empty():
 		return PackedVector2Array()
+
+	var cache_key = _valid_hexes_cache_key(comp, scale_mult)
+	if _component_polygon_cache.has(cache_key):
+		return _component_polygon_cache[cache_key].duplicate()
 
 	var hex_size = 9.0 * scale_mult
 	var union: Array[PackedVector2Array] = []
@@ -702,8 +736,10 @@ func _get_component_polygon(comp: Node, scale_mult: float) -> PackedVector2Array
 		center /= pts.size()
 		for i in range(pts.size()):
 			pts[i] -= center
+		_component_polygon_cache[cache_key] = pts.duplicate()
 		return pts
 
+	_component_polygon_cache[cache_key] = PackedVector2Array()
 	return PackedVector2Array()
 
 # -----------------------------------------------------------------------------

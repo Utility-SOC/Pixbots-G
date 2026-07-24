@@ -57,6 +57,19 @@ const PERF_SAMPLE_INTERVAL = 1.0
 var _frame_times: Array[float] = []
 const SMOOTH_WINDOW = 20 # rolling average - raw per-frame jitter is noisy
 
+# Drag-to-move (playtest report: the overlay's fixed top-left spot overlaps
+# the Garage's component tab row - "Torso / L. Arm / R. Arm / ..." became
+# unreadable underneath it). F3 already toggled visibility (see
+# _unhandled_input below); this adds click-and-drag repositioning on top of
+# that, with the chosen position persisted across sessions the same way
+# SettingsMenu persists volume/controls - via SaveManager.SETTINGS_PATH.
+var panel: PanelContainer
+var _dragging: bool = false
+var _drag_start_mouse: Vector2 = Vector2.ZERO
+var _drag_start_panel_pos: Vector2 = Vector2.ZERO
+const SETTINGS_SECTION = "FpsOverlay"
+const DEFAULT_POSITION = Vector2(4, 95)
+
 func _ready():
 	layer = 999 # above everything - HUD (5), War Room (99), Debug Menu (100)
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -92,11 +105,14 @@ func _ready():
 	bg_style.content_margin_top = 4
 	bg_style.content_margin_bottom = 4
 
-	var panel = PanelContainer.new()
+	panel = PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	panel.position = Vector2(4, 95)
+	panel.position = _load_position()
 	panel.add_theme_stylebox_override("panel", bg_style)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# STOP, not IGNORE - needed to receive the mouse-down that starts a drag.
+	# Only this small overlay panel grabs input, not the whole screen, so
+	# gameplay clicks everywhere else are unaffected.
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(panel)
 
 	var box = VBoxContainer.new()
@@ -218,6 +234,26 @@ func _process(delta: float):
 		Projectile._perf_physics_usec = 0
 		perf_label2.text = "per sec: status_bars_draw %.0fms  projectile_physics %.0fms" % [status_bar_ms, proj_physics_ms]
 
+## path_override lets tests round-trip against a scratch file instead of
+## the real SaveManager.SETTINGS_PATH (user://settings.cfg) - never write
+## real user settings from an automated test.
+func _load_position(path_override: String = "") -> Vector2:
+	var settings_path = path_override if path_override != "" else SaveManager.SETTINGS_PATH
+	var config = ConfigFile.new()
+	if config.load(settings_path) != OK:
+		return DEFAULT_POSITION
+	var x = config.get_value(SETTINGS_SECTION, "x", DEFAULT_POSITION.x)
+	var y = config.get_value(SETTINGS_SECTION, "y", DEFAULT_POSITION.y)
+	return Vector2(x, y)
+
+func _save_position(path_override: String = ""):
+	var settings_path = path_override if path_override != "" else SaveManager.SETTINGS_PATH
+	var config = ConfigFile.new()
+	config.load(settings_path) # ok to fail (fresh file) - set_value below still works
+	config.set_value(SETTINGS_SECTION, "x", panel.position.x)
+	config.set_value(SETTINGS_SECTION, "y", panel.position.y)
+	config.save(settings_path)
+
 func _unhandled_input(event: InputEvent):
 	# F3: the common cross-game convention for a debug/perf overlay toggle.
 	# Deliberately a raw physical-keycode check, not a new InputMap action -
@@ -227,3 +263,31 @@ func _unhandled_input(event: InputEvent):
 		if event.physical_keycode == KEY_F3:
 			visible = not visible
 			get_viewport().set_input_as_handled()
+			return
+
+	# Click-and-drag to move (playtest report: fixed top-left position
+	# overlapped the Garage's component tab row). Position persists via
+	# SaveManager.SETTINGS_PATH the same way SettingsMenu persists other
+	# preferences, so a drag survives a restart.
+	if not visible:
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed and panel.get_global_rect().has_point(event.position):
+			_dragging = true
+			_drag_start_mouse = event.position
+			_drag_start_panel_pos = panel.position
+			get_viewport().set_input_as_handled()
+		elif not event.pressed and _dragging:
+			_dragging = false
+			_save_position()
+			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseMotion and _dragging:
+		var target = _drag_start_panel_pos + (event.position - _drag_start_mouse)
+		# Clamp so the panel can always be dragged back into view - can't get
+		# permanently lost off-screen the way the tutorial panel bug (same
+		# session) could silently do.
+		var vp_size = get_viewport().get_visible_rect().size
+		target.x = clamp(target.x, 0.0, max(0.0, vp_size.x - panel.size.x))
+		target.y = clamp(target.y, 0.0, max(0.0, vp_size.y - panel.size.y))
+		panel.position = target
+		get_viewport().set_input_as_handled()

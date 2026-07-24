@@ -1,6 +1,6 @@
 {
 	"_comment": "Sample scene demonstrating the framework: Frank uses a procedural placeholder sprite until assets/cutscenes/frank.png exists - drop the PNG in and set hframes/vframes/fps and it becomes a real flipbook, no other changes.",
-	"background": { "color": "#101018" },
+	"background": { "scene": "shop" },
 	"actors": {
 		"frank": {
 			"texture": "res://assets/cutscenes/frank.png",

@@ -719,6 +719,44 @@ func _update_obstacle_phasing():
 static var _perf_ai_tactics_usec: int = 0
 static var _perf_shoot_usec: int = 0
 static var _perf_move_usec: int = 0
+# Direct per-region instrumentation for the CHASE branch of
+# _execute_ai_tactics (see scripts/debug/MechPhysicsCostDiagnostic.gd) -
+# added because comparing whole-config deltas (with/without separation,
+# with/without shoot) came back noisy/contradictory at the ~10-20ms scale
+# involved. Wrapping each candidate region directly, in the SAME run,
+# removes cross-config noise entirely - this is a real measurement, not an
+# inference from subtraction.
+static var _perf_sight_usec: int = 0
+static var _perf_flow_field_usec: int = 0
+static var _perf_orbit_raycast_usec: int = 0
+static var _perf_separation_usec: int = 0
+# FpsCounter.gd reads-AND-RESETS _perf_ai_tactics_usec/_perf_shoot_usec/
+# _perf_move_usec once/sec for its own HUD (see FpsCounter.gd:226-228) -
+# since it's a real autoload, it's active even in a headless diagnostic and
+# races any longer-than-1s measurement window, silently zeroing those three
+# mid-run. This wraps the exact same _execute_ai_tactics() call site as
+# _perf_ai_tactics_usec, under a name nothing else knows about or resets,
+# so a diagnostic spanning more than a second gets one reliable total.
+static var _perf_diag_ai_tactics_usec: int = 0
+static var _perf_diag_shoot_usec: int = 0
+
+# Diagnostic-only bypass for move_and_slide() on the AI branches below (see
+# scripts/debug/MechPhysicsCostDiagnostic.gd) - isolates move_and_slide's own
+# PhysicsServer2D sweep/solve cost from everything else in this function.
+# Defaults false and is never touched by real gameplay code; only the
+# diagnostic sets it on its own throwaway test mechs.
+var _diag_skip_move_and_slide: bool = false
+# Diagnostic-only: skips the ENTIRE "far" (mosey) branch body below (flee
+# check, mosey movement, water-avoidance, move_and_slide) - a coarse binary
+# split to prove/disprove the cost lives somewhere in that branch at all,
+# before trying to isolate which specific line. Same real-gameplay-safe
+# convention as _diag_skip_move_and_slide above.
+var _diag_skip_far_branch_body: bool = false
+# Diagnostic-only: isolate the near/CHASE branch's throttled separation
+# query and its engagement-range _shoot() attempt independently (see
+# scripts/debug/MechPhysicsCostDiagnostic.gd's Config X follow-up).
+var _diag_skip_separation: bool = false
+var _diag_skip_shoot: bool = false
 
 func _physics_process(delta: float):
 	_own_time_alive += delta
@@ -795,7 +833,9 @@ func _physics_process(delta: float):
 			is_far = global_position.distance_squared_to(target.global_position) > 1400.0 * 1400.0
 
 		if is_far:
-			if is_boss:
+			if _diag_skip_far_branch_body:
+				pass # diagnostic: entire far-branch body (flee/mosey/water-avoid/move_and_slide) skipped
+			elif is_boss:
 				# Bosses keep full AI tactics even far - only ever one at a
 				# time, so the perf case for mosey (up to 80 far mechs
 				# paying for search/sight logic they don't need yet) doesn't
@@ -813,20 +853,29 @@ func _physics_process(delta: float):
 				_mosey_toward_target(delta)
 			# else: _update_flee_state already set velocity itself (FLEE/WILD)
 			# move_and_slide runs every frame so they slide properly
-			velocity += external_force
-			velocity = _avoid_water_in_velocity(velocity, delta)
-			var _t_move = Time.get_ticks_usec()
-			move_and_slide()
-			_perf_move_usec += Time.get_ticks_usec() - _t_move
+			if not _diag_skip_far_branch_body:
+				velocity += external_force
+				velocity = _avoid_water_in_velocity(velocity, delta)
+				var _t_move = Time.get_ticks_usec()
+				if _diag_skip_move_and_slide:
+					position += velocity * delta
+				else:
+					move_and_slide()
+				_perf_move_usec += Time.get_ticks_usec() - _t_move
 			# Skipped: _process_ramming(delta) and visual updates when far
 		else:
 			var _t_ai2 = Time.get_ticks_usec()
 			_execute_ai_tactics(delta)
-			_perf_ai_tactics_usec += Time.get_ticks_usec() - _t_ai2
+			var _ai2_elapsed = Time.get_ticks_usec() - _t_ai2
+			_perf_ai_tactics_usec += _ai2_elapsed
+			_perf_diag_ai_tactics_usec += _ai2_elapsed
 			velocity += external_force
 			velocity = _avoid_water_in_velocity(velocity, delta)
 			var _t_move2 = Time.get_ticks_usec()
-			move_and_slide()
+			if _diag_skip_move_and_slide:
+				position += velocity * delta
+			else:
+				move_and_slide()
 			_perf_move_usec += Time.get_ticks_usec() - _t_move2
 			_process_ramming(delta)
 			
@@ -2244,11 +2293,16 @@ func rejoin_from_wild():
 	is_fleeing = false
 	_has_gone_wild = false
 
+static var _perf_flee_check_usec: int = 0
+
 func _execute_ai_tactics(delta):
 	# Flee/wild states override everything below for regular wave enemies -
 	# checked BEFORE target re-acquisition, or a wild bot would immediately
 	# re-target the player it just escaped from.
-	if not is_boss and not is_player and _update_flee_state(delta):
+	var _t_flee = Time.get_ticks_usec()
+	var _fleeing = not is_boss and not is_player and _update_flee_state(delta)
+	_perf_flee_check_usec += Time.get_ticks_usec() - _t_flee
+	if _fleeing:
 		return
 
 	if not target:
@@ -2280,7 +2334,9 @@ func _execute_ai_tactics(delta):
 		# Sight/detection gate - bosses are exempt (see the block comment
 		# above _execute_search) and always fall straight through.
 		if not is_boss:
+			var _t_sight = Time.get_ticks_usec()
 			_update_player_sight(delta)
+			_perf_sight_usec += Time.get_ticks_usec() - _t_sight
 			if _ai_state_label:
 				_ai_state_label.text = "CHASE" if has_sight_of_player else "SEARCH"
 				_ai_state_label.modulate = Color(0.3, 1.0, 0.3) if has_sight_of_player else Color(1.0, 0.6, 0.2)
@@ -2324,9 +2380,11 @@ func _execute_ai_tactics(delta):
 		# point of the trait. Straight-line steering is the correct
 		# "ignore terrain that isn't actually an obstacle for me" behavior.
 		if not is_amphibious:
+			var _t_flow = Time.get_ticks_usec()
 			var map = _get_map_ref()
 			if map and map.has_method("get_flow_direction"):
 				path_dir = map.get_flow_direction(global_position, target.global_position)
+			_perf_flow_field_usec += Time.get_ticks_usec() - _t_flow
 
 		if dist > engagement_distance:
 			# Approach full speed
@@ -2335,11 +2393,13 @@ func _execute_ai_tactics(delta):
 			# Reached engagement distance, strafe/orbit at half speed
 			var tangent = Vector2(-dir.y, dir.x) * rotational_direction
 			# Raycast to prevent strafing into walls
+			var _t_orbit = Time.get_ticks_usec()
 			var space_state = get_world_2d().direct_space_state
 			var query = PhysicsRayQueryParameters2D.create(global_position, global_position + tangent * 50.0, 1)
 			if space_state.intersect_ray(query):
 				rotational_direction *= -1 # Reverse orbit
 				tangent = Vector2(-dir.y, dir.x) * rotational_direction
+			_perf_orbit_raycast_usec += Time.get_ticks_usec() - _t_orbit
 
 			velocity = tangent * current_move_speed * (speed_modifier * 0.5)
 
@@ -2347,17 +2407,21 @@ func _execute_ai_tactics(delta):
 		# Re-queried on its own throttle (not every tick - same perf pattern
 		# as the projectile homing/vortex throttling elsewhere) but blended
 		# into velocity every frame so it stays smooth rather than snapping.
-		if not is_boss:
+		if not is_boss and not _diag_skip_separation:
 			_separation_query_timer -= delta
 			if _separation_query_timer <= 0.0:
 				_separation_query_timer = SEPARATION_QUERY_INTERVAL
+				var _t_sep = Time.get_ticks_usec()
 				_cached_separation = _compute_separation()
+				_perf_separation_usec += Time.get_ticks_usec() - _t_sep
 			if _cached_separation != Vector2.ZERO:
 				velocity += _cached_separation * current_move_speed * SEPARATION_WEIGHT
 
 		# AI combat shooting (out of range = hold charge, same as the player)
-		if dist < engagement_distance + 150.0:
+		if dist < engagement_distance + 150.0 and not _diag_skip_shoot:
+			var _t_shoot_diag = Time.get_ticks_usec()
 			_shoot(target.global_position, true, true, delta)
+			_perf_diag_shoot_usec += Time.get_ticks_usec() - _t_shoot_diag
 
 # Cheap "push away from nearby same-side neighbors" query, throttled via
 # _separation_query_timer above rather than run every physics tick - a

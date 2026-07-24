@@ -30,9 +30,13 @@ var _base_color: Color = Color(0.42, 0.42, 0.46)
 var _weak_element: String = "EXPLOSION"
 var _weak_mult: float = 2.0
 
+# Projectile hit-broadphase (see scripts/core/ProjectileBroadphase.gd).
+var broadphase_radius: float = 0.0
+
 func _ready():
 	collision_layer = 32 # terrain-obstacle layer (jets fly over it - see Mech.OBSTACLE_LAYER)
 	collision_mask = 0
+	add_to_group("obstacle")
 
 	var stats = OBSTACLE_STATS.get(obstacle_name, OBSTACLE_STATS["Boulder"])
 	max_hp = stats[0]
@@ -51,6 +55,7 @@ func _ready():
 	rect.size = Vector2(16, 16)
 	shape.shape = rect
 	add_child(shape)
+	broadphase_radius = rect.size.length() / 2.0
 
 # Rough silhouette per type so these read as distinct terrain rather than
 # five identically-shaped grey boxes - the flat painted square they replace.

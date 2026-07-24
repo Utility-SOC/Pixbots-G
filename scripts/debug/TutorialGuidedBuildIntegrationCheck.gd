@@ -130,6 +130,7 @@ func _ready():
 	# --- Drive the plan to completion by actually performing each
 	# placement/orientation on the real torso, mirroring what the player
 	# would do by hand. ---
+	var checked_direction_markers = false
 	var safety = 0
 	while tm.guided_build_runner != null and not tm.guided_build_runner.is_done and safety < 20:
 		safety += 1
@@ -144,11 +145,27 @@ func _ready():
 				torso.hex_grid.add_tile(hex, new_tile)
 				tile = new_tile
 		if tm.guided_build_runner.sub_phase == "orientation" and tile:
+			# Playtest report: "the directions are not highlighted" - the
+			# instruction text promises "match the highlighted direction(s)"
+			# but nothing drew them. Check the STILL-UNSATISFIED state
+			# (before the test's own mutation below "solves" it) so this
+			# actually observes what a real stuck player would see.
+			if not checked_direction_markers and step.target_active_faces.size() > 0:
+				checked_direction_markers = true
+				tm._update_guided_build()
+				var shown_faces: Array = tm.highlight_border.get_meta("_target_faces", [])
+				_check("unsatisfied orientation step shows target direction markers matching the plan",
+					shown_faces == step.target_active_faces)
+				_check("direction markers are anchored to a real hex center/size",
+					tm.highlight_border.has_meta("_hex_center") and tm.highlight_border.has_meta("_hex_half_size"))
 			if step.target_active_faces.size() > 0 and "active_faces" in tile:
 				tile.active_faces.clear()
 				for f in step.target_active_faces:
 					tile.active_faces.append(f)
 		tm._update_guided_build()
+
+	_check("direction-marker check actually ran (plan had an orientation step with real target faces)",
+		checked_direction_markers)
 
 	_check("the guided-build plan actually completed (didn't get stuck)", tm.guided_build_runner == null or tm.guided_build_runner.is_done)
 	_check("completing the plan advanced the OUTER tutorial step_index past guided_build_torso_run",

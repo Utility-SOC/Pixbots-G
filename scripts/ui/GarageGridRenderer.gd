@@ -52,13 +52,25 @@ signal tile_clicked(tile)
 func _ready():
 	clip_contents = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	
+
+	# Playtest report: "reflector doesn't rotate with E" - real bug, not
+	# tutorial-specific. _gui_input()'s KEY_E branch below has always been
+	# unreachable: a plain Control defaults to focus_mode = FOCUS_NONE, and
+	# Godot only routes KEYBOARD events (unlike mouse events, which follow
+	# hover) to whichever Control currently HOLDS FOCUS - hovering a tile
+	# was never enough on its own. Claim focus whenever the mouse enters
+	# this grid so "hover a tile, press E" works the way the tooltip says
+	# it should, without requiring an unrelated prior click to happen to
+	# land focus here first.
+	focus_mode = Control.FOCUS_ALL
+	mouse_entered.connect(grab_focus)
+
 	# Create Tooltip
 	tooltip_label = Label.new()
 	tooltip_label.add_theme_stylebox_override("normal", _create_panel_style(Color(0.1, 0.1, 0.1, 0.9)))
 	tooltip_label.hide()
 	add_child(tooltip_label)
-	
+
 	resized.connect(func():
 		if camera_offset == Vector2.ZERO:
 			camera_offset = size / 2.0

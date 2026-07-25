@@ -7,16 +7,35 @@ Write-Host "========================================" -ForegroundColor Cyan
 # 1. Compile Dialogues
 Write-Host "`n--- 1. Compiling Dialogue & Monologues ---" -ForegroundColor Yellow
 python compile_dialogue.py
+if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] compile_dialogue.py failed" -ForegroundColor Red; exit 1 }
 python inject_monologues.py
+if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] inject_monologues.py failed" -ForegroundColor Red; exit 1 }
 
 # 2. Build Rust Extension
-Write-Host "`n--- 2. Building Rust GDExtension ---" -ForegroundColor Yellow
+Write-Host "`n--- 2. Building Rust GDExtension (Debug & Release) ---" -ForegroundColor Yellow
 if (Test-Path "rust_ext") {
     Push-Location rust_ext
+    Write-Host "Building release library..." -ForegroundColor DarkGray
     cargo build --release
+    if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] cargo build --release failed with code $LASTEXITCODE" -ForegroundColor Red; exit 1 }
+    Write-Host "Building debug library (required by Godot during editor cache warmup)..." -ForegroundColor DarkGray
+    cargo build
+    if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] cargo build (debug) failed with code $LASTEXITCODE" -ForegroundColor Red; exit 1 }
+    
+    # Ensure both DLLs exist for Windows export
+    if (!(Test-Path "target\release\rust_ext.dll")) {
+        Write-Host "[ERROR] Release DLL missing at target\release\rust_ext.dll!" -ForegroundColor Red
+        Get-ChildItem target -Recurse | Select-Object -ExpandProperty FullName
+        exit 1
+    }
+    if (!(Test-Path "target\debug\rust_ext.dll")) {
+        Write-Host "[ERROR] Debug DLL missing at target\debug\rust_ext.dll!" -ForegroundColor Red
+        exit 1
+    }
     Pop-Location
 } else {
-    Write-Host "[WARNING] rust_ext directory not found!" -ForegroundColor Red
+    Write-Host "[ERROR] rust_ext directory not found!" -ForegroundColor Red
+    exit 1
 }
 
 # 3. Export Godot Project

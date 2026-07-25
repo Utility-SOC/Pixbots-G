@@ -1373,6 +1373,10 @@ func _pull_nearby_items(delta: float):
 					pull_mult = 0.0
 				else:
 					pull_mult = 0.05 # Shooter is barely affected
+			else:
+				var prot = col.get("vortex_pull_protection_ratio")
+				if prot != null and float(prot) > 0.0:
+					pull_mult *= (1.0 - float(prot))
 
 		var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) * pull_mult * magnitude_pull_mult
 

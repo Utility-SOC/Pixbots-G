@@ -81,6 +81,8 @@ var time_since_last_hit: float = 0.0
 var shield_recharge_rate: float = 0.0
 var has_shield_generator: bool = false
 var is_vortex_immune: bool = false
+var vortex_pull_protection_ratio: float = 0.0
+var vortex_damage_reduction: float = 0.0
 
 var current_move_speed: float = 200.0
 var base_move_speed: float = 200.0
@@ -1427,6 +1429,8 @@ func _reset_grid_state():
 	max_shield_hp = 0.0 # Reset shield HP
 	has_shield_generator = false
 	is_vortex_immune = false
+	vortex_pull_protection_ratio = 0.0
+	vortex_damage_reduction = 0.0
 	shield_recharge_delay = 3.0
 	shield_recharge_rate = 0.0
 	base_move_speed = 150.0 # Reset base speed for Jumpjets to calculate
@@ -1747,6 +1751,9 @@ func _collect_weapon_mounts_and_tile_capabilities():
 
 			if tile.tile_type == "Anchor":
 				is_vortex_immune = true
+				if tile.rarity == HexTile.Rarity.MYTHIC:
+					vortex_pull_protection_ratio = max(vortex_pull_protection_ratio, 0.5)
+					vortex_damage_reduction = max(vortex_damage_reduction, 0.25)
 
 			if tile.tile_type == "Shield Generator" and tile.has_method("get_shield_energy"):
 				has_shield_generator = true
@@ -2599,6 +2606,9 @@ func _is_pierce_execution_exempt() -> bool:
 	return false
 
 func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false, source_label_override: String = ""):
+	if amount > 0 and element == "VORTEX" and vortex_damage_reduction > 0.0:
+		amount *= (1.0 - vortex_damage_reduction)
+
 	if elemental_resistances.has(element):
 		amount *= elemental_resistances[element]
 

@@ -209,7 +209,7 @@ impl ProceduralShapeGen {
         valid_hex_set.insert(start);
 
         let mut rng = godot::classes::RandomNumberGenerator::new_gd();
-        rng.set_seed(seed);
+        rng.set_seed(seed as u64);
 
         let mut role = role_variant.to_string();
         if role.is_empty() {
@@ -264,7 +264,7 @@ impl ProceduralShapeGen {
 
     fn pick_weighted_archetype(weights: &[(&'static str, f64)], rng: &mut Gd<godot::classes::RandomNumberGenerator>) -> String {
         let total: f64 = weights.iter().map(|(_, w)| w).sum();
-        let roll = rng.randf() * total;
+        let roll = (rng.randf() as f64) * total;
         let mut acc = 0.0;
         for (key, w) in weights {
             acc += w;
@@ -309,7 +309,7 @@ impl ProceduralShapeGen {
             }
             "hook" => {
                 let dir = (rng.randi() % 6) as usize;
-                let bend_at = std::cmp::max(1, (budget as f64 * rng.randf_range(0.3, 0.6)) as i32);
+                let bend_at = std::cmp::max(1, (budget as f64 * (rng.randf_range(0.3f32, 0.6f32) as f64)) as i32);
                 let mut cur = attach;
                 for _ in 0..bend_at {
                     cur = cur.neighbor(dir);
@@ -317,7 +317,7 @@ impl ProceduralShapeGen {
                         added += 1;
                     }
                 }
-                let turn = if rng.randf() < 0.5 { 1 } else { -1 };
+                let turn = if rng.randf() < 0.5f32 { 1 } else { -1 };
                 let new_dir = (((dir as i32) + turn + 6) % 6) as usize;
                 for _ in 0..(budget - bend_at) {
                     cur = cur.neighbor(new_dir);

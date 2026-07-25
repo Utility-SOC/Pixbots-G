@@ -1364,9 +1364,15 @@ func _pull_nearby_items(delta: float):
 		var pull_mult = 3.0 # Targets get pulled 300% as hard
 		if "is_player" in col:
 			if fired_by_player and col.is_player:
-				pull_mult = 0.05 # Shooter is barely affected
+				if col.get("is_vortex_immune"):
+					pull_mult = 0.0
+				else:
+					pull_mult = 0.05 # Shooter is barely affected
 			elif not fired_by_player and not col.is_player:
-				pull_mult = 0.05 # Shooter is barely affected
+				if col.get("is_vortex_immune"):
+					pull_mult = 0.0
+				else:
+					pull_mult = 0.05 # Shooter is barely affected
 
 		var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) * pull_mult * magnitude_pull_mult
 

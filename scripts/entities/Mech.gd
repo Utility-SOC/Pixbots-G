@@ -80,6 +80,7 @@ var shield_recharge_delay: float = 3.0
 var time_since_last_hit: float = 0.0
 var shield_recharge_rate: float = 0.0
 var has_shield_generator: bool = false
+var is_vortex_immune: bool = false
 
 var current_move_speed: float = 200.0
 var base_move_speed: float = 200.0
@@ -1425,6 +1426,7 @@ func _reset_grid_state():
 	lance_mounts.clear()
 	max_shield_hp = 0.0 # Reset shield HP
 	has_shield_generator = false
+	is_vortex_immune = false
 	shield_recharge_delay = 3.0
 	shield_recharge_rate = 0.0
 	base_move_speed = 150.0 # Reset base speed for Jumpjets to calculate
@@ -1742,6 +1744,9 @@ func _collect_weapon_mounts_and_tile_capabilities():
 
 			if tile.tile_type == "Shield Generator" and tile.rarity == HexTile.Rarity.MYTHIC:
 				shield_mythic_mode = int(tile.get("mythic_mode"))
+
+			if tile.tile_type == "Anchor":
+				is_vortex_immune = true
 
 			if tile.tile_type == "Shield Generator" and tile.has_method("get_shield_energy"):
 				has_shield_generator = true

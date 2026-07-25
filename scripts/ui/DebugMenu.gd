@@ -121,6 +121,14 @@ func _ready():
 	_btn(tab_inv, "Give GOD Inventory (50x All Legendary)", _on_give_god_inventory)
 	_btn(tab_inv, "Give MYTHIC Inventory (50x All Mythic)", func(): _on_give_god_inventory(true))
 	_btn(tab_inv, "Give Mythic Components (1 Set)", _on_give_mythic_components)
+	_btn(tab_inv, "Give 1,000,000 Scrap", func():
+		var main = get_tree().current_scene
+		if main and main.get("player_scrap") != null:
+			main.player_scrap += 1000000
+			if main.get("garage_ui") != null and main.garage_ui.get("scrap_label") != null:
+				main.garage_ui.scrap_label.text = "Scrap: " + str(main.player_scrap)
+			print("[Debug] Added 1,000,000 Scrap!")
+	)
 	_btn(tab_inv, "Give Lance Mount x5", func():
 		var main = get_tree().current_scene
 		if not main or main.get("player_inventory") == null:
@@ -452,6 +460,32 @@ func _on_restore_components():
 				main.garage_ui._refresh_component_ui()
 		print("[Debug] Restored 2 full sets of Legendary components!")
 
+func _on_give_mythic_components():
+	var main = get_tree().current_scene
+	if main and main.get("player") != null:
+		var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
+		var rarity = HexTile.Rarity.MYTHIC
+		
+		var comps = [
+			ScriptComponentEquipment.create_starter_torso("Mythic Torso", rarity),
+			ScriptComponentEquipment.create_starter_head("Mythic Head", rarity),
+			ScriptComponentEquipment.create_starter_arm(true, "Mythic Arm L", rarity),
+			ScriptComponentEquipment.create_starter_arm(false, "Mythic Arm R", rarity),
+			ScriptComponentEquipment.create_starter_leg(true, "Mythic Leg L", rarity),
+			ScriptComponentEquipment.create_starter_leg(false, "Mythic Leg R", rarity),
+			ScriptComponentEquipment.create_jetpack_backpack()
+		]
+		comps[6].rarity = rarity
+		
+		for c in comps:
+			if main.get("player_component_inventory") != null:
+				main.player_component_inventory.append(c)
+				
+		if main.get("garage_ui") != null:
+			if main.garage_ui.has_method("_refresh_component_ui"):
+				main.garage_ui._refresh_component_ui()
+		print("[Debug] Gave 1 full set of Mythic components!")
+
 func _on_give_god_inventory(is_mythic: bool = false):
 	var main = get_tree().current_scene
 
@@ -477,7 +511,13 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		"res://scripts/tiles/MicrocoreTile.gd",
 		"res://scripts/tiles/ResonatorTile.gd",
 		"res://scripts/tiles/ShieldTile.gd", # canonical Shield Generator (ShieldGeneratorTile is a deprecated shim)
-		"res://scripts/tiles/DroneBayTile.gd"
+		"res://scripts/tiles/DroneBayTile.gd",
+		"res://scripts/tiles/AnchorTile.gd",
+		"res://scripts/tiles/CloakTile.gd",
+		"res://scripts/tiles/HealBeaconTile.gd",
+		"res://scripts/tiles/JammerModuleTile.gd",
+		"res://scripts/tiles/MissileRackTile.gd",
+		"res://scripts/tiles/ReverseAccumulatorTile.gd"
 	]
 	
 	# Give 50 of each normal tile

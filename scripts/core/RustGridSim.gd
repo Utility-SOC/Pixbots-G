@@ -283,7 +283,7 @@ static func _describe_tile(tile) -> Dictionary:
 			extra.append(off.x)
 			extra.append(off.y)
 		d["extra_cells"] = extra
-	elif t == "Sensor Array" or t == "Missile Rack" or t == "Mobility Core":
+	elif t == "Sensor Array" or t == "Missile Rack" or t == "Mobility Core" or t == "Anchor":
 		d["kind"] = KIND_PASS # pure pass-through tiles
 	else:
 		return {} # anything else: unsupported, whole grid falls back

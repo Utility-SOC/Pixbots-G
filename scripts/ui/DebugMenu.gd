@@ -462,7 +462,7 @@ func _on_restore_components():
 
 func _on_give_mythic_components():
 	var main = get_tree().current_scene
-	if main and main.get("player") != null:
+	if main and main.get("player_component_inventory") != null:
 		var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
 		var rarity = HexTile.Rarity.MYTHIC
 		
@@ -476,15 +476,14 @@ func _on_give_mythic_components():
 			ScriptComponentEquipment.create_jetpack_backpack()
 		]
 		comps[6].rarity = rarity
+		comps[6].component_name = "Mythic Jetpack"
 		
 		for c in comps:
-			if main.get("player_component_inventory") != null:
-				main.player_component_inventory.append(c)
-				
-		if main.get("garage_ui") != null:
-			if main.garage_ui.has_method("_refresh_component_ui"):
-				main.garage_ui._refresh_component_ui()
-		print("[Debug] Gave 1 full set of Mythic components!")
+			main.player_component_inventory.append(c)
+			
+		if main.get("garage_ui") != null and main.garage_ui.has_method("_refresh_component_ui"):
+			main.garage_ui._refresh_component_ui()
+		print("[Debug] Added 1 full set of Mythic components to inventory!")
 
 func _on_give_god_inventory(is_mythic: bool = false):
 	var main = get_tree().current_scene
@@ -541,28 +540,3 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		if main.garage_ui.has_method("_refresh_inventory_ui"):
 			main.garage_ui._refresh_inventory_ui()
 	print("[Debug] Added GOD Inventory (50x All Legendary or Mythic)")
-
-func _on_give_mythic_components():
-	var main = get_tree().current_scene
-	if main and main.get("player_component_inventory") != null:
-		var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
-		var rarity = HexTile.Rarity.MYTHIC
-		
-		var comps = [
-			ScriptComponentEquipment.create_starter_torso("Mythic Torso", rarity),
-			ScriptComponentEquipment.create_starter_head("Mythic Head", rarity),
-			ScriptComponentEquipment.create_starter_arm(true, "Mythic Arm L", rarity),
-			ScriptComponentEquipment.create_starter_arm(false, "Mythic Arm R", rarity),
-			ScriptComponentEquipment.create_starter_leg(true, "Mythic Leg L", rarity),
-			ScriptComponentEquipment.create_starter_leg(false, "Mythic Leg R", rarity),
-			ScriptComponentEquipment.create_jetpack_backpack()
-		]
-		comps[6].rarity = rarity
-		comps[6].component_name = "Mythic Jetpack"
-		
-		for c in comps:
-			main.player_component_inventory.append(c)
-			
-		if main.get("garage_ui") != null and main.garage_ui.has_method("_refresh_component_ui"):
-			main.garage_ui._refresh_component_ui()
-		print("[Debug] Added 1 full set of Mythic components to inventory!")

@@ -393,12 +393,14 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 
 # Filler search order for path cells nothing better claimed (see the
 # not-placed_tile branch in solve()). Every entry either relays the packet
-# unchanged while granting a capability (Anchor/Sensor Array/Missile Rack/
-# Mobility Core - the KIND_PASS set RustGridSim routes as pure pass-through)
-# or is a genuine routing/boost tile. Deliberately NOT here: Weapon Mounts,
+# unchanged while granting a capability (Anchor/Sensor Array/Mobility Core -
+# the KIND_PASS set RustGridSim routes as pure pass-through) or is a genuine
+# routing/boost tile. Deliberately NOT here: Weapon Mounts, Missile Racks,
 # Heal Beacons, Shield Generators, Accumulators and other capture/convert
-# tiles - in-lining those breaks the chain they're placed into.
-const FILLER_TILE_PRIORITY = ["Anchor", "Sensor Array", "Missile Rack", "Mobility Core", "Directional Conduit", "Elemental Infuser", "Amplifier", "Catalyst", "Splitter"]
+# tiles - in-lining those breaks the chain they're placed into (a Missile
+# Rack used as filler would silently eat the packet instead of relaying it,
+# same failure class this whole filler rework exists to fix).
+const FILLER_TILE_PRIORITY = ["Anchor", "Sensor Array", "Mobility Core", "Directional Conduit", "Elemental Infuser", "Amplifier", "Catalyst", "Splitter"]
 
 # Points the Torso's (movable) Accessory Return at the routed network, so
 # the energy Head/Backpack send back re-enters the spanning tree instead of

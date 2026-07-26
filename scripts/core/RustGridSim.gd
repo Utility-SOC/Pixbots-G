@@ -147,7 +147,11 @@ static func _describe_tile(tile) -> Dictionary:
 			core_faces.append(f)
 		d["kind"] = KIND_CORE
 		d["faces"] = core_faces
-	elif t == "Weapon Mount":
+	elif t == "Weapon Mount" or t == "Missile Rack":
+		# Missile Rack is a genuine energy-capturing weapon (see
+		# MissileRackTile.process_energy) - it must never be classified as
+		# a pass-through, or its packets would fall straight through
+		# instead of banking into pending_packets like a real mount.
 		d["kind"] = KIND_MOUNT_SINK
 		# Sniper Mount is a Weapon Mount subclass (tile_type unchanged) that
 		# stamps range_mult onto the packet before the capture copy.
@@ -284,7 +288,7 @@ static func _describe_tile(tile) -> Dictionary:
 			extra.append(off.x)
 			extra.append(off.y)
 		d["extra_cells"] = extra
-	elif t == "Sensor Array" or t == "Missile Rack" or t == "Mobility Core" or t == "Anchor":
+	elif t == "Sensor Array" or t == "Mobility Core" or t == "Anchor":
 		d["kind"] = KIND_PASS # pure pass-through tiles
 	else:
 		return {} # anything else: unsupported, whole grid falls back

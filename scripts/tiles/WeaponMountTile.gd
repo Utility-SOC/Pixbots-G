@@ -8,7 +8,8 @@ extends HexTile
 # radial burst (8 shots, 50% each), 3 = concentrated beam (faster, piercing),
 # 4 = mortar (remote payload: lobbed shell delivering elemental AoE at the
 # aim point with travel time + ground telegraph - fourth-review ruling; the
-# dedicated MissileRackTile is stubbed for the full weapon-variety pass).
+# dedicated MissileRackTile.gd now covers the full always-indirect/salvo
+# weapon-variety pass at every rarity, not just this Mythic-only pattern).
 @export_enum("Normal", "Shotgun", "Radial Burst", "Beam", "Mortar") var mythic_pattern: int = 0
 
 func cycle_mythic_pattern():

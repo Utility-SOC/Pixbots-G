@@ -1616,7 +1616,7 @@ const RAPID_FIRE_CHARGE_MULT = 1.4
 func _collect_weapon_mounts_and_tile_capabilities():
 	for comp in components.values():
 		for tile in comp.hex_grid.get_all_tiles():
-			if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Accessory Return" or tile.tile_type == "Torso Return") and "pending_packets" in tile and tile.pending_packets.size() > 0:
+			if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Missile Rack" or tile.tile_type == "Accessory Return" or tile.tile_type == "Torso Return") and "pending_packets" in tile and tile.pending_packets.size() > 0:
 				# Accumulator split-fire model (the user's locked design):
 				# whenever accumulators feed this mount - routed THROUGH the
 				# circuit (packet.acc_*_mult) or sitting adjacent (bank) -
@@ -1635,7 +1635,7 @@ func _collect_weapon_mounts_and_tile_capabilities():
 				var bank_quality = 1.0
 				var bank_auto_dump = 0.0
 				var reverse_discount = 0.0
-				if tile.tile_type == "Weapon Mount" and tile.grid_position:
+				if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Missile Rack") and tile.grid_position:
 					var bank = _get_adjacent_accumulator_bonus(comp.hex_grid, tile.grid_position)
 					bank_charge = bank.charge
 					bank_amplify = bank.amplify

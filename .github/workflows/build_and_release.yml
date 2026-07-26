@@ -110,6 +110,20 @@ jobs:
         run: .\build_installer.ps1
         shell: pwsh
 
+      # Runs unconditionally (every trigger, not just tag pushes) - a
+      # manual workflow_dispatch run built the installer successfully but
+      # had no way to actually retrieve it (the step below only fires on
+      # a tag push), so a manual "build me an installer now" run silently
+      # discarded its own output. This is the download link for that case:
+      # grab it from the run's Summary page, host it wherever you like -
+      # no GitHub Release required.
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pixbots-Installer
+          path: Pixbots-Installer.exe
+          if-no-files-found: error
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')

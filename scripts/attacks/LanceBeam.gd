@@ -64,6 +64,28 @@ func _spawn_residue_chain():
 func _draw():
 	var local_start = to_local(start_pos)
 	var local_end = to_local(end_pos)
-	var color = EnergyPacket.get_color_blend(synergies) if not synergies.is_empty() else Color.WHITE
-	draw_line(local_start, local_end, Color(color.r, color.g, color.b, 0.9), 6.0)
-	draw_line(local_start, local_end, Color(1, 1, 1, 0.6), 2.0)
+	
+	# Determine base beam color: default to bright intense RED (Super Robot Wars style),
+	# or blend energy synergies if non-default synergies exist.
+	var color = Color(1.0, 0.15, 0.15) # Default Super Robot Wars Red
+	if not synergies.is_empty():
+		var blend = EnergyPacket.get_color_blend(synergies)
+		if blend != Color.WHITE:
+			color = blend
+
+	# Layer 1: Outer Plasma Aura (36px wide)
+	draw_line(local_start, local_end, Color(color.r, color.g, color.b, 0.25), 36.0)
+	# Layer 2: Outer Glow Halo (24px wide)
+	draw_line(local_start, local_end, Color(color.r, color.g, color.b, 0.6), 24.0)
+	# Layer 3: Main Energy Channel (14px wide)
+	draw_line(local_start, local_end, Color(min(color.r + 0.2, 1.0), min(color.g + 0.2, 1.0), min(color.b + 0.2, 1.0), 0.9), 14.0)
+	# Layer 4: Intense White Core (6px wide)
+	draw_line(local_start, local_end, Color(1.0, 1.0, 1.0, 0.95), 6.0)
+	# Layer 5: Ultra-bright Needle Core (2px wide)
+	draw_line(local_start, local_end, Color(1.0, 1.0, 1.0, 1.0), 2.0)
+
+	# Terminal Emitter Flares (start & end)
+	draw_circle(local_start, 22.0, Color(color.r, color.g, color.b, 0.7))
+	draw_circle(local_start, 10.0, Color(1.0, 1.0, 1.0, 0.95))
+	draw_circle(local_end, 18.0, Color(color.r, color.g, color.b, 0.5))
+	draw_circle(local_end, 8.0, Color(1.0, 1.0, 1.0, 0.9))

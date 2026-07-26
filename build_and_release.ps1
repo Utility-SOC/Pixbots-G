@@ -43,6 +43,4 @@ Write-Host "Release ZIP located at: $ZipPath" -ForegroundColor Green
 # ---------------------------------------------------------
 # OPTIONAL AUTO-UPLOAD (e.g., GitHub Releases using gh CLI)
 # ---------------------------------------------------------
-# If you want to automatically upload this to a GitHub release:
-# Write-Host "🚀 Uploading to GitHub Releases..." -ForegroundColor Cyan
-# gh release create $Version $ZipPath --title "Release $Version" --notes "Automated release build."
+# ---------------------------------------------------------

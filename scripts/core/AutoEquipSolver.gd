@@ -18,10 +18,18 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 		return inventory
 		
 	var grid = component.hex_grid
-	var targets = component.fixed_sinks
+	var targets = component.fixed_sinks.duplicate()
 	var start = HexCoord.new(0, 0)
 	
-	# 1. Clear the board of non-fixed/non-core tiles
+	# Identify secondary inbound source (Accessory Return on Torso)
+	var accessory_return_coord = null
+	for coord_v in grid.grid.keys():
+		var t = grid.grid[coord_v]
+		if t and t.tile_type == "Accessory Return":
+			accessory_return_coord = HexCoord.new(coord_v.x, coord_v.y)
+			break
+
+	# 1. Clear the board of non-fixed/non-core/non-accessory-return tiles
 	var current_tiles = grid.grid.keys()
 	for coord_v in current_tiles:
 		var h = HexCoord.new(coord_v.x, coord_v.y)
@@ -30,7 +38,8 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 			if t.q == h.q and t.r == h.r:
 				is_target = true
 				break
-		if not is_target and (h.q != start.q or h.r != start.r):
+		var is_source = (h.q == start.q and h.r == start.r) or (accessory_return_coord != null and h.q == accessory_return_coord.q and h.r == accessory_return_coord.r)
+		if not is_target and not is_source:
 			var tile = grid.remove_tile(h)
 			if tile:
 				inventory.append(tile)

@@ -144,6 +144,21 @@ func _ready():
 					main.garage_ui.inventory.append(tile)
 		print("[Debug] Gave 5x Mythic Lance Mount - drag one from the Garage inventory onto 3 in-line arm hexes to place it.")
 	)
+	_btn(tab_inv, "Give Orbiting Array x5", func():
+		var main = get_tree().current_scene
+		if not main or main.get("player_inventory") == null:
+			return
+		var script = load("res://scripts/tiles/OrbitingArrayTile.gd")
+		for i in range(5):
+			var tile = script.new()
+			tile.rarity = HexTile.Rarity.MYTHIC
+			main.player_inventory.append(tile)
+			TileDiscoveryPopup.announce_if_new(tile)
+			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
+				if main.garage_ui.inventory != main.player_inventory:
+					main.garage_ui.inventory.append(tile)
+		print("[Debug] Gave 5x Mythic Orbiting Array - drag onto 3 triangular hexes.")
+	)
 	# Mod Chips (Late-game progression prep, task #41): normally these only
 	# come from TileActionMenu.extract_modifier() sacrificing a spare
 	# Legendary+ component that already rolled a stat_modifiers entry via
@@ -516,7 +531,8 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		"res://scripts/tiles/HealBeaconTile.gd",
 		"res://scripts/tiles/JammerModuleTile.gd",
 		"res://scripts/tiles/MissileRackTile.gd",
-		"res://scripts/tiles/ReverseAccumulatorTile.gd"
+		"res://scripts/tiles/ReverseAccumulatorTile.gd",
+		"res://scripts/tiles/OrbitingArrayTile.gd"
 	]
 	
 	# Give 50 of each normal tile

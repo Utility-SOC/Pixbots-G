@@ -524,7 +524,7 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 		acc_pos = _first_free_hex(torso, [])
 	if acc_pos != null:
 		torso.hex_grid.add_tile(acc_pos, head_return_sink)
-		torso.fixed_sinks.append(acc_pos)
+		# Note: Accessory Return is an INBOUND power source, not an outbound fixed_sink.
 
 	if role != "":
 		var ai_mount = load("res://scripts/tiles/WeaponMountTile.gd").new()

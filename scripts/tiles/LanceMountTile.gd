@@ -32,6 +32,11 @@ var _face_magnitudes: Dictionary = {}
 # Highest-magnitude packet seen this pass - supplies the beam's damage/
 # element split when it fires.
 var _fed_packet: EnergyPacket = null
+# Snapshot of _fed_packet taken by check_face_gate() when the gate passes -
+# clear_pending() nulls _fed_packet at the end of the same recalc, long
+# before Mech._tick_weapon_charges actually calls fire(), so the payload has
+# to survive here or the beam fires with nothing.
+var _armed_packet: EnergyPacket = null
 
 var cooldown_timer: float = 0.0
 var ready_to_fire: bool = false
@@ -84,13 +89,14 @@ func check_face_gate():
 		if _face_magnitudes[k] >= face_threshold:
 			fed_faces += 1
 	ready_to_fire = fed_faces >= required_faces
+	_armed_packet = _fed_packet.copy() if (ready_to_fire and _fed_packet) else null
 
 # Fires the beam + spawns the lingering damage-residue field. Called from
 # Mech._tick_weapon_charges once ready_to_fire is true and cooldown_timer
 # has cleared. mech: the owning Mech (for muzzle position/direction/side).
 func fire(mech) -> void:
 	cooldown_timer = TileStatsRegistry.get_stat("LanceMountTile", "cooldown_time", 10.0)
-	if not _fed_packet or not mech:
+	if not _armed_packet or not mech:
 		return
 
 	var muzzle = get_muzzle_position(mech)
@@ -100,7 +106,7 @@ func fire(mech) -> void:
 		dir = Vector2(0, -1)
 	var end_pos = muzzle + dir * TileStatsRegistry.get_stat("LanceMountTile", "beam_range", 6000.0)
 
-	var damage = _fed_packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
+	var damage = _armed_packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
 	var by_player = mech.get("is_player") == true
 
 	var world = mech.get_parent()
@@ -109,5 +115,5 @@ func fire(mech) -> void:
 
 	var LanceBeamScript = load("res://scripts/attacks/LanceBeam.gd")
 	var beam = LanceBeamScript.new()
-	beam.setup(muzzle, end_pos, damage, _fed_packet.synergies.duplicate(), by_player, mech, TileStatsRegistry.get_stat("LanceMountTile", "residue_lifetime", 25.0))
+	beam.setup(muzzle, end_pos, damage, _armed_packet.synergies.duplicate(), by_player, mech, TileStatsRegistry.get_stat("LanceMountTile", "residue_lifetime", 25.0))
 	world.add_child(beam)

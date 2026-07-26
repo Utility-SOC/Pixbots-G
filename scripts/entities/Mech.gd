@@ -1720,7 +1720,8 @@ func _collect_weapon_mounts_and_tile_capabilities():
 						})
 				tile.clear_pending()
 
-			if (tile.tile_type == "Lance Mount" or tile.tile_type == "Orbiting Array") and tile.has_method("clear_pending"):
+			if tile.has_method("check_face_gate"):
+				tile.check_face_gate()
 				lance_mounts.append(tile)
 				tile.clear_pending()
 

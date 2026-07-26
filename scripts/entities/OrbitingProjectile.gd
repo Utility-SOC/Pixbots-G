@@ -13,6 +13,7 @@ var is_active: bool = true
 var dominant_synergy: int = EnergyPacket.SynergyType.RAW
 
 var _trail_timer: float = 0.0
+var _lash_timer: float = 0.0
 
 func setup(p_source: Node, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_angle_offset: float = 0.0):
 	source_mech = p_source
@@ -20,8 +21,16 @@ func setup(p_source: Node, p_damage: float, p_synergies: Dictionary, p_by_player
 	synergies = p_synergies
 	by_player = p_by_player
 	base_angle = p_angle_offset
-	
-	dominant_synergy = EnergyPacket.get_dominant_synergy(synergies)
+
+	# Highest-magnitude synergy drives the orbit style (EnergyPacket.
+	# get_dominant_synergy is an instance method on a packet; here we only
+	# have the bare synergies Dictionary, so run the same scan directly).
+	dominant_synergy = EnergyPacket.SynergyType.RAW
+	var max_val = -1.0
+	for k in synergies:
+		if synergies[k] > max_val:
+			max_val = synergies[k]
+			dominant_synergy = k
 
 func _ready():
 	collision_layer = 0
@@ -74,7 +83,10 @@ func _update_orbital_position(delta: float):
 			var speed = 3.0
 			var angle = base_angle + orbit_time * speed
 			target_pos = center + Vector2(cos(angle), sin(angle)) * 75.0
-			_check_lightning_lash()
+			_lash_timer -= delta
+			if _lash_timer <= 0.0:
+				_lash_timer = 0.35 # rate-limit: per-frame lashes would melt anything in range
+				_check_lightning_lash()
 			
 		EnergyPacket.SynergyType.POISON:
 			# Sweeping orbit leaving decaying poison trails behind it
@@ -125,7 +137,7 @@ func _check_lightning_lash():
 func _on_body_entered(body: Node2D):
 	if body == source_mech: return
 	if body.has_method("apply_damage"):
-		body.apply_damage(damage, EnergyPacket.synergy_name(dominant_synergy), source_mech)
+		body.apply_damage(damage, EnergyPacket.element_name(dominant_synergy), source_mech)
 		queue_free()
 
 func _on_area_entered(area: Area2D):

@@ -273,17 +273,18 @@ static func _describe_tile(tile) -> Dictionary:
 		d["actuator_base_mult"] = tile.base_speed_multiplier
 		d["actuator_kin_mult"] = TileStatsRegistry.get_stat("ActuatorTile", "kinetic_bonus_mult", 1.5)
 		d["actuator_ltg_mult"] = TileStatsRegistry.get_stat("ActuatorTile", "lightning_bonus_mult", 2.0)
-	elif t == "Lance Mount":
+	elif t == "Lance Mount" or t == "Orbiting Array":
 		# Multi-cell (footprint_offsets) capture with per-face bookkeeping -
 		# see the write-back below for how lance_hits gets replayed onto
-		# _face_magnitudes/_fed_packet.
+		# _face_magnitudes/_fed_packet. The Orbiting Array shares the exact
+		# same absorb-and-accumulate contract (see OrbitingArrayTile.gd).
 		d["kind"] = KIND_LANCE
 		var extra = PackedInt32Array()
 		for off in tile.footprint_offsets:
 			extra.append(off.x)
 			extra.append(off.y)
 		d["extra_cells"] = extra
-	elif t == "Sensor Array" or t == "Missile Rack" or t == "Mobility Core" or t == "Anchor" or t == "Orbiting Array":
+	elif t == "Sensor Array" or t == "Missile Rack" or t == "Mobility Core" or t == "Anchor":
 		d["kind"] = KIND_PASS # pure pass-through tiles
 	else:
 		return {} # anything else: unsupported, whole grid falls back

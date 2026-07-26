@@ -352,11 +352,21 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 					placed_tile = true
 						
 		if not placed_tile:
-			# Just dump anything that can pass energy
+			# Path filler - but ONLY tiles that genuinely pass energy onward
+			# (see FILLER_TILE_PRIORITY). The previous "just dump inventory[0]"
+			# could burn a Weapon Mount / Heal Beacon / Shield Generator as
+			# wire: those tiles capture or convert the packet instead of
+			# relaying it, silently starving every sink downstream of them
+			# (the exact "kinda works but doesn't leverage any tiles" builds
+			# the tutorial's guided walkthrough was recommending). Perk
+			# pass-throughs (Anchor/Sensor Array/...) come first: they relay
+			# energy unchanged AND contribute their capability, which a tile
+			# left sitting in inventory never does.
 			var tile
-			if inventory.size() > 0:
-				tile = inventory[0]
-				inventory.remove_at(0)
+			var filler_idx = _find_tile_index_by_priority(inventory, FILLER_TILE_PRIORITY)
+			if filler_idx >= 0:
+				tile = inventory[filler_idx]
+				inventory.remove_at(filler_idx)
 			else:
 				# Same rarity-inheritance reasoning as the generic-splitter
 				# fallbacks above.
@@ -366,12 +376,68 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 			if tile.tile_type == "Elemental Infuser" and profile != null:
 				tile.secondary_synergy = _pick_profile_synergy(profile)
 
+			if tile.tile_type == "Splitter" and "active_faces" in tile:
+				# A Splitter used as plain filler must relay straight through,
+				# not fan out along its construction-default faces.
+				tile.active_faces.clear()
+				tile.active_faces.append(entry_dir)
+
 			if "rotation_steps" in tile:
 				tile.rotation_steps = entry_dir
 
 			grid.add_tile(h, tile)
 
+	_aim_accessory_return(grid, accessory_return_coord, tree_nodes, parent_map, targets)
+
 	return inventory
+
+# Filler search order for path cells nothing better claimed (see the
+# not-placed_tile branch in solve()). Every entry either relays the packet
+# unchanged while granting a capability (Anchor/Sensor Array/Missile Rack/
+# Mobility Core - the KIND_PASS set RustGridSim routes as pure pass-through)
+# or is a genuine routing/boost tile. Deliberately NOT here: Weapon Mounts,
+# Heal Beacons, Shield Generators, Accumulators and other capture/convert
+# tiles - in-lining those breaks the chain they're placed into.
+const FILLER_TILE_PRIORITY = ["Anchor", "Sensor Array", "Missile Rack", "Mobility Core", "Directional Conduit", "Elemental Infuser", "Amplifier", "Catalyst", "Splitter"]
+
+# Points the Torso's (movable) Accessory Return at the routed network, so
+# the energy Head/Backpack send back re-enters the spanning tree instead of
+# squirting out whatever face the tile happened to be constructed/dragged
+# with. Neighbors that are fixed sinks (weapon mounts) are preferred - the
+# returned energy lands directly on a weapon - then any other tree cell.
+# With NO adjacent tree cell the faces are left alone: an open face makes
+# the Accessory Return capture the packet as its own weapon payload (see
+# ComponentLinkTile.process_energy), which still puts the energy to use.
+func _aim_accessory_return(grid, acc_coord, tree_nodes: Dictionary, parent_map: Dictionary, targets: Array) -> void:
+	if acc_coord == null:
+		return
+	var acc_tile = grid.get_tile(acc_coord)
+	if not acc_tile or not ("active_faces" in acc_tile):
+		return
+
+	var sink_dirs: Array = []
+	var route_dirs: Array = []
+	for d in range(6):
+		var n = acc_coord.neighbor(d)
+		var nv = Vector2i(n.q, n.r)
+		var is_sink = false
+		for t in targets:
+			if t.q == n.q and t.r == n.r and (t.q != 0 or t.r != 0):
+				is_sink = true
+				break
+		if is_sink:
+			sink_dirs.append(d)
+		elif (tree_nodes.has(nv) or parent_map.has(nv)) and nv != Vector2i(0, 0):
+			route_dirs.append(d)
+
+	var chosen: Array = sink_dirs + route_dirs
+	if chosen.is_empty():
+		return
+	var max_faces = acc_tile.get_max_faces() if acc_tile.has_method("get_max_faces") else chosen.size()
+	acc_tile.active_faces.clear()
+	for d in chosen:
+		if acc_tile.active_faces.size() < max_faces:
+			acc_tile.active_faces.append(d)
 
 # Straight-run tile search order. With no profile, this is the original
 # fixed order. With a profile, Elemental Infuser goes first - it's the tile

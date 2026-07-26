@@ -407,9 +407,7 @@ func handle_process(_delta):
 		# always preview the 3 cells the current rotation would occupy so
 		# scrolling to rotate reads as immediate feedback.
 		garage.drag_hover_hex = hex
-		var c1 = hex.neighbor(garage.footprint_rotation)
-		var c2 = c1.neighbor(garage.footprint_rotation)
-		garage.grid_renderer.fill_preview_hexes = [hex, c1, c2]
+		garage.grid_renderer.fill_preview_hexes = _footprint_cells(garage.dragged_tile, hex, garage.footprint_rotation)
 		garage.grid_renderer.queue_redraw()
 		return
 
@@ -510,6 +508,16 @@ func _drop_tile(pos: Vector2):
 	garage.drag_hover_hex = null
 	garage.grid_renderer.fill_preview_hexes = []
 
+# The 3 cells a footprint tile would occupy anchored at `hex` in rotation
+# `d`, per the tile's get_footprint_shape(): "line" = 3-in-a-row along d
+# (Lance Mount), "triangle" = anchor + neighbors d and d+1, three mutually
+# adjacent hexes (Orbiting Array). Element 0 is always the anchor.
+func _footprint_cells(tile: HexTile, hex: HexCoord, d: int) -> Array:
+	if tile and tile.get_footprint_shape() == "triangle":
+		return [hex, hex.neighbor(d), hex.neighbor((d + 1) % 6)]
+	var c1 = hex.neighbor(d)
+	return [hex, c1, c1.neighbor(d)]
+
 # Tries garage.footprint_rotation first (the direction the player scrolled
 # to while dragging - see GarageGridRenderer._gui_input's wheel handling),
 # then falls back through the other 5 directions in order so a placement
@@ -524,8 +532,9 @@ func _drop_footprint_tile(hex: HexCoord):
 
 	for i in range(6):
 		var d = (garage.footprint_rotation + i) % 6
-		var c1 = hex.neighbor(d)
-		var c2 = c1.neighbor(d)
+		var cells = _footprint_cells(garage.dragged_tile, hex, d)
+		var c1 = cells[1]
+		var c2 = cells[2]
 		if not garage.active_component.can_place_tile(c1) or not garage.active_component.can_place_tile(c2):
 			continue
 		if garage.grid_renderer.hex_grid.has_tile(c1) or garage.grid_renderer.hex_grid.has_tile(c2):
@@ -544,7 +553,7 @@ func _drop_footprint_tile(hex: HexCoord):
 		garage._tutorial_notify("tile_placed:" + garage.dragged_tile.tile_type)
 		return
 
-	garage._show_scrap_float("No room for a 3-in-a-row mount here", Color(1.0, 0.4, 0.4))
+	garage._show_scrap_float("No room for a %d-hex %s mount here" % [garage.dragged_tile.get_footprint_size(), garage.dragged_tile.get_footprint_shape()], Color(1.0, 0.4, 0.4))
 	garage.inventory.append(garage.dragged_tile)
 	garage._refresh_inventory_ui()
 

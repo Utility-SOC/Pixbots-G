@@ -177,7 +177,14 @@ func fire_charged(key: String, target_pos: Vector2):
 			packet_to_fire.synergies[k] *= mech.current_jammer_debuff
 		mech._apply_synergy_jamming(packet_to_fire)
 		packet_to_fire.magnitude *= mech._get_ambush_multiplier()
-		if mech.is_cloaked:
+		# shadow_stealth_fire (Shadow Systems Ally Cloak brand): firing
+		# doesn't break cloak - matches the other two _break_cloak() call
+		# sites (Mech._shoot_impl, Mech._tick_weapon_charges' auto-dump),
+		# both already gated the same way. This bank-fire (1/2/3 key) path
+		# was the one site still missing the guard, silently decloaking a
+		# player who bank-fires while wearing the brand tile that's
+		# specifically supposed to prevent that.
+		if mech.is_cloaked and not mech.shadow_stealth_fire:
 			mech._break_cloak()
 
 		mount._fire_combined_projectile(mech, packet_to_fire, 0)

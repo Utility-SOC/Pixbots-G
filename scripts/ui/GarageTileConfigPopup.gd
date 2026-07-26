@@ -264,7 +264,12 @@ func on_tile_clicked(tile: HexTile):
 		var btn = Button.new()
 		btn.text = "Rotate 60 deg (Current: %d)" % tile.rotation_steps
 		btn.pressed.connect(func():
-			tile.rotation_steps = (tile.rotation_steps % 5) + 1
+			# Reuse the tile's own rotate() (same one the in-grid E hotkey
+			# calls) rather than reimplementing the wrap - the hand-rolled
+			# "(rotation_steps % 5) + 1" here could never produce 0, making
+			# one of the six orientations permanently unreachable from this
+			# button (only reachable via the E hotkey on the grid).
+			tile.rotate()
 			btn.text = "Rotate 60 deg (Current: %d)" % tile.rotation_steps
 			garage.grid_renderer.queue_redraw()
 		)

@@ -36,6 +36,10 @@ func _init():
 func get_weight() -> float:
 	return TileStatsRegistry.get_stat("MagnetTile", "weight", 5.0) # substantial electromagnet hardware
 
+func reset_simulation_state() -> void:
+	super.reset_simulation_state()
+	current_magnetic_power = 0.0
+
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	var p = packet.copy()
 	# Power determines the pull strength

@@ -43,11 +43,11 @@ impl IRefCounted for ProjectileBroadphaseRs {
 }
 
 fn get_f(d: &VDict, k: &str) -> f64 {
-    d.get(k).map(|v| v.to::<f64>()).unwrap_or(0.0)
+    d.get(k).and_then(|v| v.try_to::<f64>().ok()).unwrap_or(0.0)
 }
 
 fn get_i(d: &VDict, k: &str) -> i64 {
-    d.get(k).map(|v| v.to::<i64>()).unwrap_or(0)
+    d.get(k).and_then(|v| v.try_to::<i64>().ok()).unwrap_or(0)
 }
 
 fn get_vec2(d: &VDict, k: &str) -> Vector2 {

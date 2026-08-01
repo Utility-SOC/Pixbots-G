@@ -123,6 +123,23 @@ func add_synergy(synergy_type: int, amount: float):
 	magnitude += amount
 	_sync_synergies_to_magnitude()
 
+# Batch form of add_synergy() for merging a whole other packet's synergies
+# in one pass (see HexTile._fire_combined_projectile's consolidation-buffer
+# folding) - _sync_synergies_to_magnitude() is O(n) in the current synergy
+# count, so calling add_synergy() once per key in a loop was O(n*k) of
+# redundant resyncing (measured as a real, non-trivial share of per-shot
+# cost this session - see Status.md's Phase 4 note) where a single resync
+# after all k keys are folded in is O(n+k) and produces an identical final
+# result (the resync is idempotent/order-independent - it only rescales
+# toward the final magnitude, which doesn't change until this whole batch
+# is done either way).
+func add_synergies_batch(other_synergies: Dictionary):
+	for k in other_synergies:
+		var amount = other_synergies[k]
+		synergies[k] = synergies.get(k, 0.0) + amount
+		magnitude += amount
+	_sync_synergies_to_magnitude()
+
 func has_synergy(synergy_type: int, min_percentage: float = 0.0) -> bool:
 	if magnitude == 0: return false
 	var amount = synergies.get(synergy_type, 0.0)

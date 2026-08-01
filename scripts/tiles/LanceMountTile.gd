@@ -53,6 +53,16 @@ func clear_pending():
 	_face_magnitudes.clear()
 	_fed_packet = null
 
+# Without this, _face_magnitudes/_fed_packet/ready_to_fire survive a
+# Timeline Scrubber replay reset and leak this pass's banked energy into
+# the next scrub - see HexTile.reset_simulation_state's own pattern
+# (ResonatorTile.gd's override is the reference example).
+func reset_simulation_state() -> void:
+	super.reset_simulation_state()
+	_face_magnitudes.clear()
+	_fed_packet = null
+	ready_to_fire = false
+
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active:
 		return []

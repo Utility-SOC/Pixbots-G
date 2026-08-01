@@ -282,6 +282,23 @@ func get_muzzle_position(mech) -> Vector2:
 var _consolidation_buffer: EnergyPacket = null
 var _consolidation_shots: int = 0
 
+# Perf investigation (playtest video, real 34-enemy/495-live-shot stress
+# scenario at 1-2fps): FpsCounter's existing "shoot" breakdown (Mech.
+# _perf_shoot_usec) times the WHOLE of _shoot_impl, including every call
+# into this function - but doesn't distinguish the cheap consolidation/
+# pattern math above from the actual add_child(proj) call below, which is
+# where Projectile._ready() (ratio/stat calc + _build_visuals()'s several
+# child Polygon2D/particle/Trail2D/Timer/VisibleOnScreenNotifier2D nodes)
+# runs synchronously. Static, shared across every HexTile instance/subclass
+# that fires - same aggregation pattern as Mech._perf_shoot_usec - so a real
+# session's numbers (not another noisy synthetic harness - see
+# ProjectileBroadphaseProfileDiagnostic.gd's and MechPhysicsCostDiagnostic.
+# gd's own header comments for why those proved unreliable) can show
+# whether "shoot" cost at volume is dominated by this construction step or
+# by something else in the merge/pattern logic above it. Reset once/sec by
+# FpsCounter, same as every other _perf_*_usec counter in this codebase.
+static var _perf_projectile_construct_usec: int = 0
+
 func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0):
 	if not _ProjectileClass: return
 
@@ -295,8 +312,7 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 			if _consolidation_buffer == null:
 				_consolidation_buffer = packet.copy()
 			else:
-				for s in packet.synergies:
-					_consolidation_buffer.add_synergy(s, packet.synergies[s])
+				_consolidation_buffer.add_synergies_batch(packet.synergies)
 			_consolidation_shots += 1
 			if _consolidation_shots < k:
 				return
@@ -306,8 +322,7 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 		elif _consolidation_buffer != null:
 			# Saturation just ended: fold the leftover bank into this shot so
 			# banked energy is never silently dropped.
-			for s in packet.synergies:
-				_consolidation_buffer.add_synergy(s, packet.synergies[s])
+			_consolidation_buffer.add_synergies_batch(packet.synergies)
 			packet = _consolidation_buffer
 			_consolidation_buffer = null
 			_consolidation_shots = 0
@@ -360,29 +375,39 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	if is_crit:
 		base_damage *= 2.0
 
-	proj.fired_by_player = mech.get("is_player") == true
+	# Perf (2026-07-27, real-session measurement via ProjectileConstructCostDiagnostic.gd:
+	# this "merge/pattern math" region - not Projectile construction itself -
+	# was 65.5% of total shoot cost). Every field below used to be guarded by
+	# a "field in X" runtime existence check (or .get()/.set() dynamic
+	# dispatch) as if proj/mech/packet might not have it - they always do:
+	# proj is always _ProjectileClass.new() (a const preload of Projectile.gd,
+	# never swapped), which unconditionally declares every field touched
+	# here, mech always has is_player/last_aim_position/stat_modifiers
+	# (Mech.gd's own field declarations, inherited by Drone), and packet
+	# (EnergyPacket) always declares is_banked_shot/range_mult/aoe_bonus/
+	# proc_synergies. Every one of those checks was a guaranteed-true no-op
+	# paid on every single shot fired in the game - direct assignment is
+	# identical behavior, just without the redundant reflection lookup.
+	proj.fired_by_player = mech.is_player
 	proj.source_mech = mech
 	proj.source_label = Mech.resolve_attacker_label(mech)
 	proj.damage = base_damage
 	proj.is_crit = is_crit
 	proj.synergies = packet.synergies.duplicate()
-	if "proc_synergies" in proj:
-		proj.proc_synergies = packet.proc_synergies.duplicate()
-	if "stat_modifiers" in mech:
-		proj.stat_modifiers = mech.stat_modifiers.duplicate()
-	proj.set("weapon_rarity", rarity)
-	if "aoe_bonus" in proj:
-		proj.aoe_bonus = packet.aoe_bonus
-	if "is_banked_shot" in proj and "is_banked_shot" in packet:
-		proj.is_banked_shot = packet.is_banked_shot
-	if "range_mult" in proj and "range_mult" in packet:
-		proj.range_mult = packet.range_mult
+	proj.proc_synergies = packet.proc_synergies.duplicate()
+	proj.stat_modifiers = mech.stat_modifiers.duplicate()
+	proj.weapon_rarity = rarity
+	proj.aoe_bonus = packet.aoe_bonus
+	proj.is_banked_shot = packet.is_banked_shot
+	proj.range_mult = packet.range_mult
 	# Per-mount visual signature (Utility-SOC: "easier to tell which
 	# projectile is coming from which weapon mount") - a stable hash of
 	# this mount's own (body_slot, grid_position), NOT anything about the
 	# packet/synergy, so the same mount always reads the same accent color
-	# shot after shot regardless of what's flowing through it.
-	if "mount_signature_hue" in proj and grid_position:
+	# shot after shot regardless of what's flowing through it. grid_position
+	# genuinely can be null (a tile not yet placed in a grid), so this guard
+	# stays - it's the only one in this block that isn't always-true.
+	if grid_position:
 		var sig_hash = (int(body_slot) * 97 + grid_position.q * 31 + grid_position.r * 17)
 		proj.mount_signature_hue = float(((sig_hash % 360) + 360) % 360) / 360.0
 	# Beam pattern: concentrated - faster, piercing, modest damage bonus, and
@@ -399,19 +424,21 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 		proj.damage *= 1.2
 		proj.base_speed *= 2.5
 		proj.pierce_count = max(proj.pierce_count, 4)
-		if "is_beam_shot" in proj:
-			proj.is_beam_shot = true
-	proj.global_position = get_muzzle_position(mech)
-
-	var aim_pos = mech.get("last_aim_position") if "last_aim_position" in mech else mech.global_position + Vector2(0, -100)
+		proj.is_beam_shot = true
+	# get_muzzle_position() does a get_node_or_null("MechRenderer") string
+	# lookup + dictionary lookups on drawn_parts - real cost, computed once
+	# and reused for both the spawn position and the direction calc below
+	# (was computing the identical value twice for the same shot).
 	var muzzle_pos = get_muzzle_position(mech)
+	proj.global_position = muzzle_pos
+
+	var aim_pos = mech.last_aim_position
 
 	var base_direction = (aim_pos - muzzle_pos).normalized()
 	if base_direction == Vector2.ZERO:
 		base_direction = Vector2(0, -1)
 
-	if "target_direction" in proj:
-		proj.target_direction = base_direction
+	proj.target_direction = base_direction
 
 	# Determine the "straight forward" direction based on which component we are in
 	var forward_dir = 4 # Default South (Down) for Torso/Legs/Backpack
@@ -460,16 +487,17 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 				var new_muzzle_pos = get_muzzle_position(mech)
 				proj.global_position = new_muzzle_pos
 
-				var new_aim_pos = mech.get("last_aim_position") if "last_aim_position" in mech else mech.global_position + Vector2(0, -100)
+				var new_aim_pos = mech.last_aim_position
 				var new_base_dir = (new_aim_pos - new_muzzle_pos).normalized()
 				if new_base_dir == Vector2.ZERO:
 					new_base_dir = Vector2(0, -1)
-				if "target_direction" in proj:
-					proj.target_direction = new_base_dir
+				proj.target_direction = new_base_dir
 				proj.direction = new_base_dir.rotated(angle_offset)
 
 				if mech.get_parent():
+					var _t_construct = Time.get_ticks_usec()
 					mech.get_parent().add_child(proj)
+					_perf_projectile_construct_usec += Time.get_ticks_usec() - _t_construct
 			elif is_instance_valid(proj):
 				proj.queue_free()
 			timer.queue_free()
@@ -477,10 +505,12 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 		mech.add_child(timer)
 		timer.start()
 	else:
+		var _t_construct = Time.get_ticks_usec()
 		if mech.get_parent():
 			mech.get_parent().add_child(proj)
 		else:
 			mech.add_child(proj)
+		_perf_projectile_construct_usec += Time.get_ticks_usec() - _t_construct
 
 # Mortar pattern: the payload is delivered AT the aim position (travel
 # time + ground telegraph + elemental AoE) instead of fired along a line.

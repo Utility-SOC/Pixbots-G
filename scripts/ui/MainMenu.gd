@@ -206,7 +206,15 @@ func _on_import_mods():
 	print("Opening Mod Import Menu... (Mock)")
 
 func _on_settings_pressed():
+	# Reuse a single instance across repeat presses, same guard as
+	# _on_war_room_pressed above - without it, a fast double-click (or
+	# reopening the menu) stacks multiple overlapping SettingsMenu
+	# CanvasLayers, each independently mutating AudioServer/InputMap on close.
+	var existing = get_node_or_null("SettingsMenuInstance")
+	if existing:
+		return
 	var settings = load("res://scripts/ui/SettingsMenu.gd").new()
+	settings.name = "SettingsMenuInstance"
 	add_child(settings)
 
 func _on_credits_pressed():

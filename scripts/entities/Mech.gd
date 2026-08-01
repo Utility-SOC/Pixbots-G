@@ -1240,6 +1240,42 @@ func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, d
 	_shoot_impl(target_pos, is_outward, fire_left_arm, delta)
 	_perf_shoot_usec += Time.get_ticks_usec() - _t_shoot
 
+# Rust batched packet tax/jamming/ambush scaling (rust_ext/src/packet_tax.rs)
+# - checked once via a static shared across every Mech, same pattern as
+# Projectile._ensure_flight_rust. See Status.md's Phase 4 section for the
+# profiling that motivated this: real, if modest, per-shot cost.
+static var _packet_tax_checked: bool = false
+static var _packet_tax_rasterizer = null
+
+static func _ensure_packet_tax_rust():
+	if not _packet_tax_checked:
+		_packet_tax_checked = true
+		if ClassDB.class_exists("PacketTaxRs"):
+			_packet_tax_rasterizer = ClassDB.instantiate("PacketTaxRs")
+
+# Pure-GDScript reference implementation - the fallback contract every
+# Rust-ported system in this codebase keeps (see ProjectileBroadphase.
+# _query_hits_fallback): the DLL must never become a hard dependency.
+# Replicates PacketTaxRs.batch_scale_packets() exactly (tax -> jamming ->
+# ambush, never mutating the input synergies dict - see that file's own
+# comment on why: it's a direct reference to the persistent precalculated
+# packet, reused across future shots).
+static func _batch_scale_packets_fallback(requests: Array) -> Array:
+	var out: Array = []
+	for req in requests:
+		var magnitude = req.magnitude * req.tax
+		var synergies: Dictionary = {}
+		for k in req.synergies:
+			synergies[k] = req.synergies[k] * req.tax
+		for jammed_id in req.jammed_synergies:
+			if synergies.has(jammed_id):
+				var suppressed = synergies[jammed_id] * 0.9
+				magnitude = max(0.0, magnitude - suppressed)
+				synergies[jammed_id] *= 0.1
+		magnitude *= req.ambush_mult
+		out.append({"magnitude": magnitude, "synergies": synergies})
+	return out
+
 func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, delta: float = 0.0):
 	last_aim_position = target_pos
 	is_firing_outward = is_outward
@@ -1249,6 +1285,15 @@ func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = tr
 
 	var was_cloaked = is_cloaked
 	var fired_a_shot = false
+
+	# Pass 1: figure out which mounts are actually ready to fire and collect
+	# their raw (magnitude, synergies, tax) - the tax/jamming/ambush scaling
+	# itself is deferred to ONE batched call below instead of each mount
+	# doing its own GDScript loop (see Status.md's Phase 4 note).
+	var ready: Array = [] # {data: Dictionary, packet_to_fire: EnergyPacket}
+	var requests: Array = []
+	var ambush_mult = _get_ambush_multiplier() # same for every mount this call
+	var jammed_ids := PackedInt32Array(jammed_synergies.keys())
 
 	for data in precalculated_weapons:
 		if is_player and separate_arm_firing and data.slot_type != HexTile.BodySlot.BACKPACK:
@@ -1280,16 +1325,37 @@ func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = tr
 			if bank_required > 0.0 and mount.bank_current_charge < bank_required:
 				siphon = 0.5
 
+		# packet.copy() still happens here (unavoidable - direction/position/
+		# proc_synergies/charge_required/etc. all need to carry over, and
+		# data.packet must stay pristine across future shots) - only
+		# magnitude/synergies get overwritten below with the batch result.
 		var packet_to_fire = data.packet.copy()
-		# The "almost as if there were no accumulator": normal fire pays
-		# the small quality tax (shrinks with accumulator rarity/level).
 		var tax = data.packet.accumulator_quality * current_jammer_debuff * siphon
-		packet_to_fire.magnitude *= tax
-		for k in packet_to_fire.synergies:
-			packet_to_fire.synergies[k] *= tax
-		_apply_synergy_jamming(packet_to_fire)
-		packet_to_fire.magnitude *= _get_ambush_multiplier()
+		ready.append({"data": data, "packet_to_fire": packet_to_fire})
+		requests.append({
+			"magnitude": data.packet.magnitude,
+			"synergies": data.packet.synergies,
+			"tax": tax,
+			"jammed_synergies": jammed_ids,
+			"ambush_mult": ambush_mult,
+		})
 
+	if ready.is_empty():
+		return
+
+	_ensure_packet_tax_rust()
+	var scaled: Array = _packet_tax_rasterizer.batch_scale_packets(requests) if _packet_tax_rasterizer else _batch_scale_packets_fallback(requests)
+
+	for i in range(ready.size()):
+		var entry = ready[i]
+		var data = entry.data
+		var packet_to_fire: EnergyPacket = entry.packet_to_fire
+		var result = scaled[i]
+		packet_to_fire.magnitude = result.magnitude
+		packet_to_fire.synergies = result.synergies
+
+		var mount = data.mount
+		var required_charge = data.packet.charge_required
 		mount._fire_combined_projectile(self, packet_to_fire, data.step)
 		mount.current_charge -= required_charge
 		# Thermal venting: firing sheds heat proportional to the volley
@@ -1722,6 +1788,15 @@ func _collect_weapon_mounts_and_tile_capabilities():
 
 			if (tile.tile_type == "Lance Mount" or tile.tile_type == "Orbiting Array" or tile.tile_type == "Missile Rack") and tile.has_method("clear_pending"):
 				lance_mounts.append(tile)
+				# Lance Mount's ready_to_fire is only ever computed by
+				# check_face_gate() (unlike Orbiting Array/Missile Rack, which
+				# set ready_to_fire inline inside process_energy) - without
+				# this call clear_pending() below wipes _face_magnitudes
+				# first and the gate never gets checked, so a Lance Mount can
+				# never fire in real gameplay (only the debug parity check
+				# called check_face_gate directly).
+				if tile.has_method("check_face_gate"):
+					tile.check_face_gate()
 				tile.clear_pending()
 
 			if tile.has_method("get_speed_bonus"):

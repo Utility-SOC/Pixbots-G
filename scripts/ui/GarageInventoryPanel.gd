@@ -631,7 +631,7 @@ const TILE_TYPE_BLURBS = {
 	"Resonator": "Amplifies every packet that crosses it, and lets crossing paths trade elemental status procs (bigger payoff at Mythic).",
 	"Shield Generator": "Generates a damage-absorbing shield with an elemental counter-type.",
 	"Drone Bay": "Deploys an independent companion Drone with its own small hex-grid loadout.",
-	"Missile Rack": "(Stub - not fully implemented yet) planned dedicated indirect-fire weapon mount.",
+	"Missile Rack": "Banks incoming energy, then launches an indirect-fire salvo of mortar shells at your aim point. Salvo size scales with rarity and tile level.",
 	"Component Link": "Internal routing tile connecting one component's grid to another - not normally placed by hand.",
 }
 

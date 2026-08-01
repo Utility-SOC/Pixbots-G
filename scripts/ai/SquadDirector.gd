@@ -376,11 +376,25 @@ func _merge_squads(squad_a: Squad, squad_b: Squad):
 			break # Squad A is full!
 			
 		if is_instance_valid(mech) and not mech.is_queued_for_deletion():
-			# Disconnect from B
+			# Disconnect from B. dealt_damage/took_damage were connected in
+			# Squad.add_member with dealt_damage bound via .bind(mech) - a
+			# freshly-built unbound Callable (as used below, and as
+			# took_damage never even attempted) never compares equal to a
+			# bound one, so the naive
+			# is_connected(squad_b._on_member_dealt_damage) check always
+			# failed and this mech kept double-reporting damage into both
+			# squads after every merge. Walk the real connections instead
+			# of guessing the Callable.
 			if mech.tree_exiting.is_connected(squad_b._on_member_died):
 				mech.tree_exiting.disconnect(squad_b._on_member_died)
-			if mech.has_signal("dealt_damage") and mech.dealt_damage.is_connected(squad_b._on_member_dealt_damage):
-				mech.dealt_damage.disconnect(squad_b._on_member_dealt_damage)
+			if mech.has_signal("dealt_damage"):
+				for conn in mech.dealt_damage.get_connections():
+					if conn.callable.get_object() == squad_b and conn.callable.get_method() == "_on_member_dealt_damage":
+						mech.dealt_damage.disconnect(conn.callable)
+			if mech.has_signal("took_damage"):
+				for conn in mech.took_damage.get_connections():
+					if conn.callable.get_object() == squad_b and conn.callable.get_method() == "_on_member_took_damage":
+						mech.took_damage.disconnect(conn.callable)
 				
 			# Add to A
 			squad_a.add_member(mech)

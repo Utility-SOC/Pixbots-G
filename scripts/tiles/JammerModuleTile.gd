@@ -53,6 +53,10 @@ func cycle_target_synergy():
 func get_weight() -> float:
 	return TileStatsRegistry.get_stat("JammerModuleTile", "weight", 4.0) # a pulse-jammer emitter, moderate hardware
 
+func reset_simulation_state() -> void:
+	super.reset_simulation_state()
+	stored_energy = 0.0
+
 # Ensures `component` carries at least one VISION-mode Jammer Module,
 # placing a fresh one on the first free valid hex if none is present.
 # Returns true if the component ends up with one (already had it, or one

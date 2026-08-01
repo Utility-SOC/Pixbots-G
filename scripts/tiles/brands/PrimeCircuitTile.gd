@@ -65,9 +65,11 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	# crossing the way a standalone Mythic Resonator would be built to).
 	var res_mult = 1.0 + (TileStatsRegistry.get_stat("PrimeCircuitTile", "baseline_amplify", 0.15) * _get_power_multiplier())
 	if _remnant_magnitudes.size() > 0:
+		var to_add = {}
 		for k in _remnant_magnitudes:
-			packet.add_synergy(k, _remnant_magnitudes[k] * 0.8)
+			to_add[k] = _remnant_magnitudes[k] * 0.8
 			_remnant_magnitudes[k] *= 0.2
+		packet.add_synergies_batch(to_add)
 		res_mult += TileStatsRegistry.get_stat("PrimeCircuitTile", "boost_per_remnant", 1.3) * _get_power_multiplier()
 	packet.amplify(res_mult)
 	for syn in packet.synergies:

@@ -58,7 +58,7 @@ fn simple_hash(seed: i64) -> i64 {
 }
 
 fn get_f(d: &VDict, k: &str) -> f64 {
-    d.get(k).map(|v| v.to::<f64>()).unwrap_or(0.0)
+    d.get(k).and_then(|v| v.try_to::<f64>().ok()).unwrap_or(0.0)
 }
 
 // The actual math, shared by both compute_step and compute_batch (see the
@@ -80,7 +80,7 @@ fn compute_step_core(
     let r_ltg = get_f(ratios, "r_ltg");
     let r_prc = get_f(ratios, "r_prc");
 
-    let lightning_segment_index = lightning_state.get("segment_index").map(|v| v.to::<i64>()).unwrap_or(-1);
+    let lightning_segment_index = lightning_state.get("segment_index").and_then(|v| v.try_to::<i64>().ok()).unwrap_or(-1);
     let lightning_prev_offset = get_f(lightning_state, "prev_offset");
     let lightning_target_offset = get_f(lightning_state, "target_offset");
 

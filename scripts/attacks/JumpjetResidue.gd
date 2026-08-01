@@ -72,11 +72,17 @@ func _physics_process(delta: float):
 		
 	for body in get_overlapping_bodies():
 		if body.has_method("apply_damage"):
-			# Find dominant synergy for damage type
-			var element = "RAW"
-			if synergies.has(EnergyPacket.SynergyType.FIRE): element = "FIRE"
-			elif synergies.has(EnergyPacket.SynergyType.ICE): element = "ICE"
-			elif synergies.has(EnergyPacket.SynergyType.LIGHTNING): element = "LIGHTNING"
+			# Find dominant synergy for damage type - by magnitude, not by a
+			# fixed FIRE>ICE>LIGHTNING presence check (a 99%-Lightning/
+			# 1%-Fire blend was always reporting FIRE). Mirrors
+			# MortarShell.gd's _dominant_synergy().
+			var dominant_synergy = EnergyPacket.SynergyType.RAW
+			var best_magnitude = 0.0
+			for k in synergies:
+				if synergies[k] > best_magnitude:
+					best_magnitude = synergies[k]
+					dominant_synergy = k
+			var element = EnergyPacket.element_name(dominant_synergy)
 			
 			var dmg = damage_per_sec * delta
 			body.apply_damage(dmg, element)

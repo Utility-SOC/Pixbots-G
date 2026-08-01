@@ -1381,12 +1381,12 @@ func _on_player_died():
 	# Snapshot the death report now, while player.recent_damage_log is still
 	# populated - see Mech.gd's field comment. Per the user's request:
 	# "what squad got me, what elements they used".
-	# Record ONCE, here (not inside _show_death_report - that runs twice,
-	# once sync + once call_deferred below, and current_wave is about to get
-	# reset to last_garage_wave by the kick-back-to-garage timer further
-	# down) - the War Room's death log (task #9).
+	# Record ONCE, here (current_wave is about to get reset to
+	# last_garage_wave by the kick-back-to-garage timer further down) - the
+	# War Room's death log (task #9). _show_death_report itself is invoked
+	# exactly once, deferred, further down - it used to also fire
+	# synchronously right here, spawning two overlapping report panels.
 	SaveManager.record_death(current_wave, _top_damage_label(player.recent_damage_log))
-	_show_death_report(player.recent_damage_log)
 
 	var explosion = load("res://scripts/visuals/DeathExplosion.gd").new()
 	explosion.global_position = player.global_position
@@ -1434,8 +1434,8 @@ func _on_player_died():
 		if footer != "":
 			show_dialogue("Shopkeeper", footer, Color(0.8, 0.8, 0.8), 6.0)
 	
-	call_deferred("_show_death_report", player.recent_damage_log)
-	
+	call_deferred("_show_death_report", player.recent_damage_log) # the one and only call - see comment above
+
 	# Wait 3 seconds, then kick back to garage
 	var timer = Timer.new()
 	timer.wait_time = 3.0

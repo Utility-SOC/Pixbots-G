@@ -1,3 +1,6 @@
+class_name MissileRackTile
+extends HexTile
+
 # Salvo Missile Rack weapon tile: banks incoming energy and launches
 # a salvo of indirect mortar/missile shells delivered in a spread around
 # the target aim point. Damage and salvo size scale with tile level and rarity.
@@ -19,6 +22,15 @@ func get_weight() -> float:
 func clear_pending():
 	_face_magnitudes.clear()
 	_fed_packet = null
+
+# See LanceMountTile.reset_simulation_state's comment - same Timeline
+# Scrubber determinism gap applies to every capital weapon that banks
+# per-face energy across a simulation pass.
+func reset_simulation_state() -> void:
+	super.reset_simulation_state()
+	_face_magnitudes.clear()
+	_fed_packet = null
+	ready_to_fire = false
 
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
 	if packet.magnitude <= 0.0 or not packet.is_active:

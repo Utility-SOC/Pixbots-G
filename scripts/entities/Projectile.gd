@@ -1,5 +1,5 @@
 class_name Projectile
-extends Area2D
+extends Node2D
 
 
 const Trail2D = preload("res://scripts/visuals/Trail2D.gd")
@@ -159,8 +159,8 @@ var _offscreen_cull_timer: Timer = null
 # hitbox in _ready() used to only apply `scale`, never visual_scale, so a
 # big combined/amplified shot (p_scale up to 8x) could visually look like a
 # huge blast while its real hitbox stayed tiny - "there are a lot of things
-# I should be hitting but am not." Stored here so _ready() can size the
-# CollisionShape2D to match what's actually drawn.
+# I should be hitting but am not." Stored here so _ready() can size
+# _hit_radius to match what's actually drawn.
 var visual_scale: float = 1.0
 
 # Lightning zig-zag state - jagged, held-and-snapped offsets rather than a
@@ -221,19 +221,25 @@ static func _get_mix_material() -> CanvasItemMaterial:
 # refresh rate instead of being cut - the pretty graphics stay untouched.
 const HOMING_QUERY_INTERVAL = 0.1 # vampiric/homing target re-acquisition
 const VORTEX_QUERY_INTERVAL = 0.05 # nearby-item pull scan
-# Below this much travel in one tick, the projectile's own hitbox plus a
-# typical small enemy's hitbox still overlap at tick-end, so the normal
-# Area2D body_entered/area_entered signals reliably catch the hit on their
-# own - the tunneling sweep only matters for shots fast enough to actually
-# skip clean through a target inside one tick (kinetic/pierce bonuses,
-# lightning's forced 4200+). Was gated at just 4.0px, which meant almost
-# EVERY projectile paid for a sweep query almost every tick regardless of
-# speed.
-const TUNNEL_RISK_MOVE_THRESHOLD = 24.0
 
 var _homing_query_timer: float = 0.0
 var _cached_homing_target: Node2D = null
 var _vortex_query_timer: float = 0.0
+
+# Rust broadphase port (Phase 3 - see
+# C:\Users\Utility\.claude\plans\effervescent-exploring-pine.md): Projectile
+# is no longer a physics body (was Area2D). Hit detection is now a batched
+# per-tick swept-segment test against every live PartHitbox/obstacle, run
+# once for all live projectiles at once by ProjectileBroadphase.gd, which
+# calls back into the unchanged _handle_hit() below - see that autoload's
+# module comment. collision_mask stays a plain data field (still read here,
+# by MagnetSystem.gd's repel-mode flip, and by MortarShell.gd) even though
+# nothing built into the engine consumes it anymore.
+var collision_mask: int = 0
+# Half the old CollisionShape2D's rectangle width (see the removed shape's
+# sizing comment, preserved below) - the effective hit radius fed to
+# ProjectileBroadphase.report_movement() every tick.
+var _hit_radius: float = 4.0
 
 func _ready():
 	# Desync throttled queries (the user: "freezing is still happening
@@ -263,12 +269,15 @@ func _ready():
 	# ever drives the normal ORGANIC VELOCITY ACCUMULATION path.
 	if not _is_poison_mine:
 		ProjectileManager.register(self)
+	# Hit-broadphase registration (see _hit_radius's field comment) - unlike
+	# ProjectileManager above, this one DOES include mines: they still need
+	# contact detection, just via their own separate movement model feeding
+	# the same report_movement() every tick (see _physics_process_mine).
+	ProjectileBroadphase.register(self)
 
 	_calculate_stats()
 	_build_visuals()
-	
-	var shape = CollisionShape2D.new()
-	var rect = RectangleShape2D.new()
+
 	# Both factors matter: `scale` (ratio-driven, from _calculate_stats) and
 	# visual_scale (magnitude-driven, from _build_visuals - set just above
 	# this point, so it's already valid here). Missing visual_scale entirely
@@ -281,24 +290,20 @@ func _ready():
 	# balloon to 250+px on a big charged shot. sqrt() dampens that: still
 	# meaningfully bigger for big shots (sqrt(8) ~= 2.8x) without matching
 	# the full glow/bloom radius, which is deliberately oversized for flair
-	# and was never meant to be 1:1 with the actual hit area.
-	rect.size = Vector2(8, 8) * scale * sqrt(visual_scale)
-	shape.shape = rect
-	add_child(shape)
-	
+	# and was never meant to be 1:1 with the actual hit area. Half of the old
+	# CollisionShape2D rectangle's width, since ProjectileBroadphase treats
+	# this as a swept-circle radius, not a rectangle.
+	_hit_radius = 4.0 * scale.x * sqrt(visual_scale)
+
 	# Registered so systems can find live projectiles cheaply - the Mythic
 	# Magnet's reflection field (Mech's magnet block) is the first consumer.
 	add_to_group("projectile")
 
-	collision_layer = 0
 	if fired_by_player:
 		collision_mask = 4 | 1 | 32 # Enemy + World + Obstacles
 	else:
 		collision_mask = 8 | 1 | 32 # Player + World + Obstacles
-	
-	body_entered.connect(_on_body_entered)
-	area_entered.connect(_on_area_entered)
-	
+
 	# EXPLOSION DETONATION
 	var timer = Timer.new()
 	timer.wait_time = _get_lifetime()
@@ -358,6 +363,7 @@ func _ready():
 func _exit_tree():
 	if not _is_poison_mine:
 		ProjectileManager.unregister(self)
+	ProjectileBroadphase.unregister(self)
 
 func _spawn_instant_bolt_flash():
 	if not get_parent() or direction == Vector2.ZERO:
@@ -1041,33 +1047,21 @@ func _physics_process_body(delta: float):
 	var _prev_global_pos = global_position
 	position += velocity * delta
 
-	# TUNNELING FIX: Area2D has no continuous collision detection - it only
-	# fires body_entered/area_entered if the shape happens to still be
-	# overlapping something at the END of a physics tick. LIGHTNING-dominant
-	# shots force final_speed to at least 4200 px/s (see the INSTANT
-	# LIGHTNING block above), and PIERCE's speed bonus can push
-	# well past 1500 - at 60 physics ticks/sec that's 25-70+ px of travel
-	# PER TICK, easily more than a small enemy's whole hitbox width, so the
-	# shot can cross clean through several targets without ever registering
-	# an overlap. This was the actual "stuff isn't hitting targets" bug -
-	# _spawn_instant_bolt_flash's visual bolt implies the whole beam path
-	# connects instantly, but the real moving hitbox was skipping most of
-	# what it visually crossed. Sweep the segment actually travelled this
-	# tick and manually route anything crossed into the normal hit path.
-	# Only pay for the sweep query when travel this tick is actually fast
-	# enough to risk skipping through a target (see TUNNEL_RISK_MOVE_THRESHOLD
-	# comment up top) - below that, the normal Area2D signals below already
-	# reliably catch the hit for free, and this was previously gated at just
-	# 4.0px, so nearly every projectile at any speed paid for a full physics
-	# shape query every single tick regardless of whether it needed one.
+	# TUNNELING FIX (Rust broadphase port - Phase 3): hit detection is no
+	# longer Area2D signals firing only if a shape still happens to overlap
+	# at tick-end. Every projectile now reports the exact segment it
+	# travelled this tick to ProjectileBroadphase, which sweep-tests it
+	# against every live target in one batched call - LIGHTNING-dominant
+	# shots (final_speed forced to 4200+ px/s) and PIERCE's speed bonus
+	# (past 1500 px/s) get the same swept-segment protection as everything
+	# else, unconditionally, instead of only above the old speed threshold.
 	# LIGHTNING blink hop (see BLINK_INTERVAL block comment) - moves
-	# global_position BEFORE the sweep/distance section so the teleport
-	# spends range budget and sweep-hits whatever it crosses.
+	# global_position BEFORE the report below so the teleport spends range
+	# budget and gets swept for whatever it crosses.
 	_update_blink(delta)
 
 	var _moved = global_position - _prev_global_pos
-	if _moved.length() > TUNNEL_RISK_MOVE_THRESHOLD:
-		_sweep_for_tunneled_hits(_prev_global_pos, _moved)
+	ProjectileBroadphase.report_movement(self, _prev_global_pos, global_position, _hit_radius)
 
 	# Range cap (see max_range's field comment) - reuses _moved rather than
 	# computing distance a second way. Whichever runs out first between this
@@ -1154,8 +1148,7 @@ func _physics_process_mine(delta: float):
 	position += velocity * delta
 
 	var _moved = global_position - _prev_global_pos
-	if _moved.length() > TUNNEL_RISK_MOVE_THRESHOLD:
-		_sweep_for_tunneled_hits(_prev_global_pos, _moved)
+	ProjectileBroadphase.report_movement(self, _prev_global_pos, global_position, _hit_radius)
 
 	distance_traveled += _moved.length()
 	if distance_traveled >= max_range:
@@ -1269,30 +1262,6 @@ func _trigger_poison_mine_detonation():
 		get_parent().add_child(v)
 		v.setup(radius, ring_color, 0.5)
 
-# Approximates the shape actually moved through this tick as a rectangle
-# (segment length x hitbox width) oriented along the direction of travel,
-# and routes anything it overlaps into the normal _handle_hit path - see
-# the call site's comment in _physics_process for why this exists. Sized to
-# match the REAL CollisionShape2D (same formula _ready() uses) so this
-# never claims a hit the actual hitbox wouldn't also make at close range.
-func _sweep_for_tunneled_hits(from_pos: Vector2, moved: Vector2):
-	var space_state = get_world_2d().direct_space_state
-	var query = PhysicsShapeQueryParameters2D.new()
-	var seg_shape = RectangleShape2D.new()
-	var hit_w = 8.0 * scale.x * sqrt(visual_scale)
-	seg_shape.size = Vector2(moved.length(), max(4.0, hit_w))
-	query.shape = seg_shape
-	query.transform = Transform2D(moved.angle(), from_pos + moved * 0.5)
-	query.collision_mask = collision_mask
-	query.collide_with_bodies = true
-	query.collide_with_areas = false
-	var results = space_state.intersect_shape(query, 8)
-	for res in results:
-		var col = res["collider"]
-		if col == self or col == source_mech:
-			continue
-		_handle_hit(col)
-
 # Extracted straight out of the old inline block in _physics_process (see
 # the throttling comment at the call site) - same search logic, just now
 # callable on its own schedule instead of every tick.
@@ -1388,14 +1357,6 @@ func _pull_nearby_items(delta: float):
 			if lerp_weight > 1.0: lerp_weight = 1.0
 			col.velocity = col.velocity.lerp(p_dir * pull_strength, lerp_weight)
 
-func _on_body_entered(body: Node2D):
-	if body.get_class() == "CharacterBody2D" and body.has_method("apply_part_damage"):
-		return
-	_handle_hit(body)
-
-func _on_area_entered(area: Area2D):
-	_handle_hit(area)
-
 # Per-hit decay (per the user: Explosion and Vampiric don't have their own
 # way of reaching more than one target - they "ride along" whichever
 # chain-type synergy is actually delivering multiple hits (Lightning's hop
@@ -1421,10 +1382,11 @@ func _compute_hit_decay() -> float:
 func _handle_hit(target: Node2D):
 	if not target.has_method("apply_damage"):
 		return
-	# Shared choke point for both the normal signal-based hit (_on_body_entered/
-	# _on_area_entered) and the tunneling sweep in _physics_process below -
-	# without this, a shot whose final resting position still overlaps a
-	# target it already swept-hit this tick would apply damage twice.
+	# Shared choke point for every hit dispatched via ProjectileBroadphase
+	# (a pierce-capable shot's swept segment can overlap several targets in
+	# one tick, and the same target can be reported again on a later tick
+	# while still in range) - without this, either case would apply damage
+	# more than once to the same target.
 	var target_id = target.get_instance_id()
 	if _handled_targets.has(target_id):
 		return

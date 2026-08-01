@@ -132,21 +132,19 @@ func _detonate():
 		# from it (mask & 4 -> hunt enemies). Monitoring stays off, so the
 		# mask never causes contact hits.
 		proj.collision_mask = (4 | 1) if fired_by_player else (8 | 1)
-		world.add_child(proj) # _ready computes ratios/stats
+		world.add_child(proj) # _ready computes ratios/stats - also auto-registers it with ProjectileBroadphase unconditionally, harmless while set_physics_process(false) below means it never reports movement
 		ProjectileManager.unregister(proj)
 		proj.set_physics_process(false)
-		proj.monitoring = false
-		proj.monitorable = false
 		proj._handle_hit(direct_target) # the entire direct-fire impact pipeline
 		if not proj.is_queued_for_deletion():
 			if proj._lightning_hops_left > 0 or proj.ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) > 0.05:
 				# Lightning payload survives the impact by design (blink
 				# re-targeting) - RE-ARM it as a live projectile so it
 				# teleport-hops onward from the crater, exactly like
-				# direct-fire lightning would.
+				# direct-fire lightning would. Already registered with
+				# ProjectileBroadphase since _ready() - only flight-math
+				# registration and physics processing need re-enabling here.
 				proj.set_physics_process(true)
-				proj.monitoring = true
-				proj.monitorable = true
 				ProjectileManager.register(proj)
 			else:
 				proj.queue_free()

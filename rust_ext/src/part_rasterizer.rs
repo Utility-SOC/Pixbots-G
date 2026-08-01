@@ -137,9 +137,18 @@ impl PartRasterizer {
         let mut pixels: Vec<Color> = vec![Color::from_rgba(0.0, 0.0, 0.0, 0.0); dim * dim];
 
         for region_variant in fill_regions.iter_shared() {
-            let region: VDict = region_variant.to();
-            let polygon: PackedVector2Array = region.get("polygon").unwrap_or_default().to();
-            let color: Color = region.get("color").unwrap_or_default().to();
+            // try_to() rather than to() throughout this loop - a malformed
+            // region dict (missing/wrong-typed key) used to panic and take
+            // down the whole process instead of just skipping that region.
+            let region: VDict = region_variant.try_to().unwrap_or_default();
+            let polygon: PackedVector2Array = region
+                .get("polygon")
+                .and_then(|v| v.try_to().ok())
+                .unwrap_or_default();
+            let color: Color = region
+                .get("color")
+                .and_then(|v| v.try_to().ok())
+                .unwrap_or_default();
             let poly_slice = polygon.as_slice();
             if poly_slice.len() < 3 {
                 continue;
@@ -184,11 +193,17 @@ impl PartRasterizer {
         }
 
         for line_variant in line_regions.iter_shared() {
-            let line: VDict = line_variant.to();
-            let a: Vector2 = line.get("a").unwrap_or_default().to();
-            let b: Vector2 = line.get("b").unwrap_or_default().to();
-            let color: Color = line.get("color").unwrap_or_default().to();
-            let width: f32 = line.get("width").map(|v| v.to()).unwrap_or(1.5);
+            let line: VDict = line_variant.try_to().unwrap_or_default();
+            let a: Vector2 = line.get("a").and_then(|v| v.try_to().ok()).unwrap_or_default();
+            let b: Vector2 = line.get("b").and_then(|v| v.try_to().ok()).unwrap_or_default();
+            let color: Color = line
+                .get("color")
+                .and_then(|v| v.try_to().ok())
+                .unwrap_or_default();
+            let width: f32 = line
+                .get("width")
+                .and_then(|v| v.try_to::<f32>().ok())
+                .unwrap_or(1.5);
             let half_w = (CELL_SIZE * 0.5).max(width * 0.5);
             for gy in 0..GRID_DIM {
                 for gx in 0..GRID_DIM {

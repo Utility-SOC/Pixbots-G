@@ -134,6 +134,12 @@ func _on_load():
 	popup.popup_centered(Vector2(300, 300))
 
 func _on_settings_pressed():
+	# Reuse a single instance across repeat presses - without this guard, a
+	# fast double-click stacks multiple overlapping SettingsMenu
+	# CanvasLayers, each independently mutating AudioServer/InputMap on close.
+	var existing = get_node_or_null("SettingsMenu")
+	if existing:
+		return
 	var settings = load("res://scripts/ui/SettingsMenu.gd").new()
 	settings.name = "SettingsMenu"
 	add_child(settings)

@@ -1,0 +1,6 @@
+{
+	"weight": 12.0,
+	"face_threshold": 10000.0,
+	"required_faces": 6,
+	"cooldown_time": 6.0
+}

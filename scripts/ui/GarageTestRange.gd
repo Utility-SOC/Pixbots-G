@@ -30,6 +30,7 @@ const RANGE_SIZE = Vector2(900, 340)
 const RIG_POS = Vector2(110, 210)
 const DUMMY_POS = Vector2(700, 210)
 const AUTO_FIRE_INTERVAL = 0.6
+const DEFAULT_DUMMY_HP = 1e12
 
 var player: Node = null
 
@@ -51,6 +52,7 @@ var _mount_list: VBoxContainer = null
 var _search_box: LineEdit = null
 var _stats_label: Label = null
 var _auto_toggle: CheckButton = null
+var _hp_override_box: LineEdit = null
 var _auto_timer: float = 0.0
 var _shots_fired: int = 0
 var _volleys_fired: int = 0
@@ -128,6 +130,21 @@ func _ready():
 	reset_btn.pressed.connect(_reset_dummy_stats)
 	controls.add_child(reset_btn)
 
+	# HP override (Status.md queue: "check how many hits of my current build
+	# to kill something with exactly N HP, e.g. matching a specific boss's
+	# known HP, without needing to actually fight it first"). Empty/invalid
+	# text just falls back to DEFAULT_DUMMY_HP in _reset_dummy_stats - this
+	# never needs to block firing, only change what "Reset dummy" resets to.
+	var hp_label = Label.new()
+	hp_label.text = "  Dummy HP:"
+	controls.add_child(hp_label)
+
+	_hp_override_box = LineEdit.new()
+	_hp_override_box.placeholder_text = "default"
+	_hp_override_box.custom_minimum_size = Vector2(90, 0)
+	_hp_override_box.tooltip_text = "Custom dummy max HP, applied on next 'Reset dummy' (e.g. match a boss's known HP to count hits-to-kill). Blank = default."
+	controls.add_child(_hp_override_box)
+
 	# The range itself: SubViewport with a private physics world.
 	var vp_container = SubViewportContainer.new()
 	vp_container.stretch = true
@@ -179,7 +196,7 @@ func _ready():
 	_dummy.global_position = DUMMY_POS
 	_world_root.add_child(_dummy)
 	_dummy.set_physics_process(false)
-	_dummy.max_hp = 1e12
+	_dummy.max_hp = DEFAULT_DUMMY_HP
 	_dummy.hp = _dummy.max_hp
 
 	# Drones (playtest: "I also want drones in the test area") - real Drone
@@ -323,6 +340,10 @@ func _fire_selected():
 
 func _reset_dummy_stats():
 	if is_instance_valid(_dummy):
+		var override_hp = 0.0
+		if _hp_override_box:
+			override_hp = _hp_override_box.text.to_float()
+		_dummy.max_hp = override_hp if override_hp > 0.0 else DEFAULT_DUMMY_HP
 		_dummy.hp = _dummy.max_hp
 	_shots_fired = 0
 	_volleys_fired = 0

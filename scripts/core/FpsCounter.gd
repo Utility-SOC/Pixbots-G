@@ -230,9 +230,16 @@ func _process(delta: float):
 
 		var status_bar_ms = MechStatusBars._perf_draw_usec / 1000.0
 		var proj_physics_ms = Projectile._perf_physics_usec / 1000.0
+		# projectile_construct: just the add_child(proj) call inside HexTile.
+		# _fire_combined_projectile (Projectile._ready() - ratio/stat calc +
+		# _build_visuals()'s child-node construction) - a SLICE of shoot_ms
+		# above, not a separate cost, isolating whether "shoot" at volume is
+		# dominated by construction or by the merge/pattern math around it.
+		var construct_ms = HexTile._perf_projectile_construct_usec / 1000.0
 		MechStatusBars._perf_draw_usec = 0
 		Projectile._perf_physics_usec = 0
-		perf_label2.text = "per sec: status_bars_draw %.0fms  projectile_physics %.0fms" % [status_bar_ms, proj_physics_ms]
+		HexTile._perf_projectile_construct_usec = 0
+		perf_label2.text = "per sec: status_bars_draw %.0fms  projectile_physics %.0fms  projectile_construct %.0fms" % [status_bar_ms, proj_physics_ms, construct_ms]
 
 ## path_override lets tests round-trip against a scratch file instead of
 ## the real SaveManager.SETTINGS_PATH (user://settings.cfg) - never write

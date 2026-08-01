@@ -40,6 +40,14 @@ func get_weight() -> float:
 func get_max_faces() -> int:
 	return 3
 
+# HexTile.reset_simulation_state only special-cases the literal
+# "pending_packets" property name (see its own comment) - it doesn't know
+# about pending_transfer_packets, so an Accessory Return link could leak
+# banked transfer packets across a Timeline Scrubber replay.
+func reset_simulation_state() -> void:
+	super.reset_simulation_state()
+	pending_transfer_packets.clear()
+
 func toggle_output(direction: int):
 	if target_slot != HexTile.BodySlot.NONE: return # Only Accessory Return can toggle outputs
 	if active_faces.has(direction):

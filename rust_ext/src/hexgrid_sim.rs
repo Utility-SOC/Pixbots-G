@@ -276,26 +276,31 @@ fn neighbor(q: i64, r: i64, d: i64) -> (i64, i64) {
     (q + dd.0, r + dd.1)
 }
 
+// All six helpers use try_to().ok() rather than to() - a modded/edited
+// tile or a bridge/schema drift can hand us a key with the wrong Variant
+// type, and to() panics on a conversion failure, which takes down the
+// whole Godot process rather than just that one tile's stat. try_to()
+// turns a bad type into "missing", falling back to the same default a
+// truly-absent key would get.
 fn get_i(d: &VDict, k: &str) -> i64 {
-    d.get(k).map(|v| v.to::<i64>()).unwrap_or(0)
+    d.get(k).and_then(|v| v.try_to::<i64>().ok()).unwrap_or(0)
 }
 
 fn get_f(d: &VDict, k: &str) -> f64 {
-    d.get(k).map(|v| v.to::<f64>()).unwrap_or(0.0)
+    d.get(k).and_then(|v| v.try_to::<f64>().ok()).unwrap_or(0.0)
 }
 
 fn get_f_or(d: &VDict, k: &str, default: f64) -> f64 {
-    d.get(k).map(|v| v.to::<f64>()).unwrap_or(default)
+    d.get(k).and_then(|v| v.try_to::<f64>().ok()).unwrap_or(default)
 }
 
 fn get_b(d: &VDict, k: &str) -> bool {
-    d.get(k).map(|v| v.to::<bool>()).unwrap_or(false)
+    d.get(k).and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false)
 }
 
 fn get_f10(d: &VDict, k: &str) -> [f64; SYN_COUNT] {
     let mut out = [0.0; SYN_COUNT];
-    if let Some(v) = d.get(k) {
-        let arr = v.to::<PackedFloat64Array>();
+    if let Some(arr) = d.get(k).and_then(|v| v.try_to::<PackedFloat64Array>().ok()) {
         let s = arr.as_slice();
         for i in 0..SYN_COUNT.min(s.len()) {
             out[i] = s[i];
@@ -306,8 +311,7 @@ fn get_f10(d: &VDict, k: &str) -> [f64; SYN_COUNT] {
 
 fn get_b10(d: &VDict, k: &str) -> [bool; SYN_COUNT] {
     let mut out = [false; SYN_COUNT];
-    if let Some(v) = d.get(k) {
-        let arr = v.to::<PackedInt32Array>();
+    if let Some(arr) = d.get(k).and_then(|v| v.try_to::<PackedInt32Array>().ok()) {
         let s = arr.as_slice();
         for i in 0..SYN_COUNT.min(s.len()) {
             out[i] = s[i] != 0;
@@ -319,21 +323,25 @@ fn get_b10(d: &VDict, k: &str) -> [bool; SYN_COUNT] {
 fn parse_tile(d: &VDict) -> (TileDesc, TileState) {
     let mut faces = Vec::new();
     let mut weights = Vec::new();
-    if let Some(v) = d.get("faces") {
-        let arr = v.to::<PackedInt32Array>();
+    if let Some(arr) = d.get("faces").and_then(|v| v.try_to::<PackedInt32Array>().ok()) {
         for f in arr.as_slice() {
             faces.push(*f as i64);
         }
     }
-    if let Some(v) = d.get("weights") {
-        let arr = v.to::<PackedFloat64Array>();
+    if let Some(arr) = d.get("weights").and_then(|v| v.try_to::<PackedFloat64Array>().ok()) {
         for w in arr.as_slice() {
             weights.push(*w);
         }
     }
+    // A SPLITTER whose weights don't cover faces.len()-1 entries (mismatched
+    // dict from a modded/edited tile, or bridge drift) used to index
+    // tile.weights[i] out of bounds and panic mid-simulation. Fall back to
+    // an even split across all faces instead of crashing the whole process.
+    if !faces.is_empty() && weights.len() < faces.len().saturating_sub(1) {
+        weights = vec![1.0; faces.len()];
+    }
     let mut extra_cells = Vec::new();
-    if let Some(v) = d.get("extra_cells") {
-        let arr = v.to::<PackedInt32Array>();
+    if let Some(arr) = d.get("extra_cells").and_then(|v| v.try_to::<PackedInt32Array>().ok()) {
         let s = arr.as_slice();
         let mut i = 0;
         while i + 1 < s.len() {
@@ -342,8 +350,7 @@ fn parse_tile(d: &VDict) -> (TileDesc, TileState) {
         }
     }
     let mut sync_dropoff = [3i64; 3];
-    if let Some(v) = d.get("sync_dropoff") {
-        let arr = v.to::<PackedInt32Array>();
+    if let Some(arr) = d.get("sync_dropoff").and_then(|v| v.try_to::<PackedInt32Array>().ok()) {
         let s = arr.as_slice();
         for i in 0..3.min(s.len()) {
             sync_dropoff[i] = s[i] as i64;
@@ -397,8 +404,7 @@ fn parse_tile(d: &VDict) -> (TileDesc, TileState) {
     state.remnant_present = get_b10(d, "remnant_present");
     state.magnetic_power = get_f(d, "magnetic_power");
     state.gate_counter = get_i(d, "gate_counter");
-    if let Some(v) = d.get("residue_syn") {
-        let arr = v.to::<PackedInt32Array>();
+    if let Some(arr) = d.get("residue_syn").and_then(|v| v.try_to::<PackedInt32Array>().ok()) {
         let s = arr.as_slice();
         for i in 0..3.min(s.len()) {
             state.residue_syn[i] = s[i] as i64;
@@ -406,8 +412,7 @@ fn parse_tile(d: &VDict) -> (TileDesc, TileState) {
     } else {
         state.residue_syn = [-1; 3];
     }
-    if let Some(v) = d.get("residue_steps") {
-        let arr = v.to::<PackedInt32Array>();
+    if let Some(arr) = d.get("residue_steps").and_then(|v| v.try_to::<PackedInt32Array>().ok()) {
         let s = arr.as_slice();
         for i in 0..3.min(s.len()) {
             state.residue_steps[i] = s[i] as i64;
@@ -831,7 +836,15 @@ fn process_energy(
             if p.magnitude <= 0.0 || !p.active {
                 return vec![];
             }
-            let mut cell_idx: i64 = 0;
+            // -1 = "entry_cell matched none of this Lance's own cells" -
+            // grid/state inconsistency (shouldn't normally happen) rather
+            // than a real hit on the anchor. Previously defaulted silently
+            // to 0 (the anchor cell), misattributing the hit instead of
+            // signaling the mismatch. The GDScript side (RustGridSim.gd)
+            // only uses this to build a "%d:%d" face_key string, so -1 is
+            // safe to pass through: it just becomes a face key that never
+            // matches a real tracked face, instead of wrongly crediting one.
+            let mut cell_idx: i64 = if entry_cell == tile_anchor { 0 } else { -1 };
             if entry_cell != tile_anchor {
                 for (i, off) in tile.extra_cells.iter().enumerate() {
                     if entry_cell == (tile_anchor.0 + off.0, tile_anchor.1 + off.1) {
@@ -885,7 +898,7 @@ impl HexGridSim {
         let mut anchors: Vec<(i64, i64)> = Vec::new();
         let mut grid: HashMap<(i64, i64), usize> = HashMap::new();
         for (idx, v) in tiles.iter_shared().enumerate() {
-            let d = v.to::<VDict>();
+            let d = v.try_to::<VDict>().unwrap_or_default();
             let q = get_i(&d, "q");
             let r = get_i(&d, "r");
             let (desc, state) = parse_tile(&d);
@@ -908,7 +921,7 @@ impl HexGridSim {
 
         let mut active: Vec<Packet> = Vec::new();
         for v in packets.iter_shared() {
-            active.push(parse_packet(&v.to::<VDict>()));
+            active.push(parse_packet(&v.try_to::<VDict>().unwrap_or_default()));
         }
 
         let mut outs = SimOutputs {

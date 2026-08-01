@@ -80,9 +80,11 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	# too (remnant energy from the last packet boosts the next one).
 	if rarity == Rarity.MYTHIC:
 		if _remnant_magnitudes.size() > 0:
+			var to_add = {}
 			for k in _remnant_magnitudes:
-				packet.add_synergy(k, _remnant_magnitudes[k] * 0.8)
+				to_add[k] = _remnant_magnitudes[k] * 0.8
 				_remnant_magnitudes[k] *= 0.2 # consume most of it
+			packet.add_synergies_batch(to_add)
 		for syn in packet.synergies:
 			_remnant_magnitudes[syn] = packet.synergies[syn] * 0.15
 		packet.amplify(2.0)

@@ -76,9 +76,11 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	# repeat/crossed traffic.
 	var mult = 1.0 + (TileStatsRegistry.get_stat("ResonatorTile", "baseline_amplify", 0.15) * _get_power_multiplier())
 	if _remnant_magnitudes.size() > 0:
+		var to_add = {}
 		for k in _remnant_magnitudes:
-			packet.add_synergy(k, _remnant_magnitudes[k] * 0.8)
+			to_add[k] = _remnant_magnitudes[k] * 0.8
 			_remnant_magnitudes[k] *= 0.2 # consume most of it
+		packet.add_synergies_batch(to_add)
 		mult += boost_per_remnant * _get_power_multiplier()
 	packet.amplify(mult)
 

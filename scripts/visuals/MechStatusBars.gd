@@ -21,15 +21,40 @@ var owner_renderer: Node = null
 var _last_hp_pct: float = -1.0
 var _last_shld_pct: float = -1.0
 
-# Perf instrumentation (temporary, see FpsCounter.gd's breakdown line) -
-# _process() itself is cheap (a couple of float compares), but it has no
-# distance/LOD gate at all and calls queue_redraw() -> _draw() on ANY
-# hp/shield change, which during heavy sustained combat with 70-90 mechs is
-# most of them, most frames. Aggregate _draw() cost across every instance,
-# read + reset once a second by FpsCounter.
+# Perf instrumentation (see FpsCounter.gd's breakdown line) - _process()
+# itself is cheap (a couple of float compares), but it had no distance/LOD
+# gate at all and called queue_redraw() -> _draw() on ANY hp/shield change,
+# which during heavy sustained combat with 70-90 mechs is most of them,
+# most frames. Aggregate _draw() cost across every instance, read + reset
+# once a second by FpsCounter.
 static var _perf_draw_usec: int = 0
 
+# Screen-visibility gate (not a distance radius - see _on_screen below) so
+# a mech's bar simply doesn't redraw while genuinely outside the camera's
+# current view. Deliberately screen-visibility, NOT distance-from-player:
+# a distance cutoff would also suppress a Kinetic-range sniper target that
+# IS on screen at a zoomed-out view, just far away - this only ever skips
+# mechs with literally nothing visible to draw. Mirrors the same
+# VisibleOnScreenNotifier2D pattern Projectile.gd already uses for its own
+# off-screen culling.
+var _on_screen: bool = true
+
+func _ready():
+	var notifier = VisibleOnScreenNotifier2D.new()
+	# Generous rect - covers the bars' own draw extent above the mech
+	# (~60px tall including the boss-scale offset) plus the mech body
+	# itself, so the gate only trips once truly nothing here is visible.
+	notifier.rect = Rect2(-40, -100, 80, 140)
+	notifier.screen_entered.connect(func():
+		_on_screen = true
+		queue_redraw() # catch up on whatever changed while it was hidden
+	)
+	notifier.screen_exited.connect(func(): _on_screen = false)
+	add_child(notifier)
+
 func _process(_delta):
+	if not _on_screen:
+		return
 	if not owner_mech or not is_instance_valid(owner_mech) or not "hp" in owner_mech:
 		return
 	var hp_pct = clamp(owner_mech.hp / max(1.0, owner_mech.max_hp), 0.0, 1.0)

@@ -69,6 +69,10 @@ func get_bay_energy() -> float:
 	stored_energy = 0.0
 	return e
 
+func reset_simulation_state() -> void:
+	super.reset_simulation_state()
+	stored_energy = 0.0
+
 # Guarantees drone_loadout is populated and sized for the CURRENT rarity,
 # building it on first use if needed. Every construction path (loot rolls,
 # Black Market offers, save/load) should read the loadout through this

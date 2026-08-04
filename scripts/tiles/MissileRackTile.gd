@@ -78,10 +78,66 @@ const SPREAD_RADIUS = 55.0
 # doesn't extend WeaponMountTile and has no access to it.
 const SHELL_SPEED_BASE = 420.0
 
+# --- Targeting (design ruling: "ultra long range ground to ground") -------
+# Unlike every other weapon, a Missile Rack doesn't fire at the mech's
+# current aim point at all - it's an autonomous indirect-fire piece that
+# picks its OWN target: the FURTHEST enemy within [MIN_RANGE, max_range].
+# max_range reuses Projectile.gd's exact kinetic-scales-range formula
+# (BASE_RANGE + KINETIC_RANGE_BONUS * kinetic_ratio - see that file's field
+# comment for "kinetic should be able to make range MUCH longer") so a
+# Missile Rack's own Kinetic investment pays off exactly like it does for
+# every other weapon, just with a higher base via RANGE_MULT on top - same
+# "final multiplier over the whole computed range" slot Projectile.gd
+# already has for range_mult/beam shots, not a parallel range system.
+const ProjectileScript = preload("res://scripts/entities/Projectile.gd")
+const RANGE_MULT = 2.5 # "ultra long range" - well past a direct-fire mount's reach
+const MIN_RANGE = 350.0 # can't hit anything closer than this - not a point-defense gun
+
 func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0):
+	# Whole-volley consolidation under saturation - identical gate to
+	# HexTile._fire_combined_projectile's own (see that file's field comment
+	# on _consolidation_buffer/_consolidation_shots, inherited here since
+	# this fully overrides the base method rather than calling super() and
+	# would otherwise never engage ProjectileManager.consolidation_factor()
+	# at all). Same total energy delivered downrange (still as a full
+	# salvo), a fraction of the Area2D population under heavy fire.
+	if not _pattern_child:
+		var k = ProjectileManager.consolidation_factor()
+		if k > 1:
+			if _consolidation_buffer == null:
+				_consolidation_buffer = packet.copy()
+			else:
+				for s in packet.synergies:
+					_consolidation_buffer.add_synergy(s, packet.synergies[s])
+			_consolidation_shots += 1
+			if _consolidation_shots < k:
+				return
+			packet = _consolidation_buffer
+			_consolidation_buffer = null
+			_consolidation_shots = 0
+		elif _consolidation_buffer != null:
+			for s in packet.synergies:
+				_consolidation_buffer.add_synergy(s, packet.synergies[s])
+			packet = _consolidation_buffer
+			_consolidation_buffer = null
+			_consolidation_shots = 0
+
 	var world = mech.get_parent()
 	if not world:
 		return
+
+	var muzzle = get_muzzle_position(mech)
+	var by_player = mech.get("is_player") == true
+
+	var total_mag = 0.0
+	for k in packet.synergies:
+		total_mag += packet.synergies[k]
+	var kinetic_ratio = (packet.synergies.get(EnergyPacket.SynergyType.KINETIC, 0.0) / total_mag) if total_mag > 0.0 else 0.0
+	var max_range = (ProjectileScript.BASE_RANGE + ProjectileScript.KINETIC_RANGE_BONUS * kinetic_ratio) * RANGE_MULT
+
+	var target_pos = _find_furthest_target_in_range(muzzle, by_player, max_range)
+	if target_pos == null:
+		return # nothing in [MIN_RANGE, max_range] - dry-fire, same as any weapon with no target
 
 	# Feed the director's mortar counter-doctrine (cloaks/jammers answer
 	# artillery) exactly like WeaponMountTile's Mythic Mortar pattern does -
@@ -89,17 +145,11 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# that doctrine exists to counter, and player shots only (see
 	# MortarShell._detonate's matching gate: the AI countering itself would
 	# be silly).
-	if mech.get("is_player") == true:
+	if by_player:
 		var main = mech.get_tree().current_scene if mech.is_inside_tree() else null
 		if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
 			main.world.get_node("SquadDirector").log_mortar_shot()
 
-	var target_pos: Vector2 = mech.get("last_aim_position") if "last_aim_position" in mech else mech.global_position + Vector2(0, -100)
-	var muzzle = get_muzzle_position(mech)
-
-	var total_mag = 0.0
-	for k in packet.synergies:
-		total_mag += packet.synergies[k]
 	var pierce_ratio = (packet.synergies.get(EnergyPacket.SynergyType.PIERCE, 0.0) / total_mag) if total_mag > 0.0 else 0.0
 	# Same pierce-scales-flight-speed identity as the Mythic Mortar pattern
 	# (see HexTile._fire_mortar) - a Missile Rack investing in Pierce still
@@ -124,5 +174,25 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 		flight_time += i * 0.06
 
 		var shell = MortarShellScript.new()
-		shell.setup(muzzle, impact_pos, flight_time, per_shell_damage, packet.synergies.duplicate(), mech.get("is_player") == true, mech, packet.aoe_bonus)
+		shell.setup(muzzle, impact_pos, flight_time, per_shell_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus)
 		world.add_child(shell)
+
+# Scans the opposing EntityCache group (same convention as MortarShell.
+# _detonate/Projectile.gd's own homing-target scans) for the single FARTHEST
+# valid target inside [MIN_RANGE, max_range] from the muzzle - null if none
+# qualify. Furthest, not nearest: this is meant to reach out and hit
+# something a direct-fire mount can't, not to plink the closest target.
+func _find_furthest_target_in_range(muzzle: Vector2, by_player: bool, max_range: float):
+	var candidates: Array = EntityCache.get_group("enemy") if by_player else EntityCache.get_group("player")
+	var best = null
+	var best_dist = -1.0
+	for c in candidates:
+		if not is_instance_valid(c) or c.get("is_dead"):
+			continue
+		var d = muzzle.distance_to(c.global_position)
+		if d < MIN_RANGE or d > max_range:
+			continue
+		if d > best_dist:
+			best_dist = d
+			best = c
+	return best.global_position if best else null

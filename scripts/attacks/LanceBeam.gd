@@ -45,16 +45,34 @@ func _spawn_residue_chain():
 	if total_len < 1.0:
 		return
 	var dir = (end_pos - start_pos) / total_len
-	var count = max(1, int(total_len / SEGMENT_SPACING))
+
+	# Saturation-aware chain density (same ProjectileManager signal every
+	# other weapon's consolidation already keys off - see its own header
+	# for the tier table). A beam_range=6000 Lance drops ~67 of these
+	# per shot at the default 90px spacing, each living residue_lifetime
+	# (25s default) against a 10s cooldown - a continuously-firing Lance
+	# alone steady-states at ~200 concurrent hazard nodes, each running a
+	# real overlap query every physics frame (playtest: exactly this was
+	# tanking FPS well past what enemy count alone would explain). Spacing
+	# widens and each zone's own radius grows to match (area, not just
+	# spacing, scales with k - otherwise widely-spaced small circles would
+	# leave gaps a beam this size is supposed to threaten) - k=1 (no
+	# saturation) reproduces today's exact spacing/radius unchanged.
+	var k = ProjectileManager.consolidation_factor()
+	var spacing = SEGMENT_SPACING * k
+	var seg_radius = 25.0 * sqrt(float(k))
+
+	var count = max(1, int(total_len / spacing))
 	# Total beam damage spread across the residue's own lifetime as a DPS,
 	# so standing in one segment for the field's whole duration takes
 	# roughly the beam's own hit - not a separate full hit per segment.
 	var dps = damage / max(1.0, residue_lifetime * 0.3)
 	for i in range(count + 1):
-		var dist = min(SEGMENT_SPACING * i, total_len)
+		var dist = min(spacing * i, total_len)
 		var pos = start_pos + dir * dist
 		var residue = JumpjetResidueScript.new()
 		residue.lifetime = residue_lifetime
+		residue.radius = seg_radius
 		residue.source_mech = source_mech if by_player else null
 		residue.collision_mask = 4 if by_player else 8 # Enemies : Player
 		residue.global_position = pos

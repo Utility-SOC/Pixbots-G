@@ -44,9 +44,28 @@ func _ready():
 	
 	area_entered.connect(_on_area_entered)
 	body_entered.connect(_on_body_entered)
-	
+
 	var timer = get_tree().create_timer(LIFETIME)
 	timer.timeout.connect(queue_free)
+
+	# Registers with the SAME live-count census every other weapon's
+	# saturation tiers key off (ProjectileManager.consolidation_factor()/
+	# lite_visuals()) - this class predates that system and never joined it,
+	# so a screen full of orbiting projectiles was invisible to it: other
+	# weapons' consolidation never accounted for the load these add, and
+	# these themselves never got the flight-math batching treatment either.
+	# _prepare_flight_request below opts out of the batching half (orbital
+	# motion isn't a linear flight path the Rust batch understands) while
+	# still being counted for saturation purposes.
+	ProjectileManager.register(self)
+
+func _exit_tree():
+	ProjectileManager.unregister(self)
+
+# Never batched (see _ready's comment) - registering only for the live-
+# count census, not the flight-math dispatch.
+func _prepare_flight_request(_delta: float):
+	return null
 
 func _process(delta: float):
 	if not is_instance_valid(source_mech):

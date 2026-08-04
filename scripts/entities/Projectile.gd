@@ -152,6 +152,12 @@ var _handled_targets: Dictionary = {}
 # OFF-SCREEN CULLING block in _ready() for why this isn't instant anymore.
 const OFFSCREEN_GRACE_SEC = 2.0
 var _offscreen_cull_timer: Timer = null
+# Task #35 (Projectile pooling, B3) - lifetime Timer and off-screen-cull
+# VisibleOnScreenNotifier2D, created once (first _ready()) and reused
+# across ProjectilePool activations rather than recreated every time. null
+# until first created; see _ready()'s guarded creation blocks.
+var _lifetime_timer: Timer = null
+var _vis_notifier: VisibleOnScreenNotifier2D = null
 # Magnitude-driven size multiplier computed in _build_visuals() (its local
 # p_scale) - the actual on-screen shape is scale * visual_scale (self.scale
 # is the ratio-driven s_mod from _calculate_stats, visual_node inherits it
@@ -241,7 +247,83 @@ var collision_mask: int = 0
 # ProjectileBroadphase.report_movement() every tick.
 var _hit_radius: float = 4.0
 
+# Task #35 (Projectile pooling) - a single, auditable reset point for every
+# field that ACCUMULATES/MUTATES over a projectile's flight, called
+# unconditionally at the top of _ready() on both first-time activation and
+# every reuse via ProjectilePool.gd. Fields set exactly once per shot from
+# fire-time inputs (synergies, damage, fired_by_player, collision_mask,
+# etc.) are NOT duplicated here - they're always overwritten by the real
+# caller (HexTile._fire_combined_projectile) before add_child() regardless
+# of whether this is a fresh or reused instance, so there's nothing to
+# reset for them. This function exists specifically because _ready() only
+# runs once per node's lifetime by default - ProjectilePool.acquire() calls
+# request_ready() to force it to run again on reuse, so this must be the
+# single place a reused instance's leftover flight state gets wiped, or a
+# stale value here would be a real gameplay bug (wrong hit tracking, wrong
+# homing target, wrong lightning/pierce chain state - see the
+# _lightning_hops_left leak this same investigation already found and fixed
+# in _calculate_stats()).
+func _reset_pooled_state():
+	# ratios/total_power are computed by _ready()'s own ratio-normalization
+	# loop just below (`ratios[k] = synergies[k] / total_power`), which only
+	# ever SETS keys into whatever dict already exists - never clears it -
+	# and ACCUMULATES into total_power rather than starting fresh. Caught by
+	# ProjectileReuseMechanicsCheck.gd testing the raw reuse mechanic before
+	# ProjectilePool even existed: a second activation's ratios/damage came
+	# out silently corrupted (blended with the first activation's leftover
+	# RAW:1.0 entry and total_power), the exact category of bug this whole
+	# investigation was watching for.
+	ratios.clear()
+	total_power = 0.0
+	_handled_targets.clear()
+	time_alive = 0.0
+	distance_traveled = 0.0
+	_blink_timer = 0.0
+	_mine_detonated = false
+	_is_poison_mine = false # re-derived from ratios a few lines below in _ready(), reset here for a clean baseline
+	was_reflected = false
+	_cached_homing_target = null
+	_homing_query_timer = randf() * HOMING_QUERY_INTERVAL
+	_vortex_query_timer = randf() * VORTEX_QUERY_INTERVAL
+	_lightning_segment_index = -1
+	_lightning_prev_offset = 0.0
+	_lightning_target_offset = 0.0
+	helix_particles.clear()
+	_flight_r_kin = 0.0
+	_flight_r_vamp = 0.0
+	_flight_r_ice = 0.0
+	_flight_r_fire = 0.0
+	_flight_r_prc = 0.0
+	_flight_r_psn = 0.0
+	_flight_r_vtx = 0.0
+	_flight_r_ltg = 0.0
+	_flight_straighten = 0.0
+	_flight_steering_resistance = 1.0
+	_flight_active_homing_target = null
+	# _lightning_hops_left/_lightning_hops_max/pierce_count/_pierce_count_max
+	# are correctly (re)computed by _calculate_stats(), called later in this
+	# same _ready() - not duplicated here; that invariant is worth
+	# re-checking if _calculate_stats() ever changes.
+	# _lifetime_timer/_vis_notifier are child-node state, handled separately
+	# by _ready()'s own reuse guards below (they persist across reuses, not
+	# recreated) - not plain scalar fields, so they don't belong here.
+	#
+	# _offscreen_cull_timer is the one real exception: a previous life could
+	# have left one alive and still counting down (if the shot got released
+	# back to the pool via a hit/expiry BEFORE the cull grace window
+	# elapsed, rather than by the cull timer itself firing). Left alone,
+	# that stale Timer could fire LATER - after this same node has already
+	# been reactivated as a brand new shot - and incorrectly call
+	# _release_or_free() on the NEW shot. Same stop+free+null sequence the
+	# screen_entered closure already uses to cancel a real one.
+	if _offscreen_cull_timer:
+		_offscreen_cull_timer.stop()
+		_offscreen_cull_timer.queue_free()
+		_offscreen_cull_timer = null
+
 func _ready():
+	_reset_pooled_state()
+
 	# Desync throttled queries (the user: "freezing is still happening
 	# regularly") - every projectile defaulted these timers to 0.0, so every
 	# projectile fired in the same volley (a shotgun/radial Mythic pattern,
@@ -304,14 +386,20 @@ func _ready():
 	else:
 		collision_mask = 8 | 1 | 32 # Player + World + Obstacles
 
-	# EXPLOSION DETONATION
-	var timer = Timer.new()
-	timer.wait_time = _get_lifetime()
-	timer.one_shot = true
-	timer.timeout.connect(_expire)
-	add_child(timer)
-	timer.start()
-	
+	# EXPLOSION DETONATION - lifetime Timer. Created once and reused across
+	# ProjectilePool activations (task #35, B3) instead of recreated every
+	# _ready() call: its timeout.connect(_expire) binding stays valid across
+	# reuse since it's the SAME node instance targeting the SAME `self`
+	# every time (Callables bound to `self` aren't invalidated by leaving
+	# and re-entering the tree, only by the instance itself being freed).
+	if not _lifetime_timer:
+		_lifetime_timer = Timer.new()
+		_lifetime_timer.one_shot = true
+		_lifetime_timer.timeout.connect(_expire)
+		add_child(_lifetime_timer)
+	_lifetime_timer.wait_time = _get_lifetime()
+	_lifetime_timer.start()
+
 	# OFF-SCREEN CULLING FOR PERFORMANCE - used to queue_free() the instant
 	# the shot left the camera's view, which meant nothing could ever be
 	# shot at past the edge of the screen ("I need to be able to shoot far
@@ -327,28 +415,35 @@ func _ready():
 	# _get_lifetime() (~4s baseline) is still the hard cap regardless, so
 	# this can't leak projectiles forever even if the grace timer somehow
 	# never fires.
-	var vis_notifier = VisibleOnScreenNotifier2D.new()
-	vis_notifier.rect = Rect2(-10, -10, 20, 20)
-	vis_notifier.screen_exited.connect(func():
-		if is_queued_for_deletion() or _offscreen_cull_timer:
-			return
-		_offscreen_cull_timer = Timer.new()
-		_offscreen_cull_timer.wait_time = OFFSCREEN_GRACE_SEC
-		_offscreen_cull_timer.one_shot = true
-		_offscreen_cull_timer.timeout.connect(func():
-			if not is_queued_for_deletion():
-				queue_free()
+	#
+	# VisibleOnScreenNotifier2D also created once and reused (task #35, B3):
+	# its two lambda closures read LIVE self/_offscreen_cull_timer state
+	# each time they fire, not values captured at connect-time, so they stay
+	# correct across reuses without needing to reconnect - confirmed by
+	# direct code read (both closures reference `self`/`_offscreen_cull_timer`
+	# by name, evaluated fresh on each firing, not snapshotted).
+	if not _vis_notifier:
+		_vis_notifier = VisibleOnScreenNotifier2D.new()
+		_vis_notifier.rect = Rect2(-10, -10, 20, 20)
+		_vis_notifier.screen_exited.connect(func():
+			if is_queued_for_deletion() or _offscreen_cull_timer:
+				return
+			_offscreen_cull_timer = Timer.new()
+			_offscreen_cull_timer.wait_time = OFFSCREEN_GRACE_SEC
+			_offscreen_cull_timer.one_shot = true
+			_offscreen_cull_timer.timeout.connect(func():
+				_release_or_free()
+			)
+			add_child(_offscreen_cull_timer)
+			_offscreen_cull_timer.start()
 		)
-		add_child(_offscreen_cull_timer)
-		_offscreen_cull_timer.start()
-	)
-	vis_notifier.screen_entered.connect(func():
-		if _offscreen_cull_timer:
-			_offscreen_cull_timer.stop()
-			_offscreen_cull_timer.queue_free()
-			_offscreen_cull_timer = null
-	)
-	add_child(vis_notifier)
+		_vis_notifier.screen_entered.connect(func():
+			if _offscreen_cull_timer:
+				_offscreen_cull_timer.stop()
+				_offscreen_cull_timer.queue_free()
+				_offscreen_cull_timer = null
+		)
+		add_child(_vis_notifier)
 
 	# INSTANT LIGHTNING (FEATURE_ROADMAP.md group 3): a lightning-dominant
 	# shot shouldn't visibly "fly". The projectile still exists - every bit
@@ -388,6 +483,16 @@ func _spawn_instant_bolt_flash():
 	tw.tween_property(bolt, "modulate:a", 0.0, 0.18)
 	tw.tween_callback(bolt.queue_free)
 
+# Task #35 (Projectile pooling) - single indirection point for "this
+# projectile's flight is over," used by every real end-of-life site instead
+# of each calling queue_free() directly. For now just queue_free()s
+# (ProjectilePool doesn't exist until B4/B5) - once wired, this becomes the
+# one place that decides queue_free() vs ProjectilePool.release(self), so
+# none of the call sites below need touching again if that decision changes.
+func _release_or_free():
+	if not is_queued_for_deletion():
+		queue_free()
+
 # Shared end-of-flight cleanup - called both by the lifetime Timer (time ran
 # out) and by the max_range distance check in _physics_process (traveled far
 # enough). Same outcome either way: detonate if this shot carries EXPLOSION,
@@ -397,8 +502,7 @@ func _expire():
 		_trigger_poison_mine_detonation()
 	elif ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) > 0.1:
 		_trigger_explosion()
-	if not is_queued_for_deletion():
-		queue_free()
+	_release_or_free()
 
 func _get_lifetime() -> float:
 	var base_life = 4.0
@@ -445,7 +549,19 @@ func _calculate_stats():
 	max_range *= range_mult
 
 	# Lightning blink hops (see the BLINK_INTERVAL block comment): extra
-	# targets beyond the first, 4 at full lightning.
+	# targets beyond the first, 4 at full lightning. Unconditional reset
+	# before the ratio check (task #35 pooling investigation, 2026-08-03) -
+	# the old code only ever SET these inside the `if`, with no `else`, so a
+	# projectile with no/low lightning ratio silently kept whatever
+	# _lightning_hops_left/_max value was already on the instance. Every
+	# projectile is freshly `.new()`'d today so this never surfaced (a fresh
+	# instance's default `= 0` already matches what the reset below now sets
+	# explicitly) - but it's a precondition for safely reusing instances via
+	# ProjectilePool, and a real latent bug regardless (relying on Godot's
+	# per-var declared default rather than actually resetting derived state
+	# each calculation pass).
+	_lightning_hops_left = 0
+	_lightning_hops_max = 0
 	var r_ltg_stats = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	if r_ltg_stats > LIGHTNING_BLINK_MIN:
 		_lightning_hops_left = int(round(4.0 * r_ltg_stats))
@@ -532,6 +648,19 @@ func _calculate_stats():
 	final_color.a = 1.0
 
 func _build_visuals():
+	# On a pooled reuse, the previous activation's synergy-specific shapes
+	# (Polygon2D/Trail2D/GPUParticles2D/etc.) are still attached to the old
+	# visual_node - must be torn down before building the new one, or a
+	# reused shot would render BOTH the stale old-composition visuals and
+	# the new ones simultaneously (the `visual_node` var reassignment below
+	# only forgets the reference, it doesn't remove the actual node/children).
+	if visual_node:
+		# remove_child (not just queue_free) so the stale subtree is gone
+		# from the live tree THIS frame, not at end-of-frame - queue_free
+		# alone would let the old and new visual_node render simultaneously
+		# for one frame after every pooled reuse.
+		remove_child(visual_node)
+		visual_node.queue_free()
 	visual_node = Node2D.new()
 	add_child(visual_node)
 	visual_node.material = _get_add_material()
@@ -845,9 +974,7 @@ var _flight_active_homing_target: Node2D = null
 # needs into a request Dictionary shaped for ProjectileFlight.compute_step/
 # compute_batch. Never called for poison mines (see _ready - they use
 # _physics_process_mine's entirely separate movement model instead).
-func _prepare_flight_request(delta: float) -> Dictionary:
-	var space_state = get_world_2d().direct_space_state
-
+func _prepare_flight_state(delta: float) -> void:
 	_flight_r_kin = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
 	_flight_r_vamp = ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
 	_flight_r_ice = ratios.get(EnergyPacket.SynergyType.ICE, 0.0)
@@ -882,11 +1009,28 @@ func _prepare_flight_request(delta: float) -> Dictionary:
 		_homing_query_timer -= delta
 		if _homing_query_timer <= 0.0 or not is_instance_valid(_cached_homing_target):
 			_homing_query_timer = HOMING_QUERY_INTERVAL
-			_cached_homing_target = _find_homing_target(space_state, _flight_r_kin, _flight_r_vamp, _flight_r_ltg)
+			# Task #33: was a synchronous per-projectile
+			# PhysicsShapeQueryParameters2D.intersect_shape() call
+			# (_find_homing_target, still intact below for A/B comparison) -
+			# now enqueues a request ProjectileTargetingBatcher.gd resolves
+			# for every due projectile in ONE batched call per physics tick.
+			# _cached_homing_target is written directly by the batcher
+			# (same direct-field-write contract as SeparationBatcher's
+			# _cached_separation) once it resolves, one tick from now at
+			# the earliest - a minor, disclosed latency, same tier as every
+			# other batcher this session.
+			_request_homing_target()
 		if is_instance_valid(_cached_homing_target):
 			_flight_active_homing_target = _cached_homing_target
 			target_direction = (_cached_homing_target.global_position - global_position).normalized()
 
+# Dictionary-shaped request, used only by the rare single-projectile
+# fallback path in _physics_process_body (a projectile's very first tick,
+# before ProjectileManager has registered/batched it) - Dictionary
+# marshalling cost doesn't matter for a call this infrequent. The real
+# per-frame hot path uses _prepare_flight_request_flat below instead.
+func _prepare_flight_request(delta: float) -> Dictionary:
+	_prepare_flight_state(delta)
 	return {
 		"instance_id": get_instance_id(),
 		"ratios": {"r_kin": _flight_r_kin, "r_vamp": _flight_r_vamp, "r_fire": _flight_r_fire, "r_psn": _flight_r_psn, "r_vtx": _flight_r_vtx, "r_ltg": _flight_r_ltg, "r_prc": _flight_r_prc},
@@ -895,6 +1039,53 @@ func _prepare_flight_request(delta: float) -> Dictionary:
 		"steering_resistance": _flight_steering_resistance, "straighten": _flight_straighten,
 		"lightning_state": {"segment_index": _lightning_segment_index, "prev_offset": _lightning_prev_offset, "target_offset": _lightning_target_offset},
 	}
+
+# Flat PackedFloat64Array request, REQUEST_STRIDE (20) values, used by
+# ProjectileManager's real per-frame batched collection loop (2026-08-03
+# rewrite - see ProjectileManager.gd's module comment and
+# rust_ext/src/projectile_flight.rs's compute_batch_flat for the full
+# story: the OLD per-projectile Dictionary-request approach cost ~1.94ms/
+# tick just marshalling 500 nested Dictionaries across the Rust FFI
+# boundary, on top of ~1.09ms/tick building them in GDScript in the first
+# place - packed-array construction here + a flat-array FFI marshal on the
+# Rust side both replace that. instance_id is NOT included in this array
+# (ProjectileManager already tracks the calling Projectile by reference in
+# its own collection loop, in the same order) - only used as a Rust-side
+# hash seed for the lightning zig-zag, appended by the caller separately
+# into its own PackedInt64Array.
+#
+# Field order (MUST match rust_ext/src/projectile_flight.rs's
+# compute_batch_flat contract exactly):
+#   0:r_kin 1:r_vamp 2:r_fire 3:r_psn 4:r_vtx 5:r_ltg 6:r_prc
+#   7:direction.x 8:direction.y 9:target_direction.x 10:target_direction.y
+#   11:has_homing_target 12:final_speed 13:time_alive 14:delta
+#   15:steering_resistance 16:straighten
+#   17:lightning_segment_index 18:lightning_prev_offset 19:lightning_target_offset
+func _prepare_flight_request_flat(delta: float) -> PackedFloat64Array:
+	_prepare_flight_state(delta)
+	var out := PackedFloat64Array()
+	out.resize(20)
+	out[0] = _flight_r_kin
+	out[1] = _flight_r_vamp
+	out[2] = _flight_r_fire
+	out[3] = _flight_r_psn
+	out[4] = _flight_r_vtx
+	out[5] = _flight_r_ltg
+	out[6] = _flight_r_prc
+	out[7] = direction.x
+	out[8] = direction.y
+	out[9] = target_direction.x
+	out[10] = target_direction.y
+	out[11] = 1.0 if _flight_active_homing_target != null else 0.0
+	out[12] = final_speed
+	out[13] = time_alive
+	out[14] = delta
+	out[15] = _flight_steering_resistance
+	out[16] = _flight_straighten
+	out[17] = float(_lightning_segment_index)
+	out[18] = _lightning_prev_offset
+	out[19] = _lightning_target_offset
+	return out
 
 # Thin timing wrapper (see FpsCounter.gd's breakdown line and Mech.gd's
 # matching _shoot/_shoot_impl split) - renamed the real body to
@@ -906,6 +1097,14 @@ func _prepare_flight_request(delta: float) -> Dictionary:
 # volume gets high" (441 live shots was the real number that raised this
 # question).
 static var _perf_physics_usec: int = 0
+# Isolates the two throttled shape-query costs within _perf_physics_usec's
+# total - candidates for the AI-tactics-cutover-style "measure first" batch
+# investigation (task #33: batch homing-target search + vortex pull queries
+# into Rust). Both wrap the REAL PhysicsShapeQueryParameters2D.intersect_shape()
+# call sites (_find_homing_target/_pull_nearby_items), only incremented when
+# each projectile's own throttle timer actually fires (not every tick).
+static var _perf_homing_query_usec: int = 0
+static var _perf_vortex_query_usec: int = 0
 
 func _physics_process(delta: float):
 	var _t_phys = Time.get_ticks_usec()
@@ -1041,6 +1240,20 @@ func _physics_process_body(delta: float):
 		if _vortex_query_timer >= VORTEX_QUERY_INTERVAL:
 			var elapsed = _vortex_query_timer
 			_vortex_query_timer = 0.0
+			# Task #33: TRIED routing this through
+			# ProjectileTargetingBatcher.gd's Rust-batched proximity query
+			# (like the homing-target search below), REVERTED after honest
+			# measurement. Unlike homing (which only ever consumes ONE
+			# result and could switch to a no-hits-array reduction, a real
+			# 23.9% win), vortex pull must genuinely apply a force to EVERY
+			# candidate within radius - it can't dodge the same FFI/
+			# marshalling cost the same way. A same-process interleaved A/B
+			# (ProjectileTargetingABCheck.gd) measured the batched version
+			# 46.2% SLOWER than this direct per-projectile physics query,
+			# matching the packet_tax.rs/Phase 4 precedent. The Rust-side
+			# batch_radius_query + ProjectileTargetingBatcher.request_vortex_pull
+			# stay in the tree, unused, in case a future full-frame-batch
+			# redesign changes the economics.
 			_pull_nearby_items(elapsed)
 
 	# APPLY PHYSICS
@@ -1262,9 +1475,38 @@ func _trigger_poison_mine_detonation():
 		get_parent().add_child(v)
 		v.setup(radius, ring_color, 0.5)
 
-# Extracted straight out of the old inline block in _physics_process (see
-# the throttling comment at the call site) - same search logic, just now
-# callable on its own schedule instead of every tick.
+# Replaces the direct _find_homing_target() call (task #33). The
+# search-player case (enemy-fired Vampiric shots) only ever has ONE real
+# candidate - too small a batch to be worth a Rust round-trip, same "don't
+# batch trivial work" lesson Phase 4's BossBrain attempt confirmed - so it's
+# resolved directly here instead of going through the batcher at all. Only
+# the search-enemy case (the common one: player-fired homing/Vampiric
+# shots, searching among potentially dozens of enemies) is genuinely
+# batchable and goes through ProjectileTargetingBatcher.gd.
+func _request_homing_target():
+	var min_dist = 400.0 + (300.0 * _flight_r_vamp)
+	if _flight_r_ltg > 0.0 and _flight_r_vamp > 0.0:
+		min_dist += 500.0 * _flight_r_ltg # Lightning + Vampiric massively increases targeting range
+
+	if not (collision_mask & 4):
+		# Searching for the player - single candidate, resolved directly.
+		_cached_homing_target = null
+		for p in EntityCache.get_group("player"):
+			if is_instance_valid(p) and p.has_method("apply_damage") and global_position.distance_to(p.global_position) <= min_dist:
+				_cached_homing_target = p
+				break
+		return
+
+	var prefer_furthest = _flight_r_kin > 0.0 and _flight_r_vamp > 0.0
+	ProjectileTargetingBatcher.request_homing_target(self, min_dist, prefer_furthest)
+
+# Superseded by _request_homing_target() above (task #33) - a same-process
+# A/B (ProjectileTargetingABCheck.gd) confirmed the batched replacement is a
+# real 23.9% win, unlike vortex pull (see _pull_nearby_items). No longer
+# called from the live hot path; kept only as the reference "old"
+# implementation ProjectileTargetingABCheck.gd benchmarks against, so that
+# comparison stays re-runnable if the Rust side or target population shape
+# ever changes enough to warrant re-checking.
 func _find_homing_target(space_state, r_kin: float, r_vamp: float, r_ltg: float) -> Node2D:
 	var closest = null
 	var min_dist = 400.0 + (300.0 * r_vamp)
@@ -1312,6 +1554,52 @@ func _find_homing_target(space_state, r_kin: float, r_vamp: float, r_ltg: float)
 func _get_vortex_magnitude_pull_mult() -> float:
 	return min(1.0 + log(1.0 + total_power / 200.0) * 0.4, 3.0)
 
+# Extracted from _pull_nearby_items' result loop (task #33: batch
+# homing-target search + vortex pull queries into Rust) so the per-target
+# GAME-RULE math (is_player, vortex immunity/protection) and the actual
+# Node mutation (pull_towards/velocity lerp) can be reused by
+# ProjectileTargetingBatcher.gd's batched resolve step - Rust only ever
+# handles the SPATIAL "who's within radius" part, same "Rust computes
+# geometry, GDScript owns game rules and Node mutation" discipline as every
+# other port this session.
+func _apply_vortex_pull_to_target(col: Node, delta: float):
+	if col == self:
+		return
+
+	var pull_mult = 3.0 # Targets get pulled 300% as hard
+	if "is_player" in col:
+		if fired_by_player and col.is_player:
+			if col.get("is_vortex_immune"):
+				pull_mult = 0.0
+			else:
+				pull_mult = 0.05 # Shooter is barely affected
+		elif not fired_by_player and not col.is_player:
+			if col.get("is_vortex_immune"):
+				pull_mult = 0.0
+			else:
+				pull_mult = 0.05 # Shooter is barely affected
+		else:
+			var prot = col.get("vortex_pull_protection_ratio")
+			if prot != null and float(prot) > 0.0:
+				pull_mult *= (1.0 - float(prot))
+
+	var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) * pull_mult * _get_vortex_magnitude_pull_mult()
+
+	if col.has_method("pull_towards"):
+		col.pull_towards(global_position, delta, pull_strength)
+	elif col is CharacterBody2D: # Fallback
+		var p_dir = (global_position - col.global_position).normalized()
+		var lerp_weight = 10.0 * delta
+		if lerp_weight > 1.0: lerp_weight = 1.0
+		col.velocity = col.velocity.lerp(p_dir * pull_strength, lerp_weight)
+
+# Task #33: a Rust-batched replacement (ProjectileTargetingBatcher.
+# request_vortex_pull) was tried and reverted after honest measurement (a
+# same-process A/B, ProjectileTargetingABCheck.gd, found it 46.2% SLOWER -
+# vortex pull must apply a force to every candidate within radius, unlike
+# homing-target search's single-result reduction, so it can't dodge the
+# same FFI/marshalling cost). This real per-projectile
+# PhysicsShapeQueryParameters2D shape query stays the live implementation.
 func _pull_nearby_items(delta: float):
 	var space_state = get_world_2d().direct_space_state
 	var query = PhysicsShapeQueryParameters2D.new()
@@ -1327,35 +1615,7 @@ func _pull_nearby_items(delta: float):
 
 	var results = space_state.intersect_shape(query)
 	for res in results:
-		var col = res["collider"]
-		if col == self: continue
-
-		var pull_mult = 3.0 # Targets get pulled 300% as hard
-		if "is_player" in col:
-			if fired_by_player and col.is_player:
-				if col.get("is_vortex_immune"):
-					pull_mult = 0.0
-				else:
-					pull_mult = 0.05 # Shooter is barely affected
-			elif not fired_by_player and not col.is_player:
-				if col.get("is_vortex_immune"):
-					pull_mult = 0.0
-				else:
-					pull_mult = 0.05 # Shooter is barely affected
-			else:
-				var prot = col.get("vortex_pull_protection_ratio")
-				if prot != null and float(prot) > 0.0:
-					pull_mult *= (1.0 - float(prot))
-
-		var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) * pull_mult * magnitude_pull_mult
-
-		if col.has_method("pull_towards"):
-			col.pull_towards(global_position, delta, pull_strength)
-		elif col is CharacterBody2D: # Fallback
-			var p_dir = (global_position - col.global_position).normalized()
-			var lerp_weight = 10.0 * delta
-			if lerp_weight > 1.0: lerp_weight = 1.0
-			col.velocity = col.velocity.lerp(p_dir * pull_strength, lerp_weight)
+		_apply_vortex_pull_to_target(res["collider"], delta)
 
 # Per-hit decay (per the user: Explosion and Vampiric don't have their own
 # way of reaching more than one target - they "ride along" whichever
@@ -1561,8 +1821,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 	# the AoE burst on top, then consumes the mine outright.
 	if _is_poison_mine:
 		_trigger_poison_mine_detonation()
-		if not is_queued_for_deletion():
-			queue_free()
+		_release_or_free()
 		return
 
 	# LIGHTNING re-target: instead of dying, hop out to the next victim.
@@ -1577,7 +1836,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 
 	pierce_count -= 1
 	if pierce_count <= 0:
-		queue_free()
+		_release_or_free()
 
 # Draws one jagged bolt segment between two points, LOCAL to visual_node
 # (i.e. relative to the projectile's own position at the moment of the

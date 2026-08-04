@@ -206,6 +206,17 @@ func _ready():
 	MechScript._perf_flow_field_usec = 0
 	MechScript._perf_orbit_raycast_usec = 0
 	MechScript._perf_separation_usec = 0
+	# Phase 0 of the AI-tactics Rust-cutover plan - these three are read out
+	# below but deliberately NOT folded into `accounted`/UNACCOUNTED math:
+	# _perf_sight_raycast_usec is a sub-cost already counted once inside
+	# _perf_sight_usec (double-counting it there would make the totals not
+	# sum), and _perf_flow_field_rebuild_usec/_perf_boss_retreat_raycast_usec
+	# run on their own independent timers (0.4s flow-field refresh, boss-only
+	# retreat picking) rather than once per mech per _execute_ai_tactics call,
+	# so they aren't part of the per-mech-tick breakdown at all.
+	MechScript._perf_sight_raycast_usec = 0
+	MechScript._perf_flow_field_rebuild_usec = 0
+	MechScript._perf_boss_retreat_raycast_usec = 0
 	var x_samples: Array = []
 	for t in range(NEAR_COMBAT_TRIALS):
 		x_samples.append(await _measure_once())
@@ -222,12 +233,24 @@ func _ready():
 	print("    ai_tactics (reliable total): %8.3f us/mech-tick  (%.1f ms total across %d mechs x %d ticks)" % [total_ai / per_tick_divisor, total_ai / 1000.0, ENEMY_COUNT, total_ticks])
 	print("    flee-check:    %8.3f us/mech-tick  (%.1f%% of total)" % [MechScript._perf_flee_check_usec / per_tick_divisor, 100.0 * MechScript._perf_flee_check_usec / max(1, total_ai)])
 	print("    sight check:   %8.3f us/mech-tick  (%.1f%% of total)" % [MechScript._perf_sight_usec / per_tick_divisor, 100.0 * MechScript._perf_sight_usec / max(1, total_ai)])
+	print("      of which sight RAYCAST only: %8.3f us/mech-tick  (%.1f%% of sight check) - the Phase 1 grid-LOS candidate" % [MechScript._perf_sight_raycast_usec / per_tick_divisor, 100.0 * MechScript._perf_sight_raycast_usec / max(1, MechScript._perf_sight_usec)])
 	print("    flow field:    %8.3f us/mech-tick  (%.1f%% of total)" % [MechScript._perf_flow_field_usec / per_tick_divisor, 100.0 * MechScript._perf_flow_field_usec / max(1, total_ai)])
 	print("    orbit raycast: %8.3f us/mech-tick  (%.1f%% of total)" % [MechScript._perf_orbit_raycast_usec / per_tick_divisor, 100.0 * MechScript._perf_orbit_raycast_usec / max(1, total_ai)])
 	print("    separation:    %8.3f us/mech-tick  (%.1f%% of total)" % [MechScript._perf_separation_usec / per_tick_divisor, 100.0 * MechScript._perf_separation_usec / max(1, total_ai)])
 	print("    shoot:         %8.3f us/mech-tick  (%.1f%% of total)" % [MechScript._perf_diag_shoot_usec / per_tick_divisor, 100.0 * MechScript._perf_diag_shoot_usec / max(1, total_ai)])
 	var accounted = MechScript._perf_flee_check_usec + MechScript._perf_sight_usec + MechScript._perf_flow_field_usec + MechScript._perf_orbit_raycast_usec + MechScript._perf_separation_usec + MechScript._perf_diag_shoot_usec
 	print("    UNACCOUNTED:   %8.3f us/mech-tick  (%.1f%% of total - distance/dir math, boss checks, function-call overhead)" % [(total_ai - accounted) / per_tick_divisor, 100.0 * (total_ai - accounted) / max(1, total_ai)])
+	print("")
+	# Phase 0: flow-field rebuild and boss retreat-raycast totals, in absolute
+	# ms across this whole run (NOT per-mech-tick - both run on their own
+	# independent cadence, not once per mech per _execute_ai_tactics call).
+	# Expected to read 0 in THIS diagnostic: it spawns bare Mech nodes with no
+	# MapGenerator in the tree (so _rebuild_flow_field's every-0.4s timer
+	# never fires) and no is_boss mechs (so BossBrain never runs). Both need a
+	# real MapGenerator+boss scenario to produce a real number - see
+	# Status.md's Phase 0 section for where that number should get recorded.
+	print("    flow-field rebuild total: %.3f ms  (0 expected here - needs a real MapGenerator scene)" % [MechScript._perf_flow_field_rebuild_usec / 1000.0])
+	print("    boss retreat-raycast total: %.3f ms  (0 expected here - needs a real is_boss mech)" % [MechScript._perf_boss_retreat_raycast_usec / 1000.0])
 	print("")
 	print("    Cross-check: total_ai (%.1f ms) vs the raw measured per-tick cost x total_ticks (%.1f ms) - these SHOULD be in the same ballpark if ai_tactics really is most of what's expensive here." % [total_ai / 1000.0, ms_x * (total_ticks)])
 	await _teardown(mechs_x)

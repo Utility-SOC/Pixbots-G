@@ -3,6 +3,7 @@ extends Area2D
 
 var tile_data: HexTile = null
 var equipment_data: Node = null # Can be ComponentEquipment
+var chip_data: Dictionary = {} # Chip Splicing - a plain (single-trait) Mod Chip; see LootManager._spawn_chip_drop
 
 func _ready():
 	collision_layer = 16 # Layer 5 (Bit 4) for Loot
@@ -14,7 +15,10 @@ func _ready():
 		Vector2(0, -6), Vector2(5, -2), Vector2(5, 4), Vector2(0, 8), Vector2(-5, 4), Vector2(-5, -2)
 	])
 	
-	if equipment_data:
+	if not chip_data.is_empty():
+		poly.color = Color(1.0, 0.85, 0.2) # Amber diamond for chips - distinct from equipment pink / tile rarity colors
+		poly.scale = Vector2(1.2, 1.2)
+	elif equipment_data:
 		poly.color = Color(1.0, 0.4, 0.8) # Pink for equipment
 		poly.scale = Vector2(1.5, 1.5)
 	elif tile_data:
@@ -55,7 +59,15 @@ func _ready():
 
 	body_entered.connect(_on_body_entered)
 
-func pull_towards(target_pos: Vector2, delta_mod: float):
+# `_strength` accepted-and-ignored: loot always pulls at a fixed speed
+# regardless of source strength, but every OTHER pull_towards caller in the
+# codebase (Mech.pull_towards, Projectile._apply_vortex_pull_to_target, the
+# vortex-burst detonation in _resolve_detonation) passes a 3rd strength arg
+# unconditionally - a real, pre-existing bug (found 2026-08-03 while
+# testing task #33's vortex-pull batching): any Vortex-ratio shot that ever
+# got near dropped loot threw "Invalid call... Expected 2 argument(s)" and
+# silently skipped pulling that loot, in the shipped game, before this fix.
+func pull_towards(target_pos: Vector2, delta_mod: float, _strength: float = 0.0):
 	# The vortex effect
 	var speed = 200.0 * delta_mod
 	global_position = global_position.move_toward(target_pos, speed)
@@ -74,7 +86,12 @@ func _on_body_entered(body: Node2D):
 		# from being a direct child of Main to a child of Main.world (the
 		# pixel-viewport game world). current_scene still resolves to Main
 		# regardless of nesting depth.
-		if equipment_data:
+		if not chip_data.is_empty():
+			print("Player picked up a chip")
+			var main = body.get_tree().current_scene
+			if main and "player_modifier_chips" in main:
+				main.player_modifier_chips.append(chip_data)
+		elif equipment_data:
 			print("Player picked up equipment: ", equipment_data.component_name)
 			var main = body.get_tree().current_scene
 			if main and "player_component_inventory" in main:

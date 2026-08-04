@@ -52,12 +52,20 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 					cell_idx = i + 1
 					break
 
-	var face_key = str(cell_idx) + ":" + str(entry_direction)
+	# Perf audit (2026-08-01): Vector2i key instead of a concatenated string
+	# per packet - Vector2i is natively hashable as a Dictionary key and this
+	# is only ever read back by key/iterated, never displayed/parsed as text.
+	var face_key = Vector2i(cell_idx, entry_direction)
 	var prev = float(_face_magnitudes.get(face_key, 0.0))
 	_face_magnitudes[face_key] = prev + packet.magnitude
 
+	# Real production bug, found 2026-08-03 (same fix as MissileRackTile.gd's
+	# identical mistake) - this called packet.clone(), which doesn't exist on
+	# EnergyPacket (only .copy() does). The resulting "Invalid call" error
+	# aborted process_energy() before ever reaching ready_to_fire below, so
+	# this tile could never actually fire in real gameplay.
 	if _fed_packet == null or packet.magnitude > _fed_packet.magnitude:
-		_fed_packet = packet.clone()
+		_fed_packet = packet.copy()
 
 	var face_threshold = TileStatsRegistry.get_stat("OrbitingArrayTile", "face_threshold", 10000.0)
 	var required_faces = int(TileStatsRegistry.get_stat("OrbitingArrayTile", "required_faces", 6))

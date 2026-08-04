@@ -3,8 +3,10 @@ extends Node
 # Regression harness for the DebugMenu "Give Mod Chips" button (Late-game
 # progression prep, task #41): grants one +10% chip for each of the 11 real
 # stat_modifiers keys (ComponentEquipment._roll_stat_modifier()'s own pool),
-# and proves a granted chip actually infuses correctly through the existing
-# TileActionMenu.infuse_chip() pipeline end-to-end.
+# and proves a granted chip actually equips correctly through the existing
+# TileActionMenu.equip_chip() pipeline end-to-end (renamed from
+# infuse_chip() as part of the Overclocking rework - equip/unequip,
+# capacity-gated - see ComponentEquipment.gd's header comment).
 
 const GarageMenuScript = preload("res://scripts/ui/GarageMenu.gd")
 const ComponentEquipmentScript = preload("res://scripts/core/ComponentEquipment.gd")
@@ -40,14 +42,17 @@ func _ready():
 	garage.mech_components = {HexTile.BodySlot.TORSO: comp}
 
 	# --- 1. Mirrors the DebugMenu button's exact grant logic ----------------
+	# Chip Splicing (task): chips now carry a "traits" list instead of a
+	# bare stat/value - each debug-granted chip here is still plain
+	# (single-trait), same as before the rework.
 	var possible_stats = ["kin_mult", "fire_mult", "ice_mult", "vtx_mult", "ltg_mult", "psn_mult", "exp_mult", "prc_mult", "vmp_mult", "dmg_mult", "spd_mult"]
 	for stat in possible_stats:
-		fake_main.player_modifier_chips.append({"stat": stat, "value": 1.1})
+		fake_main.player_modifier_chips.append({"traits": [{"stat": stat, "value": 1.1}]})
 
 	_check("grants exactly 11 chips (one per real stat)", fake_main.player_modifier_chips.size(), 11)
 	var stats_granted = []
 	for chip in fake_main.player_modifier_chips:
-		stats_granted.append(chip["stat"])
+		stats_granted.append(chip["traits"][0]["stat"])
 	var all_present = true
 	for s in possible_stats:
 		if not stats_granted.has(s):
@@ -61,17 +66,17 @@ func _ready():
 	# --- 2. A granted chip actually infuses through the real pipeline ------
 	if not garage.tile_action_menu:
 		garage.tile_action_menu = load("res://scripts/ui/TileActionMenu.gd").new(garage)
-	var first_stat = fake_main.player_modifier_chips[0]["stat"]
+	var first_stat = fake_main.player_modifier_chips[0]["traits"][0]["stat"]
 	var chips_before = fake_main.player_modifier_chips.size()
-	garage.tile_action_menu.infuse_chip()
+	garage.tile_action_menu.equip_chip() # was infuse_chip() - renamed as part of the Overclocking rework (equip/unequip, capacity-gated)
 
-	_check("infuse_chip() consumes exactly one chip", fake_main.player_modifier_chips.size(), chips_before - 1)
+	_check("equip_chip() consumes exactly one chip", fake_main.player_modifier_chips.size(), chips_before - 1)
 	var applied = float(comp.stat_modifiers.get(first_stat, 1.0))
 	if not is_equal_approx(applied, 1.1):
-		push_error("FAIL: infusing a debug-granted chip didn't apply +10%% to '%s' (got %.3f)" % [first_stat, applied])
+		push_error("FAIL: equipping a debug-granted chip didn't apply +10%% to '%s' (got %.3f)" % [first_stat, applied])
 		failures += 1
 	else:
-		print("3) infusing a debug-granted chip correctly applies +10%% to '%s' on the active component" % first_stat)
+		print("3) equipping a debug-granted chip correctly applies +10%% to '%s' on the active component" % first_stat)
 
 	if failures == 0:
 		print("PASS: debug Mod Chip grant matches the real stat pool and infuses correctly end-to-end")

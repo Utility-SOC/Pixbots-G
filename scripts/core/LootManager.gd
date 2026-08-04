@@ -73,12 +73,30 @@ func _tile_type_drop_multiplier(tile_type: String, rarity: int = HexTile.Rarity.
 # fodder for the component-upgrade loop). Bosses keep their guaranteed drop.
 const COMPONENT_DROP_CHANCE = 0.03
 
+# Chip Splicing: rivals/bosses are the only enemies that ever carry
+# equipped Mod Chips (Main._equip_enemy_chips) - one independent roll per
+# PLAIN equipped chip on death, same flat-tunable-constant/one-roll-per-
+# item shape as DROP_RATES/COMPONENT_DROP_CHANCE above. Corrupted (2+
+# trait, spliced) equipped chips NEVER drop - mech destruction destroys
+# them outright, per the user's explicit design ("an enemy can only drop
+# prespliced/unspliced chips").
+const CHIP_DROP_CHANCE = 0.20
+
 var current_wave: int = 1
 
 func generate_loot_for_mech(mech: Node):
 	if not "components" in mech:
 		return
-		
+
+	for comp in mech.components.values():
+		if comp == null:
+			continue
+		for chip in comp.get("equipped_chips", []):
+			if chip.get("traits", []).size() != 1:
+				continue # Corrupted - destroyed on death, never drops
+			if randf() <= CHIP_DROP_CHANCE:
+				_spawn_chip_drop(mech, chip)
+
 	var equipped_tiles = []
 	for comp in mech.components.values():
 		if comp and comp.has_node("HexGridComponent"):
@@ -241,6 +259,13 @@ func _spawn_component_drop(mech: Node, pack):
 func _spawn_loot_drop(mech: Node, tile: HexTile):
 	var drop = load("res://scripts/entities/LootPickup.gd").new()
 	drop.tile_data = tile
+	drop.global_position = mech.global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
+	if mech.get_parent():
+		mech.get_parent().call_deferred("add_child", drop)
+
+func _spawn_chip_drop(mech: Node, chip: Dictionary):
+	var drop = load("res://scripts/entities/LootPickup.gd").new()
+	drop.chip_data = chip.duplicate(true)
 	drop.global_position = mech.global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
 	if mech.get_parent():
 		mech.get_parent().call_deferred("add_child", drop)

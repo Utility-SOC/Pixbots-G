@@ -697,35 +697,63 @@ func _get_component_polygon(comp: Node, scale_mult: float) -> PackedVector2Array
 		return _component_polygon_cache[cache_key].duplicate()
 
 	var hex_size = 9.0 * scale_mult
-	var union: Array[PackedVector2Array] = []
 
+	# Adjacency-informed merge (perf fix, see ComponentPolygonMergePerfCheck.gd):
+	# the old version blindly tried Geometry2D.merge_polygons against every
+	# OTHER remaining polygon each pass, repeating until nothing merges -
+	# O(n^2) pairwise attempts per pass and, for elongated "long limbed"
+	# shapes (a real, common torso family per the design notes - each hex
+	# only touches 1-2 neighbors), O(n) passes before the union stabilizes:
+	# measured 12.3ms for a 45-hex line shape on a cache miss, vs 1.3ms for
+	# an equally-sized compact blob. Hex adjacency is already known directly
+	# from (q,r) coordinates via HexCoord.get_directions() - no need to
+	# discover it by trial merges. A BFS spanning walk over that KNOWN
+	# adjacency graph needs exactly (component size - 1) merge calls total,
+	# down from O(n^2-n^3) - the geometric math itself is untouched (still
+	# the same Geometry2D.merge_polygons call on genuinely-adjacent hexes),
+	# this only changes which pairs get tried and in what order.
+	var hex_to_poly: Dictionary = {} # "q,r" key -> PackedVector2Array
 	for h in comp.valid_hexes:
 		var x = hex_size * sqrt(3.0) * (h.q + h.r / 2.0)
 		var y = hex_size * 3.0 / 2.0 * h.r
-
 		var poly = PackedVector2Array()
 		for i in range(6):
 			var angle_rad = deg_to_rad(60 * i + 30)
 			poly.append(Vector2(x + hex_size * cos(angle_rad), y + hex_size * sin(angle_rad)))
-		union.append(poly)
+		hex_to_poly["%d,%d" % [h.q, h.r]] = poly
 
-	var changed = true
-	while changed:
-		changed = false
-		var next_union: Array[PackedVector2Array] = []
-		while union.size() > 0:
-			var p1 = union.pop_back()
-			var merged = false
-			for i in range(union.size()):
-				var res = Geometry2D.merge_polygons(p1, union[i])
+	var directions = HexCoord.get_directions()
+	var visited: Dictionary = {}
+	var union: Array[PackedVector2Array] = [] # one accumulated polygon per connected component - normally just 1, since real shape generation grows from a single connected frontier
+
+	for h in comp.valid_hexes:
+		var start_key = "%d,%d" % [h.q, h.r]
+		if visited.has(start_key):
+			continue
+		visited[start_key] = true
+		var component_poly = hex_to_poly[start_key]
+		var frontier = [h]
+		var head = 0
+		while head < frontier.size():
+			var cur: HexCoord = frontier[head]
+			head += 1
+			for dir in directions:
+				var n = cur.add(dir)
+				var nkey = "%d,%d" % [n.q, n.r]
+				if not hex_to_poly.has(nkey) or visited.has(nkey):
+					continue
+				visited[nkey] = true
+				var res = Geometry2D.merge_polygons(component_poly, hex_to_poly[nkey])
 				if res.size() == 1:
-					union[i] = res[0]
-					merged = true
-					changed = true
-					break
-			if not merged:
-				next_union.append(p1)
-		union = next_union
+					component_poly = res[0]
+				else:
+					# Shouldn't happen for genuinely edge-adjacent regular
+					# hexagons at real world-unit spacing, but stay safe:
+					# same "keep as its own separate piece" fallback the
+					# old algorithm used for anything that wouldn't merge.
+					union.append(hex_to_poly[nkey])
+				frontier.append(n)
+		union.append(component_poly)
 
 	if union.size() > 0:
 		# Recenter polygon

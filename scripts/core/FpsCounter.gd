@@ -236,10 +236,24 @@ func _process(delta: float):
 		# above, not a separate cost, isolating whether "shoot" at volume is
 		# dominated by construction or by the merge/pattern math around it.
 		var construct_ms = HexTile._perf_projectile_construct_usec / 1000.0
+		# collect/rust_call: ProjectileManager's per-tick flight-batch dispatch
+		# (2026-08-03 physics-tick-at-scale investigation) - collect is the
+		# GDScript-side request-building loop, rust_call is the single
+		# compute_batch_flat FFI call. Split out because the flat-array
+		# rewrite specifically targeted rust_call (was ~1.94ms/tick with the
+		# old Dictionary-array marshalling at 500 live shots, ~0.4ms/tick
+		# after - see Status.md), so live playtests can confirm the win holds
+		# at real combat volumes, not just this session's synthetic tests.
+		var collect_ms = ProjectileManager._perf_collect_usec / 1000.0
+		var rust_call_ms = ProjectileManager._perf_rust_call_usec / 1000.0
 		MechStatusBars._perf_draw_usec = 0
 		Projectile._perf_physics_usec = 0
 		HexTile._perf_projectile_construct_usec = 0
-		perf_label2.text = "per sec: status_bars_draw %.0fms  projectile_physics %.0fms  projectile_construct %.0fms" % [status_bar_ms, proj_physics_ms, construct_ms]
+		ProjectileManager._perf_collect_usec = 0
+		ProjectileManager._perf_rust_call_usec = 0
+		perf_label2.text = "per sec: status_bars_draw %.0fms  projectile_physics %.0fms  projectile_construct %.0fms  flight_collect %.0fms  flight_rust_call %.0fms" % [
+			status_bar_ms, proj_physics_ms, construct_ms, collect_ms, rust_call_ms
+		]
 
 ## path_override lets tests round-trip against a scratch file instead of
 ## the real SaveManager.SETTINGS_PATH (user://settings.cfg) - never write

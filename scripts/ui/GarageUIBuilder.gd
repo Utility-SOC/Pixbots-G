@@ -24,7 +24,8 @@ extends RefCounted
 # other extractions (_on_codex_pressed, _on_tooltip_requested,
 # _on_tooltip_cleared, _on_tile_clicked, _on_simulate_pressed,
 # _on_repair_all, _on_infuse_part, _on_upgrade_part, _on_extract_modifier,
-# _on_infuse_chip, _open_black_market, _on_sell_all,
+# _on_equip_chip, _on_splice_chips, _on_overclock_part,
+# _on_recalibrate_chip_capacity, _open_black_market, _on_sell_all,
 # _refresh_inventory_ui, _refresh_component_inventory_list) - so every
 # connect below is written as garage._on_x to resolve against the right
 # instance.
@@ -311,10 +312,17 @@ func build():
 	feature5_bar.add_child(extract_btn)
 
 	var chip_btn = Button.new()
-	chip_btn.text = "Apply Mod Chip"
-	chip_btn.tooltip_text = "Applies your oldest extracted modifier chip to the current part. Chips stack, capped at +50% per stat."
-	chip_btn.pressed.connect(garage._on_infuse_chip)
+	chip_btn.text = "Equip Mod Chip"
+	chip_btn.tooltip_text = "Pick a chip from your pool to equip onto the current part, up to its chip capacity. Chips stack, capped at +50% per stat. Click an equipped chip below to unequip it."
+	chip_btn.pressed.connect(garage._on_equip_chip)
 	feature5_bar.add_child(chip_btn)
+
+	var splice_btn = Button.new()
+	splice_btn.text = "Splice Chips"
+	splice_btn.modulate = Color(0.85, 0.6, 1.0)
+	splice_btn.tooltip_text = "Combine two chips from your inventory. Two different-stat plain chips make a boosted 3-trait 'Corrupted' chip with a random drawback; splicing a Corrupted chip against anything sharing one of its stats nets the shared stats together and keeps the rest."
+	splice_btn.pressed.connect(garage._on_splice_chips)
+	feature5_bar.add_child(splice_btn)
 
 	garage.chip_count_label = Label.new()
 	garage.chip_count_label.text = "Chips: 0"
@@ -326,6 +334,35 @@ func build():
 	market_btn.tooltip_text = "Experimental oversized parts with severe drawbacks. Stock rotates every 10 real-time minutes."
 	market_btn.pressed.connect(garage._open_black_market)
 	feature5_bar.add_child(market_btn)
+
+	# --- Equipped-chip row: shows the active component's currently-equipped
+	# chips (click one to unequip) and its chip capacity. Overclocking
+	# below can reduce that capacity, so this row is the player's main
+	# feedback for "how much room do I have left."
+	var equipped_chips_row = HBoxContainer.new()
+	left_vbox.add_child(equipped_chips_row)
+	garage.chip_capacity_label = Label.new()
+	garage.chip_capacity_label.text = "Capacity: 0/0"
+	equipped_chips_row.add_child(garage.chip_capacity_label)
+	garage.equipped_chips_box = HFlowContainer.new()
+	equipped_chips_row.add_child(garage.equipped_chips_box)
+
+	# --- Overclocking (prestige) row: unlocks once a component is Mythic. ---
+	var prestige_bar = HBoxContainer.new()
+	left_vbox.add_child(prestige_bar)
+
+	var overclock_btn = Button.new()
+	overclock_btn.text = "Overclock"
+	overclock_btn.modulate = Color(0.5, 0.85, 1.0)
+	overclock_btn.tooltip_text = "Mythic-rarity parts only. Returns all equipped chips to inventory, permanently drops chip capacity, and grants your choice of permanent mass reduction or +1 hex. Repeatable - cost rises each time."
+	overclock_btn.pressed.connect(garage._on_overclock_part)
+	prestige_bar.add_child(overclock_btn)
+
+	var recalibrate_btn = Button.new()
+	recalibrate_btn.text = "Recalibrate Capacity"
+	recalibrate_btn.tooltip_text = "Pays scrap to recover one point of chip capacity lost to Overclocking - never past the part's pre-Overclock baseline."
+	recalibrate_btn.pressed.connect(garage._on_recalibrate_chip_capacity)
+	prestige_bar.add_child(recalibrate_btn)
 
 	var shop_btn = Button.new()
 	shop_btn.text = "SHOP"

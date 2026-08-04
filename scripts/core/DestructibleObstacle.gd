@@ -47,8 +47,22 @@ func _ready():
 
 	var poly = Polygon2D.new()
 	poly.color = _base_color
-	poly.polygon = _shape_for(obstacle_name)
+	var shape_pts = _shape_for(obstacle_name)
+	poly.polygon = shape_pts
 	add_child(poly)
+
+	# Accessibility (user report, 2026-08-03: obstacles were "NOT accessible"
+	# - too close in color to their own terrain). A luminance-contrasted
+	# outline (dark border on a light fill, light border on a dark fill)
+	# reads against any biome's palette without per-biome color-matching -
+	# same fix as TreeObstacle.gd.
+	var luminance = 0.299 * _base_color.r + 0.587 * _base_color.g + 0.114 * _base_color.b
+	var outline = Line2D.new()
+	outline.points = shape_pts + PackedVector2Array([shape_pts[0]])
+	outline.width = 2.0
+	outline.default_color = Color(0.05, 0.05, 0.05, 0.95) if luminance > 0.5 else Color(0.95, 0.95, 0.9, 0.9)
+	outline.joint_mode = Line2D.LINE_JOINT_ROUND
+	add_child(outline)
 
 	var shape = CollisionShape2D.new()
 	var rect = RectangleShape2D.new()

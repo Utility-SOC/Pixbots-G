@@ -160,7 +160,21 @@ func _ready():
 #   4 - persists tile power_lost, closing the "quit and reload to heal
 #       fried tiles for free" loophole (permanence ruling: combat damage
 #       disables tiles; only a Garage repair brings them back)
-const SAVE_FORMAT_VERSION = 4
+#   5 - reworks Mod Chips into reversible equipped_chips per component
+#       (chip_capacity/overclock support, see ComponentEquipment.gd's
+#       header comment). Pre-v5 opaque stat_modifiers blobs are preserved
+#       as legacy_stat_modifiers (permanent, additive, NOT reversible - no
+#       per-chip provenance ever existed to recover). stat_modifiers
+#       itself is no longer serialized; it's a derived cache rebuilt by
+#       ComponentEquipment._recompute_stat_modifiers() after every load.
+#   6 - Chip Splicing: a chip now carries {"traits": Array[{"stat","value"}]}
+#       instead of a flat {"stat","value"} pair - a Corrupted (spliced)
+#       chip has 2+ traits, unbounded. Pre-v6 chips (both per-component
+#       equipped_chips and the flat player_modifier_chips pool) are
+#       migrated in place on load via _migrate_chip_shape() - a bare
+#       {"stat","value"} dict becomes {"traits":[{"stat":..,"value":..}]},
+#       lossless since every pre-splicing chip was always single-trait.
+const SAVE_FORMAT_VERSION = 6
 
 func save_game(save_name: String, mech: Node, inventory: Array):
 	var data = {
@@ -264,7 +278,13 @@ func load_game(save_name: String) -> Dictionary:
 	if json.has("scrap"):
 		result["scrap"] = json["scrap"]
 	if json.has("modifier_chips"):
-		result["modifier_chips"] = json["modifier_chips"]
+		# Chip Splicing (save format v6) - normalize every pool chip to the
+		# {"traits":[...]} shape so Main.player_modifier_chips comes back
+		# already migrated, no changes needed in Main.gd's own load path.
+		var migrated_chips = []
+		for raw_chip in json["modifier_chips"]:
+			migrated_chips.append(_migrate_chip_shape(raw_chip))
+		result["modifier_chips"] = migrated_chips
 	if json.has("current_wave"):
 		result["current_wave"] = int(json["current_wave"])
 	if json.has("player_sponsorship"):
@@ -336,7 +356,17 @@ func _serialize_component(comp) -> Dictionary:
 		"component_name": comp.component_name,
 		"infusion_level": comp.get("infusion_level") if comp.get("infusion_level") != null else 0,
 		"infusion_xp": comp.get("infusion_xp") if comp.get("infusion_xp") != null else 0,
-		"stat_modifiers": comp.get("stat_modifiers") if comp.get("stat_modifiers") != null else {},
+		# stat_modifiers itself is NOT persisted (save format v5+) - it's a
+		# derived cache, rebuilt from the three fields below by
+		# ComponentEquipment._recompute_stat_modifiers() after load, same
+		# convention as Mech.total_mass/Mech.stat_modifiers never being
+		# persisted at the mech level.
+		"infusion_stat_modifiers": comp.get("infusion_stat_modifiers") if comp.get("infusion_stat_modifiers") != null else {},
+		"legacy_stat_modifiers": comp.get("legacy_stat_modifiers") if comp.get("legacy_stat_modifiers") != null else {},
+		"equipped_chips": comp.get("equipped_chips") if comp.get("equipped_chips") != null else [],
+		"chip_capacity_upgrades": comp.get("chip_capacity_upgrades") if comp.get("chip_capacity_upgrades") != null else 0,
+		"overclock_count": comp.get("overclock_count") if comp.get("overclock_count") != null else 0,
+		"mass_reduction": comp.get("mass_reduction") if comp.get("mass_reduction") != null else 0.0,
 		"forbidden_tile_types": comp.get("forbidden_tile_types") if comp.get("forbidden_tile_types") != null else [],
 		"tiles": [],
 		"fixed_sinks": [],
@@ -356,6 +386,22 @@ func _serialize_component(comp) -> Dictionary:
 		comp_data["tiles"].append(_serialize_tile(tile))
 	return comp_data
 
+# Chip Splicing (save format v6): normalizes one chip dict to the current
+# {"traits": Array[{"stat","value"}]} shape. A pre-v6 flat {"stat","value"}
+# dict becomes a single-trait chip - lossless, every chip that existed
+# before splicing was always single-trait. Already-migrated chips pass
+# through unchanged. Malformed input becomes an empty-traits chip rather
+# than erroring, matching this loader's has()-guarded "tolerate anything"
+# convention.
+func _migrate_chip_shape(raw) -> Dictionary:
+	if typeof(raw) != TYPE_DICTIONARY:
+		return {"traits": []}
+	if raw.has("traits") and raw["traits"] is Array:
+		return raw
+	if raw.has("stat") and raw.has("value"):
+		return {"traits": [{"stat": str(raw["stat"]), "value": float(raw["value"])}]}
+	return {"traits": []}
+
 func _deserialize_component(cdata: Dictionary):
 	var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
 	var slot_type = cdata.get("slot_type", 0)
@@ -364,7 +410,35 @@ func _deserialize_component(cdata: Dictionary):
 	comp.component_name = cdata.get("component_name", "Unknown")
 	if cdata.has("infusion_level"): comp.set("infusion_level", cdata["infusion_level"])
 	if cdata.has("infusion_xp"): comp.set("infusion_xp", cdata["infusion_xp"])
-	if cdata.has("stat_modifiers"): comp.set("stat_modifiers", cdata["stat_modifiers"])
+
+	# Overclocking rework (save format v5) - see this file's version log and
+	# ComponentEquipment.gd's header comment for the full data-model story.
+	# Each entry is normalized through _migrate_chip_shape() (save format
+	# v6, Chip Splicing) so a pre-v6 flat {"stat","value"} chip becomes
+	# {"traits":[...]} - lossless, every pre-splicing chip was single-trait.
+	if cdata.has("equipped_chips") and cdata["equipped_chips"] is Array:
+		var migrated_equipped: Array[Dictionary] = []
+		for raw_chip in cdata["equipped_chips"]:
+			migrated_equipped.append(_migrate_chip_shape(raw_chip))
+		comp.equipped_chips.assign(migrated_equipped)
+	if cdata.has("infusion_stat_modifiers") and cdata["infusion_stat_modifiers"] is Dictionary:
+		comp.infusion_stat_modifiers = cdata["infusion_stat_modifiers"].duplicate()
+	if cdata.has("legacy_stat_modifiers") and cdata["legacy_stat_modifiers"] is Dictionary:
+		comp.legacy_stat_modifiers = cdata["legacy_stat_modifiers"].duplicate()
+	elif cdata.has("stat_modifiers") and cdata["stat_modifiers"] is Dictionary and not cdata["stat_modifiers"].is_empty():
+		# Pre-v5 save: no per-chip provenance ever existed (the old
+		# infuse_chip() did an irreversible running sum), so reconstructing
+		# individual chips is mathematically underdetermined - many
+		# different chip combinations sum to the same float. Preserve the
+		# whole total as a permanent legacy bonus instead: no power loss,
+		# no invented chips. Mutually exclusive with the branch above since
+		# a genuine v5+ save never writes "stat_modifiers" at all.
+		comp.legacy_stat_modifiers = cdata["stat_modifiers"].duplicate()
+	if cdata.has("chip_capacity_upgrades"): comp.chip_capacity_upgrades = int(cdata["chip_capacity_upgrades"])
+	if cdata.has("overclock_count"): comp.overclock_count = int(cdata["overclock_count"])
+	if cdata.has("mass_reduction"): comp.mass_reduction = float(cdata["mass_reduction"])
+	comp._recompute_stat_modifiers()
+
 	if cdata.has("forbidden_tile_types"): comp.set("forbidden_tile_types", cdata["forbidden_tile_types"])
 	comp.generate_shape()
 

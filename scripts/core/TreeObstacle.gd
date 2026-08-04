@@ -18,12 +18,31 @@ func _ready():
 	collision_mask = 0
 	add_to_group("obstacle")
 
+	# Accessibility (user report, 2026-08-03: obstacles were "NOT accessible"
+	# - too close in color to their own terrain, confirmed against a real
+	# playtest recording showing this exact dark-green-on-grassland-green
+	# case). A dark outline reads against every biome's own palette
+	# (grassland/forest are both green-hued, desert/tundra are light,
+	# volcano/dungeon are dark) without needing per-biome color-matching
+	# logic - same fix applied to every DestructibleObstacle type below.
 	var poly = Polygon2D.new()
 	poly.color = Color(0.05, 0.3, 0.05) # Dark green
-	poly.polygon = PackedVector2Array([
+	var tree_shape = PackedVector2Array([
 		Vector2(0, -12), Vector2(8, 8), Vector2(-8, 8)
 	])
+	poly.polygon = tree_shape
 	add_child(poly)
+
+	# Light outline, not dark - the tree fill itself is already dark
+	# (luminance ~0.2), so a dark border would have little contrast against
+	# its OWN fill at the boundary (same luminance-contrast logic as
+	# DestructibleObstacle.gd's per-type outline color below).
+	var outline = Line2D.new()
+	outline.points = tree_shape + PackedVector2Array([tree_shape[0]])
+	outline.width = 2.0
+	outline.default_color = Color(0.9, 0.95, 0.85, 0.9)
+	outline.joint_mode = Line2D.LINE_JOINT_ROUND
+	add_child(outline)
 
 	var shape = CollisionShape2D.new()
 	var rect = RectangleShape2D.new()

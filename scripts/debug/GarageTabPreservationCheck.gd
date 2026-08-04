@@ -4,7 +4,7 @@ extends Node
 # torso - I pop to the torso every time I try to upgrade anything else."
 #
 # Root cause: TileActionMenu.upgrade_part()/extract_modifier()/
-# infuse_chip() (and Swap Component) all call GarageMenu._refresh_
+# equip_chip() (and Swap Component) all call GarageMenu._refresh_
 # component_ui() afterward, which calls _populate_component_tabs() -
 # which unconditionally selected tab 0 (always Torso, per slot_order)
 # once it finished rebuilding the tab strip. The upgrade itself applied

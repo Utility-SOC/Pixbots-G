@@ -36,12 +36,22 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	if packet.magnitude <= 0.0 or not packet.is_active:
 		return []
 
-	var face_key = str(entry_direction)
+	# Perf audit (2026-08-01): int key directly, no string allocation per
+	# packet - only ever read back by key, never displayed/parsed as text.
+	var face_key = entry_direction
 	var prev = float(_face_magnitudes.get(face_key, 0.0))
 	_face_magnitudes[face_key] = prev + packet.magnitude
 
+	# Real production bug, found 2026-08-03 while building a regression check
+	# for the face_key change above: this called packet.clone(), which
+	# doesn't exist on EnergyPacket (only .copy() does - see LanceMountTile's
+	# own identical _fed_packet assignment for the established convention).
+	# The resulting "Invalid call" error aborted process_energy() BEFORE
+	# reaching the ready_to_fire gate below on every call - meaning this
+	# tile could never actually fire in real gameplay, the same class of
+	# bug as the earlier "Lance Beam can never fire" fix.
 	if _fed_packet == null or packet.magnitude > _fed_packet.magnitude:
-		_fed_packet = packet.clone()
+		_fed_packet = packet.copy()
 
 	var threshold = TileStatsRegistry.get_stat("MissileRackTile", "feed_threshold", 2000.0)
 	if packet.magnitude >= threshold or _fed_packet.magnitude >= threshold:

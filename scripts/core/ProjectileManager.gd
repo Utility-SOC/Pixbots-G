@@ -2,18 +2,27 @@ extends Node
 
 # Batches the per-frame flight-math dispatch for every live projectile into
 # ONE Rust call instead of one call per projectile - see ProjectileFlight.
-# compute_batch (rust_ext/src/projectile_flight.rs) for the actual math.
+# compute_batch_flat (rust_ext/src/projectile_flight.rs) for the actual math.
 # Godot's per-call FFI dispatch overhead, not the trig itself, is what
 # scaled badly once combat got busy (100+ live shots), so this is a
-# dispatch-count fix, not a math optimization.
+# dispatch-count fix, not a math optimization. (2026-08-03: the batched
+# CALL COUNT fix alone wasn't the whole story either - at 500 live
+# projectiles the marshalling cost of the batch's PAYLOAD, an Array of 500
+# nested Dictionaries, was itself ~1.94ms/tick. Rewritten to flat
+# PackedInt64Array/PackedFloat64Array payloads - see compute_batch_flat's
+# and Projectile._prepare_flight_request_flat's comments, and Status.md's
+# physics-tick-at-scale investigation - dropped that to ~0.4ms/tick.)
 #
 # Sequencing: this node's process_priority is set very low (runs before
 # every other physics-processing node this same frame - see _ready).
 # Each frame: this manager asks every registered projectile to prepare its
-# own request (Projectile._prepare_flight_request - the throttled homing-
-# target search and ratio/steering setup that MUST run per-projectile,
-# since a physics query can't be batched into the pure-math Rust call),
-# collects them all, makes ONE batched Rust call, and stashes the results.
+# own request (Projectile._prepare_flight_request_flat - the throttled
+# homing-target search and ratio/steering setup that MUST run per-
+# projectile, since a physics query can't be batched into the pure-math
+# Rust call), collects them all into flat arrays, makes ONE batched Rust
+# call, and stashes the results (reconstructed into per-projectile
+# Dictionaries here in GDScript, matched back to their Projectile by
+# array POSITION, not by an echoed instance_id - see _physics_process).
 # Each projectile's OWN _physics_process then runs (Godot guarantees this
 # happens AFTER this manager's, same frame, due to the priority ordering)
 # and reads its already-computed result instead of calling Rust itself.
@@ -152,28 +161,63 @@ func unregister(proj: Node):
 func get_result(instance_id: int):
 	return _results.get(instance_id, null)
 
+# Perf instrumentation (2026-08-03, ongoing physics-tick-at-scale
+# investigation - see ProjectilePhysicsBreakdownCheck.gd/Status.md).
+# Splits this function's two real costs: the GDScript-side collection loop
+# (500+ individual _prepare_flight_request() calls, each building a nested
+# Dictionary) vs. the single Rust FFI call marshalling that whole array
+# across the boundary. Same pattern as Projectile._perf_physics_usec -
+# static, accumulated, meant to be read+reset by a diagnostic/FpsCounter,
+# not per-call overhead-sensitive.
+static var _perf_collect_usec: int = 0
+static var _perf_rust_call_usec: int = 0
+
+const RESPONSE_STRIDE = 12 # MUST match rust_ext/src/projectile_flight.rs's contract exactly
+
 func _physics_process(delta: float):
 	_results.clear()
 	_ensure_flight_rust()
 	if not _flight_rasterizer or _active.is_empty():
 		return
 
-	var requests: Array = []
+	# Flat-array collection (2026-08-03 rewrite, see module comment + Status.md's
+	# physics-tick-at-scale investigation): projectiles_in_order[i] is the
+	# Projectile this loop is currently building request i for -
+	# instance_ids/requests_flat/the eventual results_flat are all
+	# positionally aligned to this same array, so results get matched back
+	# by INDEX, not by re-parsing an echoed instance_id out of Rust.
+	var _t_collect = Time.get_ticks_usec()
+	var projectiles_in_order: Array = []
+	var instance_ids := PackedInt64Array()
+	var requests_flat := PackedFloat64Array()
 	var stale_ids: Array = []
 	for id in _active:
 		var proj = _active[id]
 		if not is_instance_valid(proj):
 			stale_ids.append(id)
 			continue
-		var req = proj._prepare_flight_request(delta)
-		if req != null:
-			requests.append(req)
+		projectiles_in_order.append(proj)
+		instance_ids.append(id)
+		requests_flat.append_array(proj._prepare_flight_request_flat(delta))
 	for id in stale_ids:
 		_active.erase(id)
+	_perf_collect_usec += Time.get_ticks_usec() - _t_collect
 
-	if requests.is_empty():
+	if projectiles_in_order.is_empty():
 		return
 
-	var batch_results = _flight_rasterizer.compute_batch(requests)
-	for res in batch_results:
-		_results[int(res["instance_id"])] = res
+	var _t_rust = Time.get_ticks_usec()
+	var results_flat: PackedFloat64Array = _flight_rasterizer.compute_batch_flat(instance_ids, requests_flat)
+	for i in projectiles_in_order.size():
+		var base = i * RESPONSE_STRIDE
+		_results[instance_ids[i]] = {
+			"direction": Vector2(results_flat[base], results_flat[base + 1]),
+			"velocity": Vector2(results_flat[base + 2], results_flat[base + 3]),
+			"visual_offset": Vector2(results_flat[base + 4], results_flat[base + 5]),
+			"current_speed": results_flat[base + 6],
+			"gravity_velocity": Vector2(results_flat[base + 7], results_flat[base + 8]),
+			"lightning_segment_index": int(results_flat[base + 9]),
+			"lightning_prev_offset": results_flat[base + 10],
+			"lightning_target_offset": results_flat[base + 11],
+		}
+	_perf_rust_call_usec += Time.get_ticks_usec() - _t_rust

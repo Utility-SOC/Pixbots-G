@@ -1,5 +1,6 @@
 use godot::prelude::*;
 use godot::classes::{IRefCounted, RefCounted};
+use std::collections::HashMap;
 
 type VDict = Dictionary<Variant, Variant>;
 
@@ -20,14 +21,19 @@ type VDict = Dictionary<Variant, Variant>;
 // _handled_targets dict already owns that, same as it does for the old
 // Area2D signal path. This just reports raw overlaps every tick.
 //
-// MVP: flat O(n_projectiles x n_targets) double loop, no spatial
-// partitioning. At realistic scale (~300 projectiles x ~300-900 targets)
-// that's on the order of the same per-tick workload hexgrid_sim.rs's
-// simulate_grid() already handles fine - a grid-bucket spatial hash (same
-// HashMap<(i64,i64), Vec<..>> idiom hexgrid_sim.rs uses for its fixed hex
-// grid, adapted to coarse continuous-space cells) is a drop-in optimization
-// behind the same query_hits signature if profiling ever says it's needed,
-// but shouldn't be built until it is.
+// Grid-bucket spatial hash (2026-08-03 - real playtest evidence, not a
+// guess: a 34-enemy/495-live-shot stress video showed collision pairs
+// staying near zero, confirming the OLD flat O(n_projectiles x n_targets)
+// double loop, not resolution, was the real cost at that volume). Same
+// HashMap<(i64,i64), Vec<usize>> idiom hexgrid_sim.rs already uses for its
+// fixed hex grid, adapted to coarse continuous-space cells: targets are
+// bucketed by position once per call, and each projectile only tests
+// candidates from the cells its swept segment's bounding box (expanded by
+// radius) actually overlaps, instead of every live target. Correctness
+// verified against the flat-loop GDScript fallback via
+// ProjectileBroadphaseParityCheck.gd (unchanged - the spatial hash is an
+// implementation detail behind the same query_hits signature and result
+// contract, not a behavior change).
 
 #[derive(GodotClass)]
 #[class(base=RefCounted)]
@@ -67,6 +73,23 @@ struct Projectile {
     curr: Vector2,
     radius: f64,
     mask: i64,
+}
+
+// Bucket cell size in world pixels - large enough that most cells hold a
+// handful of targets rather than dozens (keeping per-cell test cost low),
+// small enough that a projectile's expanded bounding box doesn't sweep in
+// huge swaths of empty cells for a normal-speed shot. Tuned against this
+// game's actual scale (PartHitbox/obstacle radii in the tens of pixels,
+// play areas in the thousands) - not a hard physical constant, fine to
+// retune later if profiling on a real wave suggests a better value.
+const CELL_SIZE: f64 = 150.0;
+
+fn cell_of(pos: Vector2) -> (i64, i64) {
+    cell_of_f64(pos.x as f64, pos.y as f64)
+}
+
+fn cell_of_f64(x: f64, y: f64) -> (i64, i64) {
+    ((x / CELL_SIZE).floor() as i64, (y / CELL_SIZE).floor() as i64)
 }
 
 // Closest distance from `point` to the segment [a, b] - the same swept-shape
@@ -125,18 +148,57 @@ impl ProjectileBroadphaseRs {
             })
             .collect();
 
+        // Bucket targets by position once (O(T)), track the largest target
+        // radius seen so every projectile's query margin is guaranteed wide
+        // enough to not miss a legitimate overlap near a cell boundary.
+        let mut buckets: HashMap<(i64, i64), Vec<usize>> = HashMap::with_capacity(targets.len());
+        let mut max_target_radius: f64 = 0.0;
+        for (i, t) in targets.iter().enumerate() {
+            buckets.entry(cell_of(t.pos)).or_default().push(i);
+            if t.radius > max_target_radius {
+                max_target_radius = t.radius;
+            }
+        }
+
         let mut results: Array<Variant> = Array::new();
         for p in &projectiles {
-            for t in &targets {
-                if (t.layer & p.mask) == 0 {
-                    continue;
-                }
-                let dist = point_segment_distance(t.pos, p.prev, p.curr);
-                if dist <= t.radius + p.radius {
-                    let mut pair = VDict::new();
-                    pair.set("projectile_id", p.id);
-                    pair.set("target_id", t.id);
-                    results.push(&pair.to_variant());
+            if buckets.is_empty() {
+                continue;
+            }
+            // Swept segment's bounding box, expanded by both radii - any
+            // target that could possibly overlap this projectile's path
+            // this tick has its bucket cell inside this range. A target can
+            // only ever live in its OWN single bucket (bucketed once above,
+            // by its own position), so iterating every cell in range never
+            // double-tests the same target even though the range itself can
+            // span several cells.
+            let margin = p.radius + max_target_radius;
+            let min_x = (p.prev.x.min(p.curr.x) as f64) - margin;
+            let max_x = (p.prev.x.max(p.curr.x) as f64) + margin;
+            let min_y = (p.prev.y.min(p.curr.y) as f64) - margin;
+            let max_y = (p.prev.y.max(p.curr.y) as f64) + margin;
+
+            let (min_cx, min_cy) = cell_of_f64(min_x, min_y);
+            let (max_cx, max_cy) = cell_of_f64(max_x, max_y);
+
+            for cx in min_cx..=max_cx {
+                for cy in min_cy..=max_cy {
+                    let Some(indices) = buckets.get(&(cx, cy)) else {
+                        continue;
+                    };
+                    for &ti in indices {
+                        let t = &targets[ti];
+                        if (t.layer & p.mask) == 0 {
+                            continue;
+                        }
+                        let dist = point_segment_distance(t.pos, p.prev, p.curr);
+                        if dist <= t.radius + p.radius {
+                            let mut pair = VDict::new();
+                            pair.set("projectile_id", p.id);
+                            pair.set("target_id", t.id);
+                            results.push(&pair.to_variant());
+                        }
+                    }
                 }
             }
         }

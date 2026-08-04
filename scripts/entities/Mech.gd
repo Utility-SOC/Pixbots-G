@@ -322,10 +322,12 @@ var base_speed: float = 150.0
 # actual surrounding formation. A small, throttled repulsion-from-neighbors
 # nudge (classic boid "separation") blended into velocity fixes the clumping
 # without touching the approach/orbit logic itself.
+# SEPARATION_QUERY_INTERVAL is read by SeparationBatcher.gd (the batched
+# replacement for the old per-mech timer this class used to keep itself) -
+# kept here as the single source of truth for the cadence.
 const SEPARATION_QUERY_INTERVAL = 0.2
 const SEPARATION_RADIUS = 70.0
 const SEPARATION_WEIGHT = 0.7
-var _separation_query_timer: float = 0.0
 var _cached_separation: Vector2 = Vector2.ZERO
 
 var separate_arm_firing: bool = false
@@ -540,7 +542,6 @@ func _ready():
 		# WHEN each mech's timer first fires, not what it does once it
 		# does - purely a scheduling fix.
 		_sight_check_timer = randf() * (1.0 / SIGHT_CHECK_HZ)
-		_separation_query_timer = randf() * SEPARATION_QUERY_INTERVAL
 		_search_waypoint_timer = randf() * SEARCH_WAYPOINT_INTERVAL
 		_mosey_timer = randf() * MOSEY_UPDATE_INTERVAL
 		# Per-mech personal drift bias for _mosey_toward_target - without
@@ -733,6 +734,30 @@ static var _perf_sight_usec: int = 0
 static var _perf_flow_field_usec: int = 0
 static var _perf_orbit_raycast_usec: int = 0
 static var _perf_separation_usec: int = 0
+# Phase 0 of the AI-tactics Rust-cutover plan (see
+# C:\Users\Utility\.claude\plans\effervescent-drifting-kazoo.md) - these three
+# isolate the specific raycast/rebuild fractions that decide whether Phases
+# 1/3/4 are worth porting at all, same "measure first" discipline as every
+# other Rust port this session. _perf_sight_usec already wraps the WHOLE
+# _update_player_sight call (range check + raycast); this isolates just the
+# raycast sub-cost within it, since only the raycast is a Phase 1 grid-LOS
+# candidate. _perf_flow_field_rebuild_usec wraps MapGenerator._rebuild_flow_field
+# itself (the bounded BFS) - distinct from _perf_flow_field_usec, which only
+# ever measured the O(1) per-mech get_flow_direction lookup.
+static var _perf_sight_raycast_usec: int = 0
+static var _perf_flow_field_rebuild_usec: int = 0
+static var _perf_boss_retreat_raycast_usec: int = 0
+# Simulation-LOD investigation (task #34): these three wrap the
+# ALWAYS-RUN _physics_process preamble - update_status_effects,
+# _tick_weapon_charges, and the cloak/jammer/healer/shield-pulse ability
+# systems' .tick() calls - which run for EVERY mech every tick regardless
+# of near/far/engaged status, unlike the AI-tactics/move_and_slide path
+# which already has a far-branch LOD gate. An earlier MechPhysicsCostDiagnostic.gd
+# run flagged this exact preamble as unexplored ("needs its own bisection
+# round"); this is that round.
+static var _perf_status_effects_usec: int = 0
+static var _perf_weapon_charges_usec: int = 0
+static var _perf_ability_systems_usec: int = 0
 # FpsCounter.gd reads-AND-RESETS _perf_ai_tactics_usec/_perf_shoot_usec/
 # _perf_move_usec once/sec for its own HUD (see FpsCounter.gd:226-228) -
 # since it's a real autoload, it's active even in a headless diagnostic and
@@ -775,12 +800,70 @@ func _physics_process(delta: float):
 			die()
 		return
 		
-	update_status_effects(delta)
+	# Simulation LOD (task #34, extended): a non-player, non-boss mech far
+	# from its target already skips full AI-tactics/shooting (see the near/
+	# far branch below), so running the preamble below at full 60Hz
+	# precision is pure waste in the meantime. Computed here (hoisted above
+	# update_status_effects, which used to run before this existed) so every
+	# throttled piece in the preamble can share it. Same 4Hz cadence already
+	# established for far bosses' AI-tactics (_lod_ai_timer) and far weapon
+	# charges (_lod_weapon_charge_timer) - not skipped outright, so DoT/
+	# ability effects are still progressing, just less precisely metered,
+	# and land close to on-time whenever the mech actually closes to
+	# engagement range.
+	var _is_far_for_lod = not is_player and not is_boss and target and is_instance_valid(target) and global_position.distance_squared_to(target.global_position) > 1400.0 * 1400.0
+
+	var _t_status = Time.get_ticks_usec()
+	# update_status_effects recomputes current_move_speed AND runs the real
+	# per-effect DoT/duration tick (status_runner.tick, delta-scaled damage)
+	# as one atomic unit - throttled as a whole here rather than split, same
+	# as _tick_weapon_charges below. current_move_speed staying stale for up
+	# to 0.25s is the same tier of imperceptible-while-off-screen tradeoff as
+	# every other throttled piece; DoT totals stay exactly correct since the
+	# accumulated elapsed time is what actually gets applied, just in fewer/
+	# larger increments (confirmed: StatusEffectRunner.gd's damage effects
+	# are all `amount * delta`, not fixed-per-tick).
+	if _is_far_for_lod:
+		_lod_status_timer -= delta
+		_lod_status_elapsed += delta
+		if _lod_status_timer <= 0.0:
+			_lod_status_timer = 0.25
+			update_status_effects(_lod_status_elapsed)
+			_lod_status_elapsed = 0.0
+	elif _lod_status_elapsed > 0.0:
+		update_status_effects(_lod_status_elapsed + delta)
+		_lod_status_elapsed = 0.0
+	else:
+		update_status_effects(delta)
+	_perf_status_effects_usec += Time.get_ticks_usec() - _t_status
 
 	if fire_cooldown > 0:
 		fire_cooldown -= delta
 
-	_tick_weapon_charges(delta)
+	var _t_weapon_charges = Time.get_ticks_usec()
+	# Measured the single biggest piece of the always-run preamble
+	# (5.09us/mech-tick of 10.86us total, MechPreamblePerfCheck.gd).
+	# Accumulates elapsed time between ticks and passes THAT as delta so the
+	# total charge over time still matches, same pattern
+	# Projectile._pull_nearby_items already uses for its own throttled tick.
+	if _is_far_for_lod:
+		_lod_weapon_charge_timer -= delta
+		_lod_weapon_charge_elapsed += delta
+		if _lod_weapon_charge_timer <= 0.0:
+			_lod_weapon_charge_timer = 0.25
+			_tick_weapon_charges(_lod_weapon_charge_elapsed)
+			_lod_weapon_charge_elapsed = 0.0
+	elif _lod_weapon_charge_elapsed > 0.0:
+		# Just transitioned back from far to near mid-cycle - flush whatever
+		# elapsed time was pending from the throttled phase (up to 0.25s)
+		# into this tick instead of silently dropping it, so a mech closing
+		# to engagement range never loses real charge progress it already
+		# "earned" while far.
+		_tick_weapon_charges(_lod_weapon_charge_elapsed + delta)
+		_lod_weapon_charge_elapsed = 0.0
+	else:
+		_tick_weapon_charges(delta)
+	_perf_weapon_charges_usec += Time.get_ticks_usec() - _t_weapon_charges
 	# _update_heat(delta) # Thermal system commented out per the user - see the
 	# heat block near HEAT_CAPACITY below for the rest of what's disabled.
 
@@ -800,12 +883,71 @@ func _physics_process(delta: float):
 			if _boss_time_since_hit > BOSS_FLEE_GRACE:
 				_boss_flee_penalty += BOSS_FLEE_RATE * delta
 
+	# Four ability-system ticks, each independently throttled (own timer/
+	# elapsed pair) rather than sharing one - CloakSystem/JammerModuleSystem/
+	# HealBeaconSystem/AegisShieldPulseSystem all already early-exit fast
+	# when the mech doesn't have the relevant part equipped, but the
+	# early-exit ITSELF still costs something 4 separate times every tick
+	# (measured ~3.91-4.02us/mech-tick combined even for starter-torso mechs
+	# with none of these equipped) - throttling still helps regardless of
+	# whether the ability is actually equipped. Pulse intervals for
+	# heal/shield/jammer (3-8s) are vastly larger than the 0.25s throttle
+	# window, so this can't perceptibly delay a real pulse.
+	var _t_abilities = Time.get_ticks_usec()
 	if not cloak_system:
 		cloak_system = CloakSystem.new(self)
-	cloak_system.tick(delta)
-	_update_jammer_module(delta)
-	_update_healer(delta)
-	_update_shield_pulse(delta)
+	if _is_far_for_lod:
+		_lod_cloak_timer -= delta
+		_lod_cloak_elapsed += delta
+		if _lod_cloak_timer <= 0.0:
+			_lod_cloak_timer = 0.25
+			cloak_system.tick(_lod_cloak_elapsed)
+			_lod_cloak_elapsed = 0.0
+	elif _lod_cloak_elapsed > 0.0:
+		cloak_system.tick(_lod_cloak_elapsed + delta)
+		_lod_cloak_elapsed = 0.0
+	else:
+		cloak_system.tick(delta)
+
+	if _is_far_for_lod:
+		_lod_jammer_timer -= delta
+		_lod_jammer_elapsed += delta
+		if _lod_jammer_timer <= 0.0:
+			_lod_jammer_timer = 0.25
+			_update_jammer_module(_lod_jammer_elapsed)
+			_lod_jammer_elapsed = 0.0
+	elif _lod_jammer_elapsed > 0.0:
+		_update_jammer_module(_lod_jammer_elapsed + delta)
+		_lod_jammer_elapsed = 0.0
+	else:
+		_update_jammer_module(delta)
+
+	if _is_far_for_lod:
+		_lod_healer_timer -= delta
+		_lod_healer_elapsed += delta
+		if _lod_healer_timer <= 0.0:
+			_lod_healer_timer = 0.25
+			_update_healer(_lod_healer_elapsed)
+			_lod_healer_elapsed = 0.0
+	elif _lod_healer_elapsed > 0.0:
+		_update_healer(_lod_healer_elapsed + delta)
+		_lod_healer_elapsed = 0.0
+	else:
+		_update_healer(delta)
+
+	if _is_far_for_lod:
+		_lod_shieldpulse_timer -= delta
+		_lod_shieldpulse_elapsed += delta
+		if _lod_shieldpulse_timer <= 0.0:
+			_lod_shieldpulse_timer = 0.25
+			_update_shield_pulse(_lod_shieldpulse_elapsed)
+			_lod_shieldpulse_elapsed = 0.0
+	elif _lod_shieldpulse_elapsed > 0.0:
+		_update_shield_pulse(_lod_shieldpulse_elapsed + delta)
+		_lod_shieldpulse_elapsed = 0.0
+	else:
+		_update_shield_pulse(delta)
+	_perf_ability_systems_usec += Time.get_ticks_usec() - _t_abilities
 
 	if is_player:
 		if not player_controller:
@@ -900,6 +1042,41 @@ func _physics_process(delta: float):
 
 var external_force: Vector2 = Vector2.ZERO
 var _lod_ai_timer: float = 0.0
+# Simulation LOD (task #34) for _tick_weapon_charges - see the call site in
+# _physics_process. Same 4Hz-while-far philosophy as _lod_ai_timer above,
+# just applied to non-boss mechs' weapon-charge accumulation instead of
+# full AI-tactics. Randomized start (thundering-herd avoidance, same
+# convention as Projectile.gd's throttled query timers) even though the
+# cost here is pure GDScript loop math, not a physics-server round trip -
+# spreads the periodic catch-up work across frames instead of bursting the
+# whole far population on the same tick.
+var _lod_weapon_charge_timer: float = randf() * 0.25
+var _lod_weapon_charge_elapsed: float = 0.0
+
+# Simulation LOD (task #34 follow-up) - same throttle-while-far pattern as
+# _lod_weapon_charge_timer/_lod_weapon_charge_elapsed above, extended to the
+# rest of the always-run preamble (update_status_effects + the 4 ability-
+# system ticks). Measured combined cost of these five ~7.1us/mech-tick
+# (MechPreamblePerfCheck.gd) - real but individually smaller than weapon
+# charges, and every one confirmed safe to throttle via the SAME elapsed-
+# accumulator approach (DoT damage/pulse intervals are delta-scaled, so
+# accumulating real time and applying it in fewer/larger increments
+# preserves exact totals - only expiry/pulse timing precision gets coarser,
+# by at most one throttle interval, imperceptible for an off-screen mech).
+# Five separate field pairs rather than a shared helper - matches this
+# codebase's existing preference for explicit per-site state over
+# abstracting a handful of call sites, and avoids Callable-construction
+# overhead on a hot path.
+var _lod_status_timer: float = 0.0
+var _lod_status_elapsed: float = 0.0
+var _lod_cloak_timer: float = 0.0
+var _lod_cloak_elapsed: float = 0.0
+var _lod_jammer_timer: float = 0.0
+var _lod_jammer_elapsed: float = 0.0
+var _lod_healer_timer: float = 0.0
+var _lod_healer_elapsed: float = 0.0
+var _lod_shieldpulse_timer: float = 0.0
+var _lod_shieldpulse_elapsed: float = 0.0
 
 # --- Mosey: cheap passive approach for far (LOD'd) mechs -------------------
 # Per the user: far mechs shouldn't pay for full _execute_ai_tactics (sight
@@ -1240,41 +1417,20 @@ func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, d
 	_shoot_impl(target_pos, is_outward, fire_left_arm, delta)
 	_perf_shoot_usec += Time.get_ticks_usec() - _t_shoot
 
-# Rust batched packet tax/jamming/ambush scaling (rust_ext/src/packet_tax.rs)
-# - checked once via a static shared across every Mech, same pattern as
-# Projectile._ensure_flight_rust. See Status.md's Phase 4 section for the
-# profiling that motivated this: real, if modest, per-shot cost.
-static var _packet_tax_checked: bool = false
-static var _packet_tax_rasterizer = null
-
-static func _ensure_packet_tax_rust():
-	if not _packet_tax_checked:
-		_packet_tax_checked = true
-		if ClassDB.class_exists("PacketTaxRs"):
-			_packet_tax_rasterizer = ClassDB.instantiate("PacketTaxRs")
-
-# Pure-GDScript reference implementation - the fallback contract every
-# Rust-ported system in this codebase keeps (see ProjectileBroadphase.
-# _query_hits_fallback): the DLL must never become a hard dependency.
-# Replicates PacketTaxRs.batch_scale_packets() exactly (tax -> jamming ->
-# ambush, never mutating the input synergies dict - see that file's own
-# comment on why: it's a direct reference to the persistent precalculated
-# packet, reused across future shots).
-static func _batch_scale_packets_fallback(requests: Array) -> Array:
-	var out: Array = []
-	for req in requests:
-		var magnitude = req.magnitude * req.tax
-		var synergies: Dictionary = {}
-		for k in req.synergies:
-			synergies[k] = req.synergies[k] * req.tax
-		for jammed_id in req.jammed_synergies:
-			if synergies.has(jammed_id):
-				var suppressed = synergies[jammed_id] * 0.9
-				magnitude = max(0.0, magnitude - suppressed)
-				synergies[jammed_id] *= 0.1
-		magnitude *= req.ambush_mult
-		out.append({"magnitude": magnitude, "synergies": synergies})
-	return out
+# --- Rust packet-tax batching: tried, measured, reverted (2026-08-03) ---
+# rust_ext/src/packet_tax.rs + Mech._batch_scale_packets_fallback (the
+# GDScript reference the parity check still validates it against) implement
+# a batched tax/jamming/ambush scale - correct (PacketTaxParityCheck.gd
+# passes, including the no-input-mutation contract), but a properly
+# warmup-controlled, order-alternated same-process A/B
+# (ProjectileConstructCostDiagnostic.gd) measured it as ~16% SLOWER than
+# plain GDScript at this call site's real batch size (1-2 armed mounts per
+# _shoot_impl() call) - FFI/array-marshalling overhead exceeds the saved
+# arithmetic below that scale. Not wired in. Left in the tree (Rust module +
+# parity check) since the function itself would very plausibly pay off if a
+# future redesign batches across ALL mechs' fire requests once per frame
+# (mirroring ProjectileManager/ProjectileBroadphase's proven pattern)
+# instead of once per mech - see Status.md's Phase 4 section.
 
 func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, delta: float = 0.0):
 	last_aim_position = target_pos
@@ -1285,15 +1441,6 @@ func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = tr
 
 	var was_cloaked = is_cloaked
 	var fired_a_shot = false
-
-	# Pass 1: figure out which mounts are actually ready to fire and collect
-	# their raw (magnitude, synergies, tax) - the tax/jamming/ambush scaling
-	# itself is deferred to ONE batched call below instead of each mount
-	# doing its own GDScript loop (see Status.md's Phase 4 note).
-	var ready: Array = [] # {data: Dictionary, packet_to_fire: EnergyPacket}
-	var requests: Array = []
-	var ambush_mult = _get_ambush_multiplier() # same for every mount this call
-	var jammed_ids := PackedInt32Array(jammed_synergies.keys())
 
 	for data in precalculated_weapons:
 		if is_player and separate_arm_firing and data.slot_type != HexTile.BodySlot.BACKPACK:
@@ -1325,37 +1472,16 @@ func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = tr
 			if bank_required > 0.0 and mount.bank_current_charge < bank_required:
 				siphon = 0.5
 
-		# packet.copy() still happens here (unavoidable - direction/position/
-		# proc_synergies/charge_required/etc. all need to carry over, and
-		# data.packet must stay pristine across future shots) - only
-		# magnitude/synergies get overwritten below with the batch result.
 		var packet_to_fire = data.packet.copy()
+		# The "almost as if there were no accumulator": normal fire pays
+		# the small quality tax (shrinks with accumulator rarity/level).
 		var tax = data.packet.accumulator_quality * current_jammer_debuff * siphon
-		ready.append({"data": data, "packet_to_fire": packet_to_fire})
-		requests.append({
-			"magnitude": data.packet.magnitude,
-			"synergies": data.packet.synergies,
-			"tax": tax,
-			"jammed_synergies": jammed_ids,
-			"ambush_mult": ambush_mult,
-		})
+		packet_to_fire.magnitude *= tax
+		for k in packet_to_fire.synergies:
+			packet_to_fire.synergies[k] *= tax
+		_apply_synergy_jamming(packet_to_fire)
+		packet_to_fire.magnitude *= _get_ambush_multiplier()
 
-	if ready.is_empty():
-		return
-
-	_ensure_packet_tax_rust()
-	var scaled: Array = _packet_tax_rasterizer.batch_scale_packets(requests) if _packet_tax_rasterizer else _batch_scale_packets_fallback(requests)
-
-	for i in range(ready.size()):
-		var entry = ready[i]
-		var data = entry.data
-		var packet_to_fire: EnergyPacket = entry.packet_to_fire
-		var result = scaled[i]
-		packet_to_fire.magnitude = result.magnitude
-		packet_to_fire.synergies = result.synergies
-
-		var mount = data.mount
-		var required_charge = data.packet.charge_required
 		mount._fire_combined_projectile(self, packet_to_fire, data.step)
 		mount.current_charge -= required_charge
 		# Thermal venting: firing sheds heat proportional to the volley
@@ -1364,6 +1490,26 @@ func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = tr
 
 	if fired_a_shot and was_cloaked and not shadow_stealth_fire:
 		_break_cloak()
+
+# Pure-GDScript reference implementation kept ONLY so PacketTaxParityCheck.gd
+# can keep validating rust_ext/src/packet_tax.rs's correctness for whenever
+# a real (full-frame-batched) call site gets built - NOT called from
+# _shoot_impl above (see the block comment there for why).
+static func _batch_scale_packets_fallback(requests: Array) -> Array:
+	var out: Array = []
+	for req in requests:
+		var magnitude = req.magnitude * req.tax
+		var synergies: Dictionary = {}
+		for k in req.synergies:
+			synergies[k] = req.synergies[k] * req.tax
+		for jammed_id in req.jammed_synergies:
+			if synergies.has(jammed_id):
+				var suppressed = synergies[jammed_id] * 0.9
+				magnitude = max(0.0, magnitude - suppressed)
+				synergies[jammed_id] *= 0.1
+		magnitude *= req.ambush_mult
+		out.append({"magnitude": magnitude, "synergies": synergies})
+	return out
 
 # --- Lightweight heat, v1 (FEATURE_ROADMAP.md group 5, locked spec) --------
 # No live packet simulation: heat is ONE scalar per mech, derived from the
@@ -1544,10 +1690,16 @@ func _compute_mass_and_stat_modifiers():
 	# every frame since it only changes on loadout edits, same as every
 	# other grid-derived stat in this function.
 	total_mass = 0.0
+	var mass_reduction_sum = 0.0
 	for comp in components.values():
 		if comp.get("hex_grid"):
 			for t in comp.hex_grid.get_all_tiles():
 				total_mass += t.get_weight()
+		if comp.get("mass_reduction"):
+			mass_reduction_sum += float(comp.mass_reduction)
+	# Overclocking's permanent mass-reduction reward - see MIN_TOTAL_MASS's
+	# own comment for why this is floored rather than left unclamped.
+	total_mass = max(MIN_TOTAL_MASS, total_mass - mass_reduction_sum)
 
 	# Aggregate all component stat modifiers
 	for comp in components.values():
@@ -2380,6 +2532,7 @@ func rejoin_from_wild():
 	_has_gone_wild = false
 
 static var _perf_flee_check_usec: int = 0
+static var _perf_execute_search_usec: int = 0
 
 func _execute_ai_tactics(delta):
 	# Flee/wild states override everything below for regular wave enemies -
@@ -2418,18 +2571,35 @@ func _execute_ai_tactics(delta):
 
 	if target:
 		# Sight/detection gate - bosses are exempt (see the block comment
-		# above _execute_search) and always fall straight through.
+		# above _execute_search) and always fall straight through. Phase 2 of
+		# the AI-tactics Rust-cutover plan (see
+		# C:\Users\Utility\.claude\plans\effervescent-drifting-kazoo.md) moved
+		# the actual sight-check GATE (range + line-of-sight) out of this
+		# per-mech call into SightAndSearchBatcher.gd, which refreshes
+		# has_sight_of_player/last_known_player_pos for every eligible enemy
+		# on one shared cadence instead of each mech polling its own
+		# independently-staggered SIGHT_CHECK_HZ timer - this just reads the
+		# result. _update_player_sight() itself still exists unchanged
+		# (JammerWiringCheck.gd calls it directly to force past the
+		# throttle for its own test), it's just no longer called from here.
 		if not is_boss:
-			var _t_sight = Time.get_ticks_usec()
-			_update_player_sight(delta)
-			_perf_sight_usec += Time.get_ticks_usec() - _t_sight
 			if _ai_state_label:
 				_ai_state_label.text = "CHASE" if has_sight_of_player else "SEARCH"
 				_ai_state_label.modulate = Color(0.3, 1.0, 0.3) if has_sight_of_player else Color(1.0, 0.6, 0.2)
 			if not has_sight_of_player:
 				if not sight_and_search:
 					sight_and_search = SightAndSearch.new(self)
+				# Phase 2 continuation instrumentation (see
+				# C:\Users\Utility\.claude\plans\effervescent-drifting-kazoo.md) -
+				# unlike the sight-check gate (which eliminated a real
+				# per-mech physics-server round-trip), most of
+				# _execute_search's state machine is already cheap unthrottled
+				# GDScript arithmetic with no FFI cost to save - measuring
+				# first before assuming a Rust port pays off, same "gate on
+				# the real number" discipline Phase 0 used for Phase 3.
+				var _t_search = Time.get_ticks_usec()
 				sight_and_search._execute_search(delta)
+				_perf_execute_search_usec += Time.get_ticks_usec() - _t_search
 				return
 
 		var dist = global_position.distance_to(target.global_position)
@@ -2490,16 +2660,14 @@ func _execute_ai_tactics(delta):
 			velocity = tangent * current_move_speed * (speed_modifier * 0.5)
 
 		# Separation nudge - see the field comment above for why this exists.
-		# Re-queried on its own throttle (not every tick - same perf pattern
-		# as the projectile homing/vortex throttling elsewhere) but blended
-		# into velocity every frame so it stays smooth rather than snapping.
+		# _cached_separation is now written by SeparationBatcher.gd, which
+		# computes it for every eligible enemy mech in ONE batched call per
+		# cadence instead of each mech running its own individually-timed
+		# PhysicsShapeQueryParameters2D query (see that autoload + rust_ext/
+		# src/separation.rs for the full rationale) - this just reads
+		# whatever the batcher last wrote, blended into velocity every frame
+		# so it stays smooth rather than snapping.
 		if not is_boss and not _diag_skip_separation:
-			_separation_query_timer -= delta
-			if _separation_query_timer <= 0.0:
-				_separation_query_timer = SEPARATION_QUERY_INTERVAL
-				var _t_sep = Time.get_ticks_usec()
-				_cached_separation = _compute_separation()
-				_perf_separation_usec += Time.get_ticks_usec() - _t_sep
 			if _cached_separation != Vector2.ZERO:
 				velocity += _cached_separation * current_move_speed * SEPARATION_WEIGHT
 
@@ -2509,38 +2677,6 @@ func _execute_ai_tactics(delta):
 			_shoot(target.global_position, true, true, delta)
 			_perf_diag_shoot_usec += Time.get_ticks_usec() - _t_shoot_diag
 
-# Cheap "push away from nearby same-side neighbors" query, throttled via
-# _separation_query_timer above rather than run every physics tick - a
-# PhysicsShapeQueryParameters2D.intersect_shape() call per enemy per tick is
-# exactly the kind of cost this session already found and fixed for
-# projectiles (see Projectile.gd's HOMING_QUERY_INTERVAL). Masked to the
-# Enemy layer only, so this never pushes a mech away from the player it's
-# actually trying to reach.
-func _compute_separation() -> Vector2:
-	var space_state = get_world_2d().direct_space_state
-	var query = PhysicsShapeQueryParameters2D.new()
-	var shape = CircleShape2D.new()
-	shape.radius = SEPARATION_RADIUS
-	query.shape = shape
-	query.transform = global_transform
-	query.collision_mask = 4 # Enemy layer only
-	query.collide_with_bodies = true
-	query.collide_with_areas = false
-	var results = space_state.intersect_shape(query, 8)
-	var push = Vector2.ZERO
-	var count = 0
-	for res in results:
-		var col = res["collider"]
-		if col == self:
-			continue
-		var away = global_position - col.global_position
-		var d = away.length()
-		if d > 0.001 and d < SEPARATION_RADIUS:
-			push += away.normalized() * (1.0 - d / SEPARATION_RADIUS)
-			count += 1
-	if count > 0:
-		push /= count
-	return push
 
 var elemental_resistances: Dictionary = {}
 
@@ -2984,6 +3120,11 @@ const MASS_BASELINE = 60.0
 const MASS_SPEED_COEFF = 0.0025
 const MASS_SPEED_MIN_MULT = 0.6
 const MASS_SPEED_MAX_MULT = 1.25
+# Overclocking (prestige system) grants permanent per-component mass
+# reduction (ComponentEquipment.mass_reduction) - floor so a heavily
+# Overclocked loadout can never push total_mass to zero/negative and
+# distort _get_mass_speed_mult()'s division.
+const MIN_TOTAL_MASS = 10.0
 
 func _get_mass_speed_mult() -> float:
 	return clamp(1.0 - (total_mass - MASS_BASELINE) * MASS_SPEED_COEFF, MASS_SPEED_MIN_MULT, MASS_SPEED_MAX_MULT)

@@ -101,13 +101,19 @@ func _init(_magnitude: float = 100.0, _position: HexCoord = null):
 	synergies[SynergyType.RAW] = magnitude
 
 func get_dominant_synergy() -> int:
-	if synergies.is_empty():
+	return dominant_synergy_of(synergies)
+
+# Static form of the above, for callers holding a raw synergies Dictionary
+# instead of a live EnergyPacket instance (e.g. OrbitingProjectile.setup(),
+# which only ever gets a duplicated synergies dict, not a packet).
+static func dominant_synergy_of(synergies_dict: Dictionary) -> int:
+	if synergies_dict.is_empty():
 		return SynergyType.RAW
 	var max_syn = SynergyType.RAW
 	var max_val = -1.0
-	for k in synergies:
-		if synergies[k] > max_val:
-			max_val = synergies[k]
+	for k in synergies_dict:
+		if synergies_dict[k] > max_val:
+			max_val = synergies_dict[k]
 			max_syn = k
 	return max_syn
 

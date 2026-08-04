@@ -217,6 +217,14 @@ func copy_config_from(_other: HexTile) -> void:
 # muzzle-position recalculation below applies to every tile type that fires,
 # not just whichever copy happened to get updated.
 const _ProjectileClass = preload("res://scripts/entities/Projectile.gd")
+# Explicit preload rather than the bare global class name (same fresh-
+# checkout/fresh-class-cache workaround already established elsewhere in
+# this codebase - see MapGenerator.gd's DestructibleObstacleScript and
+# LootManager.gd's own header comment): a brand-new class_name script isn't
+# in a headless run's global class cache until the editor has rescanned the
+# project, so a bare `ProjectilePool.acquire()` reference can fail to
+# resolve on a fresh run.
+const _ProjectilePoolScript = preload("res://scripts/core/ProjectilePool.gd")
 
 func _get_power_multiplier() -> float:
 	var mult = 1.0
@@ -364,6 +372,16 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 			return
 		# pattern 3 (Beam) falls through - single projectile, tuned below.
 
+	# Task #35: Projectile pooling was built and measured (ProjectilePool.gd,
+	# same-process interleaved A/B, 5 measured rounds each) - pool
+	# acquire()+release() came out a clean, consistent 12% SLOWER than plain
+	# new()+queue_free(), even in the benchmark's best-case 100%-reuse
+	# scenario. _build_visuals()'s per-shot node construction dominates the
+	# cost and isn't pooled (synergy-dependent, torn down/rebuilt every
+	# reuse regardless - see Projectile._build_visuals()), so there was
+	# never much left for pooling to save. Reverted to plain new(); left
+	# ProjectilePool.gd in the tree unused, matching the packet_tax.rs/
+	# BossBrain precedent from earlier this session.
 	var proj = _ProjectileClass.new()
 	var base_damage = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
 

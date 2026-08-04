@@ -60,11 +60,133 @@ static func _orient_intake_to_shape(component: ComponentEquipment, intake: Compo
 
 var infusion_level: int = 0
 var infusion_xp: int = 0
+
+# stat_modifiers is a DERIVED CACHE (task: Overclocking prestige system) -
+# never written to directly, always rebuilt by _recompute_stat_modifiers()
+# from the three real source fields below. Every existing reader (Mech.
+# _compute_mass_and_stat_modifiers, GarageInventoryPanel tooltips,
+# SquadDirector rival rolls, SaveManager) reads this dict by name/shape
+# only and needs no changes - only the writers moved.
 var stat_modifiers: Dictionary = {}
+# Infusion-level-up rolls (_roll_stat_modifier below) - Legendary+ only,
+# uncapped by design (matches the original, real, already-shipped
+# behavior: _roll_stat_modifier() never had a ceiling).
+var infusion_stat_modifiers: Dictionary = {}
+# Frozen pre-Overclocking-rework save data (SaveManager save format v5) -
+# a save made before this rework has no per-chip provenance to recover
+# (the old infuse_chip() did an irreversible running sum), so its total
+# gets preserved here permanently rather than reconstructed or discarded.
+var legacy_stat_modifiers: Dictionary = {}
+# Individually-tracked equipped Mod Chips, reversible via unequip_chip().
+# Replaces the old infuse_chip()'s one-way merge into stat_modifiers. Each
+# chip is {"traits": Array[{"stat": String, "value": float}]} (task: Chip
+# Splicing) - a plain chip has exactly 1 trait, a Corrupted (spliced) chip
+# has 2+, unbounded. See ChipSplicer.gd for how Corrupted chips get made.
+var equipped_chips: Array[Dictionary] = []
 
 # Black Market drawback: tile types that can never be installed on this
 # component (enforced in GarageMenu._drop_tile). Empty for normal gear.
 var forbidden_tile_types: Array = []
+
+# --- Overclocking (prestige system) ----------------------------------------
+# At Mythic rarity, a component can be Overclocked (repeatably, scrap-
+# gated, see TileActionMenu.overclock_part()): every equipped chip returns
+# to the player's flat chip pool, chip capacity permanently drops until
+# recalibrated back up (TileActionMenu.recalibrate_chip_capacity()), and
+# the player banks a permanent mass reduction or an extra placeable hex.
+const BASE_CHIP_CAPACITY_BY_RARITY = [2, 3, 4, 5, 6] # Common..Mythic
+const OVERCLOCK_CAPACITY_PENALTY = 3
+const CHIP_STAT_CAP = 1.5 # formalizes the +50%-per-stat ceiling infuse_chip() already enforced inline
+# Floor added for Chip Splicing: CHIP_STAT_CAP only ever bounded the upper
+# side (every chip used to be purely positive). Splicing introduces real
+# negative-rolling traits that can stack (Tier 2 re-splicing nets multiple
+# negatives on the same stat together) - without a floor, a heavily-
+# negative-spliced stat like dmg_mult could go below 0.0, and
+# Projectile.gd's `damage *= stat_modifiers["dmg_mult"]` would then produce
+# NEGATIVE damage (a hit that HEALS the target) - a correctness bug, not
+# just a balance concern. A stat can never be pushed below 10% of baseline
+# via chips.
+const CHIP_STAT_FLOOR = 0.1
+
+# The 11 real stat_modifiers keys every chip/infusion roll draws from -
+# single source of truth (was duplicated verbatim in _roll_stat_modifier()
+# below, DebugMenu.gd, and DebugChipGrantCheck.gd; also now read by
+# ChipSplicer.gd's negative-trait roll and Main.gd's enemy chip-equip).
+const CHIP_STAT_POOL = ["kin_mult", "fire_mult", "ice_mult", "vtx_mult", "ltg_mult", "psn_mult", "exp_mult", "prc_mult", "vmp_mult", "dmg_mult", "spd_mult"]
+
+var chip_capacity_upgrades: int = 0 # scrap-paid recalibration, never recovers past the pre-overclock baseline
+var overclock_count: int = 0
+var mass_reduction: float = 0.0 # permanent, additive; see Mech._compute_mass_and_stat_modifiers
+
+# Chip capacity is DERIVED, never stored as a mutable int - same "always
+# re-derive from source data" convention as Mech.total_mass. Scales with
+# rarity; each overclock cycle drops it by OVERCLOCK_CAPACITY_PENALTY,
+# recalibration (chip_capacity_upgrades) buys it back but never past what
+# the current overclock_count has taken.
+func get_chip_capacity() -> int:
+	var base = BASE_CHIP_CAPACITY_BY_RARITY[clamp(rarity, 0, HexTile.Rarity.MYTHIC)]
+	var penalty = overclock_count * OVERCLOCK_CAPACITY_PENALTY
+	var recovered = min(penalty, chip_capacity_upgrades)
+	return max(1, base - penalty + recovered)
+
+func can_overclock() -> bool:
+	return rarity >= HexTile.Rarity.MYTHIC
+
+# Rebuilds stat_modifiers from infusion_stat_modifiers + legacy_stat_modifiers
+# + equipped_chips. The cap/floor deliberately only ever applies to a stat a
+# chip actually touches - matching the exact original infuse_chip()
+# semantics (which only ever clamped the specific stat it was applying a
+# chip to) - so a stat that's only ever been raised by uncapped infusion
+# rolls is NOT retroactively capped/floored by this rework.
+#
+# Each equipped chip carries `traits: Array[{"stat","value"}]` (task: Chip
+# Splicing) instead of a single stat/value pair - a plain chip has exactly
+# one trait, a Corrupted (spliced) chip has 2+, unbounded. This loop just
+# walks every trait of every chip; nothing else about the aggregation
+# changes.
+func _recompute_stat_modifiers():
+	stat_modifiers.clear()
+	for stat in infusion_stat_modifiers:
+		stat_modifiers[stat] = stat_modifiers.get(stat, 1.0) + (infusion_stat_modifiers[stat] - 1.0)
+	for stat in legacy_stat_modifiers:
+		stat_modifiers[stat] = stat_modifiers.get(stat, 1.0) + (legacy_stat_modifiers[stat] - 1.0)
+	var chip_stats_touched: Dictionary = {}
+	for chip in equipped_chips:
+		for t in chip.get("traits", []):
+			var stat = str(t["stat"])
+			chip_stats_touched[stat] = true
+			stat_modifiers[stat] = stat_modifiers.get(stat, 1.0) + (float(t["value"]) - 1.0)
+	for stat in chip_stats_touched:
+		stat_modifiers[stat] = clamp(stat_modifiers[stat], CHIP_STAT_FLOOR, CHIP_STAT_CAP)
+
+# Convenience wrapper for the common single-trait case (enemy chip-equip in
+# Main.gd, and anywhere else that only ever deals in plain chips) - builds
+# a one-trait chip and delegates to the general form below.
+func equip_chip(stat: String, value: float) -> bool:
+	return equip_chip_data({"traits": [{"stat": stat, "value": value}]})
+
+# General case: moves a whole chip (any trait count, including a
+# multi-trait Corrupted chip from splicing) from the player's flat pool
+# onto this component. Caller (TileActionMenu) owns popping it from/
+# pushing it back to main.player_modifier_chips - this only handles the
+# component side.
+func equip_chip_data(chip: Dictionary) -> bool:
+	if equipped_chips.size() >= get_chip_capacity():
+		return false
+	if chip.get("traits", []).is_empty():
+		return false
+	equipped_chips.append(chip.duplicate(true))
+	_recompute_stat_modifiers()
+	return true
+
+# Removes one equipped chip by index and returns it (caller pushes it back
+# into the flat pool) - empty Dictionary if the index is out of range.
+func unequip_chip(index: int) -> Dictionary:
+	if index < 0 or index >= equipped_chips.size():
+		return {}
+	var chip = equipped_chips.pop_at(index)
+	_recompute_stat_modifiers()
+	return chip
 
 # --- Manual-hex upgrades (feature 5) ---------------------------------------
 # Tiering a part up grants a budget of new hexes that the OWNER places by
@@ -452,14 +574,14 @@ func add_infusion_xp(amount: int):
 
 func _roll_stat_modifier():
 	if rarity < HexTile.Rarity.LEGENDARY: return # Only legendary gear can be augmented
-	
-	var possible_stats = ["kin_mult", "fire_mult", "ice_mult", "vtx_mult", "ltg_mult", "psn_mult", "exp_mult", "prc_mult", "vmp_mult", "dmg_mult", "spd_mult"]
-	var roll = possible_stats[randi() % possible_stats.size()]
-	
-	if stat_modifiers.has(roll):
-		stat_modifiers[roll] += 0.05 # Add 5%
+
+	var roll = CHIP_STAT_POOL[randi() % CHIP_STAT_POOL.size()]
+
+	if infusion_stat_modifiers.has(roll):
+		infusion_stat_modifiers[roll] += 0.05 # Add 5%
 	else:
-		stat_modifiers[roll] = 1.05 # Start at 105%
+		infusion_stat_modifiers[roll] = 1.05 # Start at 105%
+	_recompute_stat_modifiers()
 
 static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rarity.COMMON):
 	var script = load("res://scripts/core/ComponentEquipment.gd")

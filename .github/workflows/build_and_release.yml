@@ -4,6 +4,13 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build installer independently'
+        required: false
+        type: boolean
+        default: true
+
 
 permissions:
   contents: write
@@ -45,6 +52,15 @@ jobs:
 
           echo "Comparing $CURRENT_TAG against previous release $PREV_TAG"
 
+          # Major version upgrade check (e.g., v1.x.x -> v2.0.0)
+          CURR_MAJOR=$(echo "$CURRENT_TAG" | sed -E 's/^v([0-9]+).*/\1/')
+          PREV_MAJOR=$(echo "$PREV_TAG" | sed -E 's/^v([0-9]+).*/\1/')
+          if [ -n "$CURR_MAJOR" ] && [ -n "$PREV_MAJOR" ] && [ "$CURR_MAJOR" != "$PREV_MAJOR" ]; then
+            echo "Major version upgrade detected ($PREV_MAJOR -> $CURR_MAJOR) - forcing build."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ "$(git rev-parse "$PREV_TAG")" = "$(git rev-parse "$CURRENT_TAG")" ]; then
             echo "This tag points at the exact same commit as $PREV_TAG - nothing changed, skipping."
             echo "should_build=false" >> "$GITHUB_OUTPUT"
@@ -78,7 +94,7 @@ jobs:
   export-windows:
     name: Windows Export
     needs: check-changes
-    if: github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.should_build == 'true'
+    if: always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.should_build == 'true')
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -109,6 +125,13 @@ jobs:
       - name: Build Installer
         run: .\build_installer.ps1
         shell: pwsh
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pixbots-Installer
+          path: Pixbots-Installer.exe
+          if-no-files-found: error
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

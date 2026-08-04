@@ -13,3 +13,7 @@ mod hexgrid_sim;
 mod terrain_rasterizer;
 mod procedural_shape;
 mod packet_tax;
+mod separation;
+mod solid_grid;
+mod flow_field;
+mod proximity_query;

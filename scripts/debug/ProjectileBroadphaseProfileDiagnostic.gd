@@ -1,22 +1,22 @@
 extends Node
 
-# Diagnostic, not a pass/fail regression test: measures whether Area2D
-# collision detection (broad-phase + narrow-phase + signal dispatch) is
-# actually the dominant cost of heavy projectile combat, or whether it's
-# something else (script overhead, rendering, mech AI). This exists because
-# the claim "the remaining cost is Area2D-per-projectile physics-server
-# overhead, not the math" was architectural reasoning, not a measurement -
-# and a full Rust broadphase port (replacing Area2D projectiles with a
-# custom spatial hash) is a multi-day rewrite of core combat that shouldn't
-# be undertaken on an unverified hypothesis.
+# Diagnostic, not a pass/fail regression test. Originally measured whether
+# Area2D collision detection was the dominant cost of heavy projectile
+# combat (it was - that measurement justified the Rust broadphase port, see
+# C:\Users\Utility\.claude\plans\effervescent-exploring-pine.md). Projectile
+# is no longer an Area2D at all post-cutover, so the old Config A/B
+# (toggling monitoring/monitorable/collision shape) no longer applies -
+# repurposed per that plan's Day 4 note to instead demonstrate the actual
+# win: Rust query_hits vs the pure-GDScript _query_hits_fallback, at the
+# same population this file has used all along.
 #
 # Method: build the SAME population (enemy Mechs + live projectiles) twice.
-# Config A leaves real Area2D collision active (current shipped behavior).
-# Config B disables monitoring/monitorable and the collision shape on every
-# projectile right after spawn - identical script/movement/visual cost,
-# with collision detection surgically removed. The wall-clock delta between
-# A and B isolates what collision detection itself costs. A baseline C (no
-# projectiles at all) shows the enemy-only floor for context.
+# Config A forces ProjectileBroadphase onto its GDScript fallback path
+# (_rasterizer set to null, mirroring how it behaves if the DLL isn't
+# loaded). Config B restores the real Rust rasterizer. The wall-clock delta
+# between A and B isolates what the Rust port actually saves over the
+# fallback it replaces. A baseline C (no projectiles at all) shows the
+# enemy-only floor for context.
 
 const MechScript = preload("res://scripts/entities/Mech.gd")
 const ProjectileScript = preload("res://scripts/entities/Projectile.gd")
@@ -39,7 +39,7 @@ func _spawn_enemies() -> Array:
 		mechs.append(m)
 	return mechs
 
-func _spawn_projectiles(disable_collision: bool) -> Array:
+func _spawn_projectiles() -> Array:
 	var projs = []
 	for i in range(PROJECTILE_COUNT):
 		var p = ProjectileScript.new()
@@ -52,13 +52,7 @@ func _spawn_projectiles(disable_collision: bool) -> Array:
 		var dir = Vector2.RIGHT.rotated(randf_range(0.0, TAU))
 		p.direction = dir
 		p.target_direction = dir
-		world.add_child(p)
-		if disable_collision:
-			p.monitoring = false
-			p.monitorable = false
-			for c in p.get_children():
-				if c is CollisionShape2D:
-					c.set_deferred("disabled", true)
+		world.add_child(p) # _ready() registers it with ProjectileBroadphase unconditionally
 		projs.append(p)
 	return projs
 
@@ -129,21 +123,35 @@ func _ready():
 	print("C: %.3f ms/physics-tick" % ms_c)
 	await _teardown(enemies_c)
 
-	print("--- Config A: %d enemy mechs + %d projectiles, collision ON (current behavior) ---" % [ENEMY_COUNT, PROJECTILE_COUNT])
+	# Force ProjectileBroadphase's Rust check to have already run once (so
+	# _ensure_rust() below never fires again mid-measurement) and capture the
+	# real rasterizer instance so Config A can null it out and Config B can
+	# restore it - same DLL-presence fallback contract every Rust port in
+	# this codebase keeps (see ProjectileManager._ensure_flight_rust).
+	ProjectileBroadphase._ensure_rust()
+	var real_rasterizer = ProjectileBroadphase._rasterizer
+	if real_rasterizer == null:
+		print("SKIP: rust_ext DLL doesn't expose ProjectileBroadphaseRs (not built, or debug DLL locked while the editor is open) - can't compare Rust vs fallback.")
+		get_tree().quit(0)
+		return
+
+	print("--- Config A: %d enemy mechs + %d projectiles, GDScript fallback broadphase ---" % [ENEMY_COUNT, PROJECTILE_COUNT])
+	ProjectileBroadphase._rasterizer = null
 	var enemies_a = _spawn_enemies()
-	var projs_a = _spawn_projectiles(false)
+	var projs_a = _spawn_projectiles()
 	var ms_a = await _measure()
 	print("A: %.3f ms/physics-tick" % ms_a)
 	await _teardown(enemies_a + projs_a)
 
-	print("--- Config B: %d enemy mechs + %d projectiles, collision OFF (monitoring/monitorable/shape disabled) ---" % [ENEMY_COUNT, PROJECTILE_COUNT])
+	print("--- Config B: %d enemy mechs + %d projectiles, Rust broadphase ---" % [ENEMY_COUNT, PROJECTILE_COUNT])
+	ProjectileBroadphase._rasterizer = real_rasterizer
 	var enemies_b = _spawn_enemies()
-	var projs_b = _spawn_projectiles(true)
+	var projs_b = _spawn_projectiles()
 	var ms_b = await _measure()
 	print("B: %.3f ms/physics-tick" % ms_b)
 	await _teardown(enemies_b + projs_b)
 
-	var collision_cost = ms_a - ms_b
+	var broadphase_savings = ms_a - ms_b
 	var projectile_script_cost = ms_b - ms_c
 	print("")
 	print("=== RESULT ===")
@@ -151,14 +159,11 @@ func _ready():
 	print("E  %d mechs, process+physics_process OFF:    %.3f ms/tick" % [ENEMY_COUNT, ms_e])
 	print("F  10 mechs, physics_process off only:       %.3f ms/tick" % ms_f)
 	print("C  %d mechs, physics_process off only:       %.3f ms/tick" % [ENEMY_COUNT, ms_c])
-	print("B  C + %d projectiles, collision OFF:        %.3f ms/tick  (delta over C: %+.3f)" % [PROJECTILE_COUNT, ms_b, projectile_script_cost])
-	print("A  C + %d projectiles, collision ON:         %.3f ms/tick  (delta over B: %+.3f)" % [PROJECTILE_COUNT, ms_a, collision_cost])
+	print("A  C + %d projectiles, GDScript fallback:    %.3f ms/tick  (delta over C: %+.3f)" % [PROJECTILE_COUNT, ms_a, ms_a - ms_c])
+	print("B  C + %d projectiles, Rust broadphase:      %.3f ms/tick  (delta over C: %+.3f)" % [PROJECTILE_COUNT, ms_b, projectile_script_cost])
 	print("")
 	if ms_a > 0.001:
-		print("Collision detection is %.1f%% of the with-projectiles frame cost (A-C)." % (100.0 * collision_cost / max(0.001, ms_a - ms_c)))
-	if collision_cost > projectile_script_cost * 0.5 and collision_cost > 1.0:
-		print("VERDICT: collision detection is a substantial share of projectile cost - the Rust broadphase port is justified.")
-	else:
-		print("VERDICT: collision detection is NOT the dominant cost here - script/movement/render overhead dominates. A broadphase port would give limited return; look elsewhere first.")
+		print("Rust broadphase saves %.1f%% of the fallback's added cost over baseline C." % (100.0 * broadphase_savings / max(0.001, ms_a - ms_c)))
+	print("Rust: %.3fms/tick vs GDScript fallback: %.3fms/tick at %d projectiles x ~%d part-hitbox targets." % [ms_b, ms_a, PROJECTILE_COUNT, ENEMY_COUNT * 6])
 
 	get_tree().quit(0)

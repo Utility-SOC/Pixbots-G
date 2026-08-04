@@ -162,6 +162,37 @@ var flow_field: Dictionary = {} # Vector2i grid coord -> Vector2 step direction
 var _flow_field_timer: float = 0.0
 var _flow_field_target_cell: Vector2i = Vector2i(-999999, -999999)
 
+# Phase 3 of the AI-tactics Rust-cutover plan (see
+# C:\Users\Utility\.claude\plans\effervescent-drifting-kazoo.md) - optional
+# native accelerator for _rebuild_flow_field's bounded BFS, same lazy-check/
+# graceful-fallback pattern as _terrain_rasterizer above. Deliberately its
+# own separate solidity buffer (terrain==WATER OR obstacles.has, matching
+# astar_grid exactly) rather than reusing SolidGridBatcher's obstacle-only
+# LOS buffer (Phase 1) - see flow_field.rs's header comment for why they
+# can't share one.
+var _flow_field_rasterizer = null
+var _flow_field_rasterizer_checked: bool = false
+var _flow_field_grid_obstacle_count: int = -1
+
+func _ensure_flow_field_rust():
+	if not _flow_field_rasterizer_checked:
+		_flow_field_rasterizer_checked = true
+		if ClassDB.class_exists("FlowFieldRs"):
+			_flow_field_rasterizer = ClassDB.instantiate("FlowFieldRs")
+
+# Piggybacks on the same obstacles.size()-change signal SolidGridBatcher.gd
+# uses (Dictionary.erase always shrinks it, obstacle destruction is the only
+# way this ever changes post-generation) - water never changes after
+# generation either, so the buffer only needs rebuilding this rarely.
+func _rebuild_flow_field_solidity_buffer():
+	var solidity = PackedByteArray()
+	solidity.resize(width * height)
+	for y in range(height):
+		for x in range(width):
+			if terrain[y][x] == BiomeType.WATER or obstacles.has(Vector2i(x, y)):
+				solidity[y * width + x] = 1
+	_flow_field_rasterizer.set_grid(solidity, width, height)
+
 func _process(delta: float):
 	_flow_field_timer -= delta
 
@@ -182,9 +213,37 @@ func _process(delta: float):
 	_rebuild_flow_field(target_cell)
 
 func _rebuild_flow_field(target_cell: Vector2i):
+	# Phase 0/3 instrumentation for the AI-tactics Rust-cutover plan (see
+	# C:\Users\Utility\.claude\plans\effervescent-drifting-kazoo.md) - wraps
+	# the WHOLE rebuild (both BFS passes, or the Rust equivalent), distinct
+	# from Mech.gd's _perf_flow_field_usec, which only ever measured the
+	# O(1) per-mech get_flow_direction lookup. Phase 0's real number here
+	# (~6.8-7.6ms per rebuild on a 0.4s cadence, a genuine periodic stutter)
+	# is what justified Phase 3's Rust port below.
+	var _t_flow_rebuild = Time.get_ticks_usec()
 	_flow_field_target_cell = target_cell
 	flow_field.clear()
 
+	_ensure_flow_field_rust()
+	if _flow_field_rasterizer:
+		if _flow_field_grid_obstacle_count != obstacles.size():
+			_flow_field_grid_obstacle_count = obstacles.size()
+			_rebuild_flow_field_solidity_buffer()
+		var results = _flow_field_rasterizer.rebuild(target_cell.x, target_cell.y, FLOW_FIELD_RADIUS)
+		for entry in results:
+			flow_field[entry.cell] = entry.dir
+	else:
+		_rebuild_flow_field_fallback(target_cell)
+
+	Mech._perf_flow_field_rebuild_usec += Time.get_ticks_usec() - _t_flow_rebuild
+
+# Pure-GDScript reference implementation - the fallback contract every
+# Rust-ported system in this codebase keeps (see
+# SeparationBatcher._batch_compute_separation_fallback). Unlike Phase 1/2's
+# accepted soft-heuristic approximations, this one must stay byte-identical
+# to FlowFieldRs.rebuild() - verified via FlowFieldParityCheck.gd - since
+# flow-field routing is navigation-affecting, not a soft heuristic.
+func _rebuild_flow_field_fallback(target_cell: Vector2i):
 	if astar_grid.is_point_solid(target_cell):
 		return # target somehow inside a solid cell - leave the field empty, mechs fall back to a straight line
 

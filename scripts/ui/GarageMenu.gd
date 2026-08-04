@@ -175,7 +175,7 @@ func _populate_component_tabs():
 	# Preserve whatever was selected before the rebuild - playtest report:
 	# "I cannot upgrade any components except the torso - I pop to the
 	# torso every time I try to upgrade anything else." upgrade_part()/
-	# extract_modifier()/infuse_chip() (TileActionMenu.gd) and Swap
+	# extract_modifier()/equip_chip() (TileActionMenu.gd) and Swap
 	# Component (below) all call _refresh_component_ui() afterward, which
 	# calls this - the upgrade itself was applying correctly to whatever
 	# was actually active, but this then unconditionally jumped to tab 0
@@ -254,6 +254,7 @@ func _refresh_component_ui():
 	if not tile_action_menu:
 		tile_action_menu = TileActionMenu.new(self)
 	tile_action_menu.update_chip_label()
+	tile_action_menu.refresh_equipped_chips_ui()
 	if component_diagram:
 		component_diagram.refresh(mech_components)
 
@@ -520,6 +521,8 @@ func _on_infuse_part():
 # GarageGridRenderer'''s expansion-click mode).
 var pending_expansion_hexes: int = 0
 var chip_count_label: Label = null
+var chip_capacity_label: Label = null # Overclocking: shows the active component's chip capacity
+var equipped_chips_box: HFlowContainer = null # Overclocking: one unequip-button per currently-equipped chip
 
 func _on_upgrade_part():
 	if not tile_action_menu:
@@ -533,10 +536,29 @@ func _on_extract_modifier():
 		tile_action_menu = TileActionMenu.new(self)
 	tile_action_menu.extract_modifier()
 
-func _on_infuse_chip():
+func _on_equip_chip():
 	if not tile_action_menu:
 		tile_action_menu = TileActionMenu.new(self)
-	tile_action_menu.infuse_chip()
+	tile_action_menu.open_equip_chip_popup()
+
+# --- Overclocking (prestige system) -----------------------------------------
+
+func _on_overclock_part():
+	if not tile_action_menu:
+		tile_action_menu = TileActionMenu.new(self)
+	tile_action_menu.overclock_part()
+
+func _on_recalibrate_chip_capacity():
+	if not tile_action_menu:
+		tile_action_menu = TileActionMenu.new(self)
+	tile_action_menu.recalibrate_chip_capacity()
+
+# --- Chip Splicing -----------------------------------------------------------
+
+func _on_splice_chips():
+	if not tile_action_menu:
+		tile_action_menu = TileActionMenu.new(self)
+	tile_action_menu.open_splice_popup()
 
 # Shared human-readable slot names - used by the Black Market listing, the
 # spare-components list, and the Swap Component warning/popup, so a purchased

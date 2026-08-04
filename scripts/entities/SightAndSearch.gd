@@ -71,12 +71,14 @@ func _update_player_sight(delta: float):
 	var visible = false
 	var sight_range = _effective_sight_range()
 	if dist_sq <= sight_range * sight_range:
+		var _t_sight_ray = Time.get_ticks_usec()
 		var space_state = mech.get_world_2d().direct_space_state
 		# Collision mask 1 = World/obstacles only (same convention as the
 		# strafe-into-walls and boss-retreat-clearance raycasts elsewhere in
 		# Mech.gd) - other mechs don't block sight, only terrain/obstacles.
 		var query = PhysicsRayQueryParameters2D.create(mech.global_position, mech.target.global_position, 1)
 		visible = space_state.intersect_ray(query).is_empty()
+		Mech._perf_sight_raycast_usec += Time.get_ticks_usec() - _t_sight_ray
 
 	if visible:
 		mech._gain_sight(mech.target.global_position)
@@ -187,13 +189,23 @@ func _next_leg_target() -> Vector2:
 
 	# Line-of-sight/obstacle awareness: don't commit to a leg that just
 	# marches straight into a wall - try rotating through the other 3
-	# headings first (same mask-1/Env-only raycast convention as the
-	# player-sight check above) before giving up and using it anyway.
-	var space_state = mech.get_world_2d().direct_space_state
+	# headings first before giving up and using it anyway. Uses
+	# SolidGridBatcher's grid-marched primitive (Phase 1 of the AI-tactics
+	# cutover - see that file's header) instead of a real
+	# PhysicsRayQueryParameters2D round-trip: Phase 2 wired the sight-check
+	# GATE up to this same primitive and measured a real win eliminating the
+	# physics-server round-trip, but this call site was missed at the time
+	# (a later comment in Mech.gd's _execute_ai_tactics even claimed
+	# _execute_search had "no FFI cost to save" - true for the rest of the
+	# state machine, not for this raycast). Same disclosed grid-vs-physics
+	# approximation tier already accepted for the sight check (edge-of-tile
+	# mismatches possible, soft heuristic either way - a wrong leg pick just
+	# means one extra failed attempt or a slightly awkward wall-hug, not a
+	# gameplay-breaking miss).
 	var attempts = 0
 	while attempts < 3:
-		var query = PhysicsRayQueryParameters2D.create(mech._search_leg_start, target, 1)
-		if space_state.intersect_ray(query).is_empty():
+		var clear = SolidGridBatcher.batch_line_of_sight([{"from": mech._search_leg_start, "to": target}])[0]
+		if clear:
 			break
 		attempts += 1
 		heading = mech._SEARCH_HEADINGS[(mech._search_heading_idx + attempts) % 4]

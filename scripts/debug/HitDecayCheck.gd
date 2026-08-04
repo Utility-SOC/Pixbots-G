@@ -22,8 +22,6 @@ func _make_projectile(synergies: Dictionary) -> Node:
 	proj.damage = 10.0
 	world.add_child(proj) # _ready() computes ratios + _calculate_stats()
 	proj.set_physics_process(false)
-	proj.monitoring = false
-	proj.monitorable = false
 	return proj
 
 func _check(label: String, got: float, expect: float):

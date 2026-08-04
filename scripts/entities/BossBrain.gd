@@ -108,6 +108,26 @@ func try_reposition(delta: float, dist: float, dir: Vector2) -> bool:
 # open ground instead of blindly reversing into whatever's directly behind
 # it (a wall, a corner, another obstacle).
 func _pick_retreat_dir(dir: Vector2) -> Vector2:
+	# Phase 4 of the AI-tactics Rust-cutover plan (see
+	# C:\Users\Utility\.claude\plans\effervescent-drifting-kazoo.md) -
+	# TRIED a Rust-batched replacement (SolidGridBatcher.batch_probe_clearance,
+	# still in the tree - see rust_ext/src/solid_grid.rs's march/
+	# batch_probe_clearance, verified correct via SolidGridLosCheck.gd's
+	# hand-computed clearance cases and BossBrainRetreatCheck.gd's
+	# wiring-correctness check), REVERTED after honest measurement.
+	# Boss population is always exactly 1 - the same batch-of-1 shape that
+	# made packet_tax.rs measure slower than plain GDScript. A rigorous
+	# same-process interleaved A/B (Phase4RetreatDirABCheck.gd, 10 trials/
+	# config, 1 warmup discarded, alternating order) found the Rust-batched
+	# version **59.4% SLOWER** (5.16us/call old raycast fan vs 8.23us/call
+	# Rust-batched) - tight, stable spreads on both sides, not noise.
+	# FFI/Dictionary-marshalling overhead for 5 queries exceeds the cost of
+	# 5 already-fast native PhysicsServer2D raycasts at this population
+	# size, exactly the packet_tax.rs lesson repeating. Reverted to the
+	# original real-raycast fan below; the Rust module stays in the tree
+	# unused, same precedent as packet_tax.rs, in case a future redesign
+	# finds a genuinely batchable call site for it.
+	var _t_retreat = Time.get_ticks_usec()
 	var space_state = mech.get_world_2d().direct_space_state
 	var candidate_offsets_deg = [0.0, 25.0, -25.0, 50.0, -50.0]
 	var probe_dist = 150.0
@@ -121,6 +141,7 @@ func _pick_retreat_dir(dir: Vector2) -> Vector2:
 		if clearance > best_clearance:
 			best_clearance = clearance
 			best_dir = candidate
+	Mech._perf_boss_retreat_raycast_usec += Time.get_ticks_usec() - _t_retreat
 	return best_dir
 
 # --- Boss Cloak Hit-and-Run ------------------------------------------------

@@ -7,6 +7,7 @@ const DroneBayTile = preload("res://scripts/tiles/DroneBayTile.gd")
 const ChampionCardScript = preload("res://scripts/pvp/ChampionCard.gd")
 const CutscenePlayer = preload("res://scripts/cutscene/CutscenePlayer.gd")
 const BrandRegistry = preload("res://scripts/core/BrandRegistry.gd")
+const ComponentEquipmentScript = preload("res://scripts/core/ComponentEquipment.gd")
 
 # Companion Drones (see Drone.gd/DroneBayTile.gd): one spawned alongside the
 # player per Drone Bay tile installed anywhere in their Backpack on deploy -
@@ -48,8 +49,10 @@ var player: Mech
 var player_inventory: Array = []
 var player_component_inventory: Array = []
 var player_scrap: int = 0
-# Extracted stat modifiers waiting to be infused into a part (feature 5).
-# Each entry: {"stat": String, "value": float}. Managed by GarageMenu.
+# Extracted stat modifiers waiting to be equipped onto a part (feature 5).
+# Each entry: {"traits": Array[{"stat": String, "value": float}]} (task:
+# Chip Splicing) - a plain chip has 1 trait, a Corrupted (spliced) chip
+# has 2+, unbounded. Managed by GarageMenu/TileActionMenu.gd.
 var player_modifier_chips: Array = []
 
 # Corporate Sponsorships (task #17, BrandRegistry.gd) - "" means Free Agent
@@ -1003,6 +1006,7 @@ func _spawn_boss(director, is_mega: bool):
 		boss.refresh_boss_visuals()
 
 	boss.hp = boss.max_hp
+	_equip_enemy_chips(boss)
 	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
 	if randf() > 0.5: offset.x *= -1
 	if randf() > 0.5: offset.y *= -1
@@ -1026,6 +1030,37 @@ func _spawn_boss(director, is_mega: bool):
 	boss.set_meta("is_first_boss", not SaveManager.first_boss_encountered)
 	if not SaveManager.first_boss_encountered:
 		show_dialogue("Shopkeeper", DialogueManager.get_first_boss_intro(), Color(1.0, 0.6, 0.2), 8.0)
+
+# Chip Splicing: only Elite Four rivals and bosses carry real equipped Mod
+# Chips (called from _spawn_boss/_spawn_rival) - rank-and-file wave enemies
+# use a simplified procedural loadout with no real ComponentEquipment/chip
+# concept at all, so they never call this and their equipped_chips stays
+# empty. Magnitude is meant to feel like real, worthwhile power - these
+# enemies should be able to hit hard enough that losing to one, or working
+# to beat one, feels like it mattered. Always produces PLAIN (single-trait)
+# chips via the 2-arg equip_chip() - this is also what makes "only plain
+# chips drop on death" (LootManager.generate_loot_for_mech) trivially
+# correct for every enemy that ISN'T a rival/boss: they never get chips at
+# all, so the death-drop loop is a no-op for them with no extra gating.
+const ENEMY_CHIP_MIN_BONUS = 0.15
+const ENEMY_CHIP_MAX_BONUS = 0.35
+const ENEMY_CHIP_COUNT_MIN = 1
+const ENEMY_CHIP_COUNT_MAX = 3
+
+func _equip_enemy_chips(mech: Node):
+	if not "components" in mech or mech.components.is_empty():
+		return
+	var count = randi_range(ENEMY_CHIP_COUNT_MIN, ENEMY_CHIP_COUNT_MAX)
+	var slots = mech.components.keys()
+	for i in range(count):
+		var stat = ComponentEquipmentScript.CHIP_STAT_POOL.pick_random()
+		var value = round((1.0 + randf_range(ENEMY_CHIP_MIN_BONUS, ENEMY_CHIP_MAX_BONUS)) * 100.0) / 100.0
+		var shuffled = slots.duplicate()
+		shuffled.shuffle()
+		for slot in shuffled:
+			if mech.components[slot].equip_chip(stat, value):
+				break
+	mech._recalculate_grid()
 
 func _on_boss_died(boss):
 	# Feed the fight's outcome back into the boss profile's fitness (same
@@ -1159,6 +1194,7 @@ func _spawn_rival(director, force_rarity = -1, force_name = ""):
 			rival.max_shield_hp *= power_mult
 			rival.shield_hp = rival.max_shield_hp
 		rival.stat_modifiers["dmg_mult"] = rival.stat_modifiers.get("dmg_mult", 1.0) * power_mult
+		_equip_enemy_chips(rival)
 
 		rival.scale = Vector2(1.3, 1.3)
 		var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))

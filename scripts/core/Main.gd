@@ -288,7 +288,13 @@ func _setup_hud():
 	# Dialogue UI
 	dialogue_box = Panel.new()
 	dialogue_box.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	dialogue_box.position = Vector2(1280 / 2 - 400, 100)
+	# Centered against the real viewport width, not a baked-in 1280px
+	# assumption - the old hardcoded offset defeated the whole point of
+	# PRESET_CENTER_TOP and could leave the box anywhere from off-center to
+	# overlapping other screen-space UI (e.g. the Garage's right-side
+	# inventory panel) on any window size other than the one it was tuned for.
+	var viewport_width = get_viewport().get_visible_rect().size.x
+	dialogue_box.position = Vector2(viewport_width / 2 - 400, 100)
 	dialogue_box.size = Vector2(800, 120)
 	dialogue_box.visible = false
 	# ALWAYS, not the HUD's default PAUSABLE - the 3-loss game-over line
@@ -302,6 +308,7 @@ func _setup_hud():
 
 	dialogue_label = RichTextLabel.new()
 	dialogue_label.bbcode_enabled = true
+	dialogue_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialogue_label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dialogue_label.offset_left = 16
 	dialogue_label.offset_top = 16

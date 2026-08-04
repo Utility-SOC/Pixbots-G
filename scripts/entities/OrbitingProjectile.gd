@@ -117,6 +117,14 @@ func _spawn_poison_pool():
 	if OilSlickScript:
 		var pool = OilSlickScript.new()
 		pool.global_position = global_position
+		# Temporary trail marker, not a permanent map decal - OilSlickHazard
+		# defaults to permanent (lifetime 0.0) for MapGenerator's sparse
+		# placement; this spawns one every 0.2s for up to this projectile's
+		# whole 14s LIFETIME, which left permanent would leak dozens of
+		# un-freed nodes per shot (real report: FPS collapsing well after
+		# combat ended, from the accumulated leftovers, not anything
+		# currently happening).
+		pool.lifetime = 5.0
 		world.add_child(pool)
 
 func _check_lightning_lash():

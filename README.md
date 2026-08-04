@@ -246,7 +246,7 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 - **Minimap Added:** A new minimap overlay helps you track terrain and enemy squad movements.
 - **Environmental & Tactical Additions:** Destructible Ruin Obstacles have been added. Furthermore, jumpjets now automatically activate and sustain when traversing water hazards!
 - **Visual Improvements:** The cloaking effect has been redesigned with a new distortion-circle shader, and lightning strikes now use an instant stylized polyline effect.
-- **Roadmap & Docs:** `FEATURE_ROADMAP.md` has been added with all upcoming design decisions (including the scrap economy and lightweight heat system).
+- **Roadmap & Docs:** Upcoming design decisions (including the scrap economy and lightweight heat system) are now tracked in `Status.md`.
 
 ---
 
@@ -254,4 +254,4 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 
 Pixbots-G was built with an open architecture. 
 - **Modding AI Squads**: You can define custom baseline squad packs by editing `config/default_squads.json`. See the `MODDING.md` file in the repository for full documentation on how to write custom JSON profiles and share them.
-- **Future Development**: Check out `FEATURE_ROADMAP.md` for a comprehensive list of upcoming design decisions, including the Scrap Economy, Lightweight Heat System, and Melee/Mass Physics engine!
+- **Future Development**: Check out `Status.md` for a comprehensive list of upcoming design decisions, including the Scrap Economy, Lightweight Heat System, and Melee/Mass Physics engine!

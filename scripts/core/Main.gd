@@ -496,7 +496,7 @@ func _spawn_extraction_marker():
 # function couldn't do since Main itself isn't PROCESS_MODE_ALWAYS.
 
 func _load_campaign():
-	var file = FileAccess.open("res://campaign.json", FileAccess.READ)
+	var file = FileAccess.open("res://config/campaign.json", FileAccess.READ)
 	if file:
 		var text = file.get_as_text()
 		var json = JSON.new()

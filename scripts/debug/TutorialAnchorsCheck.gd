@@ -19,7 +19,7 @@ func _check(label: String, cond: bool):
 		failures += 1
 
 func _ready():
-	var f = FileAccess.open("res://tutorial.json", FileAccess.READ)
+	var f = FileAccess.open("res://config/tutorial.json", FileAccess.READ)
 	_check("tutorial.json exists and opened", f != null)
 	if f == null:
 		get_tree().quit(1)

@@ -6,9 +6,9 @@ Write-Host "========================================" -ForegroundColor Cyan
 
 # 1. Compile Dialogues
 Write-Host "`n--- 1. Compiling Dialogue & Monologues ---" -ForegroundColor Yellow
-python compile_dialogue.py
+python tools/compile_dialogue.py
 if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] compile_dialogue.py failed" -ForegroundColor Red; exit 1 }
-python inject_monologues.py
+python tools/inject_monologues.py
 if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] inject_monologues.py failed" -ForegroundColor Red; exit 1 }
 
 # 2. Build Rust Extension

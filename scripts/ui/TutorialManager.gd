@@ -1,6 +1,6 @@
 extends CanvasLayer
 
-# First-run onboarding: a JSON-driven sequence of steps (res://tutorial.json),
+# First-run onboarding: a JSON-driven sequence of steps (res://config/tutorial.json),
 # each optionally spotlighting a live UI element while dimming the rest of
 # the screen, showing an instruction panel, and advancing either on a manual
 # "Next" click or on a named event fired via notify() from wherever the
@@ -25,7 +25,7 @@ extends CanvasLayer
 #   var tm = get_tree().get_first_node_in_group("tutorial_manager")
 #   if tm: tm.notify("event:something_happened")
 
-const TUTORIAL_JSON_PATH = "res://tutorial.json"
+const TUTORIAL_JSON_PATH = "res://config/tutorial.json"
 const SAVE_FLAG_PATH = "user://tutorial_completed.flag"
 
 const COL_HIGHLIGHT = Color(1.0, 0.85, 0.4)

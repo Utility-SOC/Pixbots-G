@@ -2,9 +2,7 @@
 
 This documents what is *actually moddable today* — the JSON formats the game
 already loads. It replaces the old `mod_guide_text.txt` (which was scraped
-content from an unrelated game and has been deleted). For the longer-term
-modding plan (data-driven tile stats, custom bot types, texture overrides,
-script-registered tiles), see the Modding section of `FEATURE_ROADMAP.md`.
+content from an unrelated game and has been deleted).
 
 ## Where files live
 

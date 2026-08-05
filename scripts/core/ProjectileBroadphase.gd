@@ -28,6 +28,10 @@ var _rasterizer = null
 
 func _ready():
 	process_priority = 1000
+	# Same reasoning as ProjectileManager._ready() - must keep running while
+	# the Garage pauses the tree, since Test Range projectiles are kept
+	# PROCESS_MODE_ALWAYS specifically so they can live-fire there.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 func register(proj: Node):
 	_registered[proj.get_instance_id()] = proj

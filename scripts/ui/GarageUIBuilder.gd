@@ -43,7 +43,27 @@ func build():
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	garage.add_child(bg)
 
-	var hsplit = HSplitContainer.new()
+	# Was HSplitContainer - user report: "the screen not fitting the interface
+	# is still around", after a prior pass already widened inventory_panel to
+	# 420 (see that field's own comment) and fixed a different EXPAND_FILL
+	# mistake on deploy_button. Neither actually touched the real cause here:
+	# an HSplitContainer's split_offset is computed once against whatever
+	# window size existed at that layout pass and then stays FIXED in pixels
+	# from then on - it does not recompute proportionally on a later resize/
+	# maximize the way a plain BoxContainer's size-flag-driven layout does.
+	# On a window that gets maximized shortly after the Garage builds (or is
+	# just much wider than the ~1280px design canvas to start), the right
+	# pane's rendered width can end up pinned far below its declared 420px
+	# custom_minimum_size, with left_vbox eating 100% of the difference -
+	# exactly the "COMPONENT INFO"/inventory text clipped flush against the
+	# real window edge the screenshot showed. Plain HBoxContainer has no
+	# split_offset/drag-handle state to go stale: left_vbox keeps its
+	# SIZE_EXPAND_FILL (grows to fill whatever's left) and inventory_panel
+	# keeps its default non-expanding SIZE_FILL (stays at exactly its
+	# custom_minimum_size), self-correcting on every resize with no stored
+	# pixel value to freeze. No player-facing drag-to-resize behavior existed
+	# for this split anyway, so losing that affordance costs nothing real.
+	var hsplit = HBoxContainer.new()
 	hsplit.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	garage.add_child(hsplit)
 

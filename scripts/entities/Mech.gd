@@ -379,6 +379,15 @@ signal dealt_damage(amount: float)
 signal took_damage(amount: float, was_reflected: bool)
 signal died()
 signal fled_to_wild(bot: Node)
+# Emitted ONLY by the wild-bot WILD_DESPAWN_TIME timeout below - a mech that
+# times out while wild queue_free()s itself without ever going through
+# die() (it wasn't killed, it wandered off), so died() never fires for it.
+# Main._spawn_wave_async connects this alongside died() to the same
+# _on_enemy_died handler - without it, active_enemies never decremented for
+# a timed-out wild bot, permanently inflating the counter every time one
+# expired instead of being killed or recruited back (user report, 2026-08-05:
+# stuck on a wave forever, killing every visible enemy never cleared it).
+signal despawned_wild()
 
 # --- Wild-bot flee thresholds (Status.md queue) ----------------------------
 # Role-specific HP fractions below which a regular wave enemy breaks off,
@@ -2499,6 +2508,7 @@ func _update_flee_state(delta: float) -> bool:
 			hp = min(max_hp * WILD_REGEN_CAP_FRACTION, hp + max_hp * WILD_REGEN_PER_SEC_FRACTION * delta)
 		_wild_timer += delta
 		if _wild_timer >= WILD_DESPAWN_TIME:
+			despawned_wild.emit() # Main._on_enemy_died - see despawned_wild's own field comment
 			queue_free() # tree_exiting -> SquadDirector._on_wild_bot_died erases it from wild_bots
 			return true
 		if _ai_state_label:

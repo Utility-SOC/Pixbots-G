@@ -13,7 +13,7 @@ var drawn_parts: Dictionary = {}
 # contributes emission points to ONE shared system per mech.
 var _particle_points: Array = []
 var _particle_color: Color = Color.WHITE
-var _shared_particles: CPUParticles2D = null
+var _shared_particles: GPUParticles2D = null
 
 const MechStatusBars = preload("res://scripts/visuals/MechStatusBars.gd")
 
@@ -197,21 +197,41 @@ func _rebuild_visuals():
 	bars.owner_renderer = self
 	add_child(bars)
 
+# EMISSION_SHAPE_POINTS has no direct "just give me an array of Vector2"
+# equivalent on GPU the way CPUParticles2D.emission_points was - the GPU
+# shader instead samples emission_point_texture, a texture whose pixels
+# encode each point's raw position (not clamped color, hence the float
+# format). One-off helper for _finalize_particles() below, which is the
+# only EMISSION_SHAPE_POINTS user in the codebase.
+static func _build_point_emission_texture(points: PackedVector2Array) -> ImageTexture:
+	var img = Image.create(points.size(), 1, false, Image.FORMAT_RGBAF)
+	for i in range(points.size()):
+		img.set_pixel(i, 0, Color(points[i].x, points[i].y, 0.0, 1.0))
+	return ImageTexture.create_from_image(img)
+
 # One shared particle system per mech instead of one per high-rarity part.
+# GPU migration (AAA Polish Roadmap Priority 1): up to 6 parts x ~80 mechs
+# on the field used to mean up to 80 concurrent particle systems even after
+# the per-part -> per-mech consolidation above - the same "many small
+# per-instance CPU costs" pattern behind every fps collapse chased this
+# session, just applied to rendering instead of physics/collision.
 func _finalize_particles():
 	if _particle_points.is_empty():
 		return
-	var particles = CPUParticles2D.new()
-	particles.emission_shape = CPUParticles2D.EMISSION_SHAPE_POINTS
-	particles.emission_points = PackedVector2Array(_particle_points)
+	var particles = GPUParticles2D.new()
 	# Sparse and cell-sized: a few motes at the bake's pixel scale read as
 	# an energy aura; dozens of sub-cell dots read as static noise.
 	particles.amount = clamp(_particle_points.size() / 3, 4, 12)
 	particles.lifetime = 1.2
-	particles.gravity = Vector2(0, -10)
-	particles.scale_amount_min = MechPartRenderer.CELL_SIZE
-	particles.scale_amount_max = MechPartRenderer.CELL_SIZE
-	particles.color = Color(_particle_color, 0.75)
+	var mat = ParticleProcessMaterial.new()
+	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_POINTS
+	mat.emission_point_texture = _build_point_emission_texture(PackedVector2Array(_particle_points))
+	mat.emission_point_count = _particle_points.size()
+	mat.gravity = Vector3(0, -10, 0)
+	mat.scale_min = MechPartRenderer.CELL_SIZE
+	mat.scale_max = MechPartRenderer.CELL_SIZE
+	mat.color = Color(_particle_color, 0.75)
+	particles.process_material = mat
 	add_child(particles)
 	_shared_particles = particles
 

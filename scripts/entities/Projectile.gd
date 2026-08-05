@@ -731,8 +731,10 @@ func _build_visuals():
 		else:
 			# Spreading fire trail
 			var fire_trail = FireTrail2D.new()
-			fire_trail.scale_amount_min *= p_scale
-			fire_trail.scale_amount_max *= p_scale
+			# scale_min/max moved onto the GPU process_material - see
+			# FireTrail2D.gd's GPU migration comment.
+			fire_trail.process_material.scale_min *= p_scale
+			fire_trail.process_material.scale_max *= p_scale
 			# Use MIX instead of ADD so the black soot is visible
 			fire_trail.material = _get_mix_material()
 			visual_node.add_child(fire_trail)

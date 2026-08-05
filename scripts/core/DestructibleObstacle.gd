@@ -106,19 +106,24 @@ func _collapse():
 		if "_flow_field_timer" in map_ref:
 			map_ref._flow_field_timer = 0.0
 
-	var debris = CPUParticles2D.new()
+	# GPU migration (AAA Polish Roadmap Priority 1): every fps collapse chased
+	# this session traced back to the same "many small per-instance CPU
+	# costs" pattern this class of debris burst was still part of.
+	var debris = GPUParticles2D.new()
 	debris.one_shot = true
 	debris.emitting = true
 	debris.amount = 16
 	debris.lifetime = 0.6
-	debris.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
-	debris.emission_rect_extents = Vector2(9, 9)
-	debris.gravity = Vector2(0, 80)
-	debris.initial_velocity_min = 15.0
-	debris.initial_velocity_max = 50.0
-	debris.scale_amount_min = 2.0
-	debris.scale_amount_max = 3.5
-	debris.color = _base_color
+	var mat = ParticleProcessMaterial.new()
+	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	mat.emission_box_extents = Vector3(9, 9, 0)
+	mat.gravity = Vector3(0, 80, 0)
+	mat.initial_velocity_min = 15.0
+	mat.initial_velocity_max = 50.0
+	mat.scale_min = 2.0
+	mat.scale_max = 3.5
+	mat.color = _base_color
+	debris.process_material = mat
 	debris.global_position = global_position
 	if get_parent():
 		get_parent().add_child(debris)

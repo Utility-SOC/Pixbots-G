@@ -55,7 +55,10 @@ func handle_input(delta: float):
 
 			var new_color = EnergyPacket.get_color_blend(mech.jumpjet_energy.synergies) if mech.jumpjet_energy else Color.WHITE
 			for p in mech.jumpjet_trail.get_children():
-				if p.color != new_color: p.color = new_color
+				# color lives on the GPU process_material, not the node itself -
+				# see Mech._ensure_jumpjet_trail()'s GPU migration comment.
+				if p.process_material and p.process_material.color != new_color:
+					p.process_material.color = new_color
 				p.emitting = true
 
 			if mech.jumpjet_energy and mech.jumpjet_energy.magnitude > 0:

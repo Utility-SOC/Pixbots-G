@@ -1319,16 +1319,22 @@ func _ensure_jumpjet_trail():
 	jumpjet_trail = Node2D.new()
 	jumpjet_trail.show_behind_parent = true
 
-	var p_l = CPUParticles2D.new()
+	# GPU migration (AAA Polish Roadmap Priority 1) - see DestructibleObstacle.gd's
+	# identical conversion for why. p_r below duplicate()s p_l including this
+	# process_material - sharing one material between both feet is fine (and
+	# is the point): they're meant to look identical, just offset.
+	var p_l = GPUParticles2D.new()
 	p_l.local_coords = false
 	p_l.lifetime = 0.5
 	p_l.explosiveness = 0.0
-	p_l.spread = 180.0
-	p_l.initial_velocity_min = 10.0
-	p_l.initial_velocity_max = 30.0
-	p_l.scale_amount_min = 4.0
-	p_l.scale_amount_max = 8.0
 	p_l.amount = 10
+	var p_mat = ParticleProcessMaterial.new()
+	p_mat.spread = 180.0
+	p_mat.initial_velocity_min = 10.0
+	p_mat.initial_velocity_max = 30.0
+	p_mat.scale_min = 4.0
+	p_mat.scale_max = 8.0
+	p_l.process_material = p_mat
 	p_l.position = Vector2(-14, 44) # Left foot
 	jumpjet_trail.add_child(p_l)
 
@@ -1360,7 +1366,10 @@ func _force_jumpjets_on():
 	_ensure_jumpjet_trail()
 	var new_color = EnergyPacket.get_color_blend(jumpjet_energy.synergies) if jumpjet_energy else Color.WHITE
 	for p in jumpjet_trail.get_children():
-		if p.color != new_color: p.color = new_color
+		# color lives on the GPU process_material, not the node itself - see
+		# _ensure_jumpjet_trail()'s GPU migration comment.
+		if p.process_material and p.process_material.color != new_color:
+			p.process_material.color = new_color
 		p.emitting = true
 
 # Passive background charging - the "pre-prime" model. Every weapon's

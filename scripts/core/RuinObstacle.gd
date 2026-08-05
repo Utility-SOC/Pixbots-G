@@ -169,19 +169,23 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 		if map_ref.has_method("_rebuild_flow_field") and "_flow_field_target_cell" in map_ref:
 			map_ref._flow_field_timer = 0.0
 
-	var debris = CPUParticles2D.new()
+	# GPU migration (AAA Polish Roadmap Priority 1) - see DestructibleObstacle.gd's
+	# identical conversion for why.
+	var debris = GPUParticles2D.new()
 	debris.one_shot = true
 	debris.emitting = true
 	debris.amount = 30
 	debris.lifetime = 0.7
-	debris.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
-	debris.emission_rect_extents = footprint / 2.0
-	debris.gravity = Vector2(0, 80)
-	debris.initial_velocity_min = 20.0
-	debris.initial_velocity_max = 60.0
-	debris.scale_amount_min = 3.0
-	debris.scale_amount_max = 5.0
-	debris.color = Color(0.5, 0.5, 0.55)
+	var mat = ParticleProcessMaterial.new()
+	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	mat.emission_box_extents = Vector3(footprint.x / 2.0, footprint.y / 2.0, 0)
+	mat.gravity = Vector3(0, 80, 0)
+	mat.initial_velocity_min = 20.0
+	mat.initial_velocity_max = 60.0
+	mat.scale_min = 3.0
+	mat.scale_max = 5.0
+	mat.color = Color(0.5, 0.5, 0.55)
+	debris.process_material = mat
 	debris.global_position = global_position
 	if get_parent():
 		get_parent().add_child(debris)

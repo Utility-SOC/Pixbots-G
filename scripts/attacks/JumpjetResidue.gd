@@ -52,19 +52,25 @@ var _damage_tick_elapsed: float = 0.0
 var source_mech: Node = null
 
 var visual: Polygon2D
-var particles: CPUParticles2D
+var particles: GPUParticles2D
+# GPU migration (AAA Polish Roadmap Priority 1): color lives on the process
+# material for GPUParticles2D, not the node itself - kept as its own ref so
+# setup() can still restyle an already-_ready() zone's color live (LanceBeam
+# spawns these with synergies known upfront, but the null-guarded update path
+# below existed for a reason before this conversion, so preserve it).
+var _particle_mat: ParticleProcessMaterial = null
 
 func setup(_damage: float, _synergies: Dictionary):
 	damage_per_sec = _damage
 	synergies = _synergies.duplicate()
-	
+
 	var base_color = EnergyPacket.get_color_blend(synergies)
-	
+
 	if visual:
 		visual.color = Color(base_color.r, base_color.g, base_color.b, 0.5)
-	
-	if particles:
-		particles.color = Color(base_color.r, base_color.g, base_color.b, 0.8)
+
+	if _particle_mat:
+		_particle_mat.color = Color(base_color.r, base_color.g, base_color.b, 0.8)
 
 func _ready():
 	visual = Polygon2D.new()
@@ -76,18 +82,20 @@ func _ready():
 		points.append(Vector2(cos(angle), sin(angle)) * radius)
 	visual.polygon = points
 	add_child(visual)
-	
-	particles = CPUParticles2D.new()
-	particles.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
-	particles.emission_sphere_radius = radius * 0.8
-	particles.direction = Vector2(0, -1)
-	particles.spread = 20.0
-	particles.initial_velocity_min = 10.0
-	particles.initial_velocity_max = 30.0
-	particles.gravity = Vector2(0, -50)
-	particles.color = Color(base_color.r, base_color.g, base_color.b, 0.8)
+
+	particles = GPUParticles2D.new()
 	particles.amount = 15
 	particles.lifetime = 0.5
+	_particle_mat = ParticleProcessMaterial.new()
+	_particle_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	_particle_mat.emission_sphere_radius = radius * 0.8
+	_particle_mat.direction = Vector3(0, -1, 0)
+	_particle_mat.spread = 20.0
+	_particle_mat.initial_velocity_min = 10.0
+	_particle_mat.initial_velocity_max = 30.0
+	_particle_mat.gravity = Vector3(0, -50, 0)
+	_particle_mat.color = Color(base_color.r, base_color.g, base_color.b, 0.8)
+	particles.process_material = _particle_mat
 	add_child(particles)
 
 func _physics_process(delta: float):

@@ -379,15 +379,6 @@ signal dealt_damage(amount: float)
 signal took_damage(amount: float, was_reflected: bool)
 signal died()
 signal fled_to_wild(bot: Node)
-# Emitted ONLY by the wild-bot WILD_DESPAWN_TIME timeout below - a mech that
-# times out while wild queue_free()s itself without ever going through
-# die() (it wasn't killed, it wandered off), so died() never fires for it.
-# Main._spawn_wave_async connects this alongside died() to the same
-# _on_enemy_died handler - without it, active_enemies never decremented for
-# a timed-out wild bot, permanently inflating the counter every time one
-# expired instead of being killed or recruited back (user report, 2026-08-05:
-# stuck on a wave forever, killing every visible enemy never cleared it).
-signal despawned_wild()
 
 # --- Wild-bot flee thresholds (Status.md queue) ----------------------------
 # Role-specific HP fractions below which a regular wave enemy breaks off,
@@ -2497,18 +2488,55 @@ func _is_wave_enemy() -> bool:
 const WILD_DESPAWN_TIME = 60.0
 var _wild_timer: float = 0.0
 
+# Active reinforcement (2026-08-05, user-designed): a wild bot no longer
+# just waits to be picked up by the next brand-new squad ASSEMBLY that
+# happens to want its exact role (SquadDirector._assemble_squad's
+# role-matched wild_bots recruitment, still there as the spawn-time path) -
+# every REASSIGN_CHECK_INTERVAL seconds it actively asks the director for
+# the nearest squad already on the field with an opening, "whatever role it
+# is." Throttled, not per-frame - this is a small active_squads scan on the
+# director side, same category of cost the EntityCache-throttling pattern
+# elsewhere in this file exists to avoid paying every tick.
+const REASSIGN_CHECK_INTERVAL = 1.0
+var _reassign_check_timer: float = 0.0
+
+func _get_squad_director_ref():
+	var main = get_tree().current_scene
+	if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
+		return main.world.get_node("SquadDirector")
+	return null
+
 # Returns true while flee/wild owns this mech's movement (caller returns).
 func _update_flee_state(delta: float) -> bool:
 	if _has_gone_wild:
-		# Wild loiter: out of the fight, licking wounds until the director
-		# recruits it into a fresh squad (Squad.add_member clears the flag),
-		# or WILD_DESPAWN_TIME runs out and it retreats for good.
+		# Wild loiter: out of the fight, licking wounds while actively
+		# looking for a squad to rejoin (see try_reassign_wild_bot above),
+		# or WILD_DESPAWN_TIME runs out with nothing found and it retreats
+		# for good.
 		velocity = Vector2.ZERO
 		if hp < max_hp * WILD_REGEN_CAP_FRACTION:
 			hp = min(max_hp * WILD_REGEN_CAP_FRACTION, hp + max_hp * WILD_REGEN_PER_SEC_FRACTION * delta)
 		_wild_timer += delta
+		_reassign_check_timer -= delta
+		if _reassign_check_timer <= 0.0:
+			_reassign_check_timer = REASSIGN_CHECK_INTERVAL
+			var director = _get_squad_director_ref()
+			if director and director.has_method("try_reassign_wild_bot") and director.try_reassign_wild_bot(self):
+				return true # Squad.add_member already called rejoin_from_wild()
 		if _wild_timer >= WILD_DESPAWN_TIME:
-			despawned_wild.emit() # Main._on_enemy_died - see despawned_wild's own field comment
+			# NOT despawned_wild.emit() (that signal existed briefly, removed
+			# 2026-08-05) - _finish_flee() below already hands this mech's
+			# wave slot back to Main.active_enemies the MOMENT it goes wild
+			# (disconnects died->_on_enemy_died and manually fires it once,
+			# "a survivor hiding at the map edge must never stall the
+			# wave-clear"). A second decrement here for the SAME mech's later
+			# timeout double-counted it, wedging active_enemies negative -
+			# harder to detect than the original leak this was meant to fix,
+			# since it reproduces on a fresh session too (any wave long
+			# enough for a fled bot to hit WILD_DESPAWN_TIME mid-fight, e.g.
+			# a boss wave) rather than needing many waves of accumulated
+			# drift first. Confirmed via user report: still stuck even after
+			# a full relaunch, on a boss wave (every 5th).
 			queue_free() # tree_exiting -> SquadDirector._on_wild_bot_died erases it from wild_bots
 			return true
 		if _ai_state_label:
@@ -2565,6 +2593,7 @@ func _finish_flee():
 		return
 	_has_gone_wild = true
 	_wild_timer = 0.0
+	_reassign_check_timer = 0.0
 	is_fleeing = false
 	target = null
 	# Hand the wave slot back exactly as if this bot died (and disconnect
@@ -2584,6 +2613,7 @@ func rejoin_from_wild():
 	is_fleeing = false
 	_has_gone_wild = false
 	_wild_timer = 0.0
+	_reassign_check_timer = 0.0
 
 static var _perf_flee_check_usec: int = 0
 static var _perf_execute_search_usec: int = 0

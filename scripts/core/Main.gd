@@ -924,15 +924,6 @@ func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Arr
 			mech.global_position = map.get_valid_spawn_position(raw_pos)
 			mech.target = player
 			mech.died.connect(_on_enemy_died)
-			# A wild bot that times out (WILD_DESPAWN_TIME) queue_free()s
-			# itself without ever calling die() - it wasn't killed, it
-			# wandered off - so died() alone leaked active_enemies forever
-			# for every bot that expired instead of being killed or
-			# recruited back (user report 2026-08-05: stuck on a wave,
-			# killing every visible enemy never cleared it). Same handler -
-			# decrementing active_enemies and re-checking wave-clear is
-			# correct for both a real kill and a wild-timeout despawn.
-			mech.despawned_wild.connect(_on_enemy_died)
 			mech.collision_layer = 4 # Enemies are Layer 3 (bit 2)
 			mech.collision_mask = 1 | 2 | 8 | 32 # Hit env, water, player, obstacles
 			active_enemies += 1
@@ -961,7 +952,6 @@ func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Arr
 			m.hp = m.max_hp
 			m.global_position = map.get_valid_spawn_position(Vector2(1600 + i * 50, 1600))
 			m.died.connect(_on_enemy_died)
-			m.despawned_wild.connect(_on_enemy_died) # see the primary spawn loop's comment above
 			m.target = player
 			world.add_child(m)
 
@@ -1406,9 +1396,19 @@ func _on_champion_defeated(champ):
 
 func _on_enemy_died():
 	active_enemies -= 1
+	# <= 0, not == 0 - self-healing against any stray double-decrement
+	# (e.g. two signals both firing "this bot left the wave" for the same
+	# mech) permanently wedging the counter negative, which an exact ==0
+	# check can never recover from: every further kill just goes MORE
+	# negative, and _close_garage()'s own separate active_enemies <= 0
+	# check keeps respawning fresh enemies onto that same negative baseline
+	# forever - the wave never clears again for the rest of the run (user
+	# report 2026-08-05: stuck on wave 65, killing everything spawned after
+	# a Garage visit never advanced it).
+	#
 	# Not while the wave is still trickling in - killing the first squads
 	# before the rest deploy must not count as clearing the wave.
-	if active_enemies == 0 and not _spawning_wave:
+	if active_enemies <= 0 and not _spawning_wave:
 		_on_wave_cleared()
 
 var last_garage_wave: int = 1

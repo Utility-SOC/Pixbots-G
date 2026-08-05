@@ -284,6 +284,73 @@ func register_wild_bot(bot: Node):
 func _on_wild_bot_died(bot: Node):
 	wild_bots.erase(bot)
 
+# Active wild-bot reinforcement (2026-08-05, user-designed: "orphaned bots
+# just hop into any free role, and if no roles free they just join the
+# nearest squad after a brief retreat"). Called on a throttled timer from
+# Mech._update_flee_state while a bot is wild - unlike _assemble_squad's
+# role-matched recruitment (which only ever runs at the moment a BRAND NEW
+# squad is being formed, and only takes a wild bot whose combat_role
+# exactly matches an unfilled template slot), this scans squads ALREADY
+# fighting on the field: the nearest one with an opening in ANY role gets
+# the bot, no role match required. If nothing has an opening, once the bot
+# has been wild for REASSIGN_GRACE_PERIOD ("after a brief retreat") it just
+# joins the nearest active squad outright, over its template's own
+# headcount - a squad running one heavy reads fine, a straggler standing
+# around alone on the map doesn't. Returns false (bot stays wild, the
+# existing WILD_DESPAWN_TIME timeout in Mech.gd remains the fallback) only
+# when there's truly no active squad to join at all.
+const REASSIGN_GRACE_PERIOD = 4.0
+# Same overflow ceiling _merge_squads already applies when consolidating two
+# broken squads - a fallback join (below) shouldn't be able to unboundedly
+# stack stragglers onto one squad with no limit.
+const MAX_SQUAD_SIZE = 12
+
+func try_reassign_wild_bot(bot: Node) -> bool:
+	if not is_instance_valid(bot) or not is_instance_valid(self):
+		return false
+
+	var nearest_open: Squad = null
+	var nearest_open_dist = INF
+	var nearest_any: Squad = null
+	var nearest_any_dist = INF
+	for squad in active_squads:
+		if not is_instance_valid(squad) or squad.active_members <= 0 or not squad.template:
+			continue
+		var dist = squad.get_center_position().distance_to(bot.global_position)
+		if dist < nearest_any_dist and squad.active_members < MAX_SQUAD_SIZE:
+			nearest_any_dist = dist
+			nearest_any = squad
+		if dist < nearest_open_dist and _squad_has_open_role(squad):
+			nearest_open_dist = dist
+			nearest_open = squad
+
+	var target_squad: Squad = null
+	if nearest_open:
+		target_squad = nearest_open
+	elif nearest_any and bot.get("_wild_timer") >= REASSIGN_GRACE_PERIOD:
+		target_squad = nearest_any
+	if not target_squad:
+		return false
+
+	wild_bots.erase(bot)
+	for conn in bot.tree_exiting.get_connections():
+		if conn.callable.get_method() == "_on_wild_bot_died":
+			bot.tree_exiting.disconnect(conn.callable)
+	target_squad.add_member(bot) # calls bot.rejoin_from_wild()
+	return true
+
+# True if some role in squad.template.required_roles has fewer live members
+# currently holding it than the template calls for.
+func _squad_has_open_role(squad: Squad) -> bool:
+	var role_counts: Dictionary = {}
+	for m in squad.members:
+		if is_instance_valid(m) and "combat_role" in m:
+			role_counts[m.combat_role] = role_counts.get(m.combat_role, 0) + 1
+	for role in squad.template.required_roles:
+		if role_counts.get(role, 0) < squad.template.required_roles[role]:
+			return true
+	return false
+
 func register_template(template: SquadTemplate):
 	templates.append(template)
 

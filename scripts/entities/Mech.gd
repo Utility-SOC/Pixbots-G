@@ -1950,15 +1950,27 @@ func _collect_weapon_mounts_and_tile_capabilities():
 						})
 				tile.clear_pending()
 
-			if (tile.tile_type == "Lance Mount" or tile.tile_type == "Orbiting Array" or tile.tile_type == "Missile Rack") and tile.has_method("clear_pending"):
+			# Missile Rack deliberately NOT included here despite also being a
+			# capital-weapon-style mount - unlike Lance Mount/Orbiting Array,
+			# it has no cooldown_timer/ready_to_fire/fire() interface at all
+			# (see MissileRackTile.gd's header: it fires through the exact
+			# same pending_packets/precalculated_weapons pipeline as a plain
+			# Weapon Mount, gated above at "tile_type == Weapon Mount or
+			# Missile Rack"). It used to be included in this OR chain, which
+			# pushed MissileRackTile instances into lance_mounts - crashed
+			# _tick_weapon_charges's "lance.cooldown_timer" read below with
+			# "Invalid access to property or key 'cooldown_timer' on a base
+			# object of type 'Resource (MissileRackTile)'" the moment one was
+			# equipped (user-reported, 2026-08-05).
+			if (tile.tile_type == "Lance Mount" or tile.tile_type == "Orbiting Array") and tile.has_method("clear_pending"):
 				lance_mounts.append(tile)
 				# Lance Mount's ready_to_fire is only ever computed by
-				# check_face_gate() (unlike Orbiting Array/Missile Rack, which
-				# set ready_to_fire inline inside process_energy) - without
-				# this call clear_pending() below wipes _face_magnitudes
-				# first and the gate never gets checked, so a Lance Mount can
-				# never fire in real gameplay (only the debug parity check
-				# called check_face_gate directly).
+				# check_face_gate() (unlike Orbiting Array, which sets
+				# ready_to_fire inline inside process_energy) - without this
+				# call clear_pending() below wipes _face_magnitudes first and
+				# the gate never gets checked, so a Lance Mount can never fire
+				# in real gameplay (only the debug parity check called
+				# check_face_gate directly).
 				if tile.has_method("check_face_gate"):
 					tile.check_face_gate()
 				tile.clear_pending()

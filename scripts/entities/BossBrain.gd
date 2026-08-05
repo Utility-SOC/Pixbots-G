@@ -438,8 +438,8 @@ func _do_blink_strike():
 # the player's own Jumpjet uses) at the player's current position. Reused
 # wholesale rather than writing a new hazard class - it already does
 # exactly this (expanding damage-over-time zone with a fade-out). Its
-# default collision_mask targets Enemies (for the player's own residue), so
-# that's overridden to Player here.
+# default by_player targets Enemies (for the player's own residue), so
+# that's overridden to target Player here.
 func _do_fire_pool():
 	if not mech.target or not is_instance_valid(mech.target):
 		return
@@ -454,7 +454,7 @@ func _do_fire_pool():
 	residue.setup(mech.max_hp * 0.015, {EnergyPacket.SynergyType.FIRE: 1.0})
 	if mech.get_parent():
 		mech.get_parent().add_child(residue)
-	residue.collision_mask = 8 # Player - JumpjetResidue defaults to Enemies (4) for the player's own residue
+	residue.by_player = false # Targets Player - JumpjetResidue defaults to Enemies for the player's own residue
 	mech._show_floating_text("BURN", Color(1.0, 0.5, 0.1))
 
 # Warden: a big one-shot spatial jam burst layered on top of the

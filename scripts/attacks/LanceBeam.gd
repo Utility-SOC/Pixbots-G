@@ -51,13 +51,20 @@ func _spawn_residue_chain():
 	# for the tier table). A beam_range=6000 Lance drops ~67 of these
 	# per shot at the default 90px spacing, each living residue_lifetime
 	# (25s default) against a 10s cooldown - a continuously-firing Lance
-	# alone steady-states at ~200 concurrent hazard nodes, each running a
-	# real overlap query every physics frame (playtest: exactly this was
-	# tanking FPS well past what enemy count alone would explain). Spacing
-	# widens and each zone's own radius grows to match (area, not just
-	# spacing, scales with k - otherwise widely-spaced small circles would
-	# leave gaps a beam this size is supposed to threaten) - k=1 (no
-	# saturation) reproduces today's exact spacing/radius unchanged.
+	# alone steady-states at ~200 concurrent hazard nodes. This spacing
+	# knob was originally added because each node was a real Area2D running
+	# an overlap query every physics frame (measured as tanking FPS well
+	# past what enemy count alone would explain); JumpjetResidue.gd has
+	# since been converted to a plain Node2D with a throttled EntityCache
+	# distance check instead (2026-08-05, same fix OrbitingProjectile.gd got
+	# a day earlier) so the per-node cost is much lower now, but the
+	# saturation scaling stays - visual/gameplay density at 200 concurrent
+	# hazard nodes was already at the edge of "readable," independent of
+	# what each node costs to run. Spacing widens and each zone's own radius
+	# grows to match (area, not just spacing, scales with k - otherwise
+	# widely-spaced small circles would leave gaps a beam this size is
+	# supposed to threaten) - k=1 (no saturation) reproduces today's exact
+	# spacing/radius unchanged.
 	var k = ProjectileManager.consolidation_factor()
 	var spacing = SEGMENT_SPACING * k
 	var seg_radius = 25.0 * sqrt(float(k))
@@ -74,7 +81,7 @@ func _spawn_residue_chain():
 		residue.lifetime = residue_lifetime
 		residue.radius = seg_radius
 		residue.source_mech = source_mech if by_player else null
-		residue.collision_mask = 4 if by_player else 8 # Enemies : Player
+		residue.by_player = by_player
 		residue.global_position = pos
 		residue.setup(dps, synergies)
 		world.add_child(residue)

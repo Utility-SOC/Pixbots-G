@@ -1,5 +1,5 @@
 class_name JumpjetResidue
-extends Area2D
+extends Node2D
 
 var lifetime: float = 3.0
 var timer: float = 0.0
@@ -11,6 +11,12 @@ var synergies: Dictionary = {}
 # roughly constant. Every other caller (PlayerController's jumpjet trail,
 # BossBrain's Incinerator drop) never sets this, so they're unaffected.
 var radius: float = 25.0
+# Replaces collision_mask (4=Enemies/8=Player under the old Area2D) - true
+# damages the "enemy" group (player-sourced residue, the default - matches
+# the old collision_mask=4 default), false damages "player" (enemy-sourced,
+# e.g. BossBrain's Incinerator drop). See _physics_process's EntityCache
+# scan below for why this replaced a real physics body entirely.
+var by_player: bool = true
 
 # Perf audit (2026-08-01): damage/overlap check was running unthrottled
 # every physics tick (60Hz) - a real physics-server get_overlapping_bodies()
@@ -20,6 +26,22 @@ var radius: float = 25.0
 # pattern used for status-effect/weapon-charge LOD throttling - damage_per_sec
 # is scaled by the real accumulated elapsed time each tick, so total damage
 # over the zone's lifetime is unchanged, only chunked into fewer/bigger hits.
+#
+# Perf audit #2 (2026-08-05): the 10Hz throttle above only cut the
+# get_overlapping_bodies() CALL rate - this was still a real Area2D
+# registered with the physics server every physics tick regardless of query
+# rate (broadphase still has to track it), the same cost category
+# OrbitingProjectile.gd was already converted away from on 2026-08-04.
+# LanceBeam's residue chain is the volume driver - a single Lance shot can
+# spawn dozens of these at once, each living up to 25s - and a live 3fps/
+# 133ms wave-57 playtest report ("updated performance telemetry in a bad
+# lag") with a long visible residue trail confirmed it's still a real cost
+# even with the query throttle in place. Converted extends Area2D -> Node2D;
+# damage now reads the same throttled EntityCache group snapshot every other
+# hot-path scan in this codebase already uses (by_player selects "enemy" vs
+# "player"), with a plain distance-to-radius check standing in for the old
+# circle-overlap query - equivalent for this shape, no physics-server
+# round-trip or broadphase registration at all.
 const DAMAGE_TICK_INTERVAL = 0.1
 var _damage_tick_elapsed: float = 0.0
 
@@ -45,15 +67,6 @@ func setup(_damage: float, _synergies: Dictionary):
 		particles.color = Color(base_color.r, base_color.g, base_color.b, 0.8)
 
 func _ready():
-	collision_layer = 0
-	collision_mask = 4 # Enemies
-	
-	var collision = CollisionShape2D.new()
-	var shape = CircleShape2D.new()
-	shape.radius = radius
-	collision.shape = shape
-	add_child(collision)
-	
 	visual = Polygon2D.new()
 	var base_color = EnergyPacket.get_color_blend(synergies) if not synergies.is_empty() else Color.WHITE
 	visual.color = Color(base_color.r, base_color.g, base_color.b, 0.5)
@@ -93,27 +106,31 @@ func _physics_process(delta: float):
 	var elapsed = _damage_tick_elapsed
 	_damage_tick_elapsed = 0.0
 
-	for body in get_overlapping_bodies():
-		if body.has_method("apply_damage"):
-			# Find dominant synergy for damage type - by magnitude, not by a
-			# fixed FIRE>ICE>LIGHTNING presence check (a 99%-Lightning/
-			# 1%-Fire blend was always reporting FIRE). Mirrors
-			# MortarShell.gd's _dominant_synergy().
-			var dominant_synergy = EnergyPacket.SynergyType.RAW
-			var best_magnitude = 0.0
-			for k in synergies:
-				if synergies[k] > best_magnitude:
-					best_magnitude = synergies[k]
-					dominant_synergy = k
-			var element = EnergyPacket.element_name(dominant_synergy)
-			
-			var dmg = damage_per_sec * elapsed
-			body.apply_damage(dmg, element)
-			if source_mech and is_instance_valid(source_mech) and source_mech.has_signal("dealt_damage"):
-				source_mech.dealt_damage.emit(dmg)
+	var victims = EntityCache.get_group("enemy" if by_player else "player")
+	for body in victims:
+		if not is_instance_valid(body) or not body.has_method("apply_damage"):
+			continue
+		if global_position.distance_to(body.global_position) > radius:
+			continue
+		# Find dominant synergy for damage type - by magnitude, not by a
+		# fixed FIRE>ICE>LIGHTNING presence check (a 99%-Lightning/
+		# 1%-Fire blend was always reporting FIRE). Mirrors
+		# MortarShell.gd's _dominant_synergy().
+		var dominant_synergy = EnergyPacket.SynergyType.RAW
+		var best_magnitude = 0.0
+		for k in synergies:
+			if synergies[k] > best_magnitude:
+				best_magnitude = synergies[k]
+				dominant_synergy = k
+		var element = EnergyPacket.element_name(dominant_synergy)
 
-			if body.has_method("apply_status"):
-				if synergies.has(EnergyPacket.SynergyType.FIRE):
-					body.apply_status("burning", 2.0)
-				if synergies.has(EnergyPacket.SynergyType.ICE):
-					body.apply_status("frozen", 2.0)
+		var dmg = damage_per_sec * elapsed
+		body.apply_damage(dmg, element)
+		if source_mech and is_instance_valid(source_mech) and source_mech.has_signal("dealt_damage"):
+			source_mech.dealt_damage.emit(dmg)
+
+		if body.has_method("apply_status"):
+			if synergies.has(EnergyPacket.SynergyType.FIRE):
+				body.apply_status("burning", 2.0)
+			if synergies.has(EnergyPacket.SynergyType.ICE):
+				body.apply_status("frozen", 2.0)

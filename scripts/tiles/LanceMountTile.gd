@@ -125,5 +125,5 @@ func fire(mech) -> void:
 
 	var LanceBeamScript = load("res://scripts/attacks/LanceBeam.gd")
 	var beam = LanceBeamScript.new()
-	beam.setup(muzzle, end_pos, damage, _armed_packet.synergies.duplicate(), by_player, mech, TileStatsRegistry.get_stat("LanceMountTile", "residue_lifetime", 25.0))
+	beam.setup(muzzle, end_pos, damage, _armed_packet.synergies.duplicate(), by_player, mech, TileStatsRegistry.get_stat("LanceMountTile", "residue_lifetime", 12.0))
 	world.add_child(beam)

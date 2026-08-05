@@ -135,8 +135,8 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	var kinetic_ratio = (packet.synergies.get(EnergyPacket.SynergyType.KINETIC, 0.0) / total_mag) if total_mag > 0.0 else 0.0
 	var max_range = (ProjectileScript.BASE_RANGE + ProjectileScript.KINETIC_RANGE_BONUS * kinetic_ratio) * RANGE_MULT
 
-	var target_pos = _find_furthest_target_in_range(muzzle, by_player, max_range)
-	if target_pos == null:
+	var target = _find_furthest_target_in_range(muzzle, by_player, max_range)
+	if target == null:
 		return # nothing in [MIN_RANGE, max_range] - dry-fire, same as any weapon with no target
 
 	# Feed the director's mortar counter-doctrine (cloaks/jammers answer
@@ -155,6 +155,22 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# (see HexTile._fire_mortar) - a Missile Rack investing in Pierce still
 	# gets the "faster shells" payoff instead of losing that whole axis.
 	var effective_speed = SHELL_SPEED_BASE * (1.0 + pierce_ratio * 2.0)
+
+	# Lead prediction (user report 2026-08-05: "missiles weren't doing much
+	# damage"). The Mythic Mortar pattern also fires at a static aim point
+	# (HexTile._fire_mortar) but the PLAYER chooses and can adjust that point
+	# - here nothing compensates for target movement at all. A shell's
+	# flight_time can run up to 2.2s; the FURTHEST-in-range target (this
+	# mount's whole targeting identity) is exactly the enemy most likely to
+	# be actively repositioning rather than beelining at the player, so by
+	# landing time it had very plausibly walked clean out of the ~40px splash
+	# floor, wasting the shot on empty ground. Single-pass estimate (not
+	# iteratively refined - close enough at these ranges/speeds): flight time
+	# from the target's CURRENT position, then extrapolate its position
+	# forward by that long using its own CharacterBody2D.velocity.
+	var target_pos = target.global_position
+	var est_flight_time = clamp(muzzle.distance_to(target_pos) / effective_speed, 0.12, 2.2)
+	target_pos += target.velocity * est_flight_time
 
 	var shell_count = int(TileStatsRegistry.get_stat_by_rarity("MissileRackTile", "shell_count", rarity, SHELL_COUNT_BY_RARITY))
 	var base_damage = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
@@ -182,6 +198,8 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 # valid target inside [MIN_RANGE, max_range] from the muzzle - null if none
 # qualify. Furthest, not nearest: this is meant to reach out and hit
 # something a direct-fire mount can't, not to plink the closest target.
+# Returns the target NODE itself (not just its position) - the call site
+# reads its .velocity for lead prediction.
 func _find_furthest_target_in_range(muzzle: Vector2, by_player: bool, max_range: float):
 	var candidates: Array = EntityCache.get_group("enemy") if by_player else EntityCache.get_group("player")
 	var best = null
@@ -195,4 +213,4 @@ func _find_furthest_target_in_range(muzzle: Vector2, by_player: bool, max_range:
 		if d > best_dist:
 			best_dist = d
 			best = c
-	return best.global_position if best else null
+	return best

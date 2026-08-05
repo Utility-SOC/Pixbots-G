@@ -592,6 +592,18 @@ func build():
 	style.corner_radius_bottom_right = 4
 	style.content_margin_left = 10
 	style.content_margin_top = 10
+	style.content_margin_right = 10
+	style.content_margin_bottom = 10
 	garage.tooltip_label.add_theme_stylebox_override("normal", style)
+	# Fixed-width + word-wrap (user report, 2026-08-05: a long tile blurb like
+	# Missile Rack's ran clean off the right edge of the window - unwrapped
+	# text at an unclamped mouse-relative position has no ceiling on how far
+	# right a single line can extend). Same class of bug FpsCounter.gd's
+	# overlay hit before its own VBoxContainer/autowrap fix - see that file's
+	# header comment. on_tooltip_requested (GarageInventoryPanel.gd) also
+	# clamps the resulting position against the viewport so the box itself
+	# can't get placed off-screen even after wrapping shrinks its footprint.
+	garage.tooltip_label.custom_minimum_size = Vector2(320, 0)
+	garage.tooltip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	garage.tooltip_label.hide()
 	garage.add_child(garage.tooltip_label)

@@ -666,8 +666,17 @@ static func build_tile_tooltip_text(tile: HexTile) -> String:
 func on_tooltip_requested(tile: HexTile, screen_pos: Vector2):
 	if garage.dragged_tile: return
 	garage.tooltip_label.show()
-	garage.tooltip_label.global_position = screen_pos + Vector2(15, 15)
 	garage.tooltip_label.text = build_tile_tooltip_text(tile)
+	# Clamp against the viewport (same pattern FpsCounter.gd's drag-reposition
+	# already uses) - text is set before this, not after, so
+	# get_minimum_size() reflects the real wrapped footprint of THIS tile's
+	# blurb, not whatever was there before.
+	var tip_size = garage.tooltip_label.get_minimum_size()
+	var target = screen_pos + Vector2(15, 15)
+	var vp_size = garage.get_viewport().get_visible_rect().size
+	target.x = min(target.x, max(0.0, vp_size.x - tip_size.x))
+	target.y = min(target.y, max(0.0, vp_size.y - tip_size.y))
+	garage.tooltip_label.global_position = target
 
 func on_tooltip_cleared():
 	garage.tooltip_label.text = ""

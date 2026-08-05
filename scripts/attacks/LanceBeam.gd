@@ -10,7 +10,10 @@ extends Node2D
 # whoever's inside).
 
 const SEGMENT_SPACING = 90.0
-const BEAM_LINGER_TIME = 3.0
+# User feedback (2026-08-05): the beam flash itself read as too quick/thin
+# against the residue puddle chain it leaves behind - bumped from 3.0 to
+# read as a real lingering plasma lance, not a blink-and-you-miss-it flash.
+const BEAM_LINGER_TIME = 5.0
 
 var start_pos: Vector2
 var end_pos: Vector2
@@ -98,19 +101,21 @@ func _draw():
 		if blend != Color.WHITE:
 			color = blend
 
-	# Layer 1: Outer Plasma Aura (36px wide)
-	draw_line(local_start, local_end, Color(color.r, color.g, color.b, 0.25), 36.0)
-	# Layer 2: Outer Glow Halo (24px wide)
-	draw_line(local_start, local_end, Color(color.r, color.g, color.b, 0.6), 24.0)
-	# Layer 3: Main Energy Channel (14px wide)
-	draw_line(local_start, local_end, Color(min(color.r + 0.2, 1.0), min(color.g + 0.2, 1.0), min(color.b + 0.2, 1.0), 0.9), 14.0)
-	# Layer 4: Intense White Core (6px wide)
-	draw_line(local_start, local_end, Color(1.0, 1.0, 1.0, 0.95), 6.0)
-	# Layer 5: Ultra-bright Needle Core (2px wide)
-	draw_line(local_start, local_end, Color(1.0, 1.0, 1.0, 1.0), 2.0)
+	# User feedback (2026-08-05): "the beam should... be wider" - all 5 layers
+	# scaled up ~1.4x from the original 36/24/14/6/2 core widths.
+	# Layer 1: Outer Plasma Aura (50px wide)
+	draw_line(local_start, local_end, Color(color.r, color.g, color.b, 0.25), 50.0)
+	# Layer 2: Outer Glow Halo (34px wide)
+	draw_line(local_start, local_end, Color(color.r, color.g, color.b, 0.6), 34.0)
+	# Layer 3: Main Energy Channel (20px wide)
+	draw_line(local_start, local_end, Color(min(color.r + 0.2, 1.0), min(color.g + 0.2, 1.0), min(color.b + 0.2, 1.0), 0.9), 20.0)
+	# Layer 4: Intense White Core (8px wide)
+	draw_line(local_start, local_end, Color(1.0, 1.0, 1.0, 0.95), 8.0)
+	# Layer 5: Ultra-bright Needle Core (3px wide)
+	draw_line(local_start, local_end, Color(1.0, 1.0, 1.0, 1.0), 3.0)
 
-	# Terminal Emitter Flares (start & end)
-	draw_circle(local_start, 22.0, Color(color.r, color.g, color.b, 0.7))
-	draw_circle(local_start, 10.0, Color(1.0, 1.0, 1.0, 0.95))
-	draw_circle(local_end, 18.0, Color(color.r, color.g, color.b, 0.5))
-	draw_circle(local_end, 8.0, Color(1.0, 1.0, 1.0, 0.9))
+	# Terminal Emitter Flares (start & end) - scaled up to match the wider beam
+	draw_circle(local_start, 30.0, Color(color.r, color.g, color.b, 0.7))
+	draw_circle(local_start, 14.0, Color(1.0, 1.0, 1.0, 0.95))
+	draw_circle(local_end, 25.0, Color(color.r, color.g, color.b, 0.5))
+	draw_circle(local_end, 11.0, Color(1.0, 1.0, 1.0, 0.9))

@@ -199,6 +199,15 @@ func _ready():
 		var jam_key = InputEventKey.new()
 		jam_key.physical_keycode = KEY_J
 		InputMap.action_add_event("jam_pulse", jam_key)
+	# Smoke Grenade (Ctrl, held) - per the user's design, Ctrl also triggers
+	# Cloak at the same time if a Cloak Generator is equipped (see
+	# CloakSystem.tick()'s wants_cloak, which ORs this action in alongside
+	# the existing "cloak" action). See Mech.try_drop_smoke_grenade().
+	if not InputMap.has_action("smoke_grenade"):
+		InputMap.add_action("smoke_grenade")
+		var smoke_key = InputEventKey.new()
+		smoke_key.physical_keycode = KEY_CTRL
+		InputMap.action_add_event("smoke_grenade", smoke_key)
 	# toggle_war_room (Tab) registration moved into WarRoomMenu._ready()
 	# itself - registering it only here meant the action never existed for
 	# a War Room opened from the MAIN MENU scene (its "War Room" button
@@ -1162,9 +1171,31 @@ func _pick_spawn_anchor() -> Vector2:
 # (regular ~750, mega ~3750) so difficulty stays comparable across profiles
 # while still leaving each one a bit squishier or tankier to match its
 # flavor. First-pass numbers, not measured against real playtesting.
+# Smoke Grenade (per the user: "some types of enemies (Grunts) have smoke
+# grenades") is a grunt-only ability, but Mech._create_role_backpack's roll
+# for it has no way to know at the time whether the mech it's building for
+# is about to become a boss/rival/champion - all three call
+# director._spawn_bot_for_role(role) (which runs _ready() -> that roll)
+# BEFORE this caller sets is_boss/is_rival/etc., the same ordering gotcha
+# refresh_boss_visuals() already has to work around a few lines below.
+# Called right after each of the three non-grunt spawn paths to catch and
+# swap out a Smoke Grenade backpack that slipped through.
+func _strip_smoke_grenade_backpack(mech: Node):
+	if not mech.components.has(HexTile.BodySlot.BACKPACK):
+		return
+	var pack = mech.components[HexTile.BodySlot.BACKPACK]
+	if not pack or pack.component_name != "Smoke Launcher":
+		return
+	var rarity = pack.rarity
+	var role = mech.combat_role if "combat_role" in mech else ""
+	mech.unequip_component(HexTile.BodySlot.BACKPACK)
+	pack.queue_free()
+	mech.equip_component(ComponentEquipmentScript.create_starter_backpack(role, rarity))
+
 func _spawn_boss(director, is_mega: bool):
 	var profile = director.get_active_boss_profile()
 	var boss = director._spawn_bot_for_role(profile.base_role)
+	_strip_smoke_grenade_backpack(boss)
 	boss.boss_profile = profile
 	var hp_mult = profile.hp_mult
 	if is_mega:
@@ -1365,6 +1396,7 @@ func _spawn_rival(director, force_rarity = -1, force_name = ""):
 			role_to_spawn = "ambusher" if i == 0 else "sniper"
 
 		var rival = director._spawn_bot_for_role(role_to_spawn, true, rival_rarity)
+		_strip_smoke_grenade_backpack(rival)
 		rival.set_meta("is_rival", true)
 		rival.set_meta("rival_name", rival_name)
 

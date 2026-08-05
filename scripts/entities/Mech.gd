@@ -172,6 +172,19 @@ var shadow_share_radius: float = 0.0
 var shadow_stealth_fire: bool = false
 var shadow_toggle_mode: bool = false
 
+# Smoke Grenade backpack tile - same capacity/recharge shape as Cloak above
+# (written in _collect_weapon_mounts_and_tile_capabilities(), reset in
+# _reset_grid_state()), but a single-charge consumable rather than a
+# continuous drain: a drop only fires once smoke_charge reaches
+# max_smoke_charge, then drains to 0 and refills over smoke_recharge_time
+# seconds (see try_drop_smoke_grenade()/_update_smoke_grenade() below).
+var has_smoke_grenade: bool = false
+var max_smoke_charge: float = 0.0
+var smoke_charge: float = 0.0
+var smoke_recharge_rate: float = 0.0
+var smoke_radius: float = 220.0
+var smoke_duration: float = 6.0
+
 # Corporate Sponsorships (task #17): Keeneye Sensing's SensorTile capacity
 # fields, written directly in _collect_weapon_mounts_and_tile_capabilities()
 # same as everything above. See SensorTile.gd's header for what "bypasses
@@ -684,6 +697,19 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 	if role != "" and randf() < 0.12:
 		return ComponentEquipment.create_drone_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
 
+	# Grunt smoke cover (per the user: "some types of enemies (Grunts) have
+	# smoke grenades") - rolled independently of role, same "mobs get toys
+	# too" spirit as the drone roll above. Grunt-only by design, but this
+	# function has no idea whether the mech it's building for will end up a
+	# boss/rival/champion (all three call _spawn_bot_for_role -> _ready() ->
+	# this function BEFORE setting is_boss/etc. - see Mech.gd's own comment
+	# on _spawn_boss's ordering) - Main._spawn_boss/_spawn_rival/
+	# _spawn_traveling_champion each post-hoc strip this backpack back out
+	# after the fact, the same pattern _spawn_boss already uses for
+	# refresh_boss_visuals().
+	if role != "" and randf() < 0.2:
+		return ComponentEquipment.create_smoke_grenade_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
+
 	return ComponentEquipment.create_starter_backpack(role, p_rarity)
 
 # -1 if no over-reliance is currently flagged, or no director exists yet
@@ -944,6 +970,20 @@ func _physics_process(delta: float):
 		_lod_cloak_elapsed = 0.0
 	else:
 		cloak_system.tick(delta)
+
+	# Smoke Grenade charge regen - a single min()/add, not worth the same
+	# LOD-throttling apparatus as the four systems above (their own
+	# comment's ~4us/tick measurement was for real per-frame work; this
+	# is one float addition).
+	if has_smoke_grenade:
+		smoke_charge = min(max_smoke_charge, smoke_charge + smoke_recharge_rate * delta)
+		# Player input, same "check the raw action directly here" convention
+		# HealBeaconSystem.gd uses for "heal_pulse" - Ctrl held. try_drop_
+		# smoke_grenade() itself no-ops until charge is full, so holding
+		# naturally rate-limits to one drop per recharge cycle rather than
+		# spamming every physics frame.
+		if is_player and InputMap.has_action("smoke_grenade") and Input.is_action_pressed("smoke_grenade"):
+			try_drop_smoke_grenade()
 
 	if _is_far_for_lod:
 		_lod_jammer_timer -= delta
@@ -1712,6 +1752,12 @@ func _reset_grid_state():
 	shadow_share_radius = 0.0
 	shadow_stealth_fire = false
 	shadow_toggle_mode = false
+	# smoke_charge (the current runtime charge, like cloak_charge) is
+	# deliberately NOT reset here - only the build-derived capacity fields
+	# get rebuilt below, same as cloak's own reset just above.
+	has_smoke_grenade = false
+	max_smoke_charge = 0.0
+	smoke_recharge_rate = 0.0
 	has_jammer_immunity = false
 	has_cloak_detection = false
 	sensor_sight_bonus = 0.0
@@ -2080,6 +2126,16 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					shadow_share_radius = max(shadow_share_radius, tile.get_ally_share_radius())
 					shadow_stealth_fire = true
 					shadow_toggle_mode = true
+
+			if tile.tile_type == "Smoke Grenade" and tile.has_method("get_smoke_energy"):
+				has_smoke_grenade = true
+				max_smoke_charge += tile.get_smoke_energy()
+				var recharge_time = tile.get_recharge_time() if tile.has_method("get_recharge_time") else 8.0
+				smoke_recharge_rate += max_smoke_charge / max(0.1, recharge_time)
+				if tile.has_method("get_smoke_radius"):
+					smoke_radius = tile.get_smoke_radius()
+				if tile.has_method("get_smoke_duration"):
+					smoke_duration = tile.get_smoke_duration()
 
 			if tile.tile_type == "Jammer Module" and tile.has_method("get_jam_energy"):
 				# All modules are kept so _update_jammer_module can drain their
@@ -2604,6 +2660,9 @@ func _update_flee_state(delta: float) -> bool:
 func _begin_flee():
 	is_fleeing = true
 	fled_to_wild.emit(self)
+	# Grunt AI use of Smoke Grenade: "pop smoke and run" - no-ops silently if
+	# not equipped or on cooldown, same as the player's own held-Ctrl trigger.
+	try_drop_smoke_grenade()
 	# Leave the squad cleanly: detach every listener Squad.add_member wired
 	# (so a later death or re-recruitment can't double-count into a squad
 	# it already left) and hand the squad its "member gone" tick - fitness-
@@ -2932,12 +2991,35 @@ func _is_pierce_execution_exempt() -> bool:
 			return true
 	return false
 
+# Smoke Grenade damage mitigation: PIERCE and EXPLOSION are exempt (per
+# design - a smoke cloud stops line-of-sight-style weapons, not shrapnel or
+# armor-piercing rounds), everything else takes SMOKE_DAMAGE_MULT. Shared
+# by apply_damage/apply_part_damage below - part-hit damage does NOT route
+# through apply_damage's full pipeline (see apply_part_damage's own header),
+# so this needs its own call site there too, same as _apply_shield_mitigation.
+const SMOKE_DAMAGE_MULT = 0.5
+
+func is_in_smoke() -> bool:
+	for cloud in EntityCache.get_group("smoke_cloud"):
+		if is_instance_valid(cloud) and cloud.is_point_inside(global_position):
+			return true
+	return false
+
+func _apply_smoke_mitigation(amount: float, element: String) -> float:
+	if amount <= 0.0 or element == "PIERCE" or element == "EXPLOSION":
+		return amount
+	if is_in_smoke():
+		amount *= SMOKE_DAMAGE_MULT
+	return amount
+
 func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false, source_label_override: String = ""):
 	if amount > 0 and element == "VORTEX" and vortex_damage_reduction > 0.0:
 		amount *= (1.0 - vortex_damage_reduction)
 
 	if elemental_resistances.has(element):
 		amount *= elemental_resistances[element]
+
+	amount = _apply_smoke_mitigation(amount, element)
 
 	# PIERCE "rent" status: torn armor takes +20% from everything while
 	# the rend lasts (applied to damage only, never to heals).
@@ -3130,6 +3212,12 @@ func apply_part_damage(slot: int, amount: float, element: String = "RAW"):
 	if amount <= 0:
 		return # Shields absorbed all part damage - nothing got through to roll a disable either
 
+	# Smoke mitigation for the LOCAL tile-hit/disable-roll amount only - the
+	# global-HP trickle below (apply_damage(amount*0.2, ...)) applies its
+	# own smoke mitigation inside apply_damage itself; mitigating both here
+	# AND there would double-apply it to that one portion.
+	var mitigated_amount = _apply_smoke_mitigation(amount, element)
+
 	if not components.has(slot): return
 	var comp = components[slot]
 
@@ -3138,12 +3226,12 @@ func apply_part_damage(slot: int, amount: float, element: String = "RAW"):
 	var tiles = comp.hex_grid.get_all_tiles()
 	if tiles.size() > 0:
 		var hit_tile = tiles[randi() % tiles.size()]
-		hit_tile.take_damage(amount)
+		hit_tile.take_damage(mitigated_amount)
 		# Any hit that actually reached the component (shields didn't fully
 		# absorb it) also gets a separate shot at knocking a tile offline,
 		# independent of that specific tile's own HP pool - see
 		# _roll_component_disable for the priority/severity math.
-		_roll_component_disable(comp, amount, element)
+		_roll_component_disable(comp, mitigated_amount, element)
 
 	# Apply a small fraction of locational damage to global structure HP
 	apply_damage(amount * 0.2, element)
@@ -3308,6 +3396,25 @@ func _get_ambush_multiplier() -> float:
 	if not cloak_system:
 		cloak_system = CloakSystem.new(self)
 	return cloak_system.get_ambush_multiplier()
+
+# --- Smoke Grenade (equippable ability) -----------------------------------
+# Single-charge consumable, unlike Cloak's continuous drain - see
+# SmokeGrenadeTile.gd's header. Called from this Mech's own _physics_process
+# on Ctrl held (see the "Smoke Grenade charge regen" block above - each call
+# just no-ops until smoke_charge refills, so holding naturally rate-limits
+# to one drop per recharge cycle) and from _begin_flee() for AI Grunts that
+# happen to have one equipped ("pop smoke and run").
+func try_drop_smoke_grenade() -> bool:
+	if not has_smoke_grenade or max_smoke_charge <= 0.0 or smoke_charge < max_smoke_charge:
+		return false
+	smoke_charge = 0.0
+	var cloud = load("res://scripts/visuals/SmokeCloud.gd").new()
+	cloud.radius = smoke_radius
+	cloud.lifetime = smoke_duration
+	cloud.global_position = global_position
+	if get_parent():
+		get_parent().add_child(cloud)
+	return true
 
 # --- Jammer Module (equippable ability) ---------------------------------
 # Thin wrapper only - see JammerModuleSystem.gd for the actual field

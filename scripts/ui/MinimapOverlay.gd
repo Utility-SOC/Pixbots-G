@@ -161,6 +161,12 @@ class MinimapView:
 				if is_instance_valid(loot):
 					draw_circle(_world_to_px(loot.global_position, center), 2.0, Color(1.0, 0.85, 0.2))
 
+			# Smoke Grenade concealment: unlike a hostile jammer field (which
+			# only hides enemies from the player), smoke hides ANY pixbot,
+			# friend or foe - see SmokeCloud.gd's header. Gathered once here
+			# and reused below for the player dot too.
+			var smoke_clouds = EntityCache.get_group("smoke_cloud")
+
 			# Jammer secrecy (playtest ruling: "their dot should be just a
 			# swirl inside the jammer blob on the minimap, I shouldn't be
 			# able to get numbers"): enemies standing inside a HOSTILE
@@ -178,6 +184,11 @@ class MinimapView:
 						concealed = true
 						break
 				if not concealed:
+					for cloud in smoke_clouds:
+						if is_instance_valid(cloud) and cloud.is_point_inside(enemy.global_position):
+							concealed = true
+							break
+				if not concealed:
 					draw_circle(_world_to_px(enemy.global_position, center), 3.0, Color(1.0, 0.25, 0.2))
 
 			# One rotating static-swirl per hostile field, always on -
@@ -191,7 +202,13 @@ class MinimapView:
 				var pulse = 3.0 + sin(Time.get_ticks_msec() / 150.0) * 1.5
 				draw_circle(_world_to_px(main.extraction_marker.global_position, center), pulse, Color(0.3, 1.0, 0.4))
 
-			draw_circle(_world_to_px(player.global_position, center), 4.0, Color.WHITE)
+			var player_concealed = false
+			for cloud in smoke_clouds:
+				if is_instance_valid(cloud) and cloud.is_point_inside(player.global_position):
+					player_concealed = true
+					break
+			if not player_concealed:
+				draw_circle(_world_to_px(player.global_position, center), 4.0, Color.WHITE)
 		else:
 			draw_string(ThemeDB.fallback_font, Vector2(10, size.y / 2.0), "No map data", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.6, 0.6, 0.6))
 

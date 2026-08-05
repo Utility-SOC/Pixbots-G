@@ -1107,6 +1107,40 @@ static func create_cloak_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
 
 	return pack
 
+# Grunt smoke-cover backpack - see Mech._create_role_backpack for the
+# per-role roll and _spawn_boss/_spawn_rival/_spawn_traveling_champion for
+# the post-hoc strip that keeps this a grunt-only ability. Structurally
+# identical to create_cloak_backpack above, just swapping in SmokeGrenadeTile.
+static func create_smoke_grenade_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON):
+	var script = load("res://scripts/core/ComponentEquipment.gd")
+	var pack = script.new(HexTile.BodySlot.BACKPACK, p_rarity)
+	pack.component_name = "Smoke Launcher"
+	pack.generate_shape()
+
+	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+	intake.tile_type = "Energy Intake"
+	intake.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+	pack.fixed_sinks.append(HexCoord.new(0, 0))
+	_orient_intake_to_shape(pack, intake)
+
+	var smoke = load("res://scripts/tiles/SmokeGrenadeTile.gd").new()
+	smoke.rarity = p_rarity
+	smoke.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(1, 0), smoke)
+
+	var max_r = 0
+	for h in pack.valid_hexes:
+		if h.r > max_r: max_r = h.r
+
+	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+	tor_return.tile_type = "Torso Return"
+	tor_return.body_slot = HexTile.BodySlot.BACKPACK
+	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
+	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+
+	return pack
+
 # Single-jammer variant - superseded by create_dual_utility_backpack for
 # scout's roll (see Mech._create_role_backpack), kept as a standalone
 # constructor in case debug/modding code wants a plain single-item jammer

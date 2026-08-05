@@ -87,7 +87,11 @@ func tick(delta: float) -> void:
 					toggle_state = not toggle_state
 				wants_cloak = toggle_state
 			else:
-				wants_cloak = InputMap.has_action("cloak") and Input.is_action_pressed("cloak")
+				# Per the user's design, holding Ctrl (the Smoke Grenade
+				# trigger - see Mech.try_drop_smoke_grenade()) also cloaks,
+				# alongside the dedicated "cloak" key, at the same time.
+				wants_cloak = (InputMap.has_action("cloak") and Input.is_action_pressed("cloak")) \
+					or (InputMap.has_action("smoke_grenade") and Input.is_action_pressed("smoke_grenade"))
 		elif mech.target:
 			# Ambush AI: stay cloaked while closing in, reveal once at striking range
 			wants_cloak = mech.global_position.distance_to(mech.target.global_position) > mech.engagement_distance * 0.9
@@ -105,7 +109,13 @@ func tick(delta: float) -> void:
 
 func _apply_fade(delta: float) -> void:
 	var effectively_cloaked = mech.is_cloaked or mech.external_cloak_timer > 0.0
-	var target_alpha = 0.3 if effectively_cloaked else 1.0
+	# Was 0.3 - per the user, Cloak should be 100% effective: a cloaked mech
+	# was always at least 30% visible, which isn't really "cloaked" at all.
+	# The shimmer distortion bubble and the decloak burst below stay exactly
+	# as they were - those are the deliberate counterplay tell (a player who
+	# learns to watch for them can still spot an incoming Ambusher even
+	# though the mech itself is now fully invisible), not a visibility leak.
+	var target_alpha = 0.0 if effectively_cloaked else 1.0
 	# Was 8.0 - converged in under half a second, way too snappy for a
 	# "cloak" to read as anything more than a quick flicker. This is a
 	# genuinely slow fade now (~2-2.5s to fully settle).

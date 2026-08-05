@@ -280,9 +280,20 @@ var _magnet_accum_delta: float = 0.0
 # all the way up instead of hitting a wall, while still bounding the
 # absolute maximum reach against the loop-abuse case. total_magnetic_power
 # itself is left unclamped (see pull_radius/pull_speed_mult below).
+#
+# Ceiling raised (user report 2026-08-05: four Mythic Magnets, ~600,000
+# total_magnetic_power - already fully saturating the curve above, i.e.
+# already AT the old ceiling, and it still fell well short of "should be
+# able to blanket the whole map" - the default map's diagonal is
+# width*height*tile_size-scale ~15,000px (400x250 tiles @ 32px, see
+# _start_wave()'s density_mult), against the old max radius of only 150+
+# 2500=2650px. Only the CEILING moved, not MAGNET_POWER_SCALE (the curve's
+# approach speed) - a real endgame investment like this SHOULD reach that
+# far, but early/mid-game magnet feel at lower power is unchanged, since
+# those builds are nowhere near either ceiling to begin with.
 const MAGNET_POWER_SCALE = 250.0
-const MAGNET_PULL_RADIUS_MAX_BONUS = 2500.0
-const MAGNET_PULL_SPEED_MAX_BONUS = 5.0
+const MAGNET_PULL_RADIUS_MAX_BONUS = 15000.0
+const MAGNET_PULL_SPEED_MAX_BONUS = 22.0
 
 
 var fire_cooldown: float = 0.0

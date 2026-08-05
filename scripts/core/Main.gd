@@ -322,15 +322,27 @@ func _setup_hud():
 
 	# Dialogue UI
 	dialogue_box = Panel.new()
-	dialogue_box.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	# Centered against the real viewport width, not a baked-in 1280px
-	# assumption - the old hardcoded offset defeated the whole point of
-	# PRESET_CENTER_TOP and could leave the box anywhere from off-center to
-	# overlapping other screen-space UI (e.g. the Garage's right-side
-	# inventory panel) on any window size other than the one it was tuned for.
-	var viewport_width = get_viewport().get_visible_rect().size.x
-	dialogue_box.position = Vector2(viewport_width / 2 - 400, 100)
-	dialogue_box.size = Vector2(800, 120)
+	# Centered purely via anchor offsets, not a one-time get_viewport() read
+	# (user report + screenshot: a Shopkeeper line rendered pinned at the far
+	# right edge, text running off-screen, on a maximized wide window). The
+	# previous fix already diagnosed a hardcoded-offset version of this same
+	# bug, but its own replacement still manually computed dialogue_box.position
+	# from get_viewport().get_visible_rect().size.x BEFORE hud_canvas (this
+	# node's real parent) was actually added to the tree a few lines below -
+	# anchor-relative offset math has no real, correctly-sized parent rect to
+	# compute against yet at that point, so the resulting position was
+	# unreliable. Symmetric offsets around a center anchor need no viewport
+	# query at all and stay correct on any window size, including a later
+	# resize, since Godot recomputes them from the anchor every time the
+	# parent rect changes - no one-time calculation to go stale.
+	dialogue_box.anchor_left = 0.5
+	dialogue_box.anchor_right = 0.5
+	dialogue_box.anchor_top = 0.0
+	dialogue_box.anchor_bottom = 0.0
+	dialogue_box.offset_left = -400
+	dialogue_box.offset_right = 400
+	dialogue_box.offset_top = 100
+	dialogue_box.offset_bottom = 220
 	dialogue_box.visible = false
 	# ALWAYS, not the HUD's default PAUSABLE - the 3-loss game-over line
 	# ("I have to pull your tournament registration...") shows while the
@@ -443,6 +455,30 @@ func _process(delta: float):
 		_clear_stale_wave_enemies()
 		_start_wave()
 
+	# Separate self-heal for a DIFFERENT failure mode (user report 2026-08-05,
+	# wave 73, an all-water map: _spawning_wave false, active_enemies stuck
+	# at 1, but the F3 overlay's live EntityCache "enemy" group count already
+	# read 0 - a real bookkeeping drift, not a spawn-loop stall the watchdog
+	# above covers. Exact trigger unconfirmed (a flee/wild-bot credit-back
+	# edge case and a water-related death path are both plausible, but
+	# neither was pinned down with certainty) - rather than guess at the one
+	# true cause, reconcile against reality directly: if there are truly no
+	# live enemies left but active_enemies hasn't caught up, something's
+	# wedged regardless of why, and no future kill is ever coming to fix it.
+	# 3s grace (not instant) so this can't misfire on the ordinary one-frame
+	# gap between a real kill and its node actually leaving the group.
+	if not _spawning_wave and active_enemies > 0:
+		if EntityCache.get_group("enemy").is_empty():
+			_active_enemies_drift_timer += delta
+			if _active_enemies_drift_timer >= 3.0:
+				push_warning("[Main] active_enemies stuck at %d with 0 live enemies (wave %d) - resyncing" % [active_enemies, current_wave])
+				active_enemies = 0
+				_active_enemies_drift_timer = 0.0
+				_on_wave_cleared()
+		else:
+			_active_enemies_drift_timer = 0.0
+	else:
+		_active_enemies_drift_timer = 0.0
 
 	if is_instance_valid(extraction_marker) and extraction_indicator and player:
 		extraction_indicator.visible = true
@@ -1005,6 +1041,9 @@ var _spawning_wave: bool = false
 # stuck, just how long.
 var _spawning_wave_started_at: int = 0
 var _wave_spawned_any: bool = false
+# How long active_enemies > 0 has read against a truly-empty "enemy" group -
+# see _process()'s reconciliation self-heal.
+var _active_enemies_drift_timer: float = 0.0
 
 # Spawning a full wave used to happen synchronously: up to ~16 squads x 5
 # mechs, each running the grid solver AND baking six pixel-art parts, all

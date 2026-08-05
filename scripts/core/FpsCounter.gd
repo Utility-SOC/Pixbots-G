@@ -27,6 +27,15 @@ var label: Label
 # mechs + 300 projectiles live - argues against Area2D broadphase being the
 # bottleneck, but real in-session numbers beat a shaky synthetic one.)
 var breakdown_label: Label
+# Sixth-and-a-half line: Main's wave-clear bookkeeping (active_enemies,
+# _spawning_wave, current_wave), added 2026-08-05 after TWO prior blind
+# fixes to a "stuck on a wave forever" report both failed to actually
+# resolve it - the underlying state was never visible in any screenshot,
+# forcing every diagnosis to reason from visual symptoms alone. Reads
+# Main via get_tree().current_scene (same lookup pattern MissileRackTile.gd/
+# SquadDirector.gd use elsewhere for cross-script state) rather than a new
+# autoload - this is diagnostic-only, no other system needs to reach it.
+var wave_state_label: Label
 # Third line: real rendering metrics (draw calls, objects, primitives) -
 # task #14's "draw batching" scope needs its OWN direct evidence, same
 # lesson as the physics/process breakdown above: don't touch rendering
@@ -153,6 +162,15 @@ func _ready():
 	breakdown_label.modulate = Color(0.85, 0.85, 0.85)
 	box.add_child(breakdown_label)
 
+	wave_state_label = Label.new()
+	wave_state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	wave_state_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	wave_state_label.add_theme_font_size_override("font_size", 12)
+	wave_state_label.add_theme_constant_override("outline_size", 3)
+	wave_state_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	wave_state_label.modulate = Color(0.9, 0.7, 0.95)
+	box.add_child(wave_state_label)
+
 	render_label = Label.new()
 	render_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	render_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -232,6 +250,15 @@ func _process(delta: float):
 	breakdown_label.text = "phys %.1fms  proc %.1fms  |  %d shots  %d enemies  %d drones  %d pairs" % [
 		physics_ms, process_ms, proj_count, enemy_count, drone_count, collision_pairs
 	]
+
+	var main = get_tree().current_scene
+	if main and "active_enemies" in main:
+		wave_state_label.text = "wave %s  active_enemies %s  spawning %s" % [
+			str(main.get("current_wave")), str(main.get("active_enemies")), str(main.get("_spawning_wave"))
+		]
+		wave_state_label.visible = true
+	else:
+		wave_state_label.visible = false
 
 	var draw_calls = Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
 	var objects = Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)

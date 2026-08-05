@@ -695,6 +695,28 @@ func _show_countdown():
 	timer.start()
 
 func _start_wave():
+	# Re-entrancy guard (user report 2026-08-05: stuck on wave 65, killing
+	# everything spawned after a Garage visit never advanced it - persisted
+	# even after two separate active_enemies bookkeeping fixes, which turned
+	# out to be treating a symptom, not the cause). Extraction is entirely
+	# player-voluntary and NOT gated on the current wave having cleared -
+	# garage_timer counts down independent of active_enemies (_process
+	# above), so walking into the ExtractionMarker and redeploying can
+	# re-trigger this function while a PREVIOUS call's _spawn_wave_async is
+	# still mid-flight (staggered one squad per 0.12s beat - real wall-clock
+	# time this function is not done spawning for). A second concurrent
+	# call would reset active_enemies to 0, re-run the boss/rival dispatch
+	# (spawning a SECOND boss on a boss wave), and race the first call's
+	# still-running loop over the same active_enemies/_spawning_wave state
+	# with no mutual exclusion at all - exactly the kind of corruption that
+	# leaves active_enemies unable to ever reach 0 again, independent of
+	# and unrelated to the wild-bot signal bug the two prior fixes targeted.
+	# _spawning_wave is guaranteed to eventually clear on its own (
+	# _spawn_wave_async's loop is bounded by safety_break and always falls
+	# through to setting it false, no early-return skips that line), so
+	# this can't deadlock - a re-entrant call just no-ops instead of racing.
+	if _spawning_wave:
+		return
 	_update_hud()
 	print("--- WAVE ", current_wave, " COMMENCING ---")
 	LootManager.current_wave = current_wave

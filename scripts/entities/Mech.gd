@@ -3238,12 +3238,48 @@ func build_loadout_for_role(role_name: String):
 	var stock = null
 	var use_stock = false
 	if stock_evo and spawn_template_name != "":
-		stock = stock_evo.get_stock_build(spawn_template_name, role_name)
+		stock = stock_evo.get_stock_build(spawn_template_name, role_name, base_rarity)
 		use_stock = stock != null and not stock_evo.should_test_deviation()
 
 	if use_stock:
+		# Deliberately NOT SaveManager._deserialize_component() here - that
+		# rebuilds a whole fresh ComponentEquipment (generate_shape() +
+		# per-tile deserialize + several legacy-save-compat sweeps: stray-
+		# tile absorption, fixed_sinks re-inference, Energy Intake re-
+		# orientation), real overhead built for an occasional save-file
+		# load, not a per-spawn hot path. The component this mech already
+		# has (built moments ago by create_starter_torso/arm in _ready(),
+		# same code path a fresh solve() would also build onto) already has
+		# the correct shape/fixed_sinks/rarity - only the individual PLACED
+		# tiles need restoring, via the lightweight per-tile SaveManager.
+		# _deserialize_tile(), same as AutoEquipSolver's own cache-replay
+		# (_replay_plan) uses for the same reason.
 		for slot_key in stock.serialized_components:
-			equip_component(SaveManager._deserialize_component(stock.serialized_components[slot_key]))
+			var slot = int(slot_key)
+			if not components.has(slot):
+				continue
+			var comp = components[slot]
+			var grid = comp.hex_grid
+			for tdata in stock.serialized_components[slot_key].get("tiles", []):
+				var tile = SaveManager._deserialize_tile(tdata)
+				if not tile or not tile.grid_position:
+					continue
+				var h = tile.grid_position
+				var is_fixed_or_core = (h.q == 0 and h.r == 0)
+				if not is_fixed_or_core:
+					for s in comp.fixed_sinks:
+						if s.q == h.q and s.r == h.r:
+							is_fixed_or_core = true
+							break
+				if is_fixed_or_core:
+					# Core/fixed-sink tiles already exist (constructed by
+					# create_starter_* moments ago) - reconfigure the REAL
+					# one's active_faces rather than replacing it outright.
+					var real_tile = grid.get_tile(h)
+					if real_tile and "active_faces" in tile and "active_faces" in real_tile:
+						real_tile.active_faces = tile.active_faces.duplicate()
+				else:
+					grid.add_tile(h, tile)
 		_recalculate_grid()
 		return
 
@@ -3317,7 +3353,7 @@ func build_loadout_for_role(role_name: String):
 			if components.has(slot):
 				serialized[slot] = SaveManager._serialize_component(components[slot])
 		if stock == null:
-			stock_evo.establish_stock_build(spawn_template_name, role_name, serialized)
+			stock_evo.establish_stock_build(spawn_template_name, role_name, base_rarity, serialized)
 		else:
 			# This spawn rolled a deviation test against an existing build -
 			# don't apply the result yet, just remember it. credit_bot_death()

@@ -19,6 +19,14 @@ extends Resource
 
 @export var template_name: String = ""
 @export var role: String = ""
+# base_rarity tier this build was solved at (HexTile.Rarity) - part of the
+# key alongside (template_name, role): base_rarity climbs with wave/
+# difficulty progression (see SquadDirector._spawn_bot_for_role), so a
+# build established early at COMMON must never get replayed onto a much
+# later, much-higher-rarity spawn of the same role/template - that would
+# silently freeze that (template, role)'s gear at whatever rarity it first
+# happened to spawn at, defeating wave scaling entirely.
+@export var rarity: int = 0
 @export var is_experimental: bool = false
 @export var base_spawn_weight: float = 100.0
 @export var spawn_weight: float = 100.0
@@ -35,9 +43,10 @@ var fitness_history: Array = []
 # format.
 @export var serialized_components: Dictionary = {}
 
-func _init(_template_name: String = "", _role: String = ""):
+func _init(_template_name: String = "", _role: String = "", _rarity: int = 0):
 	template_name = _template_name
 	role = _role
+	rarity = _rarity
 
 func get_average_fitness() -> float:
 	if times_used == 0:
@@ -68,6 +77,7 @@ func to_dict() -> Dictionary:
 	return {
 		"template_name": template_name,
 		"role": role,
+		"rarity": rarity,
 		"is_experimental": is_experimental,
 		"base_spawn_weight": base_spawn_weight,
 		"spawn_weight": spawn_weight,
@@ -82,6 +92,7 @@ func to_dict() -> Dictionary:
 func from_dict(data: Dictionary):
 	if data.has("template_name"): template_name = str(data["template_name"])
 	if data.has("role"): role = str(data["role"])
+	if data.has("rarity"): rarity = int(data["rarity"])
 	if data.has("is_experimental"): is_experimental = bool(data["is_experimental"])
 	if data.has("base_spawn_weight"): base_spawn_weight = float(data["base_spawn_weight"])
 	if data.has("spawn_weight"): spawn_weight = float(data["spawn_weight"])

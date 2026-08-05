@@ -132,7 +132,7 @@ func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss
 	for lsb in loaded_stock_builds:
 		var existing_sb: StockBuild = null
 		for sb in stock_builds:
-			if sb.template_name == lsb.template_name and sb.role == lsb.role:
+			if sb.template_name == lsb.template_name and sb.role == lsb.role and sb.rarity == lsb.rarity:
 				existing_sb = sb
 				break
 		if existing_sb:
@@ -1093,7 +1093,7 @@ func credit_bot_death(mech: Node):
 	# evolving pool (see StockBuildEvolution). Only bots that actually rolled
 	# a deviation test this spawn (Mech.build_loadout_for_role) carry these.
 	if mech.get("_is_deviation_test") == true and stock_build_evolution:
-		stock_build_evolution.record_deviation_result(mech.spawn_template_name, mech.combat_role, mech._deviation_components, fitness)
+		stock_build_evolution.record_deviation_result(mech.spawn_template_name, mech.combat_role, mech.base_rarity, mech._deviation_components, fitness)
 
 	if not ("spawn_profile" in mech) or not mech.spawn_profile:
 		return

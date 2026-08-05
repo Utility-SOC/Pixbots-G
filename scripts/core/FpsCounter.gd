@@ -52,10 +52,25 @@ var perf_label: Label
 # and Projectile._physics_process (441 live shots was the number that
 # raised this - see Projectile.gd's _perf_physics_usec for the full story).
 var perf_label2: Label
+# Sixth line: build/version tag - see _compute_build_version() below.
+var version_label: Label
 var _perf_sample_timer: float = 0.0
 const PERF_SAMPLE_INTERVAL = 1.0
 var _frame_times: Array[float] = []
 const SMOOTH_WINDOW = 20 # rolling average - raw per-frame jitter is noisy
+
+# Build/version tag, so a bug report's screenshot says which build produced
+# it without needing to separately ask "what version are you on?" - resolved
+# once in _ready() and cached, not recomputed every frame. project.godot's
+# config/version (bumped per release tag, e.g. "1.1.4") is the primary
+# source since it's baked into every export, editor or not. The short git
+# commit hash is a bonus, dev-only signal layered on top when available -
+# OS.execute("git", ...) only succeeds when running from a source checkout
+# with a .git folder next to the executable, which an exported build never
+# ships (no shim/fallback needed - a failed execute here just leaves the
+# hash blank, same as any other "not applicable" case elsewhere in this
+# file, e.g. ProjectileManager/EntityCache being null in the editor).
+var _build_version_text: String = ""
 
 # Drag-to-move (playtest report: the overlay's fixed top-left spot overlaps
 # the Garage's component tab row - "Torso / L. Arm / R. Arm / ..." became
@@ -165,6 +180,17 @@ func _ready():
 	perf_label2.modulate = Color(0.8, 0.9, 1.0)
 	box.add_child(perf_label2)
 
+	_build_version_text = _compute_build_version()
+	version_label = Label.new()
+	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	version_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	version_label.add_theme_font_size_override("font_size", 11)
+	version_label.add_theme_constant_override("outline_size", 3)
+	version_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	version_label.modulate = Color(0.6, 0.6, 0.6)
+	version_label.text = _build_version_text
+	box.add_child(version_label)
+
 func _process(delta: float):
 	if not visible:
 		return
@@ -233,6 +259,21 @@ func _process(delta: float):
 		MechStatusBars._perf_draw_usec = 0
 		Projectile._perf_physics_usec = 0
 		perf_label2.text = "per sec: status_bars_draw %.0fms  projectile_physics %.0fms" % [status_bar_ms, proj_physics_ms]
+
+## Resolves once at _ready() (see _build_version_text) - never called again,
+## OS.execute() is too slow to run per-frame even if it always succeeded.
+func _compute_build_version() -> String:
+	var version = ProjectSettings.get_setting("application/config/version", "")
+	var text = ("v%s" % version) if version != "" else "dev build"
+
+	var output = []
+	var exit_code = OS.execute("git", ["rev-parse", "--short", "HEAD"], output, true)
+	if exit_code == 0 and output.size() > 0:
+		var commit_hash = String(output[0]).strip_edges()
+		if commit_hash != "":
+			text += " (%s)" % commit_hash
+
+	return text
 
 ## path_override lets tests round-trip against a scratch file instead of
 ## the real SaveManager.SETTINGS_PATH (user://settings.cfg) - never write

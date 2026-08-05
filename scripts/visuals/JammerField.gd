@@ -275,6 +275,21 @@ void fragment() {
 }
 """
 
+# Compiled once and shared across every Jammer Module field, not rebuilt
+# per instance - see CloakSystem.gd's identical fix (same reasoning: a
+# screen-texture read-back shader is expensive to compile, and several
+# jammers all activating for the first time in one busy frame could stack
+# multiple compiles into a single stutter). Only "strength" varies per
+# instance, and that lives on each field's own ShaderMaterial, not the
+# Shader itself.
+static var _distortion_shader: Shader = null
+
+static func _get_distortion_shader() -> Shader:
+	if _distortion_shader == null:
+		_distortion_shader = Shader.new()
+		_distortion_shader.code = DISTORTION_SHADER_CODE
+	return _distortion_shader
+
 func _ensure_distortion():
 	if _distortion:
 		return
@@ -283,9 +298,7 @@ func _ensure_distortion():
 	_distortion.size = Vector2.ONE * size
 	_distortion.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var mat = ShaderMaterial.new()
-	var shader = Shader.new()
-	shader.code = DISTORTION_SHADER_CODE
-	mat.shader = shader
+	mat.shader = _get_distortion_shader()
 	mat.set_shader_parameter("strength", 1.0)
 	_distortion.material = mat
 	add_child(_distortion)

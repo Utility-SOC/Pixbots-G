@@ -64,7 +64,7 @@ func get_next_rival() -> String:
 	var chosen = valid_candidates[randi() % valid_candidates.size()]
 	active_rival_pool.erase(chosen)
 	rivals_fought_this_round += 1
-	save_learned_state()
+	request_save_learned_state()
 	return chosen
 
 func _ready():
@@ -186,6 +186,40 @@ func load_learned_state():
 		captured_loadouts = captures
 
 	print("[DIRECTOR] Learned AI state restored: ", loaded_templates.size(), " templates, ", loaded_profiles.size(), " solver profiles, ", loaded_boss_profiles.size(), " boss profiles")
+
+# Debounced entry point for the high-frequency combat triggers (a squad
+# wipe, a boss death, a rival pick) - save_learned_state() itself does three
+# separate synchronous FileAccess open/stringify/write/close cycles with no
+# threading, and _on_squad_defeated could call it once per squad in a single
+# frame when several die at once (e.g. an AoE/chain-lightning kill clearing
+# multiple squads together). Stacking several blocking disk writes into one
+# frame is exactly the kind of thing that turns into a multi-second stall if
+# Windows Defender/cloud-sync/a slow disk intercepts even one of them - this
+# collapses any number of dirty-marks within SAVE_FLUSH_INTERVAL into a
+# single deferred write instead. Not used by the Garage-only/one-off call
+# sites (clipboard import, rival-loss game-over) - those aren't spammy and
+# want the write to land immediately.
+const SAVE_FLUSH_INTERVAL = 4.0
+var _learned_state_dirty: bool = false
+var _save_flush_timer: float = 0.0
+
+func request_save_learned_state():
+	_learned_state_dirty = true
+	_save_flush_timer = SAVE_FLUSH_INTERVAL
+
+func _process(delta: float):
+	if _learned_state_dirty:
+		_save_flush_timer -= delta
+		if _save_flush_timer <= 0.0:
+			save_learned_state()
+			_learned_state_dirty = false
+
+func _exit_tree():
+	# Flush rather than lose the last few seconds of learning on garage
+	# exit/game restart, which frees this node before the timer above fires.
+	if _learned_state_dirty:
+		save_learned_state()
+		_learned_state_dirty = false
 
 func save_learned_state():
 	if profile_manager:
@@ -1034,5 +1068,6 @@ func _on_squad_defeated(squad: Squad, fitness_score: float):
 	# profile credit) - this is what makes the evolutionary system actually
 	# accumulate across sessions instead of relearning from scratch. Runs
 	# even when squad.template is null, because the solver-profile credit
-	# above still changed state.
-	save_learned_state()
+	# above still changed state. Debounced (see request_save_learned_state)
+	# since several squads can wipe in the same frame.
+	request_save_learned_state()

@@ -140,4 +140,6 @@ func on_boss_defeated(profile: BossProfile, fitness_score: float):
 	profile.update_fitness(fitness_score)
 	print("[DIRECTOR] Boss Defeated! Profile: '", profile.profile_name, "' | Fitness: ", "%.1f" % fitness_score, " | New Weight: ", "%.1f" % profile.spawn_weight)
 	_evaluate_experimental_boss_profile(profile)
-	director.save_learned_state()
+	# Debounced (see SquadDirector.request_save_learned_state) - a boss death
+	# can land in the same frame as squads wiping to the same AoE.
+	director.request_save_learned_state()

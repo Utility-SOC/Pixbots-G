@@ -2237,14 +2237,32 @@ func _is_wave_enemy() -> bool:
 			return true
 	return false
 
+# Wild bots had no despawn path at all outside campaign mode's periodic
+# map rotation (Main._rotate_campaign_map, gated to current_game_mode ==
+# "campaign") - the same gating bug LootPickup had. A bot whose role never
+# happens to be needed by the next several squad templates the director
+# rolls (_assemble_squad only recruits a wild bot if the selected template
+# actually calls for its exact combat_role) sat in the tree forever: full
+# renderer + physics body + particles, ticking every frame, indefinitely.
+# Confirmed as a real secondary contributor to a wave-50 playtest's
+# disproportionate draws/objects/verts (see LootPickup.gd's own fix for the
+# primary one, same root cause).
+const WILD_DESPAWN_TIME = 60.0
+var _wild_timer: float = 0.0
+
 # Returns true while flee/wild owns this mech's movement (caller returns).
 func _update_flee_state(delta: float) -> bool:
 	if _has_gone_wild:
 		# Wild loiter: out of the fight, licking wounds until the director
-		# recruits it into a fresh squad (Squad.add_member clears the flag).
+		# recruits it into a fresh squad (Squad.add_member clears the flag),
+		# or WILD_DESPAWN_TIME runs out and it retreats for good.
 		velocity = Vector2.ZERO
 		if hp < max_hp * WILD_REGEN_CAP_FRACTION:
 			hp = min(max_hp * WILD_REGEN_CAP_FRACTION, hp + max_hp * WILD_REGEN_PER_SEC_FRACTION * delta)
+		_wild_timer += delta
+		if _wild_timer >= WILD_DESPAWN_TIME:
+			queue_free() # tree_exiting -> SquadDirector._on_wild_bot_died erases it from wild_bots
+			return true
 		if _ai_state_label:
 			_ai_state_label.text = "WILD"
 			_ai_state_label.modulate = Color(0.7, 0.7, 0.7)
@@ -2298,6 +2316,7 @@ func _finish_flee():
 	if _has_gone_wild:
 		return
 	_has_gone_wild = true
+	_wild_timer = 0.0
 	is_fleeing = false
 	target = null
 	# Hand the wave slot back exactly as if this bot died (and disconnect
@@ -2316,6 +2335,7 @@ func _finish_flee():
 func rejoin_from_wild():
 	is_fleeing = false
 	_has_gone_wild = false
+	_wild_timer = 0.0
 
 static var _perf_flee_check_usec: int = 0
 

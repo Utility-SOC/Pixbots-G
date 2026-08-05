@@ -241,6 +241,16 @@ func _setup_pixel_viewport():
 	# Deliberately leaving mouse_filter at its default (STOP) - the
 	# SubViewportContainer needs to actively receive mouse events so it can
 	# forward them into the SubViewport for player aiming.
+
+	# Tabletop Diorama Shader (AAA Polish Roadmap Priority 2): applied here,
+	# directly on the container that already presents the game world as its
+	# own texture, rather than a separate fullscreen overlay - one layer
+	# below hud_canvas, so this only ever touches the diegetic battlefield,
+	# never HUD text. See the shader file's header for the full rationale.
+	var diorama_shader = ShaderMaterial.new()
+	diorama_shader.shader = load("res://scripts/shaders/diorama_tilt_shift.gdshader")
+	container.material = diorama_shader
+
 	canvas_layer.add_child(container)
 
 	var viewport = SubViewport.new()

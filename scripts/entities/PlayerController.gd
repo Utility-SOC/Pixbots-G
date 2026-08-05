@@ -99,6 +99,17 @@ func handle_input(delta: float):
 
 	# Mouse Aiming
 	var mouse_pos = mech.get_global_mouse_position()
+	# Auto-fire capital weapons (Lance Mount, Orbiting Array) read
+	# last_aim_position whenever their own cooldown clears - not gated on the
+	# player actually holding a fire button that frame (see
+	# LanceMountTile.fire()). Previously last_aim_position only got written
+	# inside _shoot_impl(), which for the player only runs while LMB/RMB is
+	# held or a bank key (1/2/3) is pressed - release fire to reposition and
+	# it froze at wherever you last shot, so a Lance auto-firing seconds
+	# later beamed off in a stale direction with no way to aim it in the
+	# moment ("I can't seem to meaningfully aim the lance"). Tracking it
+	# unconditionally here keeps it live with the cursor every frame.
+	mech.last_aim_position = mouse_pos
 
 	# Firing logic
 	var is_left_pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)

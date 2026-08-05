@@ -182,7 +182,7 @@ var has_smoke_grenade: bool = false
 var max_smoke_charge: float = 0.0
 var smoke_charge: float = 0.0
 var smoke_recharge_rate: float = 0.0
-var smoke_radius: float = 220.0
+var smoke_radius: float = 320.0
 var smoke_duration: float = 6.0
 
 # Corporate Sponsorships (task #17): Keeneye Sensing's SensorTile capacity
@@ -697,16 +697,11 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 	if role != "" and randf() < 0.12:
 		return ComponentEquipment.create_drone_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
 
-	# Grunt smoke cover (per the user: "some types of enemies (Grunts) have
-	# smoke grenades") - rolled independently of role, same "mobs get toys
-	# too" spirit as the drone roll above. Grunt-only by design, but this
-	# function has no idea whether the mech it's building for will end up a
-	# boss/rival/champion (all three call _spawn_bot_for_role -> _ready() ->
-	# this function BEFORE setting is_boss/etc. - see Mech.gd's own comment
-	# on _spawn_boss's ordering) - Main._spawn_boss/_spawn_rival/
-	# _spawn_traveling_champion each post-hoc strip this backpack back out
-	# after the fact, the same pattern _spawn_boss already uses for
-	# refresh_boss_visuals().
+	# Smoke Grenade cover (per the user: "some types of enemies... have
+	# smoke grenades", later widened to "bosses should absolutely get
+	# grenades too") - rolled independently of role, same "mobs get toys
+	# too" spirit as the drone roll above. Open to everyone this function
+	# builds for, bosses/rivals/champions included - no tier restriction.
 	if role != "" and randf() < 0.2:
 		return ComponentEquipment.create_smoke_grenade_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
 

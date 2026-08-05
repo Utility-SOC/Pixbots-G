@@ -37,9 +37,11 @@ func get_recharge_time() -> float:
 	return TileStatsRegistry.get_stat_by_rarity("SmokeGrenadeTile", "recharge_time_by_rarity", rarity, [10.0, 8.5, 7.0, 5.5, 4.0])
 
 # Cloud radius and how long it lingers - better rarity gets a bigger, more
-# persistent cloud, same tiering shape as everything else here.
+# persistent cloud, same tiering shape as everything else here. Rare tier
+# bumped to ~320 per the user, after trying it in-game - other tiers scaled
+# up proportionally around that new midpoint (was [160, 190, 220, 260, 310]).
 func get_smoke_radius() -> float:
-	return TileStatsRegistry.get_stat_by_rarity("SmokeGrenadeTile", "smoke_radius_by_rarity", rarity, [160.0, 190.0, 220.0, 260.0, 310.0])
+	return TileStatsRegistry.get_stat_by_rarity("SmokeGrenadeTile", "smoke_radius_by_rarity", rarity, [230.0, 280.0, 320.0, 380.0, 450.0])
 
 func get_smoke_duration() -> float:
 	return TileStatsRegistry.get_stat_by_rarity("SmokeGrenadeTile", "smoke_duration_by_rarity", rarity, [4.0, 5.0, 6.0, 7.5, 9.0])

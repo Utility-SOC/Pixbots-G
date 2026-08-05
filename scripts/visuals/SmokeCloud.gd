@@ -15,7 +15,7 @@ extends Node2D
 # from the start, no CPUParticles2D at all - see JumpjetResidue.gd for the
 # sibling zone-effect this mirrors.
 
-var radius: float = 220.0
+var radius: float = 320.0
 var lifetime: float = 6.0
 var timer: float = 0.0
 

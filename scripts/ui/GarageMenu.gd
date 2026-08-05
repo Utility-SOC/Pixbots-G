@@ -12,6 +12,7 @@ const ComponentDiagramView = preload("res://scripts/ui/ComponentDiagramView.gd")
 const GarageSimulationRunner = preload("res://scripts/ui/GarageSimulationRunner.gd")
 const GarageMarket = preload("res://scripts/ui/GarageMarket.gd")
 const GarageShop = preload("res://scripts/ui/GarageShop.gd")
+const GaragePaintRack = preload("res://scripts/ui/GaragePaintRack.gd")
 const SynergyCodexPopup = preload("res://scripts/ui/SynergyCodexPopup.gd")
 const TileActionMenu = preload("res://scripts/ui/TileActionMenu.gd")
 const GarageInventoryPanel = preload("res://scripts/ui/GarageInventoryPanel.gd")
@@ -132,6 +133,7 @@ var is_simulating: bool = false
 var simulation_runner: GarageSimulationRunner = null
 var garage_market: GarageMarket = null
 var garage_shop: GarageShop = null
+var garage_paint_rack: GaragePaintRack = null
 var synergy_codex_popup: SynergyCodexPopup = null
 var tile_action_menu: TileActionMenu = null
 var garage_inventory_panel: GarageInventoryPanel = null
@@ -588,6 +590,11 @@ func _open_shop():
 	if not garage_shop:
 		garage_shop = GarageShop.new(self)
 	garage_shop.open_popup()
+
+func _open_paint_rack():
+	if not garage_paint_rack:
+		garage_paint_rack = GaragePaintRack.new(self)
+	garage_paint_rack.open_popup()
 
 func _on_sell_all(max_rarity: int):
 	if not garage_market:

@@ -371,6 +371,13 @@ func build():
 	shop_btn.pressed.connect(garage._open_shop)
 	feature5_bar.add_child(shop_btn)
 
+	var paint_rack_btn = Button.new()
+	paint_rack_btn.text = "PAINT RACK"
+	paint_rack_btn.modulate = Color(0.9, 0.8, 0.3)
+	paint_rack_btn.tooltip_text = "Pick your mech's color. Free, and you can change it any time."
+	paint_rack_btn.pressed.connect(garage._open_paint_rack)
+	feature5_bar.add_child(paint_rack_btn)
+
 	# Right Side: Inventory & Stats
 	garage.inventory_panel = PanelContainer.new()
 	garage.inventory_panel.custom_minimum_size = Vector2(300, 0)

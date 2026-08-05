@@ -63,7 +63,7 @@ func _ready():
 	# it should, without requiring an unrelated prior click to happen to
 	# land focus here first.
 	focus_mode = Control.FOCUS_ALL
-	mouse_entered.connect(grab_focus)
+	mouse_entered.connect(_on_mouse_entered)
 
 	# Create Tooltip
 	tooltip_label = Label.new()
@@ -75,6 +75,21 @@ func _ready():
 		if camera_offset == Vector2.ZERO:
 			camera_offset = size / 2.0
 	)
+
+# User report: the tile-search box (and any other text field in the Garage)
+# lost keyboard focus the instant the mouse merely PASSED OVER the grid, with
+# no click involved - infuriating mid-search. The grab_focus() above steals
+# focus unconditionally on hover, which is exactly right for "hover a tile,
+# press E" when nothing else needs the keyboard, but wrong the moment the
+# player is actively typing somewhere else. Skip the steal specifically when
+# a text-entry control currently holds focus - LineEdit/TextEdit cover every
+# text field in the Garage (search box, HP override box in Test Range, any
+# future rename/search field) without needing to special-case each one.
+func _on_mouse_entered():
+	var focus_owner = get_viewport().gui_get_focus_owner()
+	if focus_owner is LineEdit or focus_owner is TextEdit:
+		return
+	grab_focus()
 
 func setup(grid_component: Node, parent_menu: Node, extra_hexes: Array = []):
 	hex_grid = grid_component

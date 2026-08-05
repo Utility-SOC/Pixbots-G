@@ -23,8 +23,26 @@ class_name OrbitingProjectile
 extends Node2D
 
 const LIFETIME = 14.0
-const CONTACT_RADIUS = 14.0 # was the CollisionShape2D's CircleShape2D radius
+# User report (2026-08-05): "the orbitals aren't worth it for all the cost in
+# space and energy" - the same 3-hex/6-faces-@-10000 commitment as a Lance
+# Mount, for orbs that in practice almost never actually hit anything. Root
+# cause: 14px was the old CollisionShape2D's CircleShape2D radius, on an orb
+# sweeping 75-130px from the mech - a victim needed near-pixel-perfect
+# overlap with wherever the orb currently was on its orbit, not just "close
+# to the mech." Widened so a target that gets near the mech has a real
+# chance of catching the ring.
+const CONTACT_RADIUS = 45.0
 const CONTACT_CHECK_INTERVAL = 0.1
+# Same lump-sum-to-DPS conversion LanceBeam.gd's residue chain already uses
+# (dps = damage / (residue_lifetime * 0.3)) - _check_contact used to consume
+# the orb on its FIRST touch, dealing the full `damage` value once then
+# queue_free()-ing. Combined with the 14px radius above, that meant most
+# orbs spent their whole 14s LIFETIME never registering a single hit. Now
+# the orb survives contact and ticks instead - `damage` is treated as the
+# total budget for CONTACT_DPS_WINDOW seconds of sustained contact, same
+# "roughly one lump hit's worth over a reasonable engagement window" idea,
+# just spread as real orbital-defense DPS instead of a one-shot mine.
+const CONTACT_DPS_WINDOW = 2.0
 const LIGHTNING_LASH_INTERVAL = 0.2 # was a raw physics shape query every single frame
 
 var source_mech: Node = null
@@ -183,9 +201,13 @@ func _check_contact(delta: float):
 			# inside the old body_entered signal handler, a bad static call
 			# here would have errored out before apply_damage() ever ran -
 			# orb contact damage has likely never actually landed.
-			v.apply_damage(damage, EnergyPacket.element_name(dominant_synergy), source_mech)
-			queue_free()
-			return
+			#
+			# No more queue_free() on hit, and no more per-tick `damage` -
+			# see CONTACT_DPS_WINDOW's own comment above. A one-shot 14px
+			# contact mine essentially never triggered in real play; this
+			# orb now keeps orbiting and ticking real DPS to anything that
+			# stays within CONTACT_RADIUS for its whole LIFETIME instead.
+			v.apply_damage(damage * (CONTACT_CHECK_INTERVAL / CONTACT_DPS_WINDOW), EnergyPacket.element_name(dominant_synergy), source_mech)
 
 func _draw():
 	var color = EnergyPacket.get_color_blend(synergies) if not synergies.is_empty() else Color(0.2, 0.8, 1.0)

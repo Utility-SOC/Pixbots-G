@@ -9,11 +9,20 @@ extends Node2D
 # JammerField (a self-contained Area2D that periodically ticks damage to
 # whoever's inside).
 
-const SEGMENT_SPACING = 90.0
+# User feedback (2026-08-05): "the lance should be wider" - was 90.0/25.0,
+# leaving visible gaps between residue circles along the beam's path (radius
+# 25 * 2 = 50px diameter against 90px spacing). Tightened spacing and grew
+# the base radius so consecutive segments touch/overlap instead of leaving
+# gaps a mob could walk through untouched - k=1 (no saturation) now reads as
+# one continuous threatening lane, not a dotted line.
+const SEGMENT_SPACING = 70.0
 # User feedback (2026-08-05): the beam flash itself read as too quick/thin
 # against the residue puddle chain it leaves behind - bumped from 3.0 to
 # read as a real lingering plasma lance, not a blink-and-you-miss-it flash.
-const BEAM_LINGER_TIME = 5.0
+# Bumped again same day ("the lance should be... longer lived") - this is
+# the BEAM's own visual presence, distinct from the residue puddles below
+# (which got shorter, not longer - see LanceMountTile/stats.json).
+const BEAM_LINGER_TIME = 8.0
 
 var start_pos: Vector2
 var end_pos: Vector2
@@ -70,7 +79,7 @@ func _spawn_residue_chain():
 	# spacing/radius unchanged.
 	var k = ProjectileManager.consolidation_factor()
 	var spacing = SEGMENT_SPACING * k
-	var seg_radius = 25.0 * sqrt(float(k))
+	var seg_radius = 35.0 * sqrt(float(k)) # was 25.0 - see "wider" comment above
 
 	var count = max(1, int(total_len / spacing))
 	# Total beam damage spread across the residue's own lifetime as a DPS,

@@ -335,6 +335,18 @@ var base_rarity: int = 0 # HexTile.Rarity.COMMON
 # AutoEquipSolver. Null means "use the solver's old fixed-priority
 # behavior" - safe default for anything that doesn't set this.
 var spawn_profile: SolverProfile = null
+# Which SquadTemplate this bot spawned under (set by SquadDirector before
+# add_child(), same pattern as combat_role/base_rarity/spawn_profile above) -
+# "" for the player and anything spawned outside the normal squad-assembly
+# path (debug spawns, the safety-fallback trio in Main._spawn_wave_async).
+# The key StockBuildEvolution scopes cached/evolving loadouts by, alongside
+# combat_role - see build_loadout_for_role().
+var spawn_template_name: String = ""
+# Set by build_loadout_for_role() when this spawn rolled a deviation test
+# against an existing StockBuild - SquadDirector.credit_bot_death() reads
+# these to report the deviation's fitness back to StockBuildEvolution.
+var _is_deviation_test: bool = false
+var _deviation_components: Dictionary = {}
 # Back-reference to the Squad.gd instance this mech was recruited into (set
 # by Squad.add_member()) - null for bosses and anything spawned outside the
 # normal squad-assembly path. Used by the sight-sharing system below: a
@@ -3193,6 +3205,28 @@ func die():
 		queue_free()
 
 func build_loadout_for_role(role_name: String):
+	# StockBuild cache/evolution (see StockBuildEvolution.gd) - every mech of
+	# the same squad template's same role slot reuses one evolving build
+	# instead of independently re-running AutoEquipSolver every spawn. A
+	# small fraction of spawns still test a fresh deviation (see
+	# should_test_deviation()) so the pool keeps improving; SquadDirector.
+	# credit_bot_death() reports that deviation's fitness back when this bot
+	# dies. Skipped entirely if there's no template context (debug spawns,
+	# the safety-fallback trio in Main._spawn_wave_async) - those fall
+	# straight through to the solver exactly as before this system existed.
+	var stock_evo = _get_stock_build_evolution()
+	var stock = null
+	var use_stock = false
+	if stock_evo and spawn_template_name != "":
+		stock = stock_evo.get_stock_build(spawn_template_name, role_name)
+		use_stock = stock != null and not stock_evo.should_test_deviation()
+
+	if use_stock:
+		for slot_key in stock.serialized_components:
+			equip_component(SaveManager._deserialize_component(stock.serialized_components[slot_key]))
+		_recalculate_grid()
+		return
+
 	var inventory = []
 
 	var add_tile = func(path, rarity, synergy=0):
@@ -3256,4 +3290,31 @@ func build_loadout_for_role(role_name: String):
 		inventory = solver.solve(components[HexTile.BodySlot.ARM_L], inventory, spawn_profile)
 
 	_recalculate_grid()
+
+	if stock_evo and spawn_template_name != "":
+		var serialized := {}
+		for slot in [HexTile.BodySlot.TORSO, HexTile.BodySlot.ARM_R, HexTile.BodySlot.ARM_L]:
+			if components.has(slot):
+				serialized[slot] = SaveManager._serialize_component(components[slot])
+		if stock == null:
+			stock_evo.establish_stock_build(spawn_template_name, role_name, serialized)
+		else:
+			# This spawn rolled a deviation test against an existing build -
+			# don't apply the result yet, just remember it. credit_bot_death()
+			# reports it to StockBuildEvolution once this bot's own fitness is
+			# known (see SquadDirector.credit_bot_death).
+			_is_deviation_test = true
+			_deviation_components = serialized
+
+# Same "reach the SquadDirector from a Mech" pattern already used elsewhere
+# (e.g. MissileRackTile._fire_combined_projectile's SquadDirector.
+# log_mortar_shot() lookup) - null for the player and anything spawned
+# outside a live SquadDirector's world (Test Range, debug spawns).
+func _get_stock_build_evolution():
+	var main = get_tree().current_scene if is_inside_tree() else null
+	if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
+		var director = main.world.get_node("SquadDirector")
+		if "stock_build_evolution" in director:
+			return director.stock_build_evolution
+	return null
 

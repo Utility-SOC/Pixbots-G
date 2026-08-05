@@ -10,6 +10,7 @@ extends Node
 # warns about - it just hadn't actually been hit yet.
 const BossProfile = preload("res://scripts/ai/BossProfile.gd")
 const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
+const StockBuild = preload("res://scripts/ai/StockBuild.gd")
 
 const DEFAULT_PROFILE_PATH = "user://ai_profiles/"
 
@@ -27,7 +28,7 @@ func has_profile(profile_name: String) -> bool:
 # learning: squad compositions (SquadTemplate), loadout-building
 # preferences (SolverProfile), and boss kits (BossProfile). Older files
 # without a given key still load fine (the loaders below just return empty).
-func save_profile(profile_name: String, templates: Array[SquadTemplate], solver_profiles: Array = [], boss_profiles: Array = [], telemetry: Dictionary = {}):
+func save_profile(profile_name: String, templates: Array[SquadTemplate], solver_profiles: Array = [], boss_profiles: Array = [], stock_builds: Array = [], telemetry: Dictionary = {}):
 	var save_path = DEFAULT_PROFILE_PATH + profile_name + ".json"
 
 	# v1.3: added "telemetry" (director's observed player element usage +
@@ -36,12 +37,16 @@ func save_profile(profile_name: String, templates: Array[SquadTemplate], solver_
 	# previously squads evolved with memory while the jam-targeting had
 	# amnesia. Deliberately NOT included in clipboard export: your combat
 	# history is about you, and it would poison a friend's director.
+	# v1.4: added "stock_builds" (StockBuildEvolution's evolving per-squad-
+	# template-per-role enemy loadout pool) - rides along in the same file
+	# and the same clipboard export as the other three evolving pools.
 	var profile_data = {
 		"profile_name": profile_name,
-		"version": "1.3",
+		"version": "1.4",
 		"templates": [],
 		"solver_profiles": [],
 		"boss_profiles": [],
+		"stock_builds": [],
 		"telemetry": telemetry
 	}
 
@@ -51,6 +56,8 @@ func save_profile(profile_name: String, templates: Array[SquadTemplate], solver_
 		profile_data["solver_profiles"].append(p.to_dict())
 	for bp in boss_profiles:
 		profile_data["boss_profiles"].append(bp.to_dict())
+	for sb in stock_builds:
+		profile_data["stock_builds"].append(sb.to_dict())
 
 	var json_string = JSON.stringify(profile_data, "\t")
 	var file = FileAccess.open(save_path, FileAccess.WRITE)
@@ -70,7 +77,7 @@ func save_profile(profile_name: String, templates: Array[SquadTemplate], solver_
 # above on why combat-history telemetry stays out of exports).
 func save_telemetry(profile_name: String, telemetry: Dictionary):
 	var empty_templates: Array[SquadTemplate] = []
-	save_profile(profile_name, empty_templates, [], [], telemetry)
+	save_profile(profile_name, empty_templates, [], [], [], telemetry)
 
 # Shared file-read/parse step for load_profile/load_solver_profiles - the
 # two loaders read the same file, so the path-fallback and JSON handling
@@ -112,6 +119,10 @@ func load_boss_profiles(profile_name: String) -> Array:
 	var data = _read_profile_data(profile_name)
 	return _boss_profiles_from_data(data)
 
+func load_stock_builds(profile_name: String) -> Array:
+	var data = _read_profile_data(profile_name)
+	return _stock_builds_from_data(data)
+
 func load_telemetry(profile_name: String) -> Dictionary:
 	var data = _read_profile_data(profile_name)
 	return data.get("telemetry", {}) if data.get("telemetry") is Dictionary else {}
@@ -143,6 +154,15 @@ func _boss_profiles_from_data(data: Dictionary) -> Array:
 			profiles.append(p)
 	return profiles
 
+func _stock_builds_from_data(data: Dictionary) -> Array:
+	var builds: Array = []
+	if data.has("stock_builds"):
+		for b_data in data["stock_builds"]:
+			var b = StockBuild.new()
+			b.from_dict(b_data)
+			builds.append(b)
+	return builds
+
 # Stamps an exported item's origin_pilot with the exporter's identity ONLY
 # if it doesn't already carry one - a template bred locally becomes "from
 # me" the moment it leaves this install, but a template that was ALREADY
@@ -154,21 +174,23 @@ func _stamp_origin(d: Dictionary) -> Dictionary:
 		d["origin_pilot"] = SaveManager.pilot_name
 	return d
 
-func export_to_clipboard(templates: Array[SquadTemplate], solver_profiles: Array = [], boss_profiles: Array = []):
-	var profile_data = {"templates": [], "solver_profiles": [], "boss_profiles": []}
+func export_to_clipboard(templates: Array[SquadTemplate], solver_profiles: Array = [], boss_profiles: Array = [], stock_builds: Array = []):
+	var profile_data = {"templates": [], "solver_profiles": [], "boss_profiles": [], "stock_builds": []}
 	for t in templates:
 		profile_data["templates"].append(_stamp_origin(t.to_dict()))
 	for p in solver_profiles:
 		profile_data["solver_profiles"].append(_stamp_origin(p.to_dict()))
 	for bp in boss_profiles:
 		profile_data["boss_profiles"].append(_stamp_origin(bp.to_dict()))
+	for sb in stock_builds:
+		profile_data["stock_builds"].append(_stamp_origin(sb.to_dict()))
 	DisplayServer.clipboard_set(JSON.stringify(profile_data))
 	print("Profile exported to clipboard! Ready to share.")
 
 # Counterpart to export_to_clipboard - parse a shared profile back out of
 # the clipboard. Returns {"templates": [...], "solver_profiles": [...],
-# "boss_profiles": [...]} (any may be empty), or {} if the clipboard isn't a
-# valid profile.
+# "boss_profiles": [...], "stock_builds": [...]} (any may be empty), or {}
+# if the clipboard isn't a valid profile.
 func import_from_clipboard() -> Dictionary:
 	var text = DisplayServer.clipboard_get()
 	if text.strip_edges() == "":
@@ -181,4 +203,5 @@ func import_from_clipboard() -> Dictionary:
 		"templates": _templates_from_data(json.data),
 		"solver_profiles": _solver_profiles_from_data(json.data),
 		"boss_profiles": _boss_profiles_from_data(json.data),
+		"stock_builds": _stock_builds_from_data(json.data),
 	}

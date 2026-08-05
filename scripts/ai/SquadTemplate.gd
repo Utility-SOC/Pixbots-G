@@ -44,6 +44,14 @@ var total_fitness: float = 0.0
 const FITNESS_HISTORY_CAP = 60
 var fitness_history: Array = []
 
+# Recency-weighted effectiveness, separate from spawn_weight's lifetime
+# average - decays fast (0.4 blend vs. spawn_weight's 0.2) so it reflects
+# roughly the last handful of deployments, not the whole session. Feeds
+# Main.gd's "Gang Up" wave-archetype event (top_n_by_recent_effectiveness) -
+# spawn_weight/total_fitness answer "how good is this template overall,
+# ever", this answers "how well has it been doing lately".
+var recent_fitness_ema: float = 100.0
+
 func _init(_name: String = "Unnamed", _roles: Dictionary = {}):
 	template_name = _name
 	required_roles = _roles
@@ -59,6 +67,7 @@ func update_fitness(fitness_score: float):
 	fitness_history.append(fitness_score)
 	if fitness_history.size() > FITNESS_HISTORY_CAP:
 		fitness_history.pop_front()
+	recent_fitness_ema = lerp(recent_fitness_ema, fitness_score, 0.4)
 
 	# Simple Reinforcement Learning step:
 	# Blend current weight with the new fitness score.
@@ -85,6 +94,7 @@ func to_dict() -> Dictionary:
 		"parent_name": parent_name,
 		"fitness_history": fitness_history,
 		"origin_pilot": origin_pilot,
+		"recent_fitness_ema": recent_fitness_ema,
 	}
 
 func from_dict(data: Dictionary):
@@ -98,4 +108,5 @@ func from_dict(data: Dictionary):
 	if data.has("parent_name"): parent_name = str(data["parent_name"])
 	if data.has("fitness_history"): fitness_history = data["fitness_history"].duplicate() if data["fitness_history"] is Array else []
 	if data.has("origin_pilot"): origin_pilot = str(data["origin_pilot"])
+	if data.has("recent_fitness_ema"): recent_fitness_ema = float(data["recent_fitness_ema"])
 

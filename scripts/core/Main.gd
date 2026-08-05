@@ -409,6 +409,7 @@ func _process(delta: float):
 	if _spawning_wave and Time.get_ticks_msec() - _spawning_wave_started_at >= 10000:
 		push_warning("[Main] _spawning_wave wedged for 10s+ (wave %d, active_enemies %d) - self-healing without a Garage cycle" % [current_wave, active_enemies])
 		_spawning_wave = false
+		_clear_stale_wave_enemies()
 		_start_wave()
 
 
@@ -708,6 +709,35 @@ func _show_countdown():
 	add_child(timer)
 	timer.start()
 
+# Real root cause of the wave-65/76 stuck-and-then-corrupted reports found
+# 2026-08-05 from the user's actual console output (LootManager.gd:94 was
+# calling Node.get() with a default-value 2nd argument - only Dictionary.get
+# supports that; Object.get() takes exactly 1 arg and throws - now fixed).
+# The watchdog below still earns its keep as a second line of defense: if a
+# wave's spawn ever wedges again for any other reason, forcing a bare
+# _start_wave() retry without this cleanup left the PREVIOUS wave's still-
+# alive mechs wandering the map with died still connected to
+# _on_enemy_died - their eventual deaths then decremented the NEW wave's
+# freshly-reset active_enemies counter for a wave they were never part of,
+# observed dragging it to -24 by wave 76. Mirrors the same "Clear all
+# active enemies" pattern _on_player_died's Garage-kick-back already uses
+# a few hundred lines below.
+func _clear_stale_wave_enemies():
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		if not is_instance_valid(enemy):
+			continue
+		# Disconnect every died listener, not just _on_enemy_died - bosses/
+		# rivals/champions route through their own handler (_on_boss_died etc.)
+		# which itself calls _on_enemy_died() internally, so any of them left
+		# connected would still decrement the fresh counter below if a
+		# same-frame hit resolves before this queue_free() actually takes
+		# effect at end of frame. Same "walk the real connections" approach
+		# SquadDirector._merge_squads uses for dealt_damage/took_damage.
+		for conn in enemy.died.get_connections():
+			enemy.died.disconnect(conn.callable)
+		enemy.queue_free()
+	active_enemies = 0
+
 func _start_wave():
 	# Re-entrancy guard (user report 2026-08-05: stuck on wave 65, killing
 	# everything spawned after a Garage visit never advanced it). Extraction
@@ -738,6 +768,7 @@ func _start_wave():
 			return
 		push_warning("[Main] _spawning_wave was stuck true for 10s+ (wave %d) - forcing recovery" % current_wave)
 		_spawning_wave = false
+		_clear_stale_wave_enemies()
 	_update_hud()
 	print("--- WAVE ", current_wave, " COMMENCING ---")
 	LootManager.current_wave = current_wave

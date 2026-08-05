@@ -91,7 +91,7 @@ func generate_loot_for_mech(mech: Node):
 	for comp in mech.components.values():
 		if comp == null:
 			continue
-		for chip in comp.get("equipped_chips", []):
+		for chip in comp.equipped_chips:
 			if chip.get("traits", []).size() != 1:
 				continue # Corrupted - destroyed on death, never drops
 			if randf() <= CHIP_DROP_CHANCE:

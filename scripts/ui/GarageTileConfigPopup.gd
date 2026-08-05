@@ -516,7 +516,7 @@ func on_tile_clicked(tile: HexTile):
 
 		_show_popup(popup, Vector2(280, 120))
 
-	elif tile.tile_type == "Weapon Mount" or tile.tile_type == "Jumpjet" or tile.tile_type == "Amplifier" or tile.tile_type == "Directional Conduit" or tile.tile_type == "Shield Generator" or tile.tile_type == "Actuator":
+	elif tile.tile_type == "Weapon Mount" or tile.tile_type == "Jumpjet" or tile.tile_type == "Amplifier" or tile.tile_type == "Directional Conduit" or tile.tile_type == "Shield Generator" or tile.tile_type == "Actuator" or tile.tile_type == "Missile Rack":
 		# Mythic-ability popup for tiles that had no click config before.
 		var popup = PopupPanel.new()
 		var vbox = VBoxContainer.new()
@@ -558,6 +558,10 @@ func on_tile_clicked(tile: HexTile):
 					cycle_method = "cycle_mythic_mode"
 				"Actuator":
 					mode_names = ["Velocity", "Ember", "Balanced"]
+					prop = "mythic_mode"
+					cycle_method = "cycle_mythic_mode"
+				"Missile Rack":
+					mode_names = ["Hunter (single target)", "AOE (wide burst)"]
 					prop = "mythic_mode"
 					cycle_method = "cycle_mythic_mode"
 

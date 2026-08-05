@@ -720,33 +720,65 @@ func _place_fightshovel_structures():
 				obstacles[Vector2i(x, y)] = "RuinPart"
 		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h, "type": structure_type})
 
-# Tendril-clustered obstacles (design ruling): instead of uniform random
-# scatter dense enough to wall off movement, obstacles concentrate along
-# the thin winding zero-bands of obstacle_noise - reading as hedgerows,
-# tree lines, and rubble streets with big open lanes between them. A tiny
-# lone-obstacle chance outside the tendrils keeps maps from feeling
-# manicured.
+# Edge treelines + sparse interior copses (redesigned 2026-08-05 per user
+# report: the old tendril-band scatter below made obstacles "mostly a
+# nuisance" - the zero-crossing band of a smooth noise field traces long
+# winding lines that can run most of the map's width, and even the lower
+# per-biome chances still filled a lot of ground. Two independent, much
+# sparser rules now, checked in order (first match wins):
+#   1. EDGE TREELINE - only within EDGE_MARGIN_TILES of a map border, and
+#      only where a coarse noise sample says this STRETCH of border is
+#      treed - a solid ring around the whole perimeter reads as a wall, not
+#      terrain, so most of the edge stays open and only some runs get a
+#      line of obstacles (per the user: "a forest around PARTS of the edge
+#      of the map"). Nearby edge tiles share noise value with their
+#      neighbors, so a qualifying stretch reads as one contiguous run
+#      rather than flickering tile-to-tile.
+#   2. INTERIOR COPSE - a much tighter, high-value noise threshold (an
+#      upper-tail blob region, not a thin zero-crossing line) picks out
+#      small, isolated interior clusters - "a copse here or there," not a
+#      network of hedgerows spanning the map.
+# Outside both, only a tiny lone-obstacle chance remains, roughly half the
+# old rate, keeping maps from feeling completely bare between clusters.
+# Per-biome density values below are themselves cut to roughly half-to-60%
+# of the old tendril-band chances - a direct density cap, independent of
+# the placement-shape change.
+const EDGE_MARGIN_TILES = 6
+
+func _biome_obstacle_density(biome: BiomeType) -> float:
+	match biome:
+		BiomeType.FOREST: return 0.32   # was 0.55 (in the old tendril band)
+		BiomeType.DESERT: return 0.14   # was 0.25
+		BiomeType.TUNDRA: return 0.16   # was 0.30
+		BiomeType.VOLCANO: return 0.18  # was 0.35
+		BiomeType.DUNGEON: return 0.28  # was 0.50
+	return 0.08 # Grassland, was 0.15
+
 func _should_spawn_obstacle(biome: BiomeType, roll: float, x: int = 0, y: int = 0) -> bool:
 	if biome == BiomeType.WATER:
 		return false
+	if not obstacle_noise:
+		return roll < 0.002
 
-	# Narrower tendril band on Normal (per the user: "gaps between obstacles
-	# need to be larger") - combined with this map type's already-lower
-	# obstacle_noise frequency (see _ready), obstacle clusters read as
-	# thinner AND further apart, not just further apart.
-	var tendril_band = 0.05 if map_type == "Normal" else 0.08
-	var in_tendril = abs(obstacle_noise.get_noise_2d(x, y)) < tendril_band if obstacle_noise else false
+	# Normal mode keeps its own earlier ruling (per the user: "gaps between
+	# obstacles need to be larger") - a flat extra cut on top of the general
+	# cap below, same intent the old code's narrower tendril_band encoded.
+	var density = _biome_obstacle_density(biome) * (0.6 if map_type == "Normal" else 1.0)
 
-	if not in_tendril:
-		return roll < 0.004 # rare lone tree/boulder
+	var near_edge = x < EDGE_MARGIN_TILES or x >= width - EDGE_MARGIN_TILES or y < EDGE_MARGIN_TILES or y >= height - EDGE_MARGIN_TILES
+	if near_edge:
+		# Coarser sample than the interior copse check - bigger noise
+		# "features" mean a qualifying edge run stays contiguous over many
+		# tiles instead of breaking up tile-by-tile.
+		var edge_sample = obstacle_noise.get_noise_2d(x * 0.4, y * 0.4)
+		if edge_sample > 0.2:
+			return roll < density
 
-	match biome:
-		BiomeType.FOREST: return roll < 0.55
-		BiomeType.DESERT: return roll < 0.25
-		BiomeType.TUNDRA: return roll < 0.30
-		BiomeType.VOLCANO: return roll < 0.35
-		BiomeType.DUNGEON: return roll < 0.50
-	return roll < 0.15 # Grassland
+	var copse_sample = obstacle_noise.get_noise_2d(x, y)
+	if copse_sample > 0.55:
+		return roll < density
+
+	return roll < 0.002 # rare lone tree/boulder, elsewhere
 
 func _get_obstacle_name(biome: BiomeType) -> String:
 	# FightShovel 1920 reuses the DESERT biome (see the map_type dispatch

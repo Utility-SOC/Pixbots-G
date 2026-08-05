@@ -42,7 +42,19 @@ var effective_radius: float = 40.0
 const ARC_HEIGHT = 70.0
 const IMPACT_FLASH_TIME = 0.28
 
-func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_source: Node, p_aoe_bonus: float = 0.0):
+# Missile Rack AOE mode only (MissileRackTile.gd, Mythic mythic_mode == 1) -
+# every other caller (the Mythic Weapon Mount Mortar pattern, Missile Rack's
+# default Hunter mode) leaves both at their defaults and behaves exactly as
+# before. radius_mult layers on top of the shared explosion_radius_for()
+# formula rather than changing it (that formula is used by every Explosion
+# splash in the game, not just mortars). equal_split_all_victims switches
+# _detonate() from "one direct-pipeline hit + falloff splash" to "every
+# struck target gets an equal share of the total damage, each still run
+# through the real hit pipeline" - see _detonate_equal_split() below.
+var radius_mult: float = 1.0
+var equal_split_all_victims: bool = false
+
+func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_source: Node, p_aoe_bonus: float = 0.0, p_radius_mult: float = 1.0, p_equal_split: bool = false):
 	start_pos = p_start
 	target_pos = p_target
 	flight_time = max(0.15, p_flight_time)
@@ -51,6 +63,8 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 	fired_by_player = p_by_player
 	source_mech = p_source
 	source_label = Mech.resolve_attacker_label(p_source)
+	radius_mult = p_radius_mult
+	equal_split_all_victims = p_equal_split
 	global_position = p_target # node sits at the impact point; shell is drawn offset
 
 	var total_mag = 0.0
@@ -60,7 +74,7 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 	if total_mag > 0.0:
 		for k in synergies:
 			ratios[k] = synergies[k] / total_mag
-	effective_radius = max(40.0, Projectile.explosion_radius_for(ratios, p_aoe_bonus))
+	effective_radius = max(40.0, Projectile.explosion_radius_for(ratios, p_aoe_bonus) * radius_mult)
 
 func _process(delta: float):
 	if _landed:
@@ -98,6 +112,10 @@ func _detonate():
 		victims = EntityCache.get_group("enemy")
 	else:
 		victims = EntityCache.get_group("player")
+
+	if equal_split_all_victims:
+		_detonate_equal_split(victims, world)
+		return
 
 	var direct_target = null
 	var direct_dist = effective_radius
@@ -157,6 +175,49 @@ func _detonate():
 			continue
 		var falloff = 1.0 - 0.5 * (v.global_position.distance_to(target_pos) / effective_radius)
 		v.apply_damage(damage * 0.6 * falloff, element, src, false, source_label)
+
+# AOE mode's detonation (Missile Rack Mythic mythic_mode == 1 only): every
+# valid target within effective_radius gets an EQUAL SHARE of the total
+# damage - "the totality of damage the missile would have done, spread
+# equally over all targets struck," not the direct-hit/falloff-splash split
+# every other MortarShell caller uses. Each victim still gets a real,
+# independent Projectile._handle_hit() pass (not a plain apply_damage) so
+# elemental statuses/procs land properly per target - the "aesthetic of the
+# given synergies onboard" reading MORE strongly across a wide burst is
+# exactly the point of this mode. Deliberately skips the direct-hit-only
+# lightning re-arm special case in _detonate() above - chaining onward from
+# an already-divided AOE burst isn't this mode's identity, that's Hunter
+# mode's.
+func _detonate_equal_split(victims: Array, world: Node) -> void:
+	var struck: Array = []
+	for v in victims:
+		if not is_instance_valid(v) or v.get("is_dead"):
+			continue
+		if v.global_position.distance_to(target_pos) <= effective_radius:
+			struck.append(v)
+
+	if struck.is_empty() or not world:
+		return
+
+	var src = source_mech if (source_mech and is_instance_valid(source_mech)) else null
+	var share = damage / float(struck.size())
+	var ProjScript = load("res://scripts/entities/Projectile.gd")
+	for v in struck:
+		var proj = ProjScript.new()
+		proj.synergies = synergies.duplicate()
+		proj.damage = share
+		proj.fired_by_player = fired_by_player
+		proj.source_mech = src
+		proj.source_label = source_label
+		proj.direction = Vector2.DOWN
+		proj.global_position = target_pos
+		proj.collision_mask = (4 | 1) if fired_by_player else (8 | 1)
+		world.add_child(proj)
+		ProjectileManager.unregister(proj)
+		proj.set_physics_process(false)
+		proj._handle_hit(v)
+		if not proj.is_queued_for_deletion():
+			proj.queue_free()
 
 func _dominant_synergy() -> int:
 	var dominant = EnergyPacket.SynergyType.RAW

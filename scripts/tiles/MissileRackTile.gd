@@ -7,11 +7,18 @@ extends HexTile
 # plain Weapon Mount, per that ruling:
 #   - Always indirect (no direct-fire mode) - every shot is a MortarShell.gd
 #     lob, same delivery WeaponMountTile's Mythic "Mortar" pattern uses.
-#   - Cheaper rarity entry: the salvo behavior works at every rarity, not
-#     gated behind Mythic + a specific mythic_pattern selection.
+#   - Cheaper rarity entry: the base salvo (Hunter mode, below) works at
+#     every rarity, not gated behind Mythic at all.
 #   - Salvo behavior: the accumulated packet is banked into several shells
 #     landing in a spread around the aim point (see SHELL_COUNT_BY_RARITY)
 #     instead of one single big payload.
+#   - Mythic-only firing MODE choice (user-designed, added 2026-08-05): a
+#     Mythic Missile Rack can be cycled between Hunter (the base salvo
+#     above) and AOE (one wide, Explosion-scaled burst carrying the full
+#     undivided damage budget, split equally across everything it struck) -
+#     see mythic_mode/cycle_mythic_mode and _fire_aoe_burst below, same
+#     generic Mythic mode-cycle convention WeaponMountTile/Jumpjet/etc. use
+#     (GarageTileConfigPopup.gd).
 #
 # Participates in the EXACT SAME pending_packets/charge/accumulator-bank
 # economy as WeaponMountTile - Mech._collect_weapon_mounts_and_tile_
@@ -37,6 +44,24 @@ func get_weight() -> float:
 var pending_packets: Array = [] # { "packet": packet, "step": step } - same shape as WeaponMountTile
 var current_charge: float = 0.0
 var bank_current_charge: float = 0.0
+
+# Mythic-only firing mode (same generic mythic_mode/cycle_mythic_mode
+# convention GarageTileConfigPopup.gd already uses for Jumpjet/Directional
+# Conduit/Shield Generator/Actuator - non-Mythic tiles always behave as
+# Hunter regardless of this value, same double-gate WeaponMountTile.
+# mythic_pattern uses). User-designed pair:
+#   Hunter (0, default) - today's existing salvo: several shells, all aimed
+#     at the one furthest-in-range target, "throws everything at a single
+#     target."
+#   AOE (1) - a single big burst instead of a shell salvo: wide blast radius
+#     (exponentially bigger with Explosion synergy investment - see
+#     _fire_aoe_burst below), carrying the FULL undivided salvo damage
+#     budget ("the totality of damage the missile would have done"), split
+#     EQUALLY across every target the blast actually struck.
+@export_enum("Hunter", "AOE") var mythic_mode: int = 0
+
+func cycle_mythic_mode():
+	mythic_mode = (mythic_mode + 1) % 2
 
 func clear_pending():
 	pending_packets.clear()
@@ -172,8 +197,20 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	var est_flight_time = clamp(muzzle.distance_to(target_pos) / effective_speed, 0.12, 2.2)
 	target_pos += target.velocity * est_flight_time
 
-	var shell_count = int(TileStatsRegistry.get_stat_by_rarity("MissileRackTile", "shell_count", rarity, SHELL_COUNT_BY_RARITY))
 	var base_damage = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
+
+	if rarity == HexTile.Rarity.MYTHIC and mythic_mode == 1:
+		_fire_aoe_burst(mech, world, muzzle, target_pos, packet, total_mag, by_player, base_damage)
+	else:
+		_fire_hunter_salvo(mech, world, muzzle, target_pos, packet, by_player, effective_speed, base_damage)
+
+# Hunter mode (default at every rarity, and Mythic mythic_mode == 0): several
+# shells, all aimed at the one furthest-in-range target - "throws everything
+# at a single target." This is the pre-existing salvo behavior, unchanged,
+# just extracted into its own function so _fire_combined_projectile can
+# branch to AOE mode instead.
+func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2, packet: EnergyPacket, by_player: bool, effective_speed: float, base_damage: float):
+	var shell_count = int(TileStatsRegistry.get_stat_by_rarity("MissileRackTile", "shell_count", rarity, SHELL_COUNT_BY_RARITY))
 	var per_shell_damage = (base_damage / float(shell_count)) * PER_SHELL_DAMAGE_FRACTION
 
 	var MortarShellScript = load("res://scripts/attacks/MortarShell.gd")
@@ -192,6 +229,29 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 		var shell = MortarShellScript.new()
 		shell.setup(muzzle, impact_pos, flight_time, per_shell_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus)
 		world.add_child(shell)
+
+# AOE mode (Mythic mythic_mode == 1 only, user-designed): a single big burst
+# instead of a shell salvo - carries the FULL undivided base_damage ("the
+# totality of damage the missile would have done"), no PER_SHELL_DAMAGE_
+# FRACTION/shell_count split at all, and MortarShell's new equal_split_all_
+# victims mode divides that total equally across whatever it actually
+# struck (see MortarShell._detonate_equal_split). Blast radius starts wide
+# (AOE_BASE_RADIUS_MULT) and grows EXPONENTIALLY with Explosion synergy
+# investment on top of the shared explosion_radius_for() base - a fresh,
+# first-pass tuning (no live playtest available in this environment to
+# verify against), flag for a balance pass once tested in-game.
+const AOE_BASE_RADIUS_MULT = 1.8
+const AOE_EXPLOSION_EXP_K = 0.9
+
+func _fire_aoe_burst(mech, world: Node, muzzle: Vector2, target_pos: Vector2, packet: EnergyPacket, total_mag: float, by_player: bool, base_damage: float):
+	var r_explosion = (packet.synergies.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) / total_mag) if total_mag > 0.0 else 0.0
+	var radius_mult = AOE_BASE_RADIUS_MULT * exp(AOE_EXPLOSION_EXP_K * r_explosion)
+	var flight_time = clamp(muzzle.distance_to(target_pos) / SHELL_SPEED_BASE, 0.12, 2.2)
+
+	var MortarShellScript = load("res://scripts/attacks/MortarShell.gd")
+	var shell = MortarShellScript.new()
+	shell.setup(muzzle, target_pos, flight_time, base_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus, radius_mult, true)
+	world.add_child(shell)
 
 # Scans the opposing EntityCache group (same convention as MortarShell.
 # _detonate/Projectile.gd's own homing-target scans) for the single FARTHEST

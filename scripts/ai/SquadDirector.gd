@@ -453,11 +453,13 @@ func _assemble_squad(selected_template: SquadTemplate) -> Squad:
 				
 	for bot in bots_to_recruit:
 		wild_bots.erase(bot)
+		if not is_instance_valid(bot):
+			continue
 		for conn in bot.tree_exiting.get_connections():
 			if conn.callable.get_method() == "_on_wild_bot_died":
 				bot.tree_exiting.disconnect(conn.callable)
 		squad.add_member(bot)
-		
+
 	# 2. Fallback Spawning (if Director decides to fill the gaps)
 	if not _all_roles_filled(roles_needed):
 		var spawned_any = false
@@ -476,7 +478,27 @@ func _assemble_squad(selected_template: SquadTemplate) -> Squad:
 				# deliberately not routed through this path.
 				if spawned_any:
 					await get_tree().process_frame
+					# Crash hardening (user report 2026-08-05: signal 11 at
+					# this function's squad.add_member() call, GDScript
+					# backtrace showing only this frame - a genuine native
+					# crash, not a caught script error). Couldn't pin the
+					# exact trigger down without real debug symbols, but
+					# three separate places in this codebase do a blanket
+					# "free every mech in the enemy group" cleanup
+					# (Main._rotate_campaign_map, the game-over kick-back-to-
+					# garage sequence, Main._clear_stale_wave_enemies) - any
+					# of them running during the frame this coroutine just
+					# yielded on is a real hazard for whatever this function
+					# still holds a reference to. squad itself is a plain
+					# object (not in the "enemy" group, not yet added to the
+					# tree - see add_child(squad) below), so it can't be
+					# freed by any of those three, but bail cleanly if it
+					# somehow were anyway rather than risk it.
+					if not is_instance_valid(squad):
+						return null # already gone - nothing left to free
 				var bot = _spawn_bot_for_role(role, selected_template.has_shields, 0, selected_template.template_name)
+				if not is_instance_valid(bot):
+					continue
 				squad.add_member(bot)
 				spawned_any = true
 
@@ -493,7 +515,8 @@ func _assemble_squad(selected_template: SquadTemplate) -> Squad:
 			break
 	if not has_scout:
 		var scout = _spawn_bot_for_role("scout", selected_template.has_shields, 0, selected_template.template_name)
-		squad.add_member(scout)
+		if is_instance_valid(scout):
+			squad.add_member(scout)
 
 	add_child(squad)
 	active_squads.append(squad)

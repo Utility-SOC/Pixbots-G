@@ -397,7 +397,21 @@ func _process(delta: float):
 		if garage_timer <= 0:
 			_spawn_extraction_marker()
 			_update_hud()
-			
+
+	# Self-heal a wedged _spawning_wave without waiting for the player to
+	# cycle Garage - see the watchdog comment on _start_wave()'s re-entrancy
+	# guard above for why this can get stuck. A stuck player standing on an
+	# empty battlefield with no enemies left to fight may not think to walk
+	# all the way back to the extraction marker just to retry - recover on
+	# our own instead. Self-limiting: _start_wave() sets _spawning_wave (and
+	# its timestamp) true again almost immediately, so this can't refire
+	# faster than once per stuck 10s window.
+	if _spawning_wave and Time.get_ticks_msec() - _spawning_wave_started_at >= 10000:
+		push_warning("[Main] _spawning_wave wedged for 10s+ (wave %d, active_enemies %d) - self-healing without a Garage cycle" % [current_wave, active_enemies])
+		_spawning_wave = false
+		_start_wave()
+
+
 	if is_instance_valid(extraction_marker) and extraction_indicator and player:
 		extraction_indicator.visible = true
 		var viewport_rect = get_viewport_rect()
@@ -696,27 +710,34 @@ func _show_countdown():
 
 func _start_wave():
 	# Re-entrancy guard (user report 2026-08-05: stuck on wave 65, killing
-	# everything spawned after a Garage visit never advanced it - persisted
-	# even after two separate active_enemies bookkeeping fixes, which turned
-	# out to be treating a symptom, not the cause). Extraction is entirely
-	# player-voluntary and NOT gated on the current wave having cleared -
+	# everything spawned after a Garage visit never advanced it). Extraction
+	# is player-voluntary and NOT gated on the current wave having cleared -
 	# garage_timer counts down independent of active_enemies (_process
 	# above), so walking into the ExtractionMarker and redeploying can
 	# re-trigger this function while a PREVIOUS call's _spawn_wave_async is
 	# still mid-flight (staggered one squad per 0.12s beat - real wall-clock
 	# time this function is not done spawning for). A second concurrent
-	# call would reset active_enemies to 0, re-run the boss/rival dispatch
-	# (spawning a SECOND boss on a boss wave), and race the first call's
-	# still-running loop over the same active_enemies/_spawning_wave state
-	# with no mutual exclusion at all - exactly the kind of corruption that
-	# leaves active_enemies unable to ever reach 0 again, independent of
-	# and unrelated to the wild-bot signal bug the two prior fixes targeted.
-	# _spawning_wave is guaranteed to eventually clear on its own (
-	# _spawn_wave_async's loop is bounded by safety_break and always falls
-	# through to setting it false, no early-return skips that line), so
-	# this can't deadlock - a re-entrant call just no-ops instead of racing.
+	# call would reset active_enemies to 0, re-run the boss/rival dispatch,
+	# and race the first call's still-running loop over the same
+	# active_enemies/_spawning_wave state with no mutual exclusion at all.
+	#
+	# WATCHDOG (added same day, after the plain guard above shipped as
+	# v1.1.7.5 and the user was STILL stuck - F3 overlay then showed
+	# active_enemies 0, spawning true, permanently): _spawning_wave is
+	# supposed to always clear on its own once _spawn_wave_async reaches its
+	# own end, but if that coroutine hits a runtime script error partway
+	# through its awaited chain (director.spawn_squad -> _assemble_squad),
+	# GDScript has no unwind/finally - execution just halts there and the
+	# flag never clears, wedging the plain guard above shut forever. Rather
+	# than trust that _spawn_wave_async always reaches its reset line, treat
+	# a flag that's been true too long as proof it didn't: recover instead
+	# of trusting it. 10s is generous headroom over the ~2-3s a legitimate
+	# 50-squad-max, 0.12s-per-beat spawn should ever take.
 	if _spawning_wave:
-		return
+		if Time.get_ticks_msec() - _spawning_wave_started_at < 10000:
+			return
+		push_warning("[Main] _spawning_wave was stuck true for 10s+ (wave %d) - forcing recovery" % current_wave)
+		_spawning_wave = false
 	_update_hud()
 	print("--- WAVE ", current_wave, " COMMENCING ---")
 	LootManager.current_wave = current_wave
@@ -907,6 +928,11 @@ func _start_wave():
 # declaring a premature wave-clear when the player kills the first squads
 # before the rest have deployed.
 var _spawning_wave: bool = false
+# Set alongside _spawning_wave = true - lets the watchdog in _start_wave()'s
+# guard (and _process()'s self-heal below) tell "still legitimately
+# spawning" apart from "stuck forever" without needing to know why it's
+# stuck, just how long.
+var _spawning_wave_started_at: int = 0
 var _wave_spawned_any: bool = false
 
 # Spawning a full wave used to happen synchronously: up to ~16 squads x 5
@@ -918,6 +944,7 @@ var _wave_spawned_any: bool = false
 # (see _pick_spawn_anchor).
 func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Array = []) -> void:
 	_spawning_wave = true
+	_spawning_wave_started_at = Time.get_ticks_msec()
 	var safety_break = 0
 	while active_enemies < target_enemy_count and safety_break < 50:
 		safety_break += 1

@@ -52,6 +52,14 @@ func build():
 	left_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hsplit.add_child(left_vbox)
 
+	# Clears Main's "Wave: N | Lives: N" HUD label, which sits at the same
+	# top-left corner in its own CanvasLayer underneath (user report: the
+	# two overlapped, unreadable, on a wide/maximized window) - the Garage
+	# itself has no reason to start flush at y=0.
+	var top_spacer = Control.new()
+	top_spacer.custom_minimum_size = Vector2(0, 44)
+	left_vbox.add_child(top_spacer)
+
 	var top_bar = VBoxContainer.new()
 	left_vbox.add_child(top_bar)
 
@@ -206,7 +214,12 @@ func build():
 	var deploy_button = Button.new()
 	deploy_button.text = "Deploy to Battlefield ->"
 	deploy_button.custom_minimum_size = Vector2(200, 50)
-	deploy_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Was SIZE_EXPAND_FILL - the only child in bottom_bar flagged to expand,
+	# so on a window wider than the ~1280px design canvas it absorbed 100%
+	# of the leftover width and rendered as one giant button with its
+	# centered text stranded far from its siblings (user report: "gets cut
+	# off... on a 1440 monitor"). Sized like every other button in this row
+	# instead.
 	deploy_button.pressed.connect(func():
 		var main = garage.get_parent()
 		if main and main.get("player") != null:
@@ -380,7 +393,13 @@ func build():
 
 	# Right Side: Inventory & Stats
 	garage.inventory_panel = PanelContainer.new()
-	garage.inventory_panel.custom_minimum_size = Vector2(300, 0)
+	# Was 300 - too narrow for its own content regardless of window size
+	# (component/tile rows show "TileType\nRarity (xN.NN) [count]", which
+	# genuinely doesn't fit 300px at this font size - user report: "the
+	# component view looks terrible", every row's name/rarity/multiplier
+	# text truncated). 420 matches the width GarageInventoryPanel.gd's own
+	# Swap Component popup already uses for equivalent component-list rows.
+	garage.inventory_panel.custom_minimum_size = Vector2(420, 0)
 	garage.inventory_panel.add_to_group("tutorial:inventory_panel") # onboarding spotlight anchor - see TutorialManager.gd
 	hsplit.add_child(garage.inventory_panel)
 

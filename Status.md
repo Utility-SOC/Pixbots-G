@@ -38,6 +38,8 @@ This is the actual long-term destination the `pixbots_core` split above is aimed
 
 **Axial-to-cube axis mapping (raised 2026-07-27, purely conceptual, not to-do yet):** the user's own framing of "rolling up" a hex line into a line of cubes - a single straight line of hexes stays a straight line of cubes, but the existing "weird long-limbed dog-leg" shapes (already produced by the current hex shape-generation budget/spoke rules) would read as genuinely strange 3D silhouettes once every bend becomes a real turn in 3D space rather than a flat direction change. Tentative axis idea floated: hex E/W -> world X, NE/SW -> world Y, SE/NW -> world Z (an axial-to-cube-diagonal mapping, since a 2D hex grid has 3 natural axes/6 directions, matching a cube's 3 axes/6 faces one-to-one) - plausible on its own terms but genuinely untested; needs real validation once PB2 work actually starts, not now.
 
+**Brush-based paint, not a single color (raised 2026-08-05):** PB1 shipped a Paint Rack this session - pick one flat color from a curated palette, applied uniformly to the whole mech (see Recently Shipped). The user wants PB2's real 3D bot model to go further: an actual brush tool the player paints directly onto the model with, not a single-swatch picker. Purely conceptual for now - no work needed on PB1's side; the existing paint_color field/Paint Rack stays exactly as it is until PB2 actually starts.
+
 ---
 
 ## 2. Execution Queue (in order)

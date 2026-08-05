@@ -89,19 +89,33 @@ func _ready():
 	# more slowly across the same tile grid.
 	var freq_scale = 0.5 if map_type == "Normal" else 1.0
 
+	# Second pass (per the user: Normal maps are "VERY noisy" even after the
+	# freq_scale halving above) - the previous pass only addressed the base
+	# frequency, but with FRACTAL_FBM's default lacunarity/gain (2.0/0.5),
+	# 4 octaves still layers in detail up to 8x the base frequency. That
+	# highest-octave wiggle is exactly what reads as "noisy" jagged biome
+	# edges even when the underlying island shapes are big - it doesn't
+	# meaningfully change WHICH biome a region becomes, just how ragged its
+	# border looks tile-to-tile. Normal's elevation/moisture fields (which
+	# _get_biome thresholds into biomes) get their own further-reduced
+	# frequency AND fewer octaves; obstacle_noise is untouched since obstacle
+	# tendril spacing is a separate concern the user didn't raise here.
+	var biome_freq_scale = freq_scale * 0.5 if map_type == "Normal" else freq_scale
+	var biome_octaves = 2 if map_type == "Normal" else 4
+
 	noise = FastNoiseLite.new()
 	noise.seed = randi()
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-	noise.fractal_octaves = 4
-	noise.frequency = 0.05 * freq_scale
+	noise.fractal_octaves = biome_octaves
+	noise.frequency = 0.05 * biome_freq_scale
 
 	moisture_noise = FastNoiseLite.new()
 	moisture_noise.seed = randi()
 	moisture_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	moisture_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-	moisture_noise.fractal_octaves = 4
-	moisture_noise.frequency = 0.04 * freq_scale
+	moisture_noise.fractal_octaves = biome_octaves
+	moisture_noise.frequency = 0.04 * biome_freq_scale
 
 	# Drives obstacle TENDRILS: obstacles cluster along the thin winding
 	# zero-bands of this noise (hedgerows, ridge lines, ruin streets)

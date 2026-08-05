@@ -21,8 +21,8 @@ shader_type canvas_item;
 //    (where the fight actually is) as the "in frame" subject.
 
 uniform float focus_center : hint_range(0.0, 1.0) = 0.5;
-uniform float focus_size : hint_range(0.0, 0.5) = 0.22;
-uniform float blur_strength : hint_range(0.0, 0.02) = 0.0045;
+uniform float focus_size : hint_range(0.0, 0.5) = 0.34;
+uniform float blur_strength : hint_range(0.0, 0.02) = 0.002;
 uniform float vignette_strength : hint_range(0.0, 1.0) = 0.35;
 uniform float vignette_radius : hint_range(0.0, 1.5) = 0.75;
 uniform float vignette_softness : hint_range(0.01, 1.5) = 0.5;

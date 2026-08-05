@@ -63,6 +63,27 @@ var player_modifier_chips: Array = []
 # for the sponsor drip-feed bonus drop.
 var player_sponsorship: String = ""
 
+# Cosmetic hero paint color, stored as an HTML hex string (JSON save files
+# have no native Color type - see SaveManager.save_game/load_game). Empty
+# means "not rolled yet" - _setup_player() below rolls one from
+# PLAYER_PAINT_PALETTE for a brand-new game, or for a save file saved
+# before this feature existed. Curated rather than random RGB so every
+# result reads as a deliberate hero color instead of a muddy roll - the
+# same list the planned Paint Rack Garage tab will offer as swatches.
+var player_paint_color: String = ""
+const PLAYER_PAINT_PALETTE: Array[Color] = [
+	Color(0.85, 0.15, 0.15), # the original hardcoded hero red - kept as an option, not just a fallback
+	Color(0.15, 0.4, 0.85),  # cobalt blue
+	Color(0.15, 0.65, 0.25), # racing green
+	Color(0.9, 0.55, 0.1),   # sponsor orange
+	Color(0.55, 0.15, 0.75), # royal purple
+	Color(0.15, 0.75, 0.75), # cyan
+	Color(0.9, 0.8, 0.15),   # gold
+	Color(0.9, 0.3, 0.6),    # magenta
+	Color(0.2, 0.2, 0.25),   # stealth black
+	Color(0.9, 0.9, 0.9),    # arctic white
+]
+
 
 var hud_canvas: CanvasLayer
 var wave_label: Label
@@ -596,10 +617,19 @@ func _setup_player():
 			last_garage_wave = current_wave
 		if load_data.has("player_sponsorship"):
 			player_sponsorship = str(load_data["player_sponsorship"])
+		if load_data.has("player_paint_color"):
+			player_paint_color = str(load_data["player_paint_color"])
 	else:
 
 		_initialize_starter_inventory()
-	
+
+	# Roll a hero paint color if this run doesn't have one yet - either a
+	# brand-new game, or a save file from before this feature existed.
+	if player_paint_color == "":
+		player_paint_color = PLAYER_PAINT_PALETTE.pick_random().to_html(false)
+	player.paint_color = Color(player_paint_color)
+	player.refresh_visuals()
+
 	var camera = Camera2D.new()
 	camera.set_script(load("res://scripts/core/CameraShake.gd"))
 	camera.position_smoothing_enabled = true

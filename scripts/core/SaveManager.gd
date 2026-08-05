@@ -207,6 +207,8 @@ func save_game(save_name: String, mech: Node, inventory: Array):
 		data["current_wave"] = main.current_wave
 	if main and "player_sponsorship" in main:
 		data["player_sponsorship"] = main.player_sponsorship
+	if main and "player_paint_color" in main:
+		data["player_paint_color"] = main.player_paint_color
 
 	# Serialize Components
 	for slot in mech.components.keys():
@@ -289,6 +291,8 @@ func load_game(save_name: String) -> Dictionary:
 		result["current_wave"] = int(json["current_wave"])
 	if json.has("player_sponsorship"):
 		result["player_sponsorship"] = str(json["player_sponsorship"])
+	if json.has("player_paint_color"):
+		result["player_paint_color"] = str(json["player_paint_color"])
 
 	
 	var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")

@@ -95,6 +95,16 @@ func _rebuild_visuals():
 	var is_hero = mech and "is_player" in mech and mech.is_player
 	var is_boss = mech and "is_boss" in mech and mech.is_boss
 	var profile = _get_role_visual_profile("player" if is_hero else role)
+	# Player paint variation (per the user: every player mech looked
+	# identical - "player" always resolved to the same hardcoded red above).
+	# Main._setup_player() rolls/loads a persisted color into mech.paint_color;
+	# alpha 0 means "no paint chosen yet" (shouldn't happen post-load, but
+	# falls back to the hardcoded hero red above rather than rendering
+	# invisible/black). Foundation for the planned Paint Rack Garage tab -
+	# that UI will just set this same field and call Mech.refresh_visuals().
+	if is_hero and "paint_color" in mech and mech.paint_color.a > 0.0:
+		profile = profile.duplicate()
+		profile.color = mech.paint_color
 	if is_boss:
 		# Bosses read as a darker, more armored variant of their base role's
 		# palette. On its own that's a subtle tell, but combined with the

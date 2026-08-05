@@ -368,6 +368,12 @@ var total_magnetic_power: float = 0.0
 # min_attract_rarity filter - see MagnetTile.gd.
 var min_loot_attract_rarity: int = -1
 var visual_seed: int = 0
+# Player-only cosmetic override - see MechRenderer._rebuild_visuals()'s
+# is_hero branch. Alpha 0 (the default) means "no paint chosen" and falls
+# back to the hardcoded hero color. Main._setup_player() rolls/loads a
+# persisted choice into this on game start; the planned Paint Rack Garage
+# tab will let the player change it mid-run the same way.
+var paint_color: Color = Color(0, 0, 0, 0)
 
 signal dealt_damage(amount: float)
 # New fitness-axis input (see Squad._calculate_fitness): mirrors dealt_damage
@@ -622,6 +628,13 @@ func _ready():
 # once with is_boss still false) - call this right after to make the
 # boss-only visual accents in MechRenderer actually appear.
 func refresh_boss_visuals():
+	if _renderer:
+		_renderer._rebuild_visuals()
+
+# Generic version of refresh_boss_visuals() above, for any other case where
+# a visual-affecting field (paint_color, equipped components, etc.) changes
+# after the renderer already built once - e.g. applying a paint choice.
+func refresh_visuals():
 	if _renderer:
 		_renderer._rebuild_visuals()
 

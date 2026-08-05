@@ -17,6 +17,12 @@ const MIN_BOSS_PROFILE_TRIALS_BEFORE_CULL = 2 # boss fights are rarer events tha
 const BOSS_PROFILE_CULL_THRESHOLD = 60.0
 const BOSS_PROFILE_GRADUATE_THRESHOLD = 110.0
 
+# Nemesis Bounty (Main._spawn_nemesis, every NEMESIS_BOUNTY_WAVE_INTERVAL
+# waves) hp_mult - comparable to Longshot's 2.3 (the tankiest of the 6
+# permanent seeds above), since a Nemesis's whole point is a guaranteed,
+# no-wobble threat, not a random roll that might land soft.
+const NEMESIS_HP_MULT = 2.2
+
 var director: SquadDirector
 
 func _init(p_director: SquadDirector):
@@ -60,6 +66,43 @@ func get_active_boss_profile() -> BossProfile:
 		if roll <= acc:
 			return bp
 	return director.boss_profiles[0]
+
+# One-off boss "kit" built specifically to counter the player's own damage
+# log - deliberately NOT appended to director.boss_profiles, since it isn't
+# a candidate for the fitness-weighted evolving pool (it's a scripted
+# encounter, not something that should compete for future spawn_weight).
+# The actual counter-build COMMITMENT (Microcore retargeting) happens where
+# it already lives, SquadDirector._spawn_bot_for_role's force_full_counter
+# path - this only picks the role/abilities/hp_mult/name wrapper around it.
+func build_nemesis_profile() -> BossProfile:
+	var favored_element = "RAW"
+	var best_ratio = 0.0
+	if director.total_damage_taken > 0.0:
+		for element in director.player_element_usage.keys():
+			var ratio = director.player_element_usage[element] / director.total_damage_taken
+			if ratio > best_ratio:
+				best_ratio = ratio
+				favored_element = element
+	var display_element = favored_element.capitalize() if favored_element != "RAW" else "Unproven"
+
+	var role = BossProfile.ALL_ROLES[randi() % BossProfile.ALL_ROLES.size()]
+	var bp = BossProfile.new("Nemesis: %s Hunter" % display_element, role)
+
+	# Two abilities, guaranteed distinct - a Nemesis alternating between two
+	# signature moves reads as deliberately dangerous, not a lucky mutation
+	# roll (compare _mutate_boss_profile's ability_pool growth, which is
+	# itself a coin flip).
+	bp.ability_pool = [BossProfile.ALL_ABILITIES[randi() % BossProfile.ALL_ABILITIES.size()]]
+	var remaining_abilities = BossProfile.ALL_ABILITIES.filter(func(a): return not bp.ability_pool.has(a))
+	if remaining_abilities.size() > 0:
+		bp.ability_pool.append(remaining_abilities[randi() % remaining_abilities.size()])
+
+	bp.enrage_style = BossProfile.ALL_ENRAGE_STYLES[randi() % BossProfile.ALL_ENRAGE_STYLES.size()]
+	bp.position_style = BossProfile.ALL_POSITION_STYLES[randi() % BossProfile.ALL_POSITION_STYLES.size()]
+	bp.hp_mult = NEMESIS_HP_MULT
+	bp.is_experimental = false
+	bp.origin_pilot = "Nemesis Bounty"
+	return bp
 
 func _count_experimental_boss_profiles() -> int:
 	var n = 0

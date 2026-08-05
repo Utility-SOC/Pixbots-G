@@ -387,6 +387,16 @@ var is_boss: bool = false
 # back to role-based defaults) so a debug-menu-spawned or profile-less boss
 # still works.
 var boss_profile: BossProfile = null
+# Set by Main._spawn_nemesis right after director._spawn_bot_for_role (same
+# pattern as boss_profile above) - a Nemesis Bounty is a one-off boss built
+# specifically to counter the player's own damage log, not a member of the
+# evolving boss_profiles pool. Read by build_loadout_for_role() below to
+# guarantee real amplification hardware on the counter-built weapon feed,
+# since a bare retargeted Microcore face (SquadDirector._spawn_bot_for_role's
+# counter-build) isn't enough output on its own to be a real threat - the
+# user: "the microcores don't have enough output on their own... they need
+# amplifiers, they need loops".
+var is_nemesis: bool = false
 var total_magnetic_power: float = 0.0
 # -1 = attract loot of any rarity (default). Set by a Mythic Magnet's
 # min_attract_rarity filter - see MagnetTile.gd.
@@ -3729,6 +3739,22 @@ func build_loadout_for_role(role_name: String):
 			# backpack is the payload. Feed the solver defensive parts.
 			add_tile.call("res://scripts/tiles/ShieldTile.gd", tier.call(0))
 			add_tile.call("res://scripts/tiles/AccumulatorTile.gd", tier.call(0))
+
+	if is_nemesis:
+		# Nemesis Bounty: a bare retargeted Microcore face (SquadDirector.
+		# _spawn_bot_for_role's counter-build) is only as strong as that
+		# Microcore's own power_output - real, felt danger needs the packet
+		# to pick up more magnitude on the way to the mount. Two Amplifiers
+		# (not one) so the solver has enough headroom to actually chain one
+		# onto the counter-built weapon path instead of both fighting over
+		# the same single junction every other role tile already wants; a
+		# Reflector gives it real material to route a longer/looping path
+		# through them rather than a flat straight line. This is guaranteed
+		# gear, not a probabilistic roll - the whole point of a Nemesis is
+		# that it doesn't wobble.
+		add_tile.call("res://scripts/tiles/AmplifierTile.gd", tier.call(0))
+		add_tile.call("res://scripts/tiles/AmplifierTile.gd", tier.call(0))
+		add_tile.call("res://scripts/tiles/ReflectorTile.gd", tier.call(0))
 
 	# Give the solver something to actually work with: an Infuser it can
 	# configure toward the spawn profile's counter-element/Pierce priority.

@@ -836,6 +836,9 @@ func maybe_introduce_experimental_profile():
 func get_active_boss_profile() -> BossProfile:
 	return boss_evolution.get_active_boss_profile()
 
+func build_nemesis_profile() -> BossProfile:
+	return boss_evolution.build_nemesis_profile()
+
 func maybe_introduce_experimental_boss_profile():
 	boss_evolution.maybe_introduce_experimental_boss_profile()
 
@@ -857,7 +860,7 @@ func _all_roles_filled(roles: Dictionary) -> bool:
 # "grunt") rather than blanket-immunizing the whole roster.
 const WATER_SAFETY_EXCLUDED_ROLES = ["sniper", "brawler"]
 
-func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0, template_name: String = "") -> Node:
+func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0, template_name: String = "", force_full_counter: bool = false) -> Node:
 	var bot
 	if role == "jammer":
 		bot = load("res://scripts/entities/JammerMech.gd").new()
@@ -868,6 +871,8 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 
 	bot.combat_role = role
 	bot.base_rarity = p_rarity
+	if "is_nemesis" in bot:
+		bot.is_nemesis = force_full_counter
 	# Which squad template this bot spawned under - the key StockBuild
 	# caching/evolution is scoped by (this, role), set BEFORE add_child()
 	# below so it's already in place when Mech._ready() -> build_loadout_
@@ -946,8 +951,12 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 					
 	# Wobble: roll once per bot rather than committing the counter-doctrine on
 	# every qualifying tile deterministically - see COUNTER_BUILD_CHANCE.
-	var commit_weapon_counter = randf() < COUNTER_BUILD_CHANCE
-	var commit_shield_counter = randf() < COUNTER_BUILD_CHANCE
+	# force_full_counter (Nemesis Bounties, see Main._spawn_nemesis) skips the
+	# wobble entirely - a Nemesis is built specifically to counter the
+	# player's own damage log, so it should never coin-flip into NOT doing
+	# the one thing it exists for.
+	var commit_weapon_counter = force_full_counter or randf() < COUNTER_BUILD_CHANCE
+	var commit_shield_counter = force_full_counter or randf() < COUNTER_BUILD_CHANCE
 
 	# Apply generated synergies to bot's components
 	bot.ready.connect(func():

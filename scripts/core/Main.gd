@@ -985,8 +985,15 @@ func _start_wave():
 				_spawn_boss(director, true)
 		return
 
+	# Nemesis Bounty (every 20 waves) - checked first so it preempts whatever
+	# a plain Megaboss/Rival/Boss wave would have been that round. Unlike
+	# those, this is a one-off boss built specifically to counter the
+	# player's own damage log (see SquadDirector.build_nemesis_profile /
+	# _spawn_nemesis below), not a fitness-evolving pool pick.
+	if current_wave > 0 and current_wave % NEMESIS_BOUNTY_WAVE_INTERVAL == 0:
+		_spawn_nemesis(director)
 	# Megaboss Wave Check (Every 25 waves)
-	if current_wave > 0 and current_wave % 25 == 0:
+	elif current_wave > 0 and current_wave % 25 == 0:
 		_spawn_boss(director, true)
 	# Rival Challenge (every 10 waves)
 	elif current_wave > 0 and current_wave % 10 == 0:
@@ -1337,6 +1344,99 @@ func _scatter_random_tiles(origin: Vector2, count: int, rarity: int):
 		pickup.tile_data = tile
 		pickup.global_position = origin + Vector2(randf_range(-50, 50), randf_range(-50, 50))
 		world.call_deferred("add_child", pickup)
+
+# --- Nemesis Bounties --------------------------------------------------------
+# "I'm down for you to hit the nemesis bounties" - a one-off, deliberately
+# built boss that reads the player's real damage log (SquadDirector.
+# player_element_usage/total_damage_taken/dominant_shield_synergy) and
+# commits, guaranteed rather than the usual COUNTER_BUILD_CHANCE wobble, to
+# countering it: retargeted Microcore output faces PLUS real amplification
+# hardware to feed them (see Mech.build_loadout_for_role's is_nemesis branch -
+# the user: "the microcores don't have enough output on their own to be a
+# threat, they need amplifiers"). Not part of the evolving boss_profiles
+# pool - see BossEvolution.build_nemesis_profile's own header comment.
+const NEMESIS_BOUNTY_WAVE_INTERVAL = 20
+const NEMESIS_HP_FLAT_MULT = 10.0 # between a regular boss's 5.0 and a mega's 25.0 flat factor
+
+func _spawn_nemesis(director):
+	var profile = director.build_nemesis_profile()
+	# force_full_counter=true is the whole point of a Nemesis - see
+	# SquadDirector._spawn_bot_for_role's own comment on that parameter.
+	var boss = director._spawn_bot_for_role(profile.base_role, false, HexTile.Rarity.MYTHIC, "", true)
+	boss.boss_profile = profile
+	boss.is_boss = true
+	boss.scale = Vector2(2.5, 2.5)
+	boss.max_hp *= NEMESIS_HP_FLAT_MULT * profile.hp_mult
+	# Distinct "marked target" tint - no regular boss/rival uses this color,
+	# so a Nemesis reads as different on sight, not just on the War Room.
+	boss.modulate = Color(0.95, 0.25, 0.5)
+	boss.set_meta("boss_drop", "nemesis")
+
+	if current_wave >= 100:
+		boss.brand_affiliation = BrandRegistry.random_brand()
+
+	if boss.has_method("refresh_boss_visuals"):
+		boss.refresh_boss_visuals()
+
+	boss.hp = boss.max_hp
+	_equip_enemy_chips(boss)
+	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
+	if randf() > 0.5: offset.x *= -1
+	if randf() > 0.5: offset.y *= -1
+	var center_spawn = player.global_position + offset
+
+	boss.global_position = map.get_valid_spawn_position(center_spawn)
+	boss.target = player
+	boss.died.connect(_on_nemesis_died.bind(boss))
+	boss.collision_layer = 4
+	boss.collision_mask = 1 | 2 | 8 | 32
+	active_enemies += 1
+	# NOT world.add_child(boss) - same reason as _spawn_boss/_spawn_rival
+	# above; director._spawn_bot_for_role() already parented it.
+
+	# Plain mechanical announcement, not invented story text (see
+	# get_intel_line's own header comment on why - that channel already fired
+	# earlier this same _start_wave() call at line ~930 for the ordinary
+	# per-wave Frank tell, so calling it again here would almost always just
+	# hit its own repeat-line dedupe and return "").
+	var intel = "Nemesis Bounty incoming, '%s' - it's built specifically to counter you." % profile.profile_name
+	show_dialogue("Shopkeeper", intel, Color(0.95, 0.25, 0.5), 7.0)
+
+func _on_nemesis_died(boss):
+	if "boss_profile" in boss and boss.boss_profile and boss.has_method("get_boss_fitness"):
+		var director = world.get_node_or_null("SquadDirector") if world else null
+		if director:
+			director._on_boss_defeated(boss.boss_profile, boss.get_boss_fitness())
+
+	show_dialogue("Shopkeeper", DialogueManager.get_boss_defeat(), Color(0.95, 0.25, 0.5), 6.0)
+
+	# Nemesis Part: a guaranteed Mythic Elemental Infuser pre-configured to
+	# whichever real element (RAW excluded - it's not a build identity) the
+	# player has used LEAST, by damage dealt. Deliberate build-diversification
+	# incentive, not a random drop - the reward should point at the gap the
+	# fight itself was built to expose.
+	var director = world.get_node_or_null("SquadDirector") if world else null
+	var least_element = EnergyPacket.SynergyType.FIRE
+	if director and "player_element_usage" in director:
+		var least_ratio = INF
+		var total = max(1.0, float(director.total_damage_taken))
+		for id in range(EnergyPacket.SynergyType.RAW + 1, EnergyPacket.SynergyType.size()):
+			var elem_name = EnergyPacket.element_name(id)
+			var used = float(director.player_element_usage.get(elem_name, 0.0)) / total
+			if used < least_ratio:
+				least_ratio = used
+				least_element = id
+
+	var reward = load("res://scripts/tiles/InfuserTile.gd").new()
+	reward.rarity = HexTile.Rarity.MYTHIC
+	reward.secondary_synergy = least_element
+	var pickup = load("res://scripts/entities/LootPickup.gd").new()
+	pickup.tile_data = reward
+	pickup.global_position = boss.global_position
+	world.add_child(pickup)
+
+	_scatter_random_tiles(boss.global_position, randi_range(3, 5), HexTile.Rarity.LEGENDARY)
+	_on_enemy_died()
 
 # --- Rival Challenges (FEATURE_ROADMAP.md Story section) --------------------
 # "Sometimes another player challenges you - a specialized match where the

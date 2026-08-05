@@ -56,6 +56,10 @@ const SPECIAL_TILE_SCRIPTS = [
 	"res://scripts/tiles/JammerModuleTile.gd",
 	"res://scripts/tiles/ReverseAccumulatorTile.gd", # new tile, zero drop rate anywhere else yet
 	"res://scripts/tiles/MissileRackTile.gd", # newly-finished tile, same zero-drop-rate problem
+	"res://scripts/tiles/StructuralStrutTile.gd", # new low-commitment filler tile - same zero-drop-rate problem, nothing equips it yet to drop from
+	"res://scripts/tiles/BufferCellTile.gd",
+	"res://scripts/tiles/PassiveTapTile.gd",
+	"res://scripts/tiles/WeakMirrorTile.gd",
 ]
 
 func _init(p_garage):

@@ -6,7 +6,11 @@ extends PopupPanel
 # REAL energy feed (the exact precalculated packet combat would fire,
 # including accumulator bank shots) at a real dummy mech. Real Projectile
 # instances, real flight/spread/patterns/particles, real hits with damage
-# numbers - not a simulation of the shot, the shot.
+# numbers - not a simulation of the shot, the shot. Auto-firing capital
+# weapons (Lance Mount/Orbiting Array - Mech.lance_mounts, gated on
+# check_face_gate()/ready_to_fire rather than a mouse/key-fired packet) get
+# their own row kind alongside the Weapon Mount rows - see
+# _add_capital_weapon_rows().
 #
 # Mount selection is a checklist, not a single dropdown pick (playtest:
 # "could the garage test range... allow isolation of weapon mount(s) alone
@@ -238,15 +242,17 @@ func _populate_mounts():
 		HexTile.BodySlot.BACKPACK: "Backpack",
 	}
 	_add_weapon_rows(player.precalculated_weapons, "", _rig, slot_names)
+	_add_capital_weapon_rows(player.lance_mounts, "", _rig, slot_names)
 	for i in range(_drones.size()):
 		var drone = _drones[i]
 		if drone.is_grid_dirty:
 			drone._recalculate_grid()
 		_add_weapon_rows(drone.precalculated_weapons, "Drone %d: " % (i + 1), drone, slot_names)
+		_add_capital_weapon_rows(drone.lance_mounts, "Drone %d: " % (i + 1), drone, slot_names)
 
 	if _mount_rows.is_empty():
 		var lbl = Label.new()
-		lbl.text = "(no armed mounts - wire energy to a Weapon Mount first)"
+		lbl.text = "(no armed mounts - wire energy to a Weapon Mount, Missile Rack, Lance Mount, or Orbiting Array first)"
 		_mount_list.add_child(lbl)
 
 	_apply_search_filter()
@@ -277,6 +283,42 @@ func _add_weapon_rows(weapons: Array, label_prefix: String, source: Node, slot_n
 		row.add_child(solo_btn)
 		_mount_list.add_child(row)
 		_mount_rows.append({"checkbox": check, "data": data, "source": source, "row": row, "search_text": check.text.to_lower()})
+
+# Lance Mount / Orbiting Array (Mech.lance_mounts) - unlike a Weapon Mount,
+# these don't sit in precalculated_weapons at all: they're auto-firing
+# capital weapons gated on check_face_gate()/ready_to_fire (set once per
+# _recalculate_grid, which the "if is_grid_dirty" call above already ran)
+# rather than a mouse/key-triggered packet. _add_weapon_rows above only
+# ever reads precalculated_weapons, so without this these tiles never
+# appeared in the checklist at all - "armed but nothing to test-fire."
+# FIRE on one of these rows calls tile.fire(source) directly (see
+# _fire_selected's "capital" branch) instead of _fire_combined_projectile,
+# bypassing the tile's own real cooldown pacing for an on-demand test shot,
+# same spirit as every other row here firing on demand instead of waiting
+# for its real trigger.
+func _add_capital_weapon_rows(mounts: Array, label_prefix: String, source: Node, slot_names: Dictionary):
+	for tile in mounts:
+		if not tile.has_method("fire"):
+			continue
+		var row = HBoxContainer.new()
+		var check = CheckButton.new()
+		var status = "ARMED" if tile.ready_to_fire else "not armed - feed 6 external faces >= threshold each"
+		var energy_str = ""
+		if tile.get("_armed_packet") != null:
+			energy_str = " (%.0f energy)" % tile._armed_packet.magnitude
+		check.text = "%s%s %s - %s%s" % [
+			label_prefix, slot_names.get(tile.body_slot, "?"), tile.tile_type, status, energy_str]
+		check.button_pressed = true
+		check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(check)
+		var solo_btn = Button.new()
+		solo_btn.text = "Solo"
+		solo_btn.tooltip_text = "Check only this mount, uncheck every other one."
+		var row_index = _mount_rows.size()
+		solo_btn.pressed.connect(func(): _solo_row(row_index))
+		row.add_child(solo_btn)
+		_mount_list.add_child(row)
+		_mount_rows.append({"checkbox": check, "kind": "capital", "tile": tile, "source": source, "row": row, "search_text": check.text.to_lower()})
 
 func _set_all_checked(on: bool):
 	for row in _mount_rows:
@@ -326,14 +368,20 @@ func _fire_selected():
 		if is_instance_valid(drone):
 			drone.last_aim_position = _dummy.global_position
 	for row in to_fire:
-		var data = row.data
-		var packet = data.packet.copy()
-		if data.get("bank_mode", "") == "bank":
-			packet.is_banked_shot = true
 		var source = row.get("source", _rig)
 		if not is_instance_valid(source):
 			continue
-		data.mount._fire_combined_projectile(source, packet, 0)
+		if row.get("kind", "mount") == "capital":
+			# Lance Mount / Orbiting Array: no discrete packet to hand over,
+			# and fire() reads its own _armed_packet - an unarmed tile just
+			# no-ops (see LanceMountTile/OrbitingArrayTile.fire()).
+			row.tile.fire(source)
+		else:
+			var data = row.data
+			var packet = data.packet.copy()
+			if data.get("bank_mode", "") == "bank":
+				packet.is_banked_shot = true
+			data.mount._fire_combined_projectile(source, packet, 0)
 		_shots_fired += 1
 	_volleys_fired += 1
 	_update_stats()

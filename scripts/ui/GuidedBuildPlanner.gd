@@ -46,7 +46,7 @@ class PlanStep:
 static func _orientation_signature(tile) -> Dictionary:
 	if tile == null:
 		return {}
-	if tile.tile_type == "Core Reactor" or tile.tile_type == "Microcore" or tile.tile_type == "Splitter":
+	if tile.tile_type == "Core Reactor" or tile.tile_type == "Microcore" or tile.tile_type == "Splitter" or tile.tile_type == "Accessory Return":
 		if "active_faces" in tile:
 			return {"active_faces": tile.active_faces.duplicate()}
 	elif tile.tile_type == "Elemental Infuser":

@@ -4,6 +4,167 @@ extends RefCounted
 var HexCoord = preload("res://scripts/core/HexCoord.gd")
 const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 
+# Topology cache (perf): the expensive part of this solver - the BFS
+# spanning tree, demand-matching, and demotion/reattachment search below -
+# depends only on the component's hex shape (valid_hexes/fixed_sinks),
+# rarity, and the TYPE+rarity composition of inventory - never on a
+# SolverProfile's specific field values (profile only ever affects one
+# placed Elemental Infuser's secondary_synergy, a per-tile config, never the
+# placement topology itself - see _pick_profile_synergy). Enemy spawns
+# repeat this exact combination constantly (every mech of the same role+
+# rarity produces byte-identical component shape + inventory types), so this
+# was real, measured, per-wave-spawn-burst overhead for zero benefit.
+# solve() itself is deliberately kept untouched below (renamed _solve_impl) -
+# this cache wraps it rather than modifying its internals, since this
+# algorithm has a real history of subtle correctness bugs found only via
+# live playtesting (see the demotion/reattachment comments further down) and
+# is shared with the player's own Garage Auto-Equip.
+static var _topology_cache: Dictionary = {}
+
+func _topology_cache_key(component: Node, inventory: Array, profile: SolverProfile) -> String:
+	var hex_sig = PackedStringArray()
+	for h in component.valid_hexes:
+		hex_sig.append("%d,%d" % [h.q, h.r])
+	hex_sig.sort()
+	var sink_sig = PackedStringArray()
+	for t in component.fixed_sinks:
+		sink_sig.append("%d,%d" % [t.q, t.r])
+	sink_sig.sort()
+	var inv_sig = PackedStringArray()
+	for t in inventory:
+		inv_sig.append("%s:%d" % [t.tile_type, t.rarity])
+	inv_sig.sort()
+	return "%d|%s|%s|%s|%s" % [component.rarity, ",".join(hex_sig), ",".join(sink_sig), ",".join(inv_sig), "P" if profile != null else "N"]
+
+# Reads back what _solve_impl just decided, from the grid it left behind -
+# deliberately NOT threaded through as extra return values from _solve_impl
+# (keeps that function's signature/behavior completely untouched). Captures
+# every placed/reconfigured tile except secondary_synergy (see solve()'s
+# replay branch - that one field always stays live per-call).
+func _extract_plan(component: Node) -> Dictionary:
+	var grid = component.hex_grid
+	var targets = component.fixed_sinks
+	var start_v = Vector2i(0, 0)
+	var accessory_return_coord = null
+	for coord_v in grid.grid.keys():
+		var t = grid.grid[coord_v]
+		if t and t.tile_type == "Accessory Return":
+			accessory_return_coord = coord_v
+			break
+
+	var plan = {
+		"placements": [],
+		"core_active_faces": [],
+		"accessory_active_faces": null,
+	}
+
+	for coord_v in grid.grid.keys():
+		var tile = grid.grid[coord_v]
+		if not tile:
+			continue
+		if coord_v == start_v:
+			if "active_faces" in tile:
+				plan["core_active_faces"] = tile.active_faces.duplicate()
+			continue
+		if accessory_return_coord != null and coord_v == accessory_return_coord:
+			if "active_faces" in tile:
+				plan["accessory_active_faces"] = tile.active_faces.duplicate()
+			continue
+		var is_target = false
+		for t in targets:
+			if t.q == coord_v.x and t.r == coord_v.y:
+				is_target = true
+				break
+		if is_target:
+			continue
+		plan["placements"].append({
+			"coord": coord_v,
+			"tile_type": tile.tile_type,
+			"rarity": tile.rarity,
+			"active_faces": tile.active_faces.duplicate() if "active_faces" in tile else [],
+			"rotation_steps": tile.rotation_steps if "rotation_steps" in tile else 0,
+			"is_elemental_infuser": tile.tile_type == "Elemental Infuser",
+		})
+	return plan
+
+# Replays a cached plan onto THIS call's actual component/inventory tile
+# objects - never reuses tile Node/RefCounted instances across calls (each
+# mech needs its own), only the placement DECISIONS. Mirrors _solve_impl's
+# own step 1 (board-clearing) so a cache hit behaves identically to a miss
+# with respect to any leftover tiles already on the grid.
+func _replay_plan(component: Node, inventory: Array, profile: SolverProfile, plan: Dictionary) -> Array:
+	var grid = component.hex_grid
+	var targets = component.fixed_sinks
+	var start = HexCoord.new(0, 0)
+	var accessory_return_coord = null
+	for coord_v in grid.grid.keys():
+		var t = grid.grid[coord_v]
+		if t and t.tile_type == "Accessory Return":
+			accessory_return_coord = HexCoord.new(coord_v.x, coord_v.y)
+			break
+
+	var current_tiles = grid.grid.keys()
+	for coord_v in current_tiles:
+		var h = HexCoord.new(coord_v.x, coord_v.y)
+		var is_target = false
+		for t in targets:
+			if t.q == h.q and t.r == h.r:
+				is_target = true
+				break
+		var is_source = (h.q == start.q and h.r == start.r) or (accessory_return_coord != null and h.q == accessory_return_coord.q and h.r == accessory_return_coord.r)
+		if not is_target and not is_source:
+			var tile = grid.remove_tile(h)
+			if tile:
+				inventory.append(tile)
+
+	for rec in plan["placements"]:
+		var idx = -1
+		for i in range(inventory.size()):
+			if inventory[i].tile_type == rec["tile_type"] and inventory[i].rarity == rec["rarity"]:
+				idx = i
+				break
+		var tile
+		if idx >= 0:
+			tile = inventory[idx]
+			inventory.remove_at(idx)
+		else:
+			# Defensive only - shouldn't happen since the cache key encodes the
+			# exact inventory type+rarity signature, but never silently leave a
+			# hex unfilled if it somehow doesn't.
+			tile = load("res://scripts/tiles/DirectionalConduitTile.gd").new()
+			tile.rarity = component.rarity
+		if "active_faces" in tile:
+			tile.active_faces = rec["active_faces"].duplicate()
+		if "rotation_steps" in tile:
+			tile.rotation_steps = rec["rotation_steps"]
+		if rec["is_elemental_infuser"] and profile != null:
+			# Never cached - a profile's favored synergy must stay live per
+			# spawn even on a topology cache hit (see the header comment).
+			tile.secondary_synergy = _pick_profile_synergy(profile)
+		grid.add_tile(HexCoord.new(rec["coord"].x, rec["coord"].y), tile)
+
+	if not plan["core_active_faces"].is_empty():
+		var start_tile = grid.get_tile(start)
+		if start_tile and "active_faces" in start_tile:
+			start_tile.active_faces = plan["core_active_faces"].duplicate()
+	if plan["accessory_active_faces"] != null and accessory_return_coord != null:
+		var acc_tile = grid.get_tile(accessory_return_coord)
+		if acc_tile and "active_faces" in acc_tile:
+			acc_tile.active_faces = plan["accessory_active_faces"].duplicate()
+
+	return inventory
+
+func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> Array:
+	if not component or not component.hex_grid:
+		return inventory
+	var key = _topology_cache_key(component, inventory, profile)
+	var cached_plan = _topology_cache.get(key)
+	if cached_plan != null:
+		return _replay_plan(component, inventory, profile, cached_plan)
+	var result = _solve_impl(component, inventory, profile)
+	_topology_cache[key] = _extract_plan(component)
+	return result
+
 # `profile` (SolverProfile, optional) is what makes this solver actually
 # aim at something instead of always doing the same fixed Amplifier ->
 # Catalyst -> Elemental Infuser -> Splitter placement regardless of who
@@ -13,7 +174,7 @@ const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 # solver places gets its synergy configured toward the profile's favored
 # element / pierce priority rather than whatever it happened to be set to
 # when created.
-func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> Array:
+func _solve_impl(component: Node, inventory: Array, profile: SolverProfile = null) -> Array:
 	if not component or not component.hex_grid:
 		return inventory
 		
@@ -352,11 +513,21 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 					placed_tile = true
 						
 		if not placed_tile:
-			# Just dump anything that can pass energy
+			# Path filler - but ONLY tiles that genuinely pass energy onward
+			# (see FILLER_TILE_PRIORITY). The previous "just dump inventory[0]"
+			# could burn a Weapon Mount / Heal Beacon / Shield Generator as
+			# wire: those tiles capture or convert the packet instead of
+			# relaying it, silently starving every sink downstream of them
+			# (the exact "kinda works but doesn't leverage any tiles" builds
+			# the tutorial's guided walkthrough was recommending). Perk
+			# pass-throughs (Anchor/Sensor Array/...) come first: they relay
+			# energy unchanged AND contribute their capability, which a tile
+			# left sitting in inventory never does.
 			var tile
-			if inventory.size() > 0:
-				tile = inventory[0]
-				inventory.remove_at(0)
+			var filler_idx = _find_tile_index_by_priority(inventory, FILLER_TILE_PRIORITY)
+			if filler_idx >= 0:
+				tile = inventory[filler_idx]
+				inventory.remove_at(filler_idx)
 			else:
 				# Same rarity-inheritance reasoning as the generic-splitter
 				# fallbacks above.
@@ -366,12 +537,70 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 			if tile.tile_type == "Elemental Infuser" and profile != null:
 				tile.secondary_synergy = _pick_profile_synergy(profile)
 
+			if tile.tile_type == "Splitter" and "active_faces" in tile:
+				# A Splitter used as plain filler must relay straight through,
+				# not fan out along its construction-default faces.
+				tile.active_faces.clear()
+				tile.active_faces.append(entry_dir)
+
 			if "rotation_steps" in tile:
 				tile.rotation_steps = entry_dir
 
 			grid.add_tile(h, tile)
 
+	_aim_accessory_return(grid, accessory_return_coord, tree_nodes, parent_map, targets)
+
 	return inventory
+
+# Filler search order for path cells nothing better claimed (see the
+# not-placed_tile branch in solve()). Every entry either relays the packet
+# unchanged while granting a capability (Anchor/Sensor Array/Mobility Core -
+# the KIND_PASS set RustGridSim routes as pure pass-through) or is a genuine
+# routing/boost tile. Deliberately NOT here: Weapon Mounts, Missile Racks,
+# Heal Beacons, Shield Generators, Accumulators and other capture/convert
+# tiles - in-lining those breaks the chain they're placed into (a Missile
+# Rack used as filler would silently eat the packet instead of relaying it,
+# same failure class this whole filler rework exists to fix).
+const FILLER_TILE_PRIORITY = ["Anchor", "Sensor Array", "Mobility Core", "Directional Conduit", "Elemental Infuser", "Amplifier", "Catalyst", "Splitter"]
+
+# Points the Torso's (movable) Accessory Return at the routed network, so
+# the energy Head/Backpack send back re-enters the spanning tree instead of
+# squirting out whatever face the tile happened to be constructed/dragged
+# with. Neighbors that are fixed sinks (weapon mounts) are preferred - the
+# returned energy lands directly on a weapon - then any other tree cell.
+# With NO adjacent tree cell the faces are left alone: an open face makes
+# the Accessory Return capture the packet as its own weapon payload (see
+# ComponentLinkTile.process_energy), which still puts the energy to use.
+func _aim_accessory_return(grid, acc_coord, tree_nodes: Dictionary, parent_map: Dictionary, targets: Array) -> void:
+	if acc_coord == null:
+		return
+	var acc_tile = grid.get_tile(acc_coord)
+	if not acc_tile or not ("active_faces" in acc_tile):
+		return
+
+	var sink_dirs: Array = []
+	var route_dirs: Array = []
+	for d in range(6):
+		var n = acc_coord.neighbor(d)
+		var nv = Vector2i(n.q, n.r)
+		var is_sink = false
+		for t in targets:
+			if t.q == n.q and t.r == n.r and (t.q != 0 or t.r != 0):
+				is_sink = true
+				break
+		if is_sink:
+			sink_dirs.append(d)
+		elif (tree_nodes.has(nv) or parent_map.has(nv)) and nv != Vector2i(0, 0):
+			route_dirs.append(d)
+
+	var chosen: Array = sink_dirs + route_dirs
+	if chosen.is_empty():
+		return
+	var max_faces = acc_tile.get_max_faces() if acc_tile.has_method("get_max_faces") else chosen.size()
+	acc_tile.active_faces.clear()
+	for d in chosen:
+		if acc_tile.active_faces.size() < max_faces:
+			acc_tile.active_faces.append(d)
 
 # Straight-run tile search order. With no profile, this is the original
 # fixed order. With a profile, Elemental Infuser goes first - it's the tile

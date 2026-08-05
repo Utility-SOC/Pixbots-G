@@ -5,6 +5,12 @@ var lifetime: float = 3.0
 var timer: float = 0.0
 var damage_per_sec: float = 10.0
 var synergies: Dictionary = {}
+# Was a hardcoded 25.0 - now settable so a caller spawning many of these
+# (LanceBeam's residue chain) can shrink the COUNT under saturation by
+# growing each individual zone's radius instead, keeping total coverage
+# roughly constant. Every other caller (PlayerController's jumpjet trail,
+# BossBrain's Incinerator drop) never sets this, so they're unaffected.
+var radius: float = 25.0
 
 # Perf audit (2026-08-01): damage/overlap check was running unthrottled
 # every physics tick (60Hz) - a real physics-server get_overlapping_bodies()
@@ -44,7 +50,7 @@ func _ready():
 	
 	var collision = CollisionShape2D.new()
 	var shape = CircleShape2D.new()
-	shape.radius = 25.0
+	shape.radius = radius
 	collision.shape = shape
 	add_child(collision)
 	
@@ -54,13 +60,13 @@ func _ready():
 	var points = PackedVector2Array()
 	for j in range(12):
 		var angle = j * (PI / 6.0)
-		points.append(Vector2(cos(angle), sin(angle)) * 25.0)
+		points.append(Vector2(cos(angle), sin(angle)) * radius)
 	visual.polygon = points
 	add_child(visual)
 	
 	particles = CPUParticles2D.new()
 	particles.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
-	particles.emission_sphere_radius = 20.0
+	particles.emission_sphere_radius = radius * 0.8
 	particles.direction = Vector2(0, -1)
 	particles.spread = 20.0
 	particles.initial_velocity_min = 10.0

@@ -337,6 +337,18 @@ var base_rarity: int = 0 # HexTile.Rarity.COMMON
 # AutoEquipSolver. Null means "use the solver's old fixed-priority
 # behavior" - safe default for anything that doesn't set this.
 var spawn_profile: SolverProfile = null
+# Which SquadTemplate this bot spawned under (set by SquadDirector before
+# add_child(), same pattern as combat_role/base_rarity/spawn_profile above) -
+# "" for the player and anything spawned outside the normal squad-assembly
+# path (debug spawns, the safety-fallback trio in Main._spawn_wave_async).
+# The key StockBuildEvolution scopes cached/evolving loadouts by, alongside
+# combat_role - see build_loadout_for_role().
+var spawn_template_name: String = ""
+# Set by build_loadout_for_role() when this spawn rolled a deviation test
+# against an existing StockBuild - SquadDirector.credit_bot_death() reads
+# these to report the deviation's fitness back to StockBuildEvolution.
+var _is_deviation_test: bool = false
+var _deviation_components: Dictionary = {}
 # Back-reference to the Squad.gd instance this mech was recruited into (set
 # by Squad.add_member()) - null for bosses and anything spawned outside the
 # normal squad-assembly path. Used by the sight-sharing system below: a
@@ -1834,7 +1846,7 @@ const RAPID_FIRE_CHARGE_MULT = 1.4
 func _collect_weapon_mounts_and_tile_capabilities():
 	for comp in components.values():
 		for tile in comp.hex_grid.get_all_tiles():
-			if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Accessory Return" or tile.tile_type == "Torso Return") and "pending_packets" in tile and tile.pending_packets.size() > 0:
+			if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Missile Rack" or tile.tile_type == "Accessory Return" or tile.tile_type == "Torso Return") and "pending_packets" in tile and tile.pending_packets.size() > 0:
 				# Accumulator split-fire model (the user's locked design):
 				# whenever accumulators feed this mount - routed THROUGH the
 				# circuit (packet.acc_*_mult) or sitting adjacent (bank) -
@@ -1853,7 +1865,7 @@ func _collect_weapon_mounts_and_tile_capabilities():
 				var bank_quality = 1.0
 				var bank_auto_dump = 0.0
 				var reverse_discount = 0.0
-				if tile.tile_type == "Weapon Mount" and tile.grid_position:
+				if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Missile Rack") and tile.grid_position:
 					var bank = _get_adjacent_accumulator_bonus(comp.hex_grid, tile.grid_position)
 					bank_charge = bank.charge
 					bank_amplify = bank.amplify
@@ -2451,14 +2463,32 @@ func _is_wave_enemy() -> bool:
 			return true
 	return false
 
+# Wild bots had no despawn path at all outside campaign mode's periodic
+# map rotation (Main._rotate_campaign_map, gated to current_game_mode ==
+# "campaign") - the same gating bug LootPickup had. A bot whose role never
+# happens to be needed by the next several squad templates the director
+# rolls (_assemble_squad only recruits a wild bot if the selected template
+# actually calls for its exact combat_role) sat in the tree forever: full
+# renderer + physics body + particles, ticking every frame, indefinitely.
+# Confirmed as a real secondary contributor to a wave-50 playtest's
+# disproportionate draws/objects/verts (see LootPickup.gd's own fix for the
+# primary one, same root cause).
+const WILD_DESPAWN_TIME = 60.0
+var _wild_timer: float = 0.0
+
 # Returns true while flee/wild owns this mech's movement (caller returns).
 func _update_flee_state(delta: float) -> bool:
 	if _has_gone_wild:
 		# Wild loiter: out of the fight, licking wounds until the director
-		# recruits it into a fresh squad (Squad.add_member clears the flag).
+		# recruits it into a fresh squad (Squad.add_member clears the flag),
+		# or WILD_DESPAWN_TIME runs out and it retreats for good.
 		velocity = Vector2.ZERO
 		if hp < max_hp * WILD_REGEN_CAP_FRACTION:
 			hp = min(max_hp * WILD_REGEN_CAP_FRACTION, hp + max_hp * WILD_REGEN_PER_SEC_FRACTION * delta)
+		_wild_timer += delta
+		if _wild_timer >= WILD_DESPAWN_TIME:
+			queue_free() # tree_exiting -> SquadDirector._on_wild_bot_died erases it from wild_bots
+			return true
 		if _ai_state_label:
 			_ai_state_label.text = "WILD"
 			_ai_state_label.modulate = Color(0.7, 0.7, 0.7)
@@ -2512,6 +2542,7 @@ func _finish_flee():
 	if _has_gone_wild:
 		return
 	_has_gone_wild = true
+	_wild_timer = 0.0
 	is_fleeing = false
 	target = null
 	# Hand the wave slot back exactly as if this bot died (and disconnect
@@ -2530,6 +2561,7 @@ func _finish_flee():
 func rejoin_from_wild():
 	is_fleeing = false
 	_has_gone_wild = false
+	_wild_timer = 0.0
 
 static var _perf_flee_check_usec: int = 0
 static var _perf_execute_search_usec: int = 0
@@ -3408,6 +3440,64 @@ func die():
 		queue_free()
 
 func build_loadout_for_role(role_name: String):
+	# StockBuild cache/evolution (see StockBuildEvolution.gd) - every mech of
+	# the same squad template's same role slot reuses one evolving build
+	# instead of independently re-running AutoEquipSolver every spawn. A
+	# small fraction of spawns still test a fresh deviation (see
+	# should_test_deviation()) so the pool keeps improving; SquadDirector.
+	# credit_bot_death() reports that deviation's fitness back when this bot
+	# dies. Skipped entirely if there's no template context (debug spawns,
+	# the safety-fallback trio in Main._spawn_wave_async) - those fall
+	# straight through to the solver exactly as before this system existed.
+	var stock_evo = _get_stock_build_evolution()
+	var stock = null
+	var use_stock = false
+	if stock_evo and spawn_template_name != "":
+		stock = stock_evo.get_stock_build(spawn_template_name, role_name, base_rarity)
+		use_stock = stock != null and not stock_evo.should_test_deviation()
+
+	if use_stock:
+		# Deliberately NOT SaveManager._deserialize_component() here - that
+		# rebuilds a whole fresh ComponentEquipment (generate_shape() +
+		# per-tile deserialize + several legacy-save-compat sweeps: stray-
+		# tile absorption, fixed_sinks re-inference, Energy Intake re-
+		# orientation), real overhead built for an occasional save-file
+		# load, not a per-spawn hot path. The component this mech already
+		# has (built moments ago by create_starter_torso/arm in _ready(),
+		# same code path a fresh solve() would also build onto) already has
+		# the correct shape/fixed_sinks/rarity - only the individual PLACED
+		# tiles need restoring, via the lightweight per-tile SaveManager.
+		# _deserialize_tile(), same as AutoEquipSolver's own cache-replay
+		# (_replay_plan) uses for the same reason.
+		for slot_key in stock.serialized_components:
+			var slot = int(slot_key)
+			if not components.has(slot):
+				continue
+			var comp = components[slot]
+			var grid = comp.hex_grid
+			for tdata in stock.serialized_components[slot_key].get("tiles", []):
+				var tile = SaveManager._deserialize_tile(tdata)
+				if not tile or not tile.grid_position:
+					continue
+				var h = tile.grid_position
+				var is_fixed_or_core = (h.q == 0 and h.r == 0)
+				if not is_fixed_or_core:
+					for s in comp.fixed_sinks:
+						if s.q == h.q and s.r == h.r:
+							is_fixed_or_core = true
+							break
+				if is_fixed_or_core:
+					# Core/fixed-sink tiles already exist (constructed by
+					# create_starter_* moments ago) - reconfigure the REAL
+					# one's active_faces rather than replacing it outright.
+					var real_tile = grid.get_tile(h)
+					if real_tile and "active_faces" in tile and "active_faces" in real_tile:
+						real_tile.active_faces = tile.active_faces.duplicate()
+				else:
+					grid.add_tile(h, tile)
+		_recalculate_grid()
+		return
+
 	var inventory = []
 
 	var add_tile = func(path, rarity, synergy=0):
@@ -3471,4 +3561,31 @@ func build_loadout_for_role(role_name: String):
 		inventory = solver.solve(components[HexTile.BodySlot.ARM_L], inventory, spawn_profile)
 
 	_recalculate_grid()
+
+	if stock_evo and spawn_template_name != "":
+		var serialized := {}
+		for slot in [HexTile.BodySlot.TORSO, HexTile.BodySlot.ARM_R, HexTile.BodySlot.ARM_L]:
+			if components.has(slot):
+				serialized[slot] = SaveManager._serialize_component(components[slot])
+		if stock == null:
+			stock_evo.establish_stock_build(spawn_template_name, role_name, base_rarity, serialized)
+		else:
+			# This spawn rolled a deviation test against an existing build -
+			# don't apply the result yet, just remember it. credit_bot_death()
+			# reports it to StockBuildEvolution once this bot's own fitness is
+			# known (see SquadDirector.credit_bot_death).
+			_is_deviation_test = true
+			_deviation_components = serialized
+
+# Same "reach the SquadDirector from a Mech" pattern already used elsewhere
+# (e.g. MissileRackTile._fire_combined_projectile's SquadDirector.
+# log_mortar_shot() lookup) - null for the player and anything spawned
+# outside a live SquadDirector's world (Test Range, debug spawns).
+func _get_stock_build_evolution():
+	var main = get_tree().current_scene if is_inside_tree() else null
+	if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
+		var director = main.world.get_node("SquadDirector")
+		if "stock_build_evolution" in director:
+			return director.stock_build_evolution
+	return null
 

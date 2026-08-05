@@ -5,6 +5,7 @@ const Mech = preload("res://scripts/entities/Mech.gd")
 const WeaponMountTile = preload("res://scripts/tiles/WeaponMountTile.gd")
 const DroneBayTile = preload("res://scripts/tiles/DroneBayTile.gd")
 const ChampionCardScript = preload("res://scripts/pvp/ChampionCard.gd")
+const SquadTemplateMutatorScript = preload("res://scripts/ai/SquadTemplateMutator.gd")
 const CutscenePlayer = preload("res://scripts/cutscene/CutscenePlayer.gd")
 const BrandRegistry = preload("res://scripts/core/BrandRegistry.gd")
 const ComponentEquipmentScript = preload("res://scripts/core/ComponentEquipment.gd")
@@ -291,7 +292,13 @@ func _setup_hud():
 	# Dialogue UI
 	dialogue_box = Panel.new()
 	dialogue_box.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	dialogue_box.position = Vector2(1280 / 2 - 400, 100)
+	# Centered against the real viewport width, not a baked-in 1280px
+	# assumption - the old hardcoded offset defeated the whole point of
+	# PRESET_CENTER_TOP and could leave the box anywhere from off-center to
+	# overlapping other screen-space UI (e.g. the Garage's right-side
+	# inventory panel) on any window size other than the one it was tuned for.
+	var viewport_width = get_viewport().get_visible_rect().size.x
+	dialogue_box.position = Vector2(viewport_width / 2 - 400, 100)
 	dialogue_box.size = Vector2(800, 120)
 	dialogue_box.visible = false
 	# ALWAYS, not the HUD's default PAUSABLE - the 3-loss game-over line
@@ -305,6 +312,7 @@ func _setup_hud():
 
 	dialogue_label = RichTextLabel.new()
 	dialogue_label.bbcode_enabled = true
+	dialogue_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialogue_label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dialogue_label.offset_left = 16
 	dialogue_label.offset_top = 16
@@ -499,7 +507,7 @@ func _spawn_extraction_marker():
 # function couldn't do since Main itself isn't PROCESS_MODE_ALWAYS.
 
 func _load_campaign():
-	var file = FileAccess.open("res://campaign.json", FileAccess.READ)
+	var file = FileAccess.open("res://config/campaign.json", FileAccess.READ)
 	if file:
 		var text = file.get_as_text()
 		var json = JSON.new()
@@ -847,8 +855,31 @@ func _start_wave():
 	var target_enemy_count = min(80, int((5 + int((current_wave - 1) / 4) * 20) * count_mult * density_mult))
 	target_enemy_count = max(3, target_enemy_count)
 
+	# Wave archetype shaping - deliberately narrows which squad templates are
+	# eligible on certain waves, so a heavy wave needs far fewer distinct
+	# enemy loadouts solved/replayed (complements StockBuildEvolution's
+	# per-template build cache: fewer active templates this wave = fewer
+	# (template, role) keys in play at once). Independent of the boss/rival/
+	# megaboss/champion elif chain above - those are entity spawns, this is
+	# squad composition, resolved regardless of which branch above fired.
+	# Non-conflicting moduli, most-restrictive checked first.
+	var allowed_templates: Array = []
+	if current_wave > 0 and current_wave % 7 == 0:
+		# "Gang Up": only the templates that have lately been most effective
+		# against the player, nothing else.
+		allowed_templates = director.top_n_by_recent_effectiveness(3)
+	elif current_wave > 0 and current_wave % 4 == 0:
+		var role = SquadTemplateMutatorScript.ALL_ROLES[randi() % SquadTemplateMutatorScript.ALL_ROLES.size()]
+		for t in director.templates:
+			if t.required_roles.has(role):
+				allowed_templates.append(t)
+	elif current_wave > 0 and current_wave % 3 == 0:
+		for t in director.templates:
+			if t.required_roles.has("scout"):
+				allowed_templates.append(t)
+
 	# Staggered deployment (fire-and-forget async) - see _spawn_wave_async.
-	_spawn_wave_async(director, target_enemy_count)
+	_spawn_wave_async(director, target_enemy_count, allowed_templates)
 
 # True while a wave is still trickling in - guards _on_enemy_died from
 # declaring a premature wave-clear when the player kills the first squads
@@ -863,7 +894,7 @@ var _wave_spawned_any: bool = false
 # better: squads arrive in the central region one handful at a time, like
 # minis being set down mid-table rather than marched in from the edges
 # (see _pick_spawn_anchor).
-func _spawn_wave_async(director, target_enemy_count: int) -> void:
+func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Array = []) -> void:
 	_spawning_wave = true
 	var safety_break = 0
 	while active_enemies < target_enemy_count and safety_break < 50:
@@ -871,7 +902,7 @@ func _spawn_wave_async(director, target_enemy_count: int) -> void:
 		if not is_instance_valid(director) or not is_instance_valid(player) or not is_inside_tree():
 			break
 
-		var squad = director.spawn_squad()
+		var squad = await director.spawn_squad(allowed_templates)
 		if not squad:
 			break
 
@@ -1672,6 +1703,15 @@ func _open_garage():
 	print("Opening Garage Menu...")
 	get_tree().paused = true
 	AudioManager.set_combat_state(false) # garage is downtime regardless of how we got here
+
+	# Garage-open checkpoint for StockBuildEvolution's deviation tracking
+	# (see that file's header) - decide any pending (template, role) batches
+	# now rather than waiting for MAX_TRACKED_DEVIATIONS, so nothing sits
+	# half-decided across a play-session boundary.
+	if world and world.has_node("SquadDirector"):
+		var director = world.get_node("SquadDirector")
+		if director.stock_build_evolution:
+			director.stock_build_evolution.flush_all_pending()
 	_despawn_all_drones()
 
 	# Full heal on entering garage

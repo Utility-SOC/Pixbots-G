@@ -59,6 +59,14 @@ var footprint_offsets: Array = []
 func get_footprint_size() -> int:
 	return 1
 
+# Geometry of a multi-cell footprint, checked at PLACEMENT time alongside
+# get_footprint_size(): "line" = anchor + 2 more cells straight along the
+# chosen direction (Lance Mount), "triangle" = anchor + its neighbors in the
+# chosen direction and the next one clockwise, 3 mutually-adjacent hexes
+# (Orbiting Array). Meaningless when get_footprint_size() == 1.
+func get_footprint_shape() -> String:
+	return "line"
+
 func _roll_sync_adjustment():
 	sync_adjustment = 0
 	if rarity == Rarity.RARE:

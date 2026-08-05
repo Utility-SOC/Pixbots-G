@@ -134,6 +134,15 @@ func request_floater(is_crit: bool) -> bool:
 func _ready():
 	# Lower runs first - see the module comment above for why this matters.
 	process_priority = -1000
+	# Must survive get_tree().paused == true, same as AudioManager/ProceduralMusic/
+	# FpsCounter (see their own _ready()) - the Garage's Test Range deliberately
+	# keeps its whole subtree PROCESS_MODE_ALWAYS so it can live-fire while the
+	# tree is paused, but every one of those projectiles still registers here.
+	# Without this, this batch dispatch simply never runs while the Garage is
+	# open, and every live projectile falls back to its own individual
+	# per-frame Rust FFI call for its whole lifetime - exactly the per-call
+	# overhead this batching exists to avoid (see module header).
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 func _ensure_flight_rust():
 	if not _flight_checked:

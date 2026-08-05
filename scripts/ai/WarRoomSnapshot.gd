@@ -13,6 +13,7 @@ extends RefCounted
 var templates: Array[SquadTemplate] = []
 var solver_profiles: Array = []
 var boss_profiles: Array = []
+var stock_builds: Array = []
 var active_squads: Array = []
 var wild_bots: Array = []
 var total_damage_taken: float = 0.0
@@ -48,6 +49,7 @@ static func load_from_disk():
 	snap.templates = mgr.load_profile(LEARNED_STATE_NAME)
 	snap.solver_profiles = mgr.load_solver_profiles(LEARNED_STATE_NAME)
 	snap.boss_profiles = mgr.load_boss_profiles(LEARNED_STATE_NAME)
+	snap.stock_builds = mgr.load_stock_builds(LEARNED_STATE_NAME)
 
 	var telemetry = mgr.load_telemetry(LEARNED_STATE_NAME)
 	if telemetry.get("player_element_usage") is Dictionary:
@@ -78,7 +80,7 @@ static func load_from_disk():
 # live SquadDirector does is the entire fix - no UI changes needed.
 func export_learned_state_to_clipboard():
 	if _mgr:
-		_mgr.export_to_clipboard(templates, solver_profiles, boss_profiles)
+		_mgr.export_to_clipboard(templates, solver_profiles, boss_profiles, stock_builds)
 
 # Mirrors SquadDirector.import_learned_state_from_clipboard(), but since
 # there's no live director to hold the merged result in memory (and no
@@ -92,7 +94,7 @@ func import_learned_state_from_clipboard() -> bool:
 	var data = _mgr.import_from_clipboard()
 	if data.is_empty():
 		return false
-	merge_imported(templates, solver_profiles, boss_profiles, data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []))
+	merge_imported(templates, solver_profiles, boss_profiles, data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []), stock_builds, data.get("stock_builds", []))
 
 	# _ready() never ran on this manually instantiated, never-added-to-tree
 	# manager (see load_from_disk()'s own comment on that), so the
@@ -102,7 +104,7 @@ func import_learned_state_from_clipboard() -> bool:
 	if dir and not dir.dir_exists("ai_profiles"):
 		dir.make_dir("ai_profiles")
 
-	_mgr.save_profile(LEARNED_STATE_NAME, templates, solver_profiles, boss_profiles)
+	_mgr.save_profile(LEARNED_STATE_NAME, templates, solver_profiles, boss_profiles, stock_builds)
 	print("[WAR ROOM] Imported AI profile from clipboard (no live game).")
 	return true
 
@@ -117,7 +119,8 @@ func import_learned_state_from_clipboard() -> bool:
 # bred mutant has to earn its way through - a battle-tested import from
 # someone else's game has already proven itself.
 static func merge_imported(target_templates: Array, target_solver_profiles: Array, target_boss_profiles: Array,
-		loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = []) -> void:
+		loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = [],
+		target_stock_builds: Array = [], loaded_stock_builds: Array = []) -> void:
 	for lt in loaded_templates:
 		var collision = false
 		for t in target_templates:
@@ -153,3 +156,20 @@ static func merge_imported(target_templates: Array, target_solver_profiles: Arra
 			lbp.profile_name = "%s (%s)" % [lbp.profile_name, tag]
 		lbp.is_experimental = false
 		target_boss_profiles.append(lbp)
+
+	# StockBuild identity is (template_name, role), not a single name field -
+	# a collision renames just the template_name half (matching the
+	# templates-array rename above) so the build still reads as "whichever
+	# template it came from, from so-and-so" rather than needing a third
+	# naming scheme.
+	for lsb in loaded_stock_builds:
+		var collision_s = false
+		for sb in target_stock_builds:
+			if sb.template_name == lsb.template_name and sb.role == lsb.role and sb.rarity == lsb.rarity:
+				collision_s = true
+				break
+		if collision_s:
+			var tag = lsb.origin_pilot if lsb.origin_pilot != "" else "Unknown Pilot"
+			lsb.template_name = "%s (%s)" % [lsb.template_name, tag]
+		lsb.is_experimental = false
+		target_stock_builds.append(lsb)

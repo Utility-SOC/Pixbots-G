@@ -5,9 +5,21 @@ extends HexTile
 # carrying >= 10,000 energy). When fired, spawns OrbitingProjectiles that enter
 # synergy-driven orbital trajectories around the bot (Kinetic/Pierce fast elliptical,
 # Vortex bezier-blob, Lightning lashing bolts, Poison hazard trails).
+#
+# Follows LanceMountTile.gd's capital-weapon pattern exactly: process_energy
+# only ACCUMULATES per-face magnitudes during the sim pass; check_face_gate()
+# (called once per Mech._recalculate_grid, right before clear_pending resets
+# the accumulators) decides ready_to_fire and stashes the firing payload; and
+# Mech._tick_weapon_charges auto-fires it whenever the cooldown clears.
 
+# "cell_idx:direction" -> summed magnitude fed to that face this sim pass.
+# cell_idx 0 = anchor, 1/2 = footprint_offsets[0]/[1] - same convention as
+# LanceMountTile._face_magnitudes.
 var _face_magnitudes: Dictionary = {}
 var _fed_packet: EnergyPacket = null
+# Payload snapshot taken by check_face_gate() - survives clear_pending()
+# until fire() actually runs (see LanceMountTile._armed_packet).
+var _armed_packet: EnergyPacket = null
 
 var cooldown_timer: float = 0.0
 var ready_to_fire: bool = false
@@ -22,6 +34,11 @@ func get_weight() -> float:
 
 func get_footprint_size() -> int:
 	return 3
+
+# Compact 3-hex triangle rather than the Lance's 3-in-a-row line - see
+# HexTile.get_footprint_shape and GarageInventoryPanel's placement/preview.
+func get_footprint_shape() -> String:
+	return "triangle"
 
 func clear_pending():
 	_face_magnitudes.clear()
@@ -41,16 +58,12 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 		return []
 
 	var cell_idx = 0
-	if grid_position and entry_coord:
-		if entry_coord.equals(grid_position):
-			cell_idx = 0
-		else:
-			for i in range(footprint_offsets.size()):
-				var off = footprint_offsets[i]
-				var h = HexCoord.new(grid_position.q + off.q, grid_position.r + off.r)
-				if entry_coord.equals(h):
-					cell_idx = i + 1
-					break
+	if entry_coord and grid_position and (entry_coord.q != grid_position.q or entry_coord.r != grid_position.r):
+		for i in range(footprint_offsets.size()):
+			var off = footprint_offsets[i]
+			if entry_coord.q == grid_position.q + off.x and entry_coord.r == grid_position.r + off.y:
+				cell_idx = i + 1
+				break
 
 	# Perf audit (2026-08-01): Vector2i key instead of a concatenated string
 	# per packet - Vector2i is natively hashable as a Dictionary key and this
@@ -67,31 +80,28 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	if _fed_packet == null or packet.magnitude > _fed_packet.magnitude:
 		_fed_packet = packet.copy()
 
+	packet.is_active = false
+	packet.magnitude = 0.0
+	return [packet]
+
+# Sets ready_to_fire from this pass's accumulated face data and stashes the
+# firing payload - called once per recalc, right before clear_pending().
+func check_face_gate():
 	var face_threshold = TileStatsRegistry.get_stat("OrbitingArrayTile", "face_threshold", 10000.0)
 	var required_faces = int(TileStatsRegistry.get_stat("OrbitingArrayTile", "required_faces", 6))
-	var fed_count = 0
-	for fk in _face_magnitudes:
-		if float(_face_magnitudes[fk]) >= face_threshold:
-			fed_count += 1
+	var fed_faces = 0
+	for k in _face_magnitudes:
+		if _face_magnitudes[k] >= face_threshold:
+			fed_faces += 1
+	ready_to_fire = fed_faces >= required_faces
+	_armed_packet = _fed_packet.copy() if (ready_to_fire and _fed_packet) else null
 
-	if fed_count >= required_faces:
-		ready_to_fire = true
-
-	return []
-
-func update_cooldown(delta: float):
-	if cooldown_timer > 0.0:
-		cooldown_timer -= delta
-		if cooldown_timer <= 0.0:
-			cooldown_timer = 0.0
-
-func can_fire() -> bool:
-	return ready_to_fire and cooldown_timer <= 0.0 and _fed_packet != null
-
+# Spawns the 3-projectile orbital array. Called from Mech._tick_weapon_charges
+# once ready_to_fire is true and cooldown_timer has cleared - and again every
+# time the cooldown clears while the build stays fed, same as the Lance.
 func fire(mech) -> void:
-	ready_to_fire = false
 	cooldown_timer = TileStatsRegistry.get_stat("OrbitingArrayTile", "cooldown_time", 6.0)
-	if not _fed_packet or not mech:
+	if not _armed_packet or not mech:
 		return
 
 	var muzzle = mech.global_position
@@ -102,11 +112,11 @@ func fire(mech) -> void:
 	var OrbitingProjScript = load("res://scripts/entities/OrbitingProjectile.gd")
 	if not OrbitingProjScript: return
 
-	var damage = _fed_packet.magnitude * 0.45
+	var damage = _armed_packet.magnitude * 0.45
 	var angle_step = (PI * 2.0) / 3.0
 
 	for i in range(3):
 		var proj = OrbitingProjScript.new()
 		proj.global_position = muzzle
-		proj.setup(mech, damage, _fed_packet.synergies.duplicate(), by_player, i * angle_step)
+		proj.setup(mech, damage, _armed_packet.synergies.duplicate(), by_player, i * angle_step)
 		world.add_child(proj)

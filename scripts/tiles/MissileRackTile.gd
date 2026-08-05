@@ -1,15 +1,28 @@
 class_name MissileRackTile
 extends HexTile
 
-# Salvo Missile Rack weapon tile: banks incoming energy and launches
-# a salvo of indirect mortar/missile shells delivered in a spread around
-# the target aim point. Damage and salvo size scale with tile level and rarity.
-
-var _face_magnitudes: Dictionary = {}
-var _fed_packet: EnergyPacket = null
-
-var cooldown_timer: float = 0.0
-var ready_to_fire: bool = false
+# Dedicated remote-payload weapon mount (fourth-review ruling: "the full
+# weapon-variety version of indirect fire will be a dedicated mount tile,
+# not just the Mythic Weapon Mount's Mortar pattern"). Differences from a
+# plain Weapon Mount, per that ruling:
+#   - Always indirect (no direct-fire mode) - every shot is a MortarShell.gd
+#     lob, same delivery WeaponMountTile's Mythic "Mortar" pattern uses.
+#   - Cheaper rarity entry: the salvo behavior works at every rarity, not
+#     gated behind Mythic + a specific mythic_pattern selection.
+#   - Salvo behavior: the accumulated packet is banked into several shells
+#     landing in a spread around the aim point (see SHELL_COUNT_BY_RARITY)
+#     instead of one single big payload.
+#
+# Participates in the EXACT SAME pending_packets/charge/accumulator-bank
+# economy as WeaponMountTile - Mech._collect_weapon_mounts_and_tile_
+# capabilities gates on tile_type == "Weapon Mount" OR "Missile Rack" (see
+# that function), so this only needs to expose the same pending_packets/
+# current_charge/bank_current_charge surface and let that shared pipeline
+# feed it. The only thing genuinely different is HOW it fires - so instead
+# of reimplementing charge/banking, this overrides HexTile._fire_combined_
+# projectile() (the one method WeaponMountTile actually calls into for the
+# final shot) with an always-salvo body instead of WeaponMountTile's
+# single-shot/Mythic-pattern one.
 
 func _init():
 	tile_type = "Missile Rack"
@@ -19,78 +32,167 @@ func _init():
 func get_weight() -> float:
 	return TileStatsRegistry.get_stat("MissileRackTile", "weight", 7.0)
 
+@export var damage_multiplier: float = TileStatsRegistry.get_stat("MissileRackTile", "damage_multiplier", 1.0)
+
+var pending_packets: Array = [] # { "packet": packet, "step": step } - same shape as WeaponMountTile
+var current_charge: float = 0.0
+var bank_current_charge: float = 0.0
+
 func clear_pending():
-	_face_magnitudes.clear()
-	_fed_packet = null
+	pending_packets.clear()
 
-# See LanceMountTile.reset_simulation_state's comment - same Timeline
-# Scrubber determinism gap applies to every capital weapon that banks
-# per-face energy across a simulation pass.
-func reset_simulation_state() -> void:
-	super.reset_simulation_state()
-	_face_magnitudes.clear()
-	_fed_packet = null
-	ready_to_fire = false
-
+# Identical capture contract to WeaponMountTile.process_energy: banks a copy
+# for Mech's collection pass, neutralizes the live packet so it doesn't also
+# relay onward (this is a REAL weapon, not a pass-through - unlike Sensor
+# Array/Anchor/Mobility Core, it must never be picked as AutoEquipSolver
+# filler; see that file's FILLER_TILE_PRIORITY comment).
 func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = null, entry_coord: HexCoord = null) -> Array[EnergyPacket]:
-	if packet.magnitude <= 0.0 or not packet.is_active:
-		return []
+	var step = 0
+	if "traversal_steps" in packet:
+		step = packet.traversal_steps
 
-	# Perf audit (2026-08-01): int key directly, no string allocation per
-	# packet - only ever read back by key, never displayed/parsed as text.
-	var face_key = entry_direction
-	var prev = float(_face_magnitudes.get(face_key, 0.0))
-	_face_magnitudes[face_key] = prev + packet.magnitude
+	pending_packets.append({ "packet": packet.copy(), "step": step })
 
-	# Real production bug, found 2026-08-03 while building a regression check
-	# for the face_key change above: this called packet.clone(), which
-	# doesn't exist on EnergyPacket (only .copy() does - see LanceMountTile's
-	# own identical _fed_packet assignment for the established convention).
-	# The resulting "Invalid call" error aborted process_energy() BEFORE
-	# reaching the ready_to_fire gate below on every call - meaning this
-	# tile could never actually fire in real gameplay, the same class of
-	# bug as the earlier "Lance Beam can never fire" fix.
-	if _fed_packet == null or packet.magnitude > _fed_packet.magnitude:
-		_fed_packet = packet.copy()
+	packet.is_active = false
+	packet.magnitude = 0.0
+	return [packet]
 
-	var threshold = TileStatsRegistry.get_stat("MissileRackTile", "feed_threshold", 2000.0)
-	if packet.magnitude >= threshold or _fed_packet.magnitude >= threshold:
-		ready_to_fire = true
+func _get_damage_multiplier() -> float:
+	return damage_multiplier
 
-	return []
+# How many shells one bank of energy splits into, by rarity - "cheaper
+# rarity entry" means even a Common rack still gets a real (if modest)
+# salvo, unlike the Mythic-only Mortar pattern it's meant to obsolete.
+const SHELL_COUNT_BY_RARITY = [2, 3, 3, 4, 5]
+# Each shell keeps this fraction of an equivalent single-shot's damage -
+# below 1/N so a full-accuracy salvo doesn't simply out-damage a direct
+# Weapon Mount hit for free, but each shell still splashes independently
+# (see MortarShell._detonate's splash ring), so multiple shells landing
+# near clustered targets can still out-value a single hit.
+const PER_SHELL_DAMAGE_FRACTION = 0.65
+# Shells land in a ring around the aim point rather than stacked on it -
+# "a spread around the aim point" per the design ruling above.
+const SPREAD_RADIUS = 55.0
+# Mirrors HexTile._fire_mortar's MORTAR_SPEED constant - kept as its own
+# name (not a reference to that private constant) since MissileRackTile
+# doesn't extend WeaponMountTile and has no access to it.
+const SHELL_SPEED_BASE = 420.0
 
-func update_cooldown(delta: float):
-	if cooldown_timer > 0.0:
-		cooldown_timer -= delta
-		if cooldown_timer <= 0.0:
-			cooldown_timer = 0.0
+# --- Targeting (design ruling: "ultra long range ground to ground") -------
+# Unlike every other weapon, a Missile Rack doesn't fire at the mech's
+# current aim point at all - it's an autonomous indirect-fire piece that
+# picks its OWN target: the FURTHEST enemy within [MIN_RANGE, max_range].
+# max_range reuses Projectile.gd's exact kinetic-scales-range formula
+# (BASE_RANGE + KINETIC_RANGE_BONUS * kinetic_ratio - see that file's field
+# comment for "kinetic should be able to make range MUCH longer") so a
+# Missile Rack's own Kinetic investment pays off exactly like it does for
+# every other weapon, just with a higher base via RANGE_MULT on top - same
+# "final multiplier over the whole computed range" slot Projectile.gd
+# already has for range_mult/beam shots, not a parallel range system.
+const ProjectileScript = preload("res://scripts/entities/Projectile.gd")
+const RANGE_MULT = 2.5 # "ultra long range" - well past a direct-fire mount's reach
+const MIN_RANGE = 350.0 # can't hit anything closer than this - not a point-defense gun
 
-func can_fire() -> bool:
-	return ready_to_fire and cooldown_timer <= 0.0 and _fed_packet != null
+func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0):
+	# Whole-volley consolidation under saturation - identical gate to
+	# HexTile._fire_combined_projectile's own (see that file's field comment
+	# on _consolidation_buffer/_consolidation_shots, inherited here since
+	# this fully overrides the base method rather than calling super() and
+	# would otherwise never engage ProjectileManager.consolidation_factor()
+	# at all). Same total energy delivered downrange (still as a full
+	# salvo), a fraction of the Area2D population under heavy fire.
+	if not _pattern_child:
+		var k = ProjectileManager.consolidation_factor()
+		if k > 1:
+			if _consolidation_buffer == null:
+				_consolidation_buffer = packet.copy()
+			else:
+				for s in packet.synergies:
+					_consolidation_buffer.add_synergy(s, packet.synergies[s])
+			_consolidation_shots += 1
+			if _consolidation_shots < k:
+				return
+			packet = _consolidation_buffer
+			_consolidation_buffer = null
+			_consolidation_shots = 0
+		elif _consolidation_buffer != null:
+			for s in packet.synergies:
+				_consolidation_buffer.add_synergy(s, packet.synergies[s])
+			packet = _consolidation_buffer
+			_consolidation_buffer = null
+			_consolidation_shots = 0
 
-func fire(mech) -> void:
-	ready_to_fire = false
-	cooldown_timer = TileStatsRegistry.get_stat("MissileRackTile", "cooldown_time", 4.5)
-	if not _fed_packet or not mech:
+	var world = mech.get_parent()
+	if not world:
 		return
 
-	var muzzle = mech.global_position
-	var aim_pos = mech.get("last_aim_position") if "last_aim_position" in mech else muzzle + Vector2(0, -200)
+	var muzzle = get_muzzle_position(mech)
 	var by_player = mech.get("is_player") == true
-	var world = mech.get_parent()
-	if not world: return
+
+	var total_mag = 0.0
+	for k in packet.synergies:
+		total_mag += packet.synergies[k]
+	var kinetic_ratio = (packet.synergies.get(EnergyPacket.SynergyType.KINETIC, 0.0) / total_mag) if total_mag > 0.0 else 0.0
+	var max_range = (ProjectileScript.BASE_RANGE + ProjectileScript.KINETIC_RANGE_BONUS * kinetic_ratio) * RANGE_MULT
+
+	var target_pos = _find_furthest_target_in_range(muzzle, by_player, max_range)
+	if target_pos == null:
+		return # nothing in [MIN_RANGE, max_range] - dry-fire, same as any weapon with no target
+
+	# Feed the director's mortar counter-doctrine (cloaks/jammers answer
+	# artillery) exactly like WeaponMountTile's Mythic Mortar pattern does -
+	# a Missile Rack salvo is exactly the kind of indirect-fire "artillery"
+	# that doctrine exists to counter, and player shots only (see
+	# MortarShell._detonate's matching gate: the AI countering itself would
+	# be silly).
+	if by_player:
+		var main = mech.get_tree().current_scene if mech.is_inside_tree() else null
+		if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
+			main.world.get_node("SquadDirector").log_mortar_shot()
+
+	var pierce_ratio = (packet.synergies.get(EnergyPacket.SynergyType.PIERCE, 0.0) / total_mag) if total_mag > 0.0 else 0.0
+	# Same pierce-scales-flight-speed identity as the Mythic Mortar pattern
+	# (see HexTile._fire_mortar) - a Missile Rack investing in Pierce still
+	# gets the "faster shells" payoff instead of losing that whole axis.
+	var effective_speed = SHELL_SPEED_BASE * (1.0 + pierce_ratio * 2.0)
+
+	var shell_count = int(TileStatsRegistry.get_stat_by_rarity("MissileRackTile", "shell_count", rarity, SHELL_COUNT_BY_RARITY))
+	var base_damage = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
+	var per_shell_damage = (base_damage / float(shell_count)) * PER_SHELL_DAMAGE_FRACTION
 
 	var MortarShellScript = load("res://scripts/attacks/MortarShell.gd")
-	if not MortarShellScript: return
+	for i in range(shell_count):
+		# Ring layout, one jittered slot per shell - reads as a scattered
+		# salvo rather than N shells landing in an identical stack.
+		var angle = (TAU * float(i) / shell_count) + randf_range(-0.2, 0.2)
+		var offset = Vector2(cos(angle), sin(angle)) * SPREAD_RADIUS * randf_range(0.4, 1.0)
+		var impact_pos = target_pos + offset
+		var flight_time = clamp(muzzle.distance_to(impact_pos) / effective_speed, 0.12, 2.2)
+		# Small stagger so shells don't all land on the same frame - the
+		# launch still reads simultaneous, only the landing staggers
+		# (matches "a spread... instead of one big payload").
+		flight_time += i * 0.06
 
-	# Salvo count scales with rarity and tile level (+10% power/salvo bonus per level)
-	var salvo_count = 3 + rarity + int(level / 3)
-	var base_dmg = (_fed_packet.magnitude * _get_power_multiplier() * 0.3) / salvo_count
-
-	for i in range(salvo_count):
-		var offset = Vector2(randf_range(-60, 60), randf_range(-60, 60))
-		var target = aim_pos + offset
-		var flight_time = 0.6 + i * 0.15
 		var shell = MortarShellScript.new()
-		shell.setup(muzzle, target, flight_time, base_dmg, _fed_packet.synergies.duplicate(), by_player, mech)
+		shell.setup(muzzle, impact_pos, flight_time, per_shell_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus)
 		world.add_child(shell)
+
+# Scans the opposing EntityCache group (same convention as MortarShell.
+# _detonate/Projectile.gd's own homing-target scans) for the single FARTHEST
+# valid target inside [MIN_RANGE, max_range] from the muzzle - null if none
+# qualify. Furthest, not nearest: this is meant to reach out and hit
+# something a direct-fire mount can't, not to plink the closest target.
+func _find_furthest_target_in_range(muzzle: Vector2, by_player: bool, max_range: float):
+	var candidates: Array = EntityCache.get_group("enemy") if by_player else EntityCache.get_group("player")
+	var best = null
+	var best_dist = -1.0
+	for c in candidates:
+		if not is_instance_valid(c) or c.get("is_dead"):
+			continue
+		var d = muzzle.distance_to(c.global_position)
+		if d < MIN_RANGE or d > max_range:
+			continue
+		if d > best_dist:
+			best_dist = d
+			best = c
+	return best.global_position if best else null

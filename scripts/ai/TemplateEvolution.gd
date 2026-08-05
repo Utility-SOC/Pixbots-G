@@ -112,16 +112,35 @@ const WATER_BIAS_THRESHOLD = 0.15
 # happens to lack "diver" (e.g. early game before one's ever been rolled).
 const WATER_BIAS_FLOOR = 0.15
 
-func select_template_weighted() -> SquadTemplate:
+# `allowed_templates`, when non-empty, restricts the weighted roll to just
+# those SquadTemplate instances - used by Main.gd's wave-archetype shaping
+# (a themed wave narrowing which templates are even eligible, so fewer
+# distinct enemy loadouts need solving/replaying that wave) without
+# affecting spawn_weight/water-bias math at all, and with zero effect on
+# ordinary waves (empty array = today's exact behavior, every template
+# eligible).
+func select_template_weighted(allowed_templates: Array = []) -> SquadTemplate:
 	if director.templates.is_empty():
 		return null
+
+	var candidates: Array = director.templates
+	if not allowed_templates.is_empty():
+		candidates = []
+		for t in director.templates:
+			if allowed_templates.has(t):
+				candidates.append(t)
+		if candidates.is_empty():
+			# The filter matched nothing (e.g. no template for the rolled
+			# archetype role exists yet this session) - fall back to the full
+			# pool rather than spawning nothing.
+			candidates = director.templates
 
 	var water_frac: float = director.get_map_water_fraction() if director.has_method("get_map_water_fraction") else 0.0
 	var apply_bias = water_frac > WATER_BIAS_THRESHOLD
 
 	var total_weight = 0.0
 	var effective_weights: Dictionary = {} # SquadTemplate -> float, keyed by instance
-	for t in director.templates:
+	for t in candidates:
 		var w = t.spawn_weight
 		if apply_bias:
 			# Water-capable templates get proportionally more likely to spawn
@@ -137,9 +156,9 @@ func select_template_weighted() -> SquadTemplate:
 
 	var roll = randf() * total_weight
 	var current_weight = 0.0
-	var selected_template: SquadTemplate = director.templates[0]
+	var selected_template: SquadTemplate = candidates[0]
 
-	for t in director.templates:
+	for t in candidates:
 		current_weight += effective_weights[t]
 		if roll <= current_weight:
 			selected_template = t

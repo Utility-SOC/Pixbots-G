@@ -485,9 +485,21 @@ func _deserialize_component(cdata: Dictionary):
 			# is_fixed for legacy saves that predate an explicit fixed_sinks list.
 			if tile.get_script() and tile.get_script().resource_path.ends_with("ComponentLinkTile.gd") and tile.get("is_fixed"):
 				comp.fixed_sinks.append(HexCoord.new(h.x, h.y))
-			elif tile.tile_type == "Core Reactor" or tile.tile_type == "Weapon Mount" or tile.tile_type == "Actuator" or tile.tile_type == "Torso Return" or tile.tile_type == "Energy Intake" or tile.tile_type == "Backpack Link" or tile.tile_type == "Accessory Return":
+			elif tile.tile_type == "Core Reactor" or tile.tile_type == "Weapon Mount" or tile.tile_type == "Actuator" or tile.tile_type == "Torso Return" or tile.tile_type == "Energy Intake" or tile.tile_type == "Backpack Link":
 				comp.fixed_sinks.append(HexCoord.new(h.x, h.y))
-				
+
+	# The Torso's Accessory Return is an INBOUND injector, movable, and no
+	# longer a fixed sink (see create_starter_torso + AutoEquipSolver) -
+	# strip it from whatever this save recorded, explicit list or legacy
+	# inference alike, so pre-1.1.2 saves behave exactly like new torsos.
+	var kept_sinks: Array[HexCoord] = []
+	for s in comp.fixed_sinks:
+		var s_tile = comp.hex_grid.get_tile(s)
+		if s_tile and s_tile.tile_type == "Accessory Return":
+			continue
+		kept_sinks.append(s)
+	comp.fixed_sinks = kept_sinks
+
 	# Backwards compatibility: Ensure peripheral components have an entry point at (0,0)
 	if comp.slot_type != HexTile.BodySlot.TORSO and not comp.hex_grid.has_tile(HexCoord.new(0, 0)):
 		if comp.slot_type == HexTile.BodySlot.HEAD or comp.slot_type == HexTile.BodySlot.BACKPACK:

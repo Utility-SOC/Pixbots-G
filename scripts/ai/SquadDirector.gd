@@ -8,6 +8,8 @@ const WarRoomNames = preload("res://scripts/ai/WarRoomNames.gd")
 const TemplateEvolution = preload("res://scripts/ai/TemplateEvolution.gd")
 const ProfileEvolution = preload("res://scripts/ai/ProfileEvolution.gd")
 const BossEvolution = preload("res://scripts/ai/BossEvolution.gd")
+const StockBuild = preload("res://scripts/ai/StockBuild.gd")
+const StockBuildEvolution = preload("res://scripts/ai/StockBuildEvolution.gd")
 const DroneBayTileScript = preload("res://scripts/tiles/DroneBayTile.gd")
 const WarRoomSnapshotScript = preload("res://scripts/ai/WarRoomSnapshot.gd")
 
@@ -21,9 +23,11 @@ const WarRoomSnapshotScript = preload("res://scripts/ai/WarRoomSnapshot.gd")
 var template_evolution: TemplateEvolution
 var profile_evolution: ProfileEvolution
 var boss_evolution: BossEvolution
+var stock_build_evolution: StockBuildEvolution
 
 var solver_profiles: Array[SolverProfile] = []
 var boss_profiles: Array[BossProfile] = []
+var stock_builds: Array[StockBuild] = []
 
 var templates: Array[SquadTemplate] = []
 var active_squads: Array[Squad] = []
@@ -64,13 +68,14 @@ func get_next_rival() -> String:
 	var chosen = valid_candidates[randi() % valid_candidates.size()]
 	active_rival_pool.erase(chosen)
 	rivals_fought_this_round += 1
-	save_learned_state()
+	request_save_learned_state()
 	return chosen
 
 func _ready():
 	template_evolution = TemplateEvolution.new(self)
 	profile_evolution = ProfileEvolution.new(self)
 	boss_evolution = BossEvolution.new(self)
+	stock_build_evolution = StockBuildEvolution.new(self)
 
 	profile_manager = SquadProfileManager.new()
 	profile_manager.name = "ProfileManager"
@@ -90,7 +95,7 @@ func _ready():
 # restored in place, unknown ones (evolved/graduated compositions from past
 # sessions, or an imported friend's profile) get registered fresh. Shared
 # by disk-load and clipboard-import so both behave identically.
-func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = []):
+func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = [], loaded_stock_builds: Array = []):
 	for lt in loaded_templates:
 		var existing: SquadTemplate = null
 		for t in templates:
@@ -124,6 +129,17 @@ func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss
 		else:
 			boss_profiles.append(lbp)
 
+	for lsb in loaded_stock_builds:
+		var existing_sb: StockBuild = null
+		for sb in stock_builds:
+			if sb.template_name == lsb.template_name and sb.role == lsb.role and sb.rarity == lsb.rarity:
+				existing_sb = sb
+				break
+		if existing_sb:
+			existing_sb.from_dict(lsb.to_dict())
+		else:
+			stock_builds.append(lsb)
+
 # Merge path for a CROSS-PILOT clipboard import - see _merge_learned above
 # for the same-pilot load/save-restore path, which stays overwrite-based
 # ("resume where I left off" should update your own templates in place).
@@ -131,8 +147,8 @@ func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss
 # shared with the no-live-game War Room import path (see that class's own
 # header on why export/import shouldn't need a live game at all) - this is
 # a thin wrapper so the two can never drift apart.
-func _merge_imported(loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = []):
-	WarRoomSnapshotScript.merge_imported(templates, solver_profiles, boss_profiles, loaded_templates, loaded_profiles, loaded_boss_profiles)
+func _merge_imported(loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = [], loaded_stock_builds: Array = []):
+	WarRoomSnapshotScript.merge_imported(templates, solver_profiles, boss_profiles, loaded_templates, loaded_profiles, loaded_boss_profiles, stock_builds, loaded_stock_builds)
 
 func load_learned_state():
 	if not profile_manager:
@@ -146,7 +162,8 @@ func load_learned_state():
 		_merge_learned(
 			profile_manager.load_profile("default_squads"),
 			profile_manager.load_solver_profiles("default_squads"),
-			profile_manager.load_boss_profiles("default_squads")
+			profile_manager.load_boss_profiles("default_squads"),
+			profile_manager.load_stock_builds("default_squads")
 		)
 
 	# 2. Learned state from previous sessions.
@@ -155,7 +172,8 @@ func load_learned_state():
 	var loaded_templates = profile_manager.load_profile(LEARNED_STATE_NAME)
 	var loaded_profiles = profile_manager.load_solver_profiles(LEARNED_STATE_NAME)
 	var loaded_boss_profiles = profile_manager.load_boss_profiles(LEARNED_STATE_NAME)
-	_merge_learned(loaded_templates, loaded_profiles, loaded_boss_profiles)
+	var loaded_stock_builds = profile_manager.load_stock_builds(LEARNED_STATE_NAME)
+	_merge_learned(loaded_templates, loaded_profiles, loaded_boss_profiles, loaded_stock_builds)
 
 	# Telemetry rides in the same file (v1.3): the counter-doctrine now
 	# remembers the player's habits across sessions, same as the
@@ -187,9 +205,43 @@ func load_learned_state():
 
 	print("[DIRECTOR] Learned AI state restored: ", loaded_templates.size(), " templates, ", loaded_profiles.size(), " solver profiles, ", loaded_boss_profiles.size(), " boss profiles")
 
+# Debounced entry point for the high-frequency combat triggers (a squad
+# wipe, a boss death, a rival pick) - save_learned_state() itself does three
+# separate synchronous FileAccess open/stringify/write/close cycles with no
+# threading, and _on_squad_defeated could call it once per squad in a single
+# frame when several die at once (e.g. an AoE/chain-lightning kill clearing
+# multiple squads together). Stacking several blocking disk writes into one
+# frame is exactly the kind of thing that turns into a multi-second stall if
+# Windows Defender/cloud-sync/a slow disk intercepts even one of them - this
+# collapses any number of dirty-marks within SAVE_FLUSH_INTERVAL into a
+# single deferred write instead. Not used by the Garage-only/one-off call
+# sites (clipboard import, rival-loss game-over) - those aren't spammy and
+# want the write to land immediately.
+const SAVE_FLUSH_INTERVAL = 4.0
+var _learned_state_dirty: bool = false
+var _save_flush_timer: float = 0.0
+
+func request_save_learned_state():
+	_learned_state_dirty = true
+	_save_flush_timer = SAVE_FLUSH_INTERVAL
+
+func _process(delta: float):
+	if _learned_state_dirty:
+		_save_flush_timer -= delta
+		if _save_flush_timer <= 0.0:
+			save_learned_state()
+			_learned_state_dirty = false
+
+func _exit_tree():
+	# Flush rather than lose the last few seconds of learning on garage
+	# exit/game restart, which frees this node before the timer above fires.
+	if _learned_state_dirty:
+		save_learned_state()
+		_learned_state_dirty = false
+
 func save_learned_state():
 	if profile_manager:
-		profile_manager.save_profile(LEARNED_STATE_NAME, templates, solver_profiles, boss_profiles, {
+		profile_manager.save_profile(LEARNED_STATE_NAME, templates, solver_profiles, boss_profiles, stock_builds, {
 			"player_element_usage": player_element_usage,
 			"total_damage_taken": total_damage_taken,
 			"bot_element_usage": bot_element_usage,
@@ -207,7 +259,7 @@ func save_learned_state():
 
 func export_learned_state_to_clipboard():
 	if profile_manager:
-		profile_manager.export_to_clipboard(templates, solver_profiles, boss_profiles)
+		profile_manager.export_to_clipboard(templates, solver_profiles, boss_profiles, stock_builds)
 
 func import_learned_state_from_clipboard() -> bool:
 	if not profile_manager:
@@ -215,7 +267,7 @@ func import_learned_state_from_clipboard() -> bool:
 	var data = profile_manager.import_from_clipboard()
 	if data.is_empty():
 		return false
-	_merge_imported(data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []))
+	_merge_imported(data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []), data.get("stock_builds", []))
 	save_learned_state()
 	print("[DIRECTOR] Imported AI profile from clipboard.")
 	return true
@@ -241,11 +293,21 @@ func register_template(template: SquadTemplate):
 func maybe_introduce_experimental_template():
 	template_evolution.maybe_introduce_experimental_template()
 
-func attempt_squad_assembly() -> Squad:
-	var selected_template = template_evolution.select_template_weighted()
+func attempt_squad_assembly(allowed_templates: Array = []) -> Squad:
+	var selected_template = template_evolution.select_template_weighted(allowed_templates)
 	if not selected_template:
 		return null
-	return _assemble_squad(selected_template)
+	return await _assemble_squad(selected_template)
+
+# Sorted by SquadTemplate.recent_fitness_ema, highest first - powers the
+# "Gang Up" wave-archetype event (see Main.gd's wave schedule): restricting
+# a wave's eligible templates to just these means far fewer distinct enemy
+# loadouts need solving/replaying that wave, on top of it being a real
+# difficulty spike (only the templates that have lately been beating you).
+func top_n_by_recent_effectiveness(n: int) -> Array:
+	var sorted_templates = templates.duplicate()
+	sorted_templates.sort_custom(func(a, b): return a.recent_fitness_ema > b.recent_fitness_ema)
+	return sorted_templates.slice(0, min(n, sorted_templates.size()))
 
 # How much of the current map is water (0.0-1.0) - duck-typed off Main.map
 # since SquadDirector doesn't hold its own map reference. Feeds
@@ -279,7 +341,7 @@ func is_map_mostly_water() -> bool:
 func spawn_specific_squad(template: SquadTemplate, spawn_pos: Vector2) -> Squad:
 	if not template:
 		return null
-	var squad = _assemble_squad(template)
+	var squad = await _assemble_squad(template)
 	if not squad:
 		return null
 
@@ -331,10 +393,25 @@ func _assemble_squad(selected_template: SquadTemplate) -> Squad:
 		
 	# 2. Fallback Spawning (if Director decides to fill the gaps)
 	if not _all_roles_filled(roles_needed):
+		var spawned_any = false
 		for role in roles_needed:
 			for i in range(roles_needed[role]):
-				var bot = _spawn_bot_for_role(role, selected_template.has_shields)
+				# One-frame yield between each fresh mech (not the first) -
+				# _spawn_bot_for_role's Mech._ready() pays a real solver cost
+				# synchronously (cache-assisted now, but still real on a miss
+				# or deviation-test roll - see AutoEquipSolver/StockBuild).
+				# Spreading a squad's 3-12 members across a few frames instead
+				# of dumping them all into one keeps a single frame from
+				# absorbing a whole squad's spawn cost at once - confirmed
+				# contributor to wave-transition stutter. Regular squad
+				# members only - boss spawning (Main._spawn_boss) needs its
+				# mech fully ready synchronously right after add_child and is
+				# deliberately not routed through this path.
+				if spawned_any:
+					await get_tree().process_frame
+				var bot = _spawn_bot_for_role(role, selected_template.has_shields, 0, selected_template.template_name)
 				squad.add_member(bot)
+				spawned_any = true
 
 	# Every squad gets at least one scout, regardless of what the template
 	# actually called for - per the user: scouts run the frontier-exploration
@@ -348,7 +425,7 @@ func _assemble_squad(selected_template: SquadTemplate) -> Squad:
 			has_scout = true
 			break
 	if not has_scout:
-		var scout = _spawn_bot_for_role("scout", selected_template.has_shields)
+		var scout = _spawn_bot_for_role("scout", selected_template.has_shields, 0, selected_template.template_name)
 		squad.add_member(scout)
 
 	add_child(squad)
@@ -690,7 +767,7 @@ func _all_roles_filled(roles: Dictionary) -> bool:
 # "grunt") rather than blanket-immunizing the whole roster.
 const WATER_SAFETY_EXCLUDED_ROLES = ["sniper", "brawler"]
 
-func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0) -> Node:
+func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0, template_name: String = "") -> Node:
 	var bot
 	if role == "jammer":
 		bot = load("res://scripts/entities/JammerMech.gd").new()
@@ -698,9 +775,15 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 		bot = load("res://scripts/entities/SupportMech.gd").new()
 	else:
 		bot = load("res://scripts/entities/Mech.gd").new()
-		
+
 	bot.combat_role = role
 	bot.base_rarity = p_rarity
+	# Which squad template this bot spawned under - the key StockBuild
+	# caching/evolution is scoped by (this, role), set BEFORE add_child()
+	# below so it's already in place when Mech._ready() -> build_loadout_
+	# for_role() looks it up.
+	if "spawn_template_name" in bot:
+		bot.spawn_template_name = template_name
 	if "spawn_profile" in bot:
 		bot.spawn_profile = get_active_solver_profile(role)
 		# Per-bot element jitter: ~35% of bots clone the profile with a
@@ -1000,8 +1083,8 @@ func _player_dominant_rarity() -> int:
 	rarities.sort()
 	return int(rarities[rarities.size() / 2])
 
-func spawn_squad() -> Squad:
-	return attempt_squad_assembly()
+func spawn_squad(allowed_templates: Array = []) -> Squad:
+	return await attempt_squad_assembly(allowed_templates)
 
 # Called from Mech.die() for every non-player mech, regardless of whether
 # its squad ultimately wipes or wins - credits THAT bot's own spawn_profile
@@ -1018,6 +1101,13 @@ func credit_bot_death(mech: Node):
 	# checks below - every enemy is eligible, not just ones with an
 	# evolving profile (see _maybe_capture_loadout's own comment).
 	_maybe_capture_loadout(mech, fitness)
+
+	# StockBuild deviation credit - independent of (not gated behind) the
+	# solver_profile crediting below, since it tracks a completely different
+	# evolving pool (see StockBuildEvolution). Only bots that actually rolled
+	# a deviation test this spawn (Mech.build_loadout_for_role) carry these.
+	if mech.get("_is_deviation_test") == true and stock_build_evolution:
+		stock_build_evolution.record_deviation_result(mech.spawn_template_name, mech.combat_role, mech.base_rarity, mech._deviation_components, fitness)
 
 	if not ("spawn_profile" in mech) or not mech.spawn_profile:
 		return
@@ -1048,5 +1138,6 @@ func _on_squad_defeated(squad: Squad, fitness_score: float):
 	# profile credit) - this is what makes the evolutionary system actually
 	# accumulate across sessions instead of relearning from scratch. Runs
 	# even when squad.template is null, because the solver-profile credit
-	# above still changed state.
-	save_learned_state()
+	# above still changed state. Debounced (see request_save_learned_state)
+	# since several squads can wipe in the same frame.
+	request_save_learned_state()

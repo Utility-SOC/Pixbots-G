@@ -628,6 +628,17 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 		var syn_name = EnergyPacket.element_name(dominant_syn)
 		draw_string(font, center + Vector2(-25, 25), "[%s]" % syn_name, HORIZONTAL_ALIGNMENT_CENTER, 50, 10, Color.WHITE)
 		
+	elif type == "Missile Rack":
+		# Three small angled shells fanning out, reading as "salvo" rather
+		# than the single straight barrel a Weapon Mount gets.
+		var rack_color = Color(0.75, 0.65, 0.35)
+		for i in range(3):
+			var a = -PI * 0.28 + i * PI * 0.28
+			var tip = center + Vector2(sin(a), -cos(a)) * hs * 0.42
+			var tail = center + Vector2(sin(a), -cos(a)) * hs * 0.12
+			draw_line(tail, tip, rack_color, 3.0, true)
+			draw_circle(tip, 2.5, rack_color)
+
 	elif type == "Energy Intake":
 		# Power-entry marker (playtest: "unclear where/when power will
 		# enter a limb"): bright green ring + inbound chevrons + IN label.

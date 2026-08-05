@@ -147,7 +147,11 @@ static func _describe_tile(tile) -> Dictionary:
 			core_faces.append(f)
 		d["kind"] = KIND_CORE
 		d["faces"] = core_faces
-	elif t == "Weapon Mount":
+	elif t == "Weapon Mount" or t == "Missile Rack":
+		# Missile Rack is a genuine energy-capturing weapon (see
+		# MissileRackTile.process_energy) - it must never be classified as
+		# a pass-through, or its packets would fall straight through
+		# instead of banking into pending_packets like a real mount.
 		d["kind"] = KIND_MOUNT_SINK
 		# Sniper Mount is a Weapon Mount subclass (tile_type unchanged) that
 		# stamps range_mult onto the packet before the capture copy.
@@ -273,17 +277,18 @@ static func _describe_tile(tile) -> Dictionary:
 		d["actuator_base_mult"] = tile.base_speed_multiplier
 		d["actuator_kin_mult"] = TileStatsRegistry.get_stat("ActuatorTile", "kinetic_bonus_mult", 1.5)
 		d["actuator_ltg_mult"] = TileStatsRegistry.get_stat("ActuatorTile", "lightning_bonus_mult", 2.0)
-	elif t == "Lance Mount":
+	elif t == "Lance Mount" or t == "Orbiting Array":
 		# Multi-cell (footprint_offsets) capture with per-face bookkeeping -
 		# see the write-back below for how lance_hits gets replayed onto
-		# _face_magnitudes/_fed_packet.
+		# _face_magnitudes/_fed_packet. The Orbiting Array shares the exact
+		# same absorb-and-accumulate contract (see OrbitingArrayTile.gd).
 		d["kind"] = KIND_LANCE
 		var extra = PackedInt32Array()
 		for off in tile.footprint_offsets:
 			extra.append(off.x)
 			extra.append(off.y)
 		d["extra_cells"] = extra
-	elif t == "Sensor Array" or t == "Missile Rack" or t == "Mobility Core" or t == "Anchor" or t == "Orbiting Array":
+	elif t == "Sensor Array" or t == "Mobility Core" or t == "Anchor":
 		d["kind"] = KIND_PASS # pure pass-through tiles
 	else:
 		return {} # anything else: unsupported, whole grid falls back

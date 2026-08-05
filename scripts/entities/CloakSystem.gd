@@ -161,6 +161,24 @@ void fragment() {
 var _cloak_distortion: ColorRect = null
 var _cloak_distortion_strength: float = 0.0
 
+# Compiled once and shared across every mech that ever cloaks, not rebuilt
+# per instance - the GLSL source is identical for all of them (only the
+# per-instance "strength" uniform differs, which lives on each mech's own
+# ShaderMaterial below, not on the Shader itself). A fresh Shader.new() per
+# mech forces a real shader-pipeline compile on first use (this is a
+# screen-texture read-back shader, one of the more expensive variants to
+# compile), and several ambushers/cloaked bosses all cloaking for the first
+# time in the same busy frame could stack multiple such compiles into one
+# frame - a well-known source of multi-second Godot stutters. Same fix
+# pattern as GarageMenu.gd's cached Mythic-shimmer material.
+static var _cloak_shader: Shader = null
+
+static func _get_cloak_shader() -> Shader:
+	if _cloak_shader == null:
+		_cloak_shader = Shader.new()
+		_cloak_shader.code = CLOAK_SHADER_CODE
+	return _cloak_shader
+
 func _ensure_distortion():
 	if _cloak_distortion and is_instance_valid(_cloak_distortion):
 		return
@@ -169,10 +187,8 @@ func _ensure_distortion():
 	_cloak_distortion = ColorRect.new()
 	_cloak_distortion.size = Vector2.ONE * CLOAK_DISTORTION_RADIUS * 2.0
 	_cloak_distortion.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sh = Shader.new()
-	sh.code = CLOAK_SHADER_CODE
 	var mat = ShaderMaterial.new()
-	mat.shader = sh
+	mat.shader = _get_cloak_shader()
 	_cloak_distortion.material = mat
 	# Sibling of the mech, NOT a child: children inherit modulate, so a
 	# child bubble would fade out with the cloaking mech - i.e. disappear

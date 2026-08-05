@@ -28,6 +28,19 @@ var _tick_timer: float = 0.0
 var _cooldown_timer: float = 0.0
 var _visual_seed: int = 0
 
+# Permanent by default (0.0) - MapGenerator.gd's sparse map-decal placement
+# relies on that: "only ever a handful of slicks exist on a given map" (see
+# Projectile.gd's ignition-scan comment). Set > 0.0 for a slick that's meant
+# to be temporary instead - e.g. OrbitingProjectile's poison trail, which
+# spawns a new one every 0.2s for a projectile's whole lifetime and would
+# otherwise leak dozens of permanent nodes per shot (real playtest report:
+# FPS collapsing to single digits after a Poison Orbiting Array had been
+# firing for a while, well after combat/enemies were gone - the accumulated
+# un-freed slicks, not anything currently happening, were the actual cost).
+var lifetime: float = 0.0
+var _life_timer: float = 0.0
+const FADE_DURATION = 1.0
+
 func _ready():
 	add_to_group("oil_slick")
 	z_index = -3 # sits under mechs/obstacles, above bare ground
@@ -37,8 +50,17 @@ func _process(delta: float):
 	if _cooldown_timer > 0.0:
 		_cooldown_timer -= delta
 
+	if lifetime > 0.0:
+		_life_timer += delta
+		if _life_timer >= lifetime:
+			var fade_t = (_life_timer - lifetime) / FADE_DURATION
+			modulate.a = clamp(1.0 - fade_t, 0.0, 1.0)
+			if fade_t >= 1.0:
+				queue_free()
+				return
+
 	if not is_burning:
-		return
+		return # modulate.a (the fade above) applies automatically - no redraw needed
 
 	_burn_timer -= delta
 	_tick_timer -= delta

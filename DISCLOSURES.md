@@ -17,7 +17,7 @@ This project is built using several open-source technologies. Below is a list of
 
 ## 3. Python 3.x
 - **License**: Python Software Foundation License (PSF)
-- **Usage**: Used strictly as a build/tooling dependency for scripts like `compile_dialogue.py` and `inject_monologues.py`.
+- **Usage**: Used strictly as a build/tooling dependency for scripts like `tools/compile_dialogue.py` and `tools/inject_monologues.py`.
 - **Disclosure**: Since Python is a development tool and not bundled/distributed with the compiled game executable, there are no redistribution obligations for players.
 
 ## 4. Transitive Rust dependencies (`rust_ext/Cargo.lock`)

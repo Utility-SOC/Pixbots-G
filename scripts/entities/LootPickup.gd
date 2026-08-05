@@ -5,6 +5,23 @@ var tile_data: HexTile = null
 var equipment_data: Node = null # Can be ComponentEquipment
 var chip_data: Dictionary = {} # Chip Splicing - a plain (single-trait) Mod Chip; see LootManager._spawn_chip_drop
 
+# Uncollected loot had no expiration at all outside campaign mode's periodic
+# map rotation (Main._rotate_campaign_map, gated to current_game_mode ==
+# "campaign" and only every ~10 waves/180s even there) - in ordinary/normal
+# mode, every kill's drop (LootManager.generate_loot_for_mech, called from
+# every Mech.die()) piled up on the map forever. Confirmed live: a wave-50
+# playtest with a LOW instantaneous combat load (8 shots, 23 enemies) still
+# showed 17k+ draws/objects/172k verts, wildly disproportionate to that
+# load - cumulative uncollected loot from ~50 waves' worth of kills exactly
+# matches that growth curve (scales with elapsed waves, not current combat).
+# A generous fixed window rather than a count cap (unlike the corpse-husk
+# cap-of-12 pattern elsewhere) - missing a real drop because too many other
+# drops happened to be on the map is worse than a loose pickup eventually
+# vanishing if genuinely never returned to.
+const LIFETIME = 90.0
+const FADE_TIME = 3.0
+var _life_timer: float = 0.0
+
 func _ready():
 	collision_layer = 16 # Layer 5 (Bit 4) for Loot
 	collision_mask = 8   # Collide with player (Layer 4)
@@ -58,6 +75,15 @@ func _ready():
 	call_deferred("add_child", shape)
 
 	body_entered.connect(_on_body_entered)
+
+func _process(delta: float):
+	_life_timer += delta
+	if _life_timer >= LIFETIME:
+		var remaining = LIFETIME + FADE_TIME - _life_timer
+		if remaining <= 0.0:
+			queue_free()
+			return
+		modulate.a = remaining / FADE_TIME
 
 # `_strength` accepted-and-ignored: loot always pulls at a fixed speed
 # regardless of source strength, but every OTHER pull_towards caller in the

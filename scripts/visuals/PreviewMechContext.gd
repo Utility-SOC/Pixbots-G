@@ -17,3 +17,11 @@ var is_player: bool = true
 var combat_role: String = ""
 var is_boss: bool = false
 var visual_seed: int = 0
+# MechRenderer only applies paint over the hero color when `"paint_color" in
+# mech` passes (see its _rebuild_visuals() header) - alpha 0 (the default
+# here) means "not set", same convention Main._setup_player()/GaragePaintRack
+# use for the real player Mech. Synced from the real player's paint_color by
+# ComponentDiagramView.refresh() - without a value here at all, the paperdoll
+# preview always fell back to the default hero color regardless of what the
+# player actually chose in the Paint Rack (playtest report).
+var paint_color: Color = Color(0, 0, 0, 0)

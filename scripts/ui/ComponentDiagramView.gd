@@ -288,6 +288,18 @@ func refresh(mech_components: Dictionary):
 		_refresh_slot_visual(info.slot, node, comp)
 
 	if _preview_renderer:
+		# Sync the real player's Paint Rack color onto the preview's stand-in
+		# mech before computing the signature (playtest report: "the
+		# paperdoll does not change color to match the paint rack
+		# selection") - PreviewMechContext's own paint_color otherwise just
+		# sits at its default (0,0,0,0)/"not set" forever, since nothing
+		# else ever touches it. Read defensively (get("player"), not
+		# .player) since this view can exist before a real player Mech does.
+		var main = get_tree().current_scene
+		var real_player = main.get("player") if main else null
+		if real_player and "paint_color" in real_player:
+			_preview_context.paint_color = real_player.paint_color
+
 		var sig = _compute_preview_signature(mech_components)
 		if sig != _last_preview_signature:
 			_last_preview_signature = sig
@@ -358,6 +370,11 @@ func _refresh_slot_visual(slot_type, node: PanelContainer, comp):
 # Builds a cheap string key summarizing which component (by identity, rarity,
 # and infusion level - the things that actually change how it's drawn) is in
 # each slot, so refresh() can tell a real equip change from a no-op refresh.
+# Includes the preview's current paint_color too - a Paint Rack change
+# doesn't touch mech_components at all, so without this the signature
+# would never notice a same-loadout repaint and the preview would silently
+# stay on its old color until something ELSE (an actual equip) happened to
+# also trigger a rebuild.
 func _compute_preview_signature(mech_components: Dictionary) -> String:
 	var parts = PackedStringArray()
 	for info in _slot_defs:
@@ -366,6 +383,7 @@ func _compute_preview_signature(mech_components: Dictionary) -> String:
 			parts.append("%d:%d:%d:%d" % [info.slot, comp.get_instance_id(), comp.rarity, comp.infusion_level])
 		else:
 			parts.append("%d:-" % info.slot)
+	parts.append("paint:" + _preview_context.paint_color.to_html(true))
 	return ",".join(parts)
 
 func get_slot_at_point(global_pos: Vector2) -> int:

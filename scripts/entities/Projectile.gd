@@ -647,6 +647,121 @@ func _calculate_stats():
 	final_color = final_color * intensity
 	final_color.a = 1.0
 
+# --- Visual child-node pooling (AAA Perf Roadmap Hotspot 3: "Projectile
+# Visual Subtree Churn") -----------------------------------------------------
+# _build_visuals() below runs on EVERY shot, including pooled-projectile
+# reuse (see _ready()) - a high-fire-rate weapon (Gatling mount, multi-
+# pellet shotgun) can call it 30+ times/sec per weapon. Every call used to
+# discard the old visual_node's entire child subtree (queue_free) and
+# allocate a fresh Polygon2D/Line2D/GPUParticles2D/Trail2D/FireTrail2D for
+# every element it needed - real Node construction plus scene-tree
+# add_child/remove_child overhead, repeated at high frequency. FireTrail2D
+# in particular constructs several Resources in its own _init() (a
+# ParticleProcessMaterial plus baked Curve/GradientTexture1D textures),
+# making it the single most expensive of the five to keep reallocating.
+#
+# This pools the CHILD nodes (visual_node itself stays a cheap fresh
+# Node2D wrapper each call - it has no expensive setup of its own) by an
+# explicit string key tagged onto each node via metadata at first
+# construction, so release doesn't need to guess a pooled node's type back
+# from get_class() (which would return the ENGINE base class for a scripted
+# type like Trail2D/FireTrail2D, not the useful distinction). Bounded
+# free-list per key - never an unbounded cache.
+#
+# ALL the existing decision logic below (which shape for which synergy,
+# ornament LOD via ProjectileManager.should_show_full_ornament, ratio
+# gates, etc.) runs completely unchanged on every call - only WHERE each
+# node instance comes from (pool-or-construct) and goes on release
+# (pool-or-discard) changed. Every property this function sets on a node
+# (.polygon, .color, .scale, .points, .width, ...) is still set explicitly
+# on every call exactly as before, so a reused node landing in a different
+# branch next time can never carry over stale VISUAL properties from this
+# function's own logic. Three things a plain property-overwrite audit
+# wouldn't catch, handled explicitly below:
+#   - .material: the "apply glowing material" pass further down only
+#     assigns `if child.material == null` (a genuinely fresh node's actual
+#     default) - _release_pooled_children resets it back to null on
+#     reclaim so that check keeps behaving correctly for a recycled node.
+#   - Trail2D's setup (clear_points(), re-capturing its new parent as
+#     _target) lives in _ready(), which Godot only calls ONCE per node
+#     LIFETIME - remove_child+add_child alone would silently skip it on
+#     every reuse after the first, leaving a trail bound to a stale/wrong
+#     target. _acquire_pooled calls request_ready() on any node it hands
+#     back from the pool so _ready() reliably reruns before the caller
+#     re-parents it, same as a truly fresh node's first setup.
+#   - GPUParticles2D (bare, and FireTrail2D which extends it) can carry
+#     already-emitted particles from its previous life - _acquire_pooled
+#     calls restart() on reuse so no old particles ghost into the new shot.
+const _POOL_MAX_PER_KEY = 64
+static var _visual_node_pool: Dictionary = {} # String key -> Array[Node] free-list
+
+static func _acquire_pooled(pool_key: String, ctor: Callable) -> Node:
+	# Dictionary.get(key) with NO default returns null on a missing key -
+	# assigning that straight into a statically-typed `var pool: Array`
+	# is a runtime type-mismatch error in GDScript (caught live: every
+	# first-ever acquire of a given key hit this before the explicit []
+	# default was added). The explicit [] default keeps `pool` a real,
+	# always-valid Array regardless of whether this key has been seen yet.
+	var pool: Array = _visual_node_pool.get(pool_key, [])
+	if not pool.is_empty():
+		var node: Node = pool.pop_back()
+		node.request_ready() # Trail2D-style _ready() setup reruns on next add_child
+		if node is GPUParticles2D:
+			node.restart() # clears any particles still alive from its previous use
+		return node
+	var fresh: Node = ctor.call()
+	fresh.set_meta("_pool_key", pool_key)
+	return fresh
+
+static func _release_pooled_children(container: Node) -> void:
+	for child in container.get_children():
+		container.remove_child(child)
+		if not child.has_meta("_pool_key"):
+			child.queue_free() # not one of ours (shouldn't happen) - stay safe, just free it
+			continue
+		var key: String = child.get_meta("_pool_key")
+		child.material = null
+		# Clear any identity name (e.g. "MythicGlow"/"MountSignatureRing") a
+		# prior use gave it - a stale name matters because _process()'s
+		# glow-pulse animation and the signature-ring setup both look their
+		# node up via get_node_or_null("MythicGlow"/"MountSignatureRing")
+		# scoped to THIS shot's own visual_node; a pooled node that kept an
+		# old identity name from a past life could get found (and animated)
+		# under a completely different, non-Mythic shot's visual_node this
+		# time. Node.set_name("") is invalid (Godot errors and refuses -
+		# names must be non-empty) - "PooledVisual" is just a neutral
+		# placeholder that will never collide with either lookup name.
+		child.name = "PooledVisual"
+		# Same explicit-default requirement as _acquire_pooled above - and
+		# since this is the FIRST-EVER release for a brand new key, it must
+		# also actually store the new empty array back into the dictionary
+		# (a fresh [] returned by .get()'s default isn't the same object
+		# living IN the dictionary) before appending to it, or the append
+		# below would silently mutate a throwaway array nothing else ever
+		# reads back.
+		var pool: Array = _visual_node_pool.get(key, [])
+		if not _visual_node_pool.has(key):
+			_visual_node_pool[key] = pool
+		if pool.size() < _POOL_MAX_PER_KEY:
+			pool.append(child)
+		else:
+			child.queue_free() # already at cap for this key - let this one go rather than growing unbounded
+
+static func _get_polygon2d() -> Polygon2D:
+	return _acquire_pooled("Polygon2D", func(): return Polygon2D.new())
+
+static func _get_line2d() -> Line2D:
+	return _acquire_pooled("Line2D", func(): return Line2D.new())
+
+static func _get_gpu_particles2d() -> GPUParticles2D:
+	return _acquire_pooled("GPUParticles2D", func(): return GPUParticles2D.new())
+
+static func _get_trail2d() -> Trail2D:
+	return _acquire_pooled("Trail2D", func(): return Trail2D.new())
+
+static func _get_fire_trail2d() -> FireTrail2D:
+	return _acquire_pooled("FireTrail2D", func(): return FireTrail2D.new())
+
 func _build_visuals():
 	# On a pooled reuse, the previous activation's synergy-specific shapes
 	# (Polygon2D/Trail2D/GPUParticles2D/etc.) are still attached to the old
@@ -658,8 +773,11 @@ func _build_visuals():
 		# remove_child (not just queue_free) so the stale subtree is gone
 		# from the live tree THIS frame, not at end-of-frame - queue_free
 		# alone would let the old and new visual_node render simultaneously
-		# for one frame after every pooled reuse.
+		# for one frame after every pooled reuse. Children are reclaimed
+		# into the pool above (not freed) before visual_node itself (a
+		# cheap, non-pooled wrapper) is discarded.
 		remove_child(visual_node)
+		_release_pooled_children(visual_node)
 		visual_node.queue_free()
 	visual_node = Node2D.new()
 	add_child(visual_node)
@@ -710,7 +828,7 @@ func _build_visuals():
 
 	if dominant == EnergyPacket.SynergyType.KINETIC:
 		# Sharp, aerodynamic shape
-		var poly = Polygon2D.new()
+		var poly = _get_polygon2d()
 		poly.polygon = PackedVector2Array([
 			Vector2(10, 0), Vector2(-5, 5), Vector2(-2, 0), Vector2(-5, -5)
 		])
@@ -721,7 +839,7 @@ func _build_visuals():
 		if not full_ornament:
 			# Saturation stand-in: a simple ember wedge instead of a whole
 			# CPUParticles2D system per bullet.
-			var poly = Polygon2D.new()
+			var poly = _get_polygon2d()
 			poly.polygon = PackedVector2Array([
 				Vector2(9, 0), Vector2(-4, 4), Vector2(-6, 0), Vector2(-4, -4)
 			])
@@ -730,17 +848,22 @@ func _build_visuals():
 			visual_node.add_child(poly)
 		else:
 			# Spreading fire trail
-			var fire_trail = FireTrail2D.new()
+			var fire_trail = _get_fire_trail2d()
 			# scale_min/max moved onto the GPU process_material - see
-			# FireTrail2D.gd's GPU migration comment.
-			fire_trail.process_material.scale_min *= p_scale
-			fire_trail.process_material.scale_max *= p_scale
+			# FireTrail2D.gd's GPU migration comment. Assignment against
+			# the SAME base values FireTrail2D._init() itself sets, not
+			# `*=` - a pooled/reused fire_trail's scale_min/max already
+			# carries whatever the PREVIOUS shot's p_scale left it at, so
+			# multiplying again would compound across reuses instead of
+			# scaling fresh from the true base each time.
+			fire_trail.process_material.scale_min = 0.55 * p_scale
+			fire_trail.process_material.scale_max = 1.1 * p_scale
 			# Use MIX instead of ADD so the black soot is visible
 			fire_trail.material = _get_mix_material()
 			visual_node.add_child(fire_trail)
 	elif dominant == EnergyPacket.SynergyType.ICE:
 		# Crystalline, jagged shape
-		var poly = Polygon2D.new()
+		var poly = _get_polygon2d()
 		poly.polygon = PackedVector2Array([
 			Vector2(8, 0), Vector2(0, 4), Vector2(-5, 2), Vector2(-3, 0), Vector2(-5, -2), Vector2(0, -4)
 		])
@@ -749,7 +872,7 @@ func _build_visuals():
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.POISON:
 		# Teardrop shape
-		var poly = Polygon2D.new()
+		var poly = _get_polygon2d()
 		poly.polygon = PackedVector2Array([
 			Vector2(8, 0), Vector2(-2, 4), Vector2(-5, 2), Vector2(-5, -2), Vector2(-2, -4)
 		])
@@ -758,7 +881,7 @@ func _build_visuals():
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.LIGHTNING:
 		# Zig-zag bolt shape
-		var poly = Polygon2D.new()
+		var poly = _get_polygon2d()
 		poly.polygon = PackedVector2Array([
 			Vector2(8, -2), Vector2(2, 4), Vector2(0, 0), Vector2(-6, 4), Vector2(-2, -4), Vector2(0, 0)
 		])
@@ -767,7 +890,7 @@ func _build_visuals():
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.EXPLOSION:
 		# Spiky burst shape
-		var poly = Polygon2D.new()
+		var poly = _get_polygon2d()
 		poly.polygon = PackedVector2Array([
 			Vector2(6, 0), Vector2(2, 2), Vector2(0, 6), Vector2(-2, 2),
 			Vector2(-6, 0), Vector2(-2, -2), Vector2(0, -6), Vector2(2, -2)
@@ -777,7 +900,7 @@ func _build_visuals():
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.PIERCE:
 		# Needle shape
-		var poly = Polygon2D.new()
+		var poly = _get_polygon2d()
 		poly.polygon = PackedVector2Array([
 			Vector2(12, 0), Vector2(-6, 2), Vector2(-4, 0), Vector2(-6, -2)
 		])
@@ -786,7 +909,7 @@ func _build_visuals():
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.VAMPIRIC:
 		# Blood drop shape
-		var poly = Polygon2D.new()
+		var poly = _get_polygon2d()
 		poly.polygon = PackedVector2Array([
 			Vector2(8, 0), Vector2(-4, 6), Vector2(-2, 0), Vector2(-4, -6)
 		])
@@ -795,19 +918,19 @@ func _build_visuals():
 		visual_node.add_child(poly)
 	elif dominant == EnergyPacket.SynergyType.VORTEX:
 		# Diamond shape for vortex core
-		var poly = Polygon2D.new()
+		var poly = _get_polygon2d()
 		poly.polygon = PackedVector2Array([
 			Vector2(5, 0), Vector2(0, 5), Vector2(-5, 0), Vector2(0, -5)
 		])
 		poly.color = final_color
 		poly.scale = Vector2.ONE * p_scale
 		visual_node.add_child(poly)
-		
+
 		# Purple spiral (thinned to 1-in-4 shots under saturation - the
 		# diamond core carries the identity the rest of the time on a
 		# crowded screen)
 		if full_ornament:
-			var spiral = Line2D.new()
+			var spiral = _get_line2d()
 			var s_pts = PackedVector2Array()
 			for i in range(30):
 				var a = i * PI / 4.0
@@ -820,7 +943,7 @@ func _build_visuals():
 			visual_node.add_child(spiral)
 	elif dominant == EnergyPacket.SynergyType.RAW or dominant == -1:
 		# Glowing Raw Energy Sphere
-		var circ = Polygon2D.new()
+		var circ = _get_polygon2d()
 		var pts = PackedVector2Array()
 		for i in range(16):
 			var a = i * PI / 8.0
@@ -828,11 +951,11 @@ func _build_visuals():
 		circ.polygon = pts
 		circ.color = final_color
 		visual_node.add_child(circ)
-		
+
 	# Secondary Element modifies properties
 	if secondary == EnergyPacket.SynergyType.POISON and ProjectileManager.should_show_full_ornament(EnergyPacket.SynergyType.POISON):
 		# Toxic trail
-		var trail = GPUParticles2D.new()
+		var trail = _get_gpu_particles2d()
 		trail.amount = 20
 		var process_mat = ParticleProcessMaterial.new()
 		process_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
@@ -845,21 +968,21 @@ func _build_visuals():
 		visual_node.add_child(trail)
 	elif secondary == EnergyPacket.SynergyType.PIERCE:
 		# Add a glowing core
-		var core = Polygon2D.new()
+		var core = _get_polygon2d()
 		core.polygon = PackedVector2Array([
 			Vector2(5, 0), Vector2(0, 2), Vector2(-5, 0), Vector2(0, -2)
 		])
 		core.color = Color(1.0, 1.0, 1.0, 0.8)
 		core.scale = Vector2.ONE * p_scale
 		visual_node.add_child(core)
-		
+
 	# Setup helix for multi-synergy combos - tied to the shot's overall
 	# (dominant-synergy) ornament decision rather than any one element,
 	# since this ornament isn't attributable to a single synergy.
 	if sorted_synergies.size() >= 2 and full_ornament:
 		for k in synergies:
 			if k != EnergyPacket.SynergyType.RAW:
-				var h = Polygon2D.new()
+				var h = _get_polygon2d()
 				var pts = PackedVector2Array()
 				for i in range(8):
 					var a = i * PI / 4.0
@@ -873,7 +996,7 @@ func _build_visuals():
 					"speed": 10.0 + ratios[k] * 10.0,
 					"radius": (8.0 + ratios[k] * 12.0) * p_scale
 				})
-	
+
 	# Kinetic Trail - reuse full_ornament's decision when Kinetic is already
 	# the dominant synergy (it was computed for exactly this type then; a
 	# fresh call here would double-consume ProjectileManager's rotating
@@ -882,18 +1005,18 @@ func _build_visuals():
 	# show the trail - a shot with no real Kinetic presence must never
 	# spend a tick of Kinetic's counter.
 	if ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0) > 0.1 and (full_ornament if dominant == EnergyPacket.SynergyType.KINETIC else ProjectileManager.should_show_full_ornament(EnergyPacket.SynergyType.KINETIC)):
-		var trail = Trail2D.new()
+		var trail = _get_trail2d()
 		trail.width = 4.0
 		trail.default_color = final_color * Color(1,1,1,0.5)
 		visual_node.add_child(trail)
-		
+
 	# Vortex Helix Orbs - same reuse-if-already-dominant rule as the Kinetic
 	# trail above (avoids double-consuming Vortex's counter on a shot where
 	# it's already dominant, and never spends a tick on a shot with no real
 	# Vortex presence at all).
 	if ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) > 0.05 and (full_ornament if dominant == EnergyPacket.SynergyType.VORTEX else ProjectileManager.should_show_full_ornament(EnergyPacket.SynergyType.VORTEX)):
 		for i in range(3):
-			var orb = Polygon2D.new()
+			var orb = _get_polygon2d()
 			var pts = PackedVector2Array()
 			for j in range(8):
 				var a = j * PI / 4.0
@@ -913,9 +1036,9 @@ func _build_visuals():
 	for child in visual_node.get_children():
 		if child is CanvasItem and child.material == null:
 			child.material = mat
-			
+
 	if weapon_rarity == 4: # Mythic
-		var glow = Polygon2D.new()
+		var glow = _get_polygon2d()
 		glow.name = "MythicGlow"
 		var pts = PackedVector2Array()
 		for i in range(16):
@@ -934,7 +1057,7 @@ func _build_visuals():
 		for i in range(12):
 			var a = i * TAU / 12.0
 			ring_pts.append(Vector2(cos(a), sin(a)) * 11.0)
-		var ring = Line2D.new()
+		var ring = _get_line2d()
 		ring.name = "MountSignatureRing"
 		ring.points = ring_pts + PackedVector2Array([ring_pts[0]])
 		ring.width = 1.4

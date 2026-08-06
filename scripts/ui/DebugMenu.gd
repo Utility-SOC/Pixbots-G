@@ -535,7 +535,9 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		"res://scripts/tiles/JammerModuleTile.gd",
 		"res://scripts/tiles/MissileRackTile.gd",
 		"res://scripts/tiles/ReverseAccumulatorTile.gd",
-		"res://scripts/tiles/OrbitingArrayTile.gd"
+		"res://scripts/tiles/OrbitingArrayTile.gd",
+		"res://scripts/tiles/StructuralStrutTile.gd",
+		"res://scripts/tiles/ReactivePlatingTile.gd"
 	]
 	
 	# Give 50 of each normal tile

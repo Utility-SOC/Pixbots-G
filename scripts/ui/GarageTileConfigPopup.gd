@@ -277,17 +277,20 @@ func on_tile_clicked(tile: HexTile):
 
 		_show_popup(popup, Vector2(250, 100))
 
-	elif tile.tile_type == "Elemental Infuser" or tile.tile_type == "Catalyst":
+	elif tile.tile_type == "Elemental Infuser" or tile.tile_type == "Catalyst" or tile.tile_type == "Structural Strut":
 		var popup = PopupPanel.new()
 		var vbox = VBoxContainer.new()
 		popup.add_child(vbox)
 
 		var label = Label.new()
-		label.text = "Configure " + tile.tile_type + " Synergy"
+		# Struts double as elemental armor now (design request) - "Synergy"
+		# is accurate energy-routing language but reads as a non-sequitur on
+		# an inert filler tile, so it gets its own clearer label here.
+		label.text = "Configure Armor Element" if tile.tile_type == "Structural Strut" else ("Configure " + tile.tile_type + " Synergy")
 		vbox.add_child(label)
 
 		var btn = Button.new()
-		var prop_name = "secondary_synergy" if tile.tile_type == "Elemental Infuser" else "target_synergy"
+		var prop_name = "target_synergy" if tile.tile_type == "Catalyst" else "secondary_synergy"
 		btn.text = "Synergy: %s" % EnergyPacket.element_name(tile.get(prop_name))
 		btn.gui_input.connect(func(event):
 			if event is InputEventMouseButton and event.pressed:

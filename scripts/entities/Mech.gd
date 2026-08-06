@@ -1037,6 +1037,7 @@ func _physics_process(delta: float):
 		velocity += external_force
 		move_and_slide()
 		_process_ramming(delta)
+		_process_reactive_plating_cooldowns(delta)
 		var lerp_weight = 10.0 * delta
 		if lerp_weight > 1.0: lerp_weight = 1.0
 		external_force = external_force.lerp(Vector2.ZERO, lerp_weight)
@@ -1104,7 +1105,8 @@ func _physics_process(delta: float):
 				move_and_slide()
 			_perf_move_usec += Time.get_ticks_usec() - _t_move2
 			_process_ramming(delta)
-			
+			_process_reactive_plating_cooldowns(delta)
+
 		var lerp_weight = 10.0 * delta
 		if lerp_weight > 1.0: lerp_weight = 1.0
 		external_force = external_force.lerp(Vector2.ZERO, lerp_weight)
@@ -1285,6 +1287,18 @@ func _process_ramming(delta: float):
 
 		if other.has_method("_show_floating_text"):
 			other._show_floating_text(ram_label, Color(1.0, 0.6, 0.2))
+
+# Reactive Plating's per-attacker cooldown (see has_reactive_plating's field
+# comment) - mirrors _ram_cooldowns' own decrement loop above, just for a
+# different system. Always ticks regardless of whether THIS mech is
+# currently ramming/being rammed, same as ram cooldowns do.
+func _process_reactive_plating_cooldowns(delta: float):
+	if _reactive_plating_cooldowns.is_empty():
+		return
+	for id in _reactive_plating_cooldowns.keys():
+		_reactive_plating_cooldowns[id] -= delta
+		if _reactive_plating_cooldowns[id] <= 0.0:
+			_reactive_plating_cooldowns.erase(id)
 
 func pull_towards(target_pos: Vector2, delta: float, strength: float = 600.0):
 	var dir = (target_pos - global_position).normalized()
@@ -1778,6 +1792,9 @@ func _reset_grid_state():
 	total_magnetic_power = 0.0
 	min_loot_attract_rarity = -1
 	stat_modifiers.clear()
+	elemental_resistances.clear() # rebuilt below from equipped Structural Struts (elemental armor)
+	has_reactive_plating = false
+	reactive_plating_reflect_pct = 0.0
 
 func _compute_mass_and_stat_modifiers():
 	# Melee/mass physics pillar: total mass drives the movement-speed
@@ -2193,6 +2210,36 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					has_cloak_detection = true
 				if tile.has_method("get_sight_bonus"):
 					sensor_sight_bonus = max(sensor_sight_bonus, tile.get_sight_bonus())
+
+			# Elemental armor (Structural Strut, design request). Passive,
+			# no routing required - RAW means unconfigured/inert, same
+			# convention as Elemental Infuser. Stacks MULTIPLICATIVELY per
+			# tile (like layered armor plates) rather than additively, so
+			# it approaches but never reaches full immunity to an element
+			# no matter how many Struts are piled on.
+			if tile.tile_type == "Structural Strut" and tile.secondary_synergy != EnergyPacket.SynergyType.RAW:
+				var armor_element = EnergyPacket.element_name(tile.secondary_synergy)
+				var per_strut_reduction = clamp(
+					TileStatsRegistry.get_stat("StructuralStrutTile", "armor_reduction_base", 0.03)
+						+ (tile.rarity * TileStatsRegistry.get_stat("StructuralStrutTile", "armor_reduction_rarity_coeff", 0.02)),
+					0.0, 0.5)
+				elemental_resistances[armor_element] = elemental_resistances.get(armor_element, 1.0) * (1.0 - per_strut_reduction)
+
+			# Reactive Plating (design request: "reactive armor options
+			# which melee mechs will abuse" - see the field comment on
+			# has_reactive_plating for the full trigger design). Passive,
+			# unconditional from presence, same as Anchor. Stacks
+			# ADDITIVELY (not multiplicatively like the armor above) but
+			# capped, since this is "how much of a single incoming hit
+			# bounces back" rather than a per-plate independent mitigation
+			# layer - uncapped additive stacking could reflect MORE than
+			# 100% of a hit with enough plates.
+			if tile.tile_type == "Reactive Plating":
+				has_reactive_plating = true
+				var per_plate_pct = TileStatsRegistry.get_stat("ReactivePlatingTile", "reflect_pct_base", 0.08) \
+					+ (tile.rarity * TileStatsRegistry.get_stat("ReactivePlatingTile", "reflect_pct_rarity_coeff", 0.05))
+				var reflect_cap = TileStatsRegistry.get_stat("ReactivePlatingTile", "reflect_pct_cap", 0.6)
+				reactive_plating_reflect_pct = min(reactive_plating_reflect_pct + per_plate_pct, reflect_cap)
 
 func _finalize_grid_state():
 	# Find dominant shield synergy
@@ -2861,6 +2908,24 @@ func _execute_ai_tactics(delta):
 
 var elemental_resistances: Dictionary = {}
 
+# Reactive Plating (design request: "reactive armor options which melee
+# mechs will abuse"). Passive/unconditional from mere presence, same as
+# AnchorTile - no energy routing required. Wearer counter-hits whatever
+# damaged them, but ONLY if the attacker is close enough that "explosive
+# plating" makes physical sense (see REACTIVE_PLATING_TRIGGER_RADIUS in
+# apply_damage) - a ranged mech plinking from across the map is too far
+# away to ever eat the counter-blast, but anything that rammed in (or is
+# just standing point-blank) is. That's the deliberate "melee abuses this"
+# lever: a mech that's already committed to close-range brawling takes
+# more hits at exactly the range this triggers, AND punishes whatever it's
+# trading blows with.
+var has_reactive_plating: bool = false
+var reactive_plating_reflect_pct: float = 0.0 # % of incoming (post-mitigation) damage reflected back to the attacker
+# Per-attacker cooldown (mirrors _ram_cooldowns' shape) - without this, a
+# sustained beam/DoT source standing close would eat a reactive counter-hit
+# EVERY tick, not just once per "hit".
+var _reactive_plating_cooldowns: Dictionary = {}
+
 # Shared shield-mitigation step used by both apply_damage() and
 # apply_part_damage() (previously duplicated verbatim in both - a fix to
 # one would silently desync from the other). Mutates shield_hp directly and
@@ -3082,6 +3147,25 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 	# all, nothing left to apply" - that's the only case that should bail.
 	if amount == 0.0:
 		return
+
+	# Reactive Plating counter-hit (design request - see has_reactive_plating's
+	# field comment for the full trigger design). `amount` here is the FINAL
+	# post-elemental-resistance, post-shield damage that's about to land, so
+	# the counter-hit scales off what actually got through, not the raw
+	# incoming number. was_reflected guards against infinite ping-pong
+	# between two mutually-plated mechs standing adjacent - this counter-hit
+	# is tagged was_reflected=true, so it can't trigger the attacker's OWN
+	# plating back at us in turn.
+	if amount > 0.0 and has_reactive_plating and not was_reflected \
+			and is_instance_valid(source) and source.has_method("apply_damage") and "global_position" in source:
+		var trigger_radius = TileStatsRegistry.get_stat("ReactivePlatingTile", "trigger_radius", 140.0)
+		if global_position.distance_to(source.global_position) <= trigger_radius:
+			var src_id = source.get_instance_id()
+			if not _reactive_plating_cooldowns.has(src_id):
+				var counter_dmg = amount * reactive_plating_reflect_pct
+				if counter_dmg > 0.0:
+					_reactive_plating_cooldowns[src_id] = TileStatsRegistry.get_stat("ReactivePlatingTile", "trigger_cooldown", 0.75)
+					source.apply_damage(counter_dmg, "RAW", self, true, "REACTIVE ARMOR")
 
 	# Squad._calculate_fitness's damage-traded and reflection-punishment
 	# axes (see took_damage's own field comment) - post-mitigation amount,

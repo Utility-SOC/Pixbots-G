@@ -120,3 +120,16 @@ func fire(mech) -> void:
 		proj.global_position = muzzle
 		proj.setup(mech, damage, _armed_packet.synergies.duplicate(), by_player, i * angle_step)
 		world.add_child(proj)
+
+	# AAA roadmap: capital-mount camera kick. An Orbiting Array has no
+	# single firing trajectory (it's a radial burst), so "opposite the
+	# firing vector" doesn't quite apply the way it does for a Lance
+	# Mount's beam - kick away from wherever the mech's currently aiming
+	# instead, which is the closest analog and keeps both capital weapons
+	# feeling consistent with each other.
+	if by_player:
+		var cam = mech.get_tree().get_first_node_in_group("camera")
+		if cam and cam.has_method("kick"):
+			var aim_pos = mech.get("last_aim_position") if "last_aim_position" in mech else null
+			var dir = (aim_pos - muzzle).normalized() if aim_pos and aim_pos != muzzle else Vector2(0, -1)
+			cam.kick(dir, 12.0)

@@ -38,6 +38,7 @@ EntityCache="*res://scripts/core/EntityCache.gd"
 TileStatsRegistry="*res://scripts/core/TileStatsRegistry.gd"
 FpsCounter="*res://scripts/core/FpsCounter.gd"
 TileDiscoveryPopup="*res://scripts/core/TileDiscoveryPopup.gd"
+HitstopManager="*res://scripts/core/HitstopManager.gd"
 
 [display]
 

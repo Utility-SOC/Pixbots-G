@@ -3110,6 +3110,7 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 	if element == "PIERCE" and not _is_pierce_execution_exempt():
 		if randf() < PIERCE_EXECUTION_CHANCE:
 			_show_floating_text("EXECUTED", Color(1.0, 0.15, 0.15))
+			HitstopManager.trigger()
 			hp = 0
 			if is_player and is_instance_valid(source) and source.has_method("note_priority_kill"):
 				source.note_priority_kill(is_in_group("player"))
@@ -3572,6 +3573,12 @@ func die():
 	if is_dead or is_queued_for_deletion():
 		return
 	is_dead = true
+
+	# AAA roadmap Hitstop: a boss going down deserves more weight than a
+	# regular kill - slightly longer freeze than the Pierce-execution one
+	# (see HitstopManager.trigger()'s defaults), same self-restoring guard.
+	if is_boss:
+		HitstopManager.trigger(0.06)
 
 	# Report the killing element to the director (kill-method telemetry for
 	# pierce-overuse counter-pressure). Approximation: we don't track the

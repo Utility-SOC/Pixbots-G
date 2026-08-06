@@ -82,9 +82,10 @@ func _process(delta: float):
 				_factor = _target_factor
 		zoom = Vector2.ONE * base_zoom * _factor
 
+	var shake_offset = Vector2.ZERO
 	if shake_duration > 0.0:
 		shake_duration -= delta
-		offset = Vector2(
+		shake_offset = Vector2(
 			randf_range(-shake_intensity, shake_intensity),
 			randf_range(-shake_intensity, shake_intensity)
 		)
@@ -92,10 +93,33 @@ func _process(delta: float):
 		if lerp_weight > 1.0: lerp_weight = 1.0
 		shake_intensity = lerp(shake_intensity, 0.0, lerp_weight)
 	else:
-		offset = Vector2.ZERO
 		shake_intensity = 0.0
+
+	if _kick_offset.length_squared() > 0.01:
+		var kick_t = 1.0 - exp(-KICK_SPRING_RATE * delta)
+		_kick_offset = _kick_offset.lerp(Vector2.ZERO, kick_t)
+	else:
+		_kick_offset = Vector2.ZERO
+
+	offset = shake_offset + _kick_offset
 
 func shake(intensity: float, duration: float):
 	# Base shake is 10 pixels per intensity unit
 	shake_intensity = max(shake_intensity, intensity * 10.0)
 	shake_duration = max(shake_duration, duration)
+
+# --- Directional camera kick (AAA roadmap: capital-mount recoil) -----------
+# Distinct from shake() above (omnidirectional jitter, "everything's
+# rattling") - kick() is a single directional impulse that springs back to
+# zero, for "the camera physically recoiled from firing". Additive with
+# shake's offset in _process() so a massive-damage shake and a Lance
+# Mount's kick can coexist without one clobbering the other.
+const KICK_SPRING_RATE = 14.0 # exponential decay toward zero per second
+var _kick_offset: Vector2 = Vector2.ZERO
+
+func kick(fire_direction: Vector2, intensity: float = 14.0):
+	if fire_direction.length() < 0.001:
+		return
+	# "backward along the vector opposite to the firing trajectory" - the
+	# caller passes the direction the SHOT travels, kick recoils the other way.
+	_kick_offset += -fire_direction.normalized() * intensity

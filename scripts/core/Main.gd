@@ -274,6 +274,28 @@ func _setup_pixel_viewport():
 	world.name = "World"
 	viewport.add_child(world)
 
+	# AAA Polish Roadmap Phase 1: HDR Bloom. Added as code (like the rest of
+	# this function) rather than hand-edited into main.tscn - a malformed
+	# .tscn edit risks the whole scene failing to load, while a WorldEnvironment
+	# built here is just another node in the same programmatic setup this
+	# function already does. Lives inside PixelViewport (sibling of `world`)
+	# so it only ever affects the battlefield render, never the HUD layer
+	# above it. Conservative defaults per the roadmap spec - glow is inert
+	# (no visible bloom) on any color that never exceeds 1.0 in a channel,
+	# so this is safe by construction even before anything in the game
+	# actually pushes HDR-range colors; wiring specific projectile/packet
+	# colors above 1.0 to actually trigger it is a separate follow-up.
+	var world_env = WorldEnvironment.new()
+	world_env.name = "PixelViewportEnvironment"
+	var env = Environment.new()
+	env.background_mode = Environment.BG_CLEAR_COLOR
+	env.glow_enabled = true
+	env.glow_hdr_threshold = 1.0
+	env.glow_intensity = 0.8
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	world_env.environment = env
+	viewport.add_child(world_env)
+
 func _setup_hud():
 	hud_canvas = CanvasLayer.new()
 	hud_canvas.layer = 5

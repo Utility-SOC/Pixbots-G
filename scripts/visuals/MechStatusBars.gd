@@ -39,6 +39,18 @@ static var _perf_draw_usec: int = 0
 # off-screen culling.
 var _on_screen: bool = true
 
+# AAA roadmap Hotspot 4 (UI Redraw Churn): a regular mob's bar redrew on
+# ANY hp/shield change, including fractional nudges from a single DoT tick -
+# in a big battle with lots of Poison/Fire stacks that's most on-screen
+# mechs, most frames. The player and bosses stay pixel-precise (every frame
+# scrutinized); everyone else is capped to 15Hz and skips redraws for
+# sub-1% changes, UNLESS the mech just crossed the alive/dead line (a bar
+# that lingers non-empty a frame after death reads as a bug, throttle or
+# not).
+const NPC_REDRAW_HZ := 15.0
+const NPC_MIN_VISIBLE_DELTA := 0.01
+var _npc_redraw_timer: float = 0.0
+
 func _ready():
 	var notifier = VisibleOnScreenNotifier2D.new()
 	# Generous rect - covers the bars' own draw extent above the mech
@@ -52,7 +64,7 @@ func _ready():
 	notifier.screen_exited.connect(func(): _on_screen = false)
 	add_child(notifier)
 
-func _process(_delta):
+func _process(delta):
 	if not _on_screen:
 		return
 	if not owner_mech or not is_instance_valid(owner_mech) or not "hp" in owner_mech:
@@ -61,10 +73,25 @@ func _process(_delta):
 	var shld_pct = 0.0
 	if owner_mech.max_shield_hp > 0:
 		shld_pct = clamp(owner_mech.shield_hp / max(1.0, owner_mech.max_shield_hp), 0.0, 1.0)
-	if hp_pct != _last_hp_pct or shld_pct != _last_shld_pct:
-		_last_hp_pct = hp_pct
-		_last_shld_pct = shld_pct
-		queue_redraw()
+	if hp_pct == _last_hp_pct and shld_pct == _last_shld_pct:
+		return
+
+	var is_priority = owner_mech.is_player or ("is_boss" in owner_mech and owner_mech.is_boss)
+	if not is_priority:
+		var crossed_death_line = (hp_pct <= 0.0) != (_last_hp_pct <= 0.0)
+		var hp_delta = abs(hp_pct - _last_hp_pct)
+		var shld_delta = abs(shld_pct - _last_shld_pct)
+		_npc_redraw_timer -= delta
+		if not crossed_death_line:
+			if hp_delta < NPC_MIN_VISIBLE_DELTA and shld_delta < NPC_MIN_VISIBLE_DELTA:
+				return # accumulates against the still-stale _last_*_pct until it's visible
+			if _npc_redraw_timer > 0.0:
+				return
+		_npc_redraw_timer = 1.0 / NPC_REDRAW_HZ
+
+	_last_hp_pct = hp_pct
+	_last_shld_pct = shld_pct
+	queue_redraw()
 
 func _get_render_scale() -> float:
 	if owner_renderer and is_instance_valid(owner_renderer) and "last_render_scale" in owner_renderer:

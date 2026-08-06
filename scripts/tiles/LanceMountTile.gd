@@ -127,3 +127,10 @@ func fire(mech) -> void:
 	var beam = LanceBeamScript.new()
 	beam.setup(muzzle, end_pos, damage, _armed_packet.synergies.duplicate(), by_player, mech, TileStatsRegistry.get_stat("LanceMountTile", "residue_lifetime", 7.0))
 	world.add_child(beam)
+
+	# AAA roadmap: capital-mount camera kick - only for the player's own
+	# shots (an enemy Lance Mount firing shouldn't yank the player's view).
+	if by_player:
+		var cam = mech.get_tree().get_first_node_in_group("camera")
+		if cam and cam.has_method("kick"):
+			cam.kick(dir, 16.0)

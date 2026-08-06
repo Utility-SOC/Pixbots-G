@@ -39,6 +39,46 @@ const RARITY_COLORS = [
 	Color(0.85, 0.3, 0.9),   # MYTHIC
 ]
 
+# Standalone per-component schematic thumbnail - same axial-to-pixel block
+# projection and per-tile rarity-blended coloring as render_card_image()'s
+# blueprint band below (deliberately NOT refactored to share code with it:
+# that function has its own fixed 200x130 card-slot framing this doesn't
+# need, and the export/interop path is proven and shouldn't be touched for
+# an unrelated caller). Auto-sized to the component's own hex bounding box
+# plus padding rather than a fixed frame, so callers can request any
+# `cell_px` and get back an appropriately-sized Image - e.g. the Garage
+# paperdoll's callout boxes, which are much smaller than a card's blueprint
+# slot. Returns null for an empty/missing grid so callers can fall back to
+# an "(empty)" placeholder instead of a blank image.
+static func render_component_thumbnail(comp, cell_px: int = 8, padding_px: int = 3) -> Image:
+	if not comp or not comp.hex_grid:
+		return null
+	var coords = comp.hex_grid.grid.keys()
+	if coords.is_empty():
+		return null
+
+	var positions = {}
+	var min_px = Vector2.INF
+	var max_px = -Vector2.INF
+	for coord in coords:
+		var pos = Vector2((coord.x * 2.0 + coord.y) * cell_px, coord.y * cell_px * 1.5)
+		positions[coord] = pos
+		min_px = min_px.min(pos)
+		max_px = max_px.max(pos + Vector2(cell_px, cell_px))
+
+	var w = int(ceil(max_px.x - min_px.x)) + padding_px * 2
+	var h = int(ceil(max_px.y - min_px.y)) + padding_px * 2
+	var img = Image.create(max(w, 1), max(h, 1), false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0)) # transparent - caller draws its own panel behind it
+
+	for coord in coords:
+		var tile = comp.hex_grid.grid[coord]
+		var pos = positions[coord] - min_px + Vector2(padding_px, padding_px)
+		var base = tile.base_color if "base_color" in tile else Color(0.5, 0.5, 0.5)
+		var rc = RARITY_COLORS[clamp(tile.rarity, 0, 4)]
+		img.fill_rect(Rect2i(int(pos.x), int(pos.y), cell_px, cell_px), base.lerp(rc, 0.35))
+	return img
+
 # ---------------------------------------------------------------- payload --
 
 static func build_payload(mech: Node, pilot_name: String) -> Dictionary:

@@ -195,12 +195,32 @@ func _describe_chip(chip: Dictionary) -> String:
 	var prefix = "" if traits.size() == 1 else "[Corrupted] "
 	return prefix + ", ".join(parts)
 
+# Short form for the inline "Chips: N (next: ...)" bottom-bar label - a
+# Corrupted chip can carry as many traits as splicing has accumulated (real
+# playtest case: 11), and _describe_chip()'s full comma-joined line at that
+# size is wide enough on its own to exceed the Garage's entire left-panel
+# layout budget, forcing the whole hsplit wider than the viewport and
+# shoving the right sidebar off-screen (see update_chip_label()'s comment).
+# Only ever show trait COUNT inline; the full breakdown still lives in the
+# label's tooltip via _describe_chip().
+func _describe_chip_short(chip: Dictionary) -> String:
+	var traits = chip.get("traits", [])
+	if traits.is_empty():
+		return "(empty chip)"
+	if traits.size() == 1:
+		return _describe_chip(chip) # already short: "stat +pct%"
+	var pct = int(round((float(traits[0]["value"]) - 1.0) * 100.0))
+	return "[Corrupted] %s %+d%% +%d more (hover)" % [str(traits[0]["stat"]), pct, traits.size() - 1]
+
 func update_chip_label():
 	var main = garage.get_parent()
 	if garage.chip_count_label and main and main.get("player_modifier_chips") != null:
 		var txt = "Chips: %d" % main.player_modifier_chips.size()
+		garage.chip_count_label.tooltip_text = ""
 		if main.player_modifier_chips.size() > 0:
-			txt += "  (next: %s)" % _describe_chip(main.player_modifier_chips[0])
+			var next_chip = main.player_modifier_chips[0]
+			txt += "  (next: %s)" % _describe_chip_short(next_chip)
+			garage.chip_count_label.tooltip_text = "Next chip: %s" % _describe_chip(next_chip)
 		garage.chip_count_label.text = txt
 	if garage.chip_capacity_label and garage.active_component:
 		garage.chip_capacity_label.text = "Capacity: %d/%d" % [garage.active_component.equipped_chips.size(), garage.active_component.get_chip_capacity()]

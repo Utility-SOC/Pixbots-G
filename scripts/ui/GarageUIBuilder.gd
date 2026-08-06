@@ -359,6 +359,23 @@ func build():
 
 	garage.chip_count_label = Label.new()
 	garage.chip_count_label.text = "Chips: 0"
+	# mouse_filter STOP so tooltip_text (the full next-chip trait breakdown,
+	# set by TileActionMenu.update_chip_label) actually shows on hover -
+	# Label defaults to MOUSE_FILTER_IGNORE and would eat the tooltip
+	# otherwise. clip_text (not autowrap) is the defensive floor: an earlier
+	# pass tried AUTOWRAP_WORD_SMART, but this Label gets no explicit
+	# custom_minimum_size and feature5_bar's other buttons already claim
+	# most of the row, so Godot squeezed its allotted width to near zero
+	# and autowrap collapsed the text to ONE CHARACTER PER LINE, rendering
+	# as a full-screen-height vertical strip (same failure shape as the
+	# empty-state HFlowContainer label bug elsewhere in this file - search
+	# "one letter per line"). clip_text just ellipsizes whatever doesn't
+	# fit instead of needing room to wrap INTO, so it can't blow up
+	# minimum size the same way. update_chip_label() already keeps this
+	# text short by design (see its own comment on the hsplit-overflow bug
+	# that caused), so clip_text is only ever a backstop.
+	garage.chip_count_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	garage.chip_count_label.clip_text = true
 	feature5_bar.add_child(garage.chip_count_label)
 
 	var market_btn = Button.new()

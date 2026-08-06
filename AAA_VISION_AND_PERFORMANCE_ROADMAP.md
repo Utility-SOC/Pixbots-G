@@ -205,17 +205,17 @@ The long-term goal for Pixbots-G (or *Pixelbots 2*) is to transition from 2D tab
 ```
 
 ### Phase 1: Immediate 2D Visual Polish & Performance Fixes (Current Engine)
-- [ ] **WorldEnvironment HDR Bloom:** Add `WorldEnvironment` node to `Main.tscn` with Glow enabled (`threshold: 1.0`, `intensity: 0.8`). Set projectile/packet colors to HDR intensities.
-- [ ] **Hitstop & Frame Freeze Manager:** Create `HitstopManager.gd` autoload to briefly adjust `Engine.time_scale` on critical hits and Piercing executes.
-- [ ] **Camera Kick & Recoil:** Implement camera recoil impulses in [CameraShake.gd](file:///j:/pixel_bots/godot/scripts/core/CameraShake.gd) tied to weapon magnitude.
-- [ ] **Tabletop Diorama Shader:** Create full-screen vignette and tilt-shift blur shader canvas overlay.
-- [ ] **Batch Spatial Ability Queries:** Port Jammer, Healer, and Magnet radial scans to a unified spatial bucket query in [ProximityQueryRs](file:///j:/pixel_bots/godot/rust_ext/src/proximity_query.rs).
+- [x] **WorldEnvironment HDR Bloom:** Added programmatically in `Main._setup_pixel_viewport()` (2026-08-06) rather than hand-edited into `main.tscn` - a malformed `.tscn` edit risks the whole scene failing to load. Conservative defaults per spec; inert until projectile/packet colors are actually pushed into HDR range, which is a real follow-up, not yet done.
+- [x] **Hitstop & Frame Freeze Manager:** `scripts/core/HitstopManager.gd` (2026-08-06), autoload, wired into Pierce executions and boss deaths. Self-restoring via an `ignore_time_scale` recovery timer - verified headless in `AAAPolishPhase1Check.gd`.
+- [x] **Camera Kick & Recoil:** `CameraShake.kick()` (2026-08-06), additive with the existing omnidirectional `shake()`. Wired into Lance Mount and Orbiting Array fire() (player shots only).
+- [x] **Tabletop Diorama Shader:** Already shipped (`e1baa1d`/`74238e6`, prior session) - predates this doc.
+- [ ] **Batch Spatial Ability Queries:** Not attempted in the 2026-08-06 autonomous pass - a correctness-sensitive refactor across live Jammer/Healer/Magnet combat behavior that needs an actual playtest to verify, not just a headless check. Left for a supervised session.
 
 ### Phase 2: Audio Elevation & FFI Optimization
-- [ ] **Multi-Layered Weapon Audio:** Upgrade [AudioManager.gd](file:///j:/pixel_bots/godot/scripts/audio/AudioManager.gd) with 4-layer weapon audio synthesis and dynamic sidechain ducking.
-- [ ] **Tactile UI Audio Cues:** Add mechanical sound effects for tile placement, rotation, tab switching, and button hover states.
+- [ ] **Multi-Layered Weapon Audio:** Not attempted (2026-08-06 pass) - audio synthesis quality can't be judged without actually hearing it, deliberately left for a supervised session.
+- [ ] **Tactile UI Audio Cues:** Same reasoning as above - skipped, not a code-risk call, a "can't verify by ear" call.
 - [ ] **Packed Float FFI Buffers:** Convert [ProjectileManager.gd](file:///j:/pixel_bots/godot/scripts/core/ProjectileManager.gd) $\leftrightarrow$ Rust GDExtension array transfers to packed float buffers.
-- [ ] **Sci-Fi UI & Animated Conduits:** Integrate custom typography and animate energy flow paths inside the Garage UI.
+- [ ] **Sci-Fi UI & Animated Conduits:** Integrate custom typography and animate energy flow paths inside the Garage UI. (Custom font files aren't available to source autonomously.)
 
 ### Phase 3: Long-Term 3D Extraction (*Pixelbots 2* / 3D Horizon)
 - [ ] **Extract `pixbots_core` Crate:** Isolate hex-grid simulation, packet routing, and AI Director logic into an engine-agnostic Rust crate (`pixbots_core`).

@@ -61,6 +61,44 @@ func _ensure_rust():
 		if ClassDB.class_exists("ProjectileBroadphaseRs"):
 			_rasterizer = ClassDB.instantiate("ProjectileBroadphaseRs")
 
+# Perf fix (live playtest: "broadphase" was the single dominant cost on the
+# overlay - 424-467ms/sec - and stayed roughly CONSTANT whether 1 or 76
+# shots were live, proving it wasn't scaling with projectile count at all).
+# Root cause: this function rebuilt a fresh {id,pos,radius,layer} dict for
+# EVERY obstacle (TreeObstacle/RuinObstacle/DestructibleObstacle/CorpseHusk,
+# all in the "obstacle" group) on EVERY physics tick, even though none of
+# them ever move once placed (confirmed by reading all four - no
+# global_position reassignment anywhere in their own bodies) - a dense map
+# can easily carry hundreds of trees, so this was pure wasted work 60
+# times a second regardless of what's actually happening in combat.
+# Cached and only rebuilt when the obstacle GROUP's membership actually
+# changes (a tree destroyed, a corpse spawned/aged out) - detected via a
+# cheap size comparison against EntityCache's own already-per-frame-cached
+# group array, not a per-obstacle diff. A same-tick add+remove that nets
+# back to the same count would be missed, but that's not a real scenario
+# for terrain/corpse obstacles and self-corrects the moment the count
+# actually differs.
+var _cached_obstacle_targets: Array = []
+var _cached_obstacle_count: int = -1
+# Diagnostic-only, mirrors the _perf_diag_* convention elsewhere in this
+# session - a headless check can assert this stays flat across many calls
+# with no membership change, and increments the moment it actually does.
+var _obstacle_rebuild_count: int = 0
+
+func _get_obstacle_targets() -> Array:
+	var obstacles = EntityCache.get_group("obstacle")
+	if obstacles.size() == _cached_obstacle_count:
+		return _cached_obstacle_targets
+	var fresh: Array = []
+	for o in obstacles:
+		if not is_instance_valid(o):
+			continue
+		fresh.append({"id": o.get_instance_id(), "pos": o.global_position, "radius": o.broadphase_radius, "layer": o.collision_layer})
+	_cached_obstacle_targets = fresh
+	_cached_obstacle_count = obstacles.size()
+	_obstacle_rebuild_count += 1
+	return _cached_obstacle_targets
+
 # Perf plan (wave-138 playtest overlay: this whole module was invisible to
 # FpsCounter's breakdown, a real blind spot next to the "shoot"/
 # "projectile_physics" buckets it does track) - FpsCounter reads-AND-RESETS
@@ -82,10 +120,7 @@ func _physics_process_body(_delta):
 		if not is_instance_valid(h):
 			continue
 		targets.append({"id": h.get_instance_id(), "pos": h.global_position, "radius": h.broadphase_radius, "layer": h.collision_layer})
-	for o in EntityCache.get_group("obstacle"):
-		if not is_instance_valid(o):
-			continue
-		targets.append({"id": o.get_instance_id(), "pos": o.global_position, "radius": o.broadphase_radius, "layer": o.collision_layer})
+	targets.append_array(_get_obstacle_targets())
 
 	var projectiles: Array = []
 	for id in _reports:

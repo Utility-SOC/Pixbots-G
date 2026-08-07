@@ -242,8 +242,17 @@ func build():
 	# instead.
 	deploy_button.pressed.connect(func():
 		var main = garage.get_parent()
-		if main and main.get("player") != null:
-			SaveManager.save_game("autosave", main.player, garage.inventory)
+		# Perf fix (live playtest: ~20s Deploy-to-gameplay stall) - this used
+		# to also call SaveManager.save_game() right here, then
+		# Main._close_garage() (called right below) did the EXACT SAME
+		# save_game("autosave", player, player_inventory) call again a
+		# moment later - garage.inventory IS main.player_inventory (set by
+		# reference in GarageMenu._ready()), so both calls always
+		# serialized identical data. On a save with a large inventory that
+		# duplicate synchronous JSON write was a real, pure-waste cost paid
+		# twice on every single Deploy. _close_garage() also recalculates
+		# the player/drone grids before its own save, so keeping THAT one
+		# (not this earlier one) saves the more up-to-date state anyway.
 		if main and main.has_method("_close_garage"):
 			main._close_garage()
 	)

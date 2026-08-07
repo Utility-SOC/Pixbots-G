@@ -784,6 +784,17 @@ func _on_clear_grid_pressed():
 			continue
 		if active_component.slot_type == HexTile.BodySlot.TORSO and h.q == 0 and h.r == 0:
 			continue # Never clear the Torso Core
+		# Data-integrity fix (live save audit: 138 waves of Clear Grid had
+		# leaked thousands of structural tiles - Energy Intake/Torso Return/
+		# peripheral Links/other slots' own Core - into loose inventory,
+		# since this only ever protected a TORSO's own (0,0) Core above, not
+		# any component's fixed_sinks in general. See ComponentEquipment.
+		# is_fixed_sink's own comment - AutoEquipSolver already excludes
+		# these correctly by leaving them on the grid entirely (removing a
+		# fixed_sink would break the component's structure, same reason the
+		# Core check above is a skip, not a "remove but don't inventory").
+		if active_component.is_fixed_sink(h):
+			continue
 		grid_renderer.hex_grid.remove_tile(h)
 		inventory.append(tile)
 		cleared += 1
@@ -874,11 +885,26 @@ func _on_infuse_component_pressed():
 		var junk = main.player_component_inventory[id]
 		main.player_component_inventory.remove_at(id)
 		
-		# Transfer tiles from dismantled component to inventory
+		# Transfer tiles from dismantled component to inventory. Data-
+		# integrity fix (live save audit: this leaked thousands of
+		# structural tiles into loose inventory over 138 waves) - the old
+		# "!= Component Link" half of this filter was dead code
+		# (ComponentLinkTile._init() always overwrites tile_type to its
+		# specific role name - "Energy Intake"/"Torso Return"/"Left Arm
+		# Link"/etc. - before this ever runs, so no instance ever has the
+		# literal string "Component Link"; SaveManager._deserialize_component
+		# already had this exact same fix). Now excludes every fixed_sink
+		# (not just the Core), same rule AutoEquipSolver's own board-clear
+		# already uses - a dismantled junk component's structural tiles are
+		# discarded (they're not independently useful outside a grid),
+		# never inventoried.
 		var junk_tiles = junk.hex_grid.get_all_tiles()
 		for t in junk_tiles:
-			if t.tile_type != "Component Link" and t.tile_type != "Core Reactor":
-				inventory.append(t)
+			if t.grid_position and junk.is_fixed_sink(t.grid_position):
+				continue
+			if t.tile_type == "Core Reactor":
+				continue
+			inventory.append(t)
 		
 		# Add XP
 		var xp_gain = 100 + (junk.rarity * 150)

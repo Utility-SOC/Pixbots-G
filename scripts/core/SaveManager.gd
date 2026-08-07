@@ -3,6 +3,20 @@ extends Node
 const SAVE_DIR = "user://saves/"
 var save_to_load: String = ""
 
+# Perf fix (live save audit: a bloated wave-138 inventory made
+# _deserialize_tile/_deserialize_component's per-call load(script_path)
+# a real, avoidable cost - only ~40 distinct tile script paths exist, so
+# calling load() tens of thousands of times just to look the same handful
+# of Scripts back up from Godot's own resource cache each time was pure
+# waste. Never cleared - script paths are fixed for the process lifetime,
+# same as Godot's own resource cache this sits in front of.
+var _script_load_cache: Dictionary = {} # path (String) -> Script
+
+func _load_cached(path: String) -> Script:
+	if not _script_load_cache.has(path):
+		_script_load_cache[path] = load(path)
+	return _script_load_cache[path]
+
 # Per-save tutorial-seen bit (the user asked for this instead of the tutorial
 # only tracking completion via the old global user://tutorial_completed.flag
 # file, which didn't distinguish between save slots). Runtime state here,
@@ -482,7 +496,7 @@ func _migrate_chip_shape(raw) -> Dictionary:
 	return {"traits": []}
 
 func _deserialize_component(cdata: Dictionary):
-	var ScriptComponentEquipment = load("res://scripts/core/ComponentEquipment.gd")
+	var ScriptComponentEquipment = _load_cached("res://scripts/core/ComponentEquipment.gd")
 	var slot_type = cdata.get("slot_type", 0)
 	var rarity = cdata.get("rarity", 0)
 	var comp = ScriptComponentEquipment.new(int(slot_type), int(rarity))
@@ -707,8 +721,8 @@ func _serialize_tile(tile) -> Dictionary:
 
 func _deserialize_tile(data: Dictionary):
 	if not data.has("script_path"): return null
-	
-	var script = load(data["script_path"])
+
+	var script = _load_cached(data["script_path"])
 	if not script: return null
 	
 	var tile

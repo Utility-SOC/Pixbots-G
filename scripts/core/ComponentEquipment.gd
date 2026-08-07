@@ -29,6 +29,23 @@ var _valid_hex_set: Dictionary = {}
 static func _hex_key(q: int, r: int) -> Vector2i:
 	return Vector2i(q, r)
 
+# Data-integrity fix (live save audit: a wave-138 player's inventory had
+# grown to 71,490 loose tiles - roughly ten thousand of them Energy
+# Intakes/Weapon Mounts/Torso Returns/peripheral Links, all fixed_sinks
+# that should never leave a component's own grid). AutoEquipSolver's own
+# board-clearing step (_solve_impl, this file's sibling) already excludes
+# fixed_sinks correctly via this exact q/r scan - the three Garage UI
+# tile-removal paths (Clear Grid, Salvage for XP, right-click removal) each
+# grew their OWN narrower "protect the Core" check instead of reusing this
+# rule, and none of them knew about fixed_sinks at all. Same linear scan as
+# AutoEquipSolver.gd's "is_target" check - fixed_sinks is always small (a
+# handful of structural coords per component), no hash-set mirror needed.
+func is_fixed_sink(coord: HexCoord) -> bool:
+	for t in fixed_sinks:
+		if t.q == coord.q and t.r == coord.r:
+			return true
+	return false
+
 func _rebuild_valid_hex_set():
 	_valid_hex_set.clear()
 	for h in valid_hexes:

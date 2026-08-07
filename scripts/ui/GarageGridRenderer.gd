@@ -224,6 +224,14 @@ func _gui_input(event: InputEvent):
 						var tile = hex_grid.get_tile(hovered_hex)
 						if active_component and active_component.slot_type == HexTile.BodySlot.TORSO and hovered_hex.q == 0 and hovered_hex.r == 0:
 							print("Cannot remove Core!")
+						elif active_component and active_component.is_fixed_sink(hovered_hex):
+							# Data-integrity fix (live save audit) - same
+							# fixed_sinks rule as Clear Grid/Salvage; a
+							# structural tile (Energy Intake/Weapon Mount/
+							# Torso Return/etc.) can't be right-click-
+							# removed into loose inventory, only the Core
+							# was ever protected here before.
+							print("Cannot remove a fixed structural tile!")
 						else:
 							hex_grid.remove_tile(hovered_hex)
 							menu_parent._add_to_inventory(tile)

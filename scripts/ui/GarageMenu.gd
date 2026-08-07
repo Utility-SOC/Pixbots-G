@@ -13,6 +13,7 @@ const GarageSimulationRunner = preload("res://scripts/ui/GarageSimulationRunner.
 const GarageMarket = preload("res://scripts/ui/GarageMarket.gd")
 const GarageShop = preload("res://scripts/ui/GarageShop.gd")
 const GaragePaintRack = preload("res://scripts/ui/GaragePaintRack.gd")
+const GarageSponsorPopup = preload("res://scripts/ui/GarageSponsorPopup.gd")
 const SynergyCodexPopup = preload("res://scripts/ui/SynergyCodexPopup.gd")
 const TileActionMenu = preload("res://scripts/ui/TileActionMenu.gd")
 const GarageInventoryPanel = preload("res://scripts/ui/GarageInventoryPanel.gd")
@@ -134,6 +135,7 @@ var simulation_runner: GarageSimulationRunner = null
 var garage_market: GarageMarket = null
 var garage_shop: GarageShop = null
 var garage_paint_rack: GaragePaintRack = null
+var garage_sponsor_popup: GarageSponsorPopup = null
 var synergy_codex_popup: SynergyCodexPopup = null
 var tile_action_menu: TileActionMenu = null
 var garage_inventory_panel: GarageInventoryPanel = null
@@ -172,6 +174,16 @@ func _ready():
 			
 	_populate_component_tabs()
 	_refresh_inventory_ui()
+
+	# Sponsor selection popup (the user: "a menu that pops up when you enter
+	# the garage after 125 showing you the options"). Single live-threshold-
+	# plus-one-shot-flag check naturally covers both "just crossed 125 this
+	# session" and "old save already past 125, first Garage visit after this
+	# feature shipped" with zero migration code - see sponsor_popup_shown's
+	# own comment in SaveManager.gd. Deferred so the popup attaches after
+	# the rest of the Garage UI has actually been built.
+	if SaveManager.max_wave_reached >= 125 and not SaveManager.sponsor_popup_shown:
+		call_deferred("_open_sponsor_popup")
 
 func _populate_component_tabs():
 	# Preserve whatever was selected before the rebuild - playtest report:
@@ -595,6 +607,11 @@ func _open_paint_rack():
 	if not garage_paint_rack:
 		garage_paint_rack = GaragePaintRack.new(self)
 	garage_paint_rack.open_popup()
+
+func _open_sponsor_popup():
+	if not garage_sponsor_popup:
+		garage_sponsor_popup = GarageSponsorPopup.new(self)
+	garage_sponsor_popup.open_popup()
 
 func _on_sell_all(max_rarity: int):
 	if not garage_market:

@@ -428,6 +428,18 @@ func build():
 	paint_rack_btn.pressed.connect(garage._open_paint_rack)
 	feature5_bar.add_child(paint_rack_btn)
 
+	# Permanent manual re-open, same "free, no penalty, change any time"
+	# framing as Paint Rack above - the popup itself only auto-shows once
+	# (see SaveManager.sponsor_popup_shown), so this is the only way back
+	# in after that first visit.
+	var sponsor_btn = Button.new()
+	sponsor_btn.text = "SPONSOR"
+	sponsor_btn.modulate = Color(0.6, 0.85, 1.0)
+	sponsor_btn.tooltip_text = "Pick a corporate sponsor to bias your loot drops toward their gear. Unlocks at wave 125. Free, and you can switch any time."
+	sponsor_btn.pressed.connect(garage._open_sponsor_popup)
+	sponsor_btn.disabled = SaveManager.max_wave_reached < 125
+	feature5_bar.add_child(sponsor_btn)
+
 	# Right Side: Inventory & Stats
 	garage.inventory_panel = PanelContainer.new()
 	# Was 300 - too narrow for its own content regardless of window size

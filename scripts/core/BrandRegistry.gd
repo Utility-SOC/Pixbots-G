@@ -51,6 +51,35 @@ const BRAND_LOGO_LETTER = {
 	"power": "G",
 }
 
+# Per-brand thematic accent color (the user: "two columns of banners, each
+# with the company name and thematic coloring/and pattern") - distinct from
+# the shared BRAND_COLOR above, which stays reserved for the in-grid tile
+# tint. Used only by the Sponsor selection popup banners. Chosen to read as
+# the brand's own flavor at a glance: optics teal, shield-steel, stealth
+# violet, hazard-orange speed, scanner green, circuit gold, power red.
+const BRAND_ACCENT_COLOR = {
+	"sniper": Color(0.25, 0.85, 0.85),
+	"defensive": Color(0.55, 0.68, 0.85),
+	"cloak": Color(0.5, 0.25, 0.7),
+	"mobility": Color(0.95, 0.55, 0.15),
+	"sensors": Color(0.35, 0.85, 0.4),
+	"efficiency": Color(0.9, 0.75, 0.2),
+	"power": Color(0.85, 0.25, 0.25),
+}
+
+# Per-brand procedural banner pattern id (real logo art deferred, per the
+# locked "procedural visuals are the default" ruling - see this file's own
+# header comment). GarageSponsorPopup.gd's banner _draw() switches on these.
+const BRAND_PATTERN = {
+	"sniper": "concentric_rings",
+	"defensive": "hex_grid",
+	"cloak": "diagonal_stripes",
+	"mobility": "chevron",
+	"sensors": "dots",
+	"efficiency": "circuit_lines",
+	"power": "cross_hatch",
+}
+
 static func is_valid_brand(id: String) -> bool:
 	return BRAND_IDS.has(id)
 
@@ -62,3 +91,9 @@ static func display_name(id: String) -> String:
 
 static func logo_letter(id: String) -> String:
 	return BRAND_LOGO_LETTER.get(id, "?")
+
+static func accent_color(id: String) -> Color:
+	return BRAND_ACCENT_COLOR.get(id, Color(0.5, 0.5, 0.5))
+
+static func pattern_id(id: String) -> String:
+	return BRAND_PATTERN.get(id, "dots")

@@ -81,6 +81,67 @@ static func create_profiles(dialogue_data: Dictionary) -> Dictionary:
 	var rex = RivalProfile.new("Rex", "brawler")
 	profiles["Rex"] = rex
 
+	# --- Elite Four (STORY_SCRIPT.md "## Elite Four" - unlocked after all 15
+	# Regulars are beaten at least once, see SaveManager.all_regulars_defeated
+	# / SquadDirector.get_next_rival's gating). One tier above the Regulars -
+	# all get a meaningful hp_mult bump on top of their gimmick lever.
+
+	# 15. Hrothgar (The Battle-Wizard) - huge telegraphed AoE mortars that
+	# escalate the longer the fight runs. Kept at range (kiter), the chaotic
+	# escalation reads as "unstable" (same enrage_style Rudy already uses for
+	# his own building-chaos gimmick).
+	var hrothgar = RivalProfile.new("Hrothgar", "sniper")
+	hrothgar.position_style = "kiter"
+	hrothgar.enrage_style = "unstable"
+	hrothgar.hp_mult = 2.0
+	profiles["Hrothgar"] = hrothgar
+
+	# 16. Dan (The Barbarian) - starter-tier gear, zero Mythic parts, wins
+	# purely on positioning/timing/aggression. force_junk_only is the same
+	# lever Sammy already uses; the hp_mult compensates so a Common-rarity
+	# loadout is still a real Elite-tier threat, matching "nobody can
+	# explain how he's undefeated."
+	var dan = RivalProfile.new("Dan", "brawler")
+	dan.force_junk_only = true
+	dan.enrage_style = "berserker"
+	dan.position_style = "aggressive"
+	dan.hp_mult = 2.5
+	profiles["Dan"] = dan
+
+	# 17. Evan (The Rogue) - deliberately under-powered chip damage, evasive,
+	# hard to pin down, wears you down instead of racing for burst. Circler
+	# keeps him mobile; vampiric enrage fits the "grinds you down over time"
+	# read better than an escalating-damage style would.
+	var evan = RivalProfile.new("Evan", "ambusher")
+	evan.position_style = "circler"
+	evan.enrage_style = "vampiric"
+	evan.hp_mult = 1.75
+	profiles["Evan"] = evan
+
+	# 18. Joe (uses parts in unexpected ways) - explicitly under-designed per
+	# STORY_SCRIPT.md's own admission ("Not fully worked out yet... Needs a
+	# real design pass before this is playable"). Reasonable Elite-tier
+	# placeholder only: commander fits "gets value out of configurations
+	# nobody else would" better than a straight damage role until the real
+	# hex-routing gimmick gets built.
+	var joe = RivalProfile.new("Joe", "commander")
+	joe.hp_mult = 2.0
+	profiles["Joe"] = joe
+
+	# 19. Frank (the shop owner himself - the twist finale). NOT part of the
+	# Elite Four unlock gate and NOT added to SquadDirector's normal rival
+	# pool - he's the Tournament bracket's own capstone fight, spawned
+	# directly by Main.gd only after all 4 Elite Four are beaten within a
+	# single Tournament run. Toughest fight in the game: two-ability kit and
+	# the highest hp_mult of any profile, "no more nice guy behind the
+	# counter."
+	var frank = RivalProfile.new("Frank", "commander")
+	frank.ability_pool = ["shockwave", "rally"]
+	frank.enrage_style = "berserker"
+	frank.position_style = "aggressive"
+	frank.hp_mult = 3.5
+	profiles["Frank"] = frank
+
 	# Fill in dialogue from JSON
 	for key in profiles.keys():
 		var r: RivalProfile = profiles[key]

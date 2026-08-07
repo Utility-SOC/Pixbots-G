@@ -114,19 +114,13 @@ func _setup_ui():
 	var btn_boss_rush = _create_button("Boss Rush", _on_play_boss_rush)
 	vbox.add_child(btn_boss_rush)
 
-	# Tournament arc - scaffold only (the user, design pass decision #12).
-	# Nothing actually sets tournament_arc_unlocked true yet - the real
-	# unlock condition is the Level 100 milestone, and that milestone/Round
-	# system doesn't exist yet either. This button just reads the flag so
-	# unlocking it later is a one-line flip in SaveManager, not new UI work.
-	# _on_play_tournament() is a stub for the same reason - the launch target
-	# doesn't exist yet, but the wiring does.
+	# Tournament arc (the user: "Tournament mode is rounds of fights against
+	# the other players and the four champions"). Always enabled, same as
+	# Boss Rush below - the actual wave-100 eligibility is a per-save live
+	# check done inside TournamentMenu's save picker, not a single global
+	# flag on this button, so an old save that's already past wave 100 shows
+	# up unlocked immediately with no extra migration step.
 	var btn_tournament = _create_button("Tournament", _on_play_tournament)
-	btn_tournament.disabled = not SaveManager.tournament_arc_unlocked
-	if not SaveManager.tournament_arc_unlocked:
-		btn_tournament.text = "Tournament (Locked)"
-		btn_tournament.modulate = Color(0.6, 0.6, 0.6)
-		btn_tournament.tooltip_text = DialogueManager.get_tournament_teaser()
 	vbox.add_child(btn_tournament)
 
 	var spacer2 = Control.new()
@@ -161,6 +155,9 @@ func _on_play_campaign():
 	SaveManager.save_to_load = "" # Clear load state for new game
 	SaveManager.tutorial_completed = false # New save should see the tutorial again
 	SaveManager.tournament_arc_unlocked = false # New save starts locked out too
+	SaveManager.tournament_locked_out = false
+	SaveManager.defeated_rivals = {}
+	SaveManager.sponsor_popup_shown = false
 	SaveManager.current_game_mode = "campaign"
 	_launch_game("campaign")
 
@@ -180,8 +177,9 @@ func _on_play_boss_rush():
 	add_child(boss_rush)
 
 func _on_play_tournament():
-	print("Tournament mode not implemented yet.")
-	pass
+	print("Opening Tournament Menu...")
+	var tournament = load("res://scripts/ui/TournamentMenu.gd").new()
+	add_child(tournament)
 
 func _launch_game(mode: String):
 	get_tree().change_scene_to_file("res://main.tscn")

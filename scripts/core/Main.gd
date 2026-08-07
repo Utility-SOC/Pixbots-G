@@ -28,6 +28,14 @@ var campaign_data: Dictionary = {}
 var active_enemies: int = 0
 var garage_timer: float = 90.0
 
+# Tournament mode bracket (see the current_wave % 1 dispatch below): the
+# 15 Regulars, then whichever Elite Four champions this save has already
+# beaten via normal play, then Frank as a twist-finale capstone if and only
+# if all 4 champions made the cut. Built once at wave 1 of a Tournament run
+# (save state doesn't change mid-run) so per-wave dispatch is a simple index
+# instead of re-deriving variable-length champion eligibility every wave.
+var _tournament_bracket: Array = []
+
 # Per-run map rotation (design ruling, see _setup_environment) - Tabletop is
 # weighted double since it's the game's eventual identity.
 const MAP_ROTATION_TYPES = ["Tabletop", "Tabletop", "Normal", "Open Field", "Forest", "Desert", "Tundra", "Volcano", "Dungeon", "Water", "FightShovel"]
@@ -692,6 +700,15 @@ func _setup_player():
 		if load_data.has("current_wave"):
 			current_wave = max(1, int(load_data["current_wave"]))
 			last_garage_wave = current_wave
+		# Tournament is its own circuit, not a continuation of the
+		# campaign's wave count - a save picked from TournamentMenu is
+		# guaranteed max_wave_reached >= 100, so without this the bracket
+		# dispatch below would see current_wave already deep past the
+		# whole bracket's length and skip straight to Endless Mega
+		# Bosses, never fighting a single bracket match.
+		if SaveManager.current_game_mode == "tournament":
+			current_wave = 1
+			last_garage_wave = current_wave
 		if load_data.has("player_sponsorship"):
 			player_sponsorship = str(load_data["player_sponsorship"])
 		if load_data.has("player_paint_color"):
@@ -946,9 +963,10 @@ func _start_wave():
 
 	# Director tells (see SquadDirector.get_intel_line): Frank tips the player
 	# off when the learning loop is genuinely reacting to them. Skipped in
-	# Boss Rush, which runs its own intro dialogue on the same channel.
+	# Boss Rush and Tournament, which run their own intro dialogue on the
+	# same channel.
 	director.note_wave_started()
-	if SaveManager.current_game_mode != "boss_rush":
+	if SaveManager.current_game_mode != "boss_rush" and SaveManager.current_game_mode != "tournament":
 		var intel = director.get_intel_line(current_wave)
 		if intel != "":
 			show_dialogue("Frank", intel, Color(0.7, 0.9, 1.0), 6.0)
@@ -969,10 +987,16 @@ func _start_wave():
 	# Boss Rush Mode Logic
 	if SaveManager.current_game_mode == "boss_rush":
 		if current_wave <= 15:
-			# Sequence 15 Rivals at Mythic tier
+			# Sequence the 15 Regulars at Mythic tier. Was indexing
+			# director.all_rival_profiles.keys() directly, which silently
+			# broke once RivalProfilesFactory grew the Elite Four + Frank
+			# into that same dictionary (dictionary order put Hrothgar at
+			# index 14, i.e. wave 15) - pin explicitly to the Regulars-only
+			# list instead so Boss Rush keeps meaning exactly what it always
+			# meant, regardless of what else gets added to the roster.
 			var r_name = ""
-			if current_wave - 1 < director.all_rival_profiles.keys().size():
-				r_name = director.all_rival_profiles.keys()[current_wave - 1]
+			if current_wave - 1 < SaveManager.REGULAR_RIVAL_NAMES.size():
+				r_name = SaveManager.REGULAR_RIVAL_NAMES[current_wave - 1]
 			else:
 				r_name = director.get_next_rival()
 			if current_wave == 1:
@@ -1005,6 +1029,50 @@ func _start_wave():
 			else:
 				# Endless Mega Bosses
 				_spawn_boss(director, true)
+		return
+
+	# Tournament Mode Logic (the user: "Tournament mode is rounds of fights
+	# against the other players and the four champions. The four champions
+	# unlock as they are defeated through normal play.") Bracket built once
+	# at wave 1, then indexed per-wave; falls to Endless Mega Bosses once
+	# exhausted, same shape as Boss Rush above.
+	if SaveManager.current_game_mode == "tournament":
+		if current_wave == 1 or _tournament_bracket.is_empty():
+			_tournament_bracket = SaveManager.REGULAR_RIVAL_NAMES.duplicate()
+			for champ_name in SaveManager.ELITE_FOUR_NAMES:
+				if SaveManager.defeated_rivals.get(champ_name, false):
+					_tournament_bracket.append(champ_name)
+			var champs_in_bracket = _tournament_bracket.size() - SaveManager.REGULAR_RIVAL_NAMES.size()
+			if champs_in_bracket >= SaveManager.ELITE_FOUR_NAMES.size():
+				_tournament_bracket.append("Frank")
+
+		var bracket_index = current_wave - 1
+		if bracket_index < _tournament_bracket.size():
+			var r_name = _tournament_bracket[bracket_index]
+			if current_wave == 1:
+				# Same clobbering concern as Boss Rush's own intro banner -
+				# delay the spawn so the gauntlet intro actually gets read.
+				show_dialogue("Shopkeeper", DialogueManager.get_boss_rush_intro(), Color(1.0, 0.7, 0.3), 8.0)
+				var intro_timer = Timer.new()
+				intro_timer.wait_time = 3.0
+				intro_timer.one_shot = true
+				intro_timer.timeout.connect(func(): _spawn_rival(director, HexTile.Rarity.MYTHIC, r_name))
+				add_child(intro_timer)
+				intro_timer.start()
+			elif r_name == "Frank":
+				# "No more shopkeeper. No more nice guy behind the counter."
+				show_dialogue("Shopkeeper", DialogueManager.get_boss_rush_completion(), Color(1.0, 0.7, 0.3), 8.0)
+				var frank_timer = Timer.new()
+				frank_timer.wait_time = 3.0
+				frank_timer.one_shot = true
+				frank_timer.timeout.connect(func(): _spawn_rival(director, HexTile.Rarity.MYTHIC, r_name))
+				add_child(frank_timer)
+				frank_timer.start()
+			else:
+				_spawn_rival(director, HexTile.Rarity.MYTHIC, r_name)
+		else:
+			# Endless Mega Bosses once the bracket's exhausted.
+			_spawn_boss(director, true)
 		return
 
 	# Nemesis Bounty (every 20 waves) - checked first so it preempts whatever
@@ -1604,6 +1672,16 @@ func _on_rival_defeated(rival):
 	if rival.has_meta("is_rival") and rival.has_meta("rival_name"):
 		var r_name = rival.get_meta("rival_name")
 		var director = world.get_node_or_null("SquadDirector")
+		# Beating ANY rival breaks the losing streak and restores Tournament
+		# eligibility if it had been pulled - see tournament_locked_out's
+		# comment in SaveManager.gd. Also records the win for the Elite
+		# Four's "unlock as they are defeated through normal play" gate
+		# (SquadDirector.get_next_rival) and for the Tournament bracket
+		# itself to know which champions this save can field.
+		if director:
+			director.consecutive_rival_losses = 0
+		SaveManager.tournament_locked_out = false
+		SaveManager.defeated_rivals[r_name] = true
 		if director and director.all_rival_profiles.has(r_name):
 			var prof = director.all_rival_profiles[r_name]
 			var win_text = prof.dialogue_win
@@ -1773,7 +1851,13 @@ func _on_player_died():
 				director.save_learned_state()
 				
 				if director.consecutive_rival_losses >= 3:
-					SaveManager.tournament_arc_unlocked = false
+					# Temporary lockout, not permanent - see
+					# tournament_locked_out's own comment in SaveManager.gd.
+					# Cleared the next time the player beats a rival
+					# (_on_rival_defeated below), matching the dialogue's
+					# "take some time, build a new rig, and we'll try again
+					# next season" framing.
+					SaveManager.tournament_locked_out = true
 					# Was a zero-arg call - save_game(save_name, mech, inventory)
 					# requires all 3, so this threw and silently aborted the
 					# rest of _on_player_died() every time, including the
@@ -1925,6 +2009,13 @@ func _on_wave_cleared():
 	current_wave += 1
 	if current_wave > SaveManager.max_wave_reached:
 		SaveManager.max_wave_reached = current_wave
+	# Tournament arc unlock (the user: "yes re wave/level" - Level 100 ==
+	# Wave 100, the same threshold Boss Rush already uses). Eligibility for
+	# the picker is actually computed live off max_wave_reached, but this
+	# flag also drives the one-time Tournament-unlock beat if anything ever
+	# wants to react to the moment itself, so it's kept in sync here too.
+	if current_wave >= 100:
+		SaveManager.tournament_arc_unlocked = true
 	if _should_rotate_map():
 		_rotate_campaign_map()
 	# Pixel-art cutscene beat, if the manifest maps one to the upcoming

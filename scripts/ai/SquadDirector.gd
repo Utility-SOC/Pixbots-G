@@ -51,13 +51,30 @@ var active_rival_pool: Array = []
 var consecutive_rival_losses: int = 0
 var all_rival_profiles: Dictionary = {}
 
+# Excludes Frank (the Tournament capstone - spawned directly by Main.gd's
+# bracket dispatch only, never through normal rival rotation) always, and
+# excludes the Elite Four (Hrothgar/Dan/Evan/Joe) until every one of the 15
+# Regulars has been beaten at least once - "The four champions unlock as
+# they are defeated through normal play" (the user). Shared by _ready()'s
+# initial pool and get_next_rival()'s round-refill so both stay consistent.
+func _eligible_rival_pool_keys() -> Array:
+	var keys = []
+	var elite_four_open = SaveManager.all_regulars_defeated()
+	for r in all_rival_profiles.keys():
+		if r == "Frank":
+			continue
+		if SaveManager.ELITE_FOUR_NAMES.has(r) and not elite_four_open:
+			continue
+		keys.append(r)
+	return keys
+
 func get_next_rival() -> String:
 	if all_rival_profiles.is_empty(): return ""
 	if active_rival_pool.is_empty():
 		current_round += 1
 		rivals_fought_this_round = 0
-		active_rival_pool = all_rival_profiles.keys()
-		
+		active_rival_pool = _eligible_rival_pool_keys()
+
 	# If Arthur is in the pool, restrict him until we've fought 10 rivals this round.
 	var valid_candidates = []
 	for r in active_rival_pool:
@@ -88,7 +105,7 @@ func _ready():
 		all_rival_profiles = factory.create_profiles(DialogueManager.dialogue_data)
 		# Initialize pool if empty
 		if active_rival_pool.is_empty():
-			active_rival_pool = all_rival_profiles.keys()
+			active_rival_pool = _eligible_rival_pool_keys()
 
 # Merge templates by template_name, solver profiles by profile_name, and
 # boss profiles by profile_name: known entries get their learned stats

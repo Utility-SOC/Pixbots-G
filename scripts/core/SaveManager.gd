@@ -23,6 +23,63 @@ var tutorial_completed: bool = false
 # needs to set this to true and call save_game() - no other plumbing needed.
 var tournament_arc_unlocked: bool = false
 
+# Tournament mode (the user, decision on the Narrative/Rival design pass):
+# "Tournament mode is rounds of fights against the other players and the
+# four champions. The four champions unlock as they are defeated through
+# normal play." Eligibility itself is computed LIVE off max_wave_reached
+# (>= 100, same threshold Boss Rush already uses - see TournamentMenu.gd),
+# not stored here, so an old save that's already past 100 unlocks the very
+# next time the picker is opened with zero retroactive-migration code
+# needed. This flag is dedicated purely to the SEPARATE 3-consecutive-
+# rival-losses punishment below (Main.gd's death handler, matching
+# STORY_SCRIPT.md's "I have to pull your tournament registration for this
+# circuit" dialogue) - true means currently locked out, cleared by the next
+# rival win ("take some time... we'll try again next season"). Defaults
+# false for every save, old or new, so it never falsely locks out a save
+# that simply hasn't played since this feature shipped.
+var tournament_locked_out: bool = false
+
+# Per-rival defeat tracking (the user: "The four champions unlock as they
+# are defeated through normal play"). Keyed by rival_name (matches
+# RivalProfile.rival_name / the "rival_name" node meta set on spawn), true
+# once that rival has been beaten at least once on this save. Written by
+# Main._on_rival_defeated, same per-save singleton pattern as
+# discovered_tile_types above.
+var defeated_rivals: Dictionary = {}
+
+# The 15 regular rivals (RivalProfilesFactory.gd) - "Leo & Luna" counts as
+# one profile/one bracket slot even though it's a 2-mech fight, matching
+# how SquadDirector already treats them as a single named rival.
+const REGULAR_RIVAL_NAMES = [
+	"Arthur", "Beatrice", "Grog", "Leo & Luna", "Rudy", "Professor P.",
+	"Zane", "Chloe", "Vance", "Maya", "Declan", "Jin", "Sammy", "Rex",
+]
+
+# The four Elite Four champions (RivalProfilesFactory.gd) - Frank himself is
+# the separate twist-finale, not one of "the four" per the user.
+const ELITE_FOUR_NAMES = ["Hrothgar", "Dan", "Evan", "Joe"]
+
+func all_regulars_defeated() -> bool:
+	for r_name in REGULAR_RIVAL_NAMES:
+		if not defeated_rivals.get(r_name, false):
+			return false
+	return true
+
+func defeated_champion_names() -> Array:
+	var out = []
+	for r_name in ELITE_FOUR_NAMES:
+		if defeated_rivals.get(r_name, false):
+			out.append(r_name)
+	return out
+
+# Sponsor selection popup (the user: "a menu that pops up when you enter the
+# garage after 125 showing you the options"). Shown once ever, regardless of
+# pick-or-decline - GarageMenu checks max_wave_reached >= 125 AND this flag
+# being false, same live-threshold-plus-one-shot-flag shape as the
+# Tournament unlock above, so an old save already past 125 catches the
+# popup on its next Garage visit without any retroactive migration code.
+var sponsor_popup_shown: bool = false
+
 # Whether this save has ever beaten (or even reached) the first boss (wave 5,
 # non-mega). Gates the one-time "First boss" dialogue pair in STORY_SCRIPT.md
 # (get_first_boss_intro()/get_first_boss_defeat()) vs. the regular rotating
@@ -185,6 +242,9 @@ func save_game(save_name: String, mech: Node, inventory: Array):
 		"scrap": 0,
 		"tutorial_completed": tutorial_completed,
 		"tournament_arc_unlocked": tournament_arc_unlocked,
+		"tournament_locked_out": tournament_locked_out,
+		"defeated_rivals": defeated_rivals,
+		"sponsor_popup_shown": sponsor_popup_shown,
 		"first_boss_encountered": first_boss_encountered,
 		"max_wave_reached": max_wave_reached,
 		"discovered_tile_types": discovered_tile_types,
@@ -261,6 +321,21 @@ func load_game(save_name: String) -> Dictionary:
 		tournament_arc_unlocked = bool(json["tournament_arc_unlocked"])
 	else:
 		tournament_arc_unlocked = false
+
+	if json.has("tournament_locked_out"):
+		tournament_locked_out = bool(json["tournament_locked_out"])
+	else:
+		tournament_locked_out = false
+
+	if json.has("defeated_rivals") and typeof(json["defeated_rivals"]) == TYPE_DICTIONARY:
+		defeated_rivals = json["defeated_rivals"].duplicate()
+	else:
+		defeated_rivals = {}
+
+	if json.has("sponsor_popup_shown"):
+		sponsor_popup_shown = bool(json["sponsor_popup_shown"])
+	else:
+		sponsor_popup_shown = false
 
 	# See first_boss_encountered's own comment above - older saves without the
 	# key are treated as "not yet encountered" so they still get the one-time

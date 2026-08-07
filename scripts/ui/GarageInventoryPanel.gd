@@ -642,6 +642,16 @@ const TILE_TYPE_BLURBS = {
 	"Drone Bay": "Deploys an independent companion Drone with its own small hex-grid loadout.",
 	"Missile Rack": "Always-indirect, ultra-long-range weapon mount - autonomously banks its fed energy into a salvo of lobbed shells aimed at the single furthest enemy in range (won't fire below its minimum range), more shells at higher rarity.",
 	"Component Link": "Internal routing tile connecting one component's grid to another - not normally placed by hand.",
+	"Anchor": "Grants vortex immunity - Mythic also reduces vortex pull and damage taken.",
+	"Buffer Cell": "One-step delay line - releases the packet it received last time, not this one. Timing control, not power.",
+	"Passive Tap": "Copies a packet in full to a second rotatable face - the main line keeps 100% of its energy, unlike a Splitter.",
+	"Weak Mirror": "Redirects a packet's flow direction like a Reflector, but cheaper and a much less valuable disable-roll target.",
+	"Orbiting Array": "3-hex capital weapon - once armed, launches 3 projectiles that orbit outward from the mech.",
+	"Structural Strut": "Zero-power filler that keeps the grid connected - tune it to an element (Configure Armor Element) for passive elemental resistance that stacks with more Struts.",
+	"Reactive Plating": "Counter-hits whatever damages you, if they're close enough to make physical sense - passive, no routing needed. Melee-range fights feel this most.",
+	"Mobility Core": "Corporate Sponsorship tile (Velocity Works) - grants jumpjet and thruster capacity from mere presence, no routing needed.",
+	"Sensor Array": "Corporate Sponsorship tile (Keeneye Sensing) - grants jammer immunity, cloak detection, or a sight bonus depending on mode.",
+	"Prime Circuit": "Corporate Sponsorship tile (Prime Circuits) - an Amplifier, Elemental Infuser, and Resonator combined into one hex.",
 }
 
 # Shared by the grid's own hover tooltip (garage.tooltip_label, positioned

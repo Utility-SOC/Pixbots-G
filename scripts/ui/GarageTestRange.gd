@@ -29,6 +29,7 @@ extends PopupPanel
 # execution-exempt role, so nothing can actually kill it.
 
 const MechScript = preload("res://scripts/entities/Mech.gd")
+const ProjectileBatchPoolScript = preload("res://scripts/entities/ProjectileBatchPool.gd")
 
 const RANGE_SIZE = Vector2(900, 340)
 const RIG_POS = Vector2(110, 210)
@@ -60,6 +61,14 @@ var _hp_override_box: LineEdit = null
 var _auto_timer: float = 0.0
 var _shots_fired: int = 0
 var _volleys_fired: int = 0
+
+# EXPERIMENTAL parallel projectile system (see ProjectileBatchPool.gd's own
+# header - "the tree seems to be fucking us"). Opt-in only, here, so it can
+# be fired at the dummy and compared against the real path before any of
+# its behavior is approved for live combat. Everything else in this file
+# (and every other firing path in the game) is completely untouched.
+var _batch_toggle: CheckButton = null
+var _batch_pool: Node = null
 
 func setup(p_player: Node):
 	player = p_player
@@ -128,6 +137,18 @@ func _ready():
 	_auto_toggle.text = "Auto"
 	_auto_toggle.tooltip_text = "Keep firing the checked mounts every %.1fs." % AUTO_FIRE_INTERVAL
 	controls.add_child(_auto_toggle)
+
+	# EXPERIMENTAL - see ProjectileBatchPool.gd's own header. When on, FIRE/
+	# Auto spawn into the no-Node-tree batch pool instead of real
+	# Projectile instances - straight-line flight only, simplified hit
+	# detection, no chain lightning/status procs yet. Purely for side-by-
+	# side comparison; the real path (every other firing site in the game)
+	# never routes through this.
+	_batch_toggle = CheckButton.new()
+	_batch_toggle.text = "Batch Renderer (experimental)"
+	_batch_toggle.modulate = Color(1.0, 0.7, 0.3)
+	_batch_toggle.tooltip_text = "Fire through the experimental no-Node-tree batch pool instead of real Projectiles - straight-line only, for perf comparison. Test Range only, not wired into live combat."
+	controls.add_child(_batch_toggle)
 
 	var reset_btn = Button.new()
 	reset_btn.text = "Reset dummy"
@@ -202,6 +223,13 @@ func _ready():
 	_dummy.set_physics_process(false)
 	_dummy.max_hp = DEFAULT_DUMMY_HP
 	_dummy.hp = _dummy.max_hp
+
+	# EXPERIMENTAL batch pool - see ProjectileBatchPool.gd's own header and
+	# _batch_toggle's comment above. Lives in this same private World2D, so
+	# it never touches anything outside the Test Range.
+	_batch_pool = ProjectileBatchPoolScript.new()
+	_world_root.add_child(_batch_pool)
+	_batch_pool.register_target(_dummy)
 
 	# Drones (playtest: "I also want drones in the test area") - real Drone
 	# instances built from the player's real Drone Bay loadout(s), same spawn
@@ -367,6 +395,7 @@ func _fire_selected():
 	for drone in _drones:
 		if is_instance_valid(drone):
 			drone.last_aim_position = _dummy.global_position
+	var use_batch = _batch_toggle and _batch_toggle.button_pressed
 	for row in to_fire:
 		var source = row.get("source", _rig)
 		if not is_instance_valid(source):
@@ -374,17 +403,44 @@ func _fire_selected():
 		if row.get("kind", "mount") == "capital":
 			# Lance Mount / Orbiting Array: no discrete packet to hand over,
 			# and fire() reads its own _armed_packet - an unarmed tile just
-			# no-ops (see LanceMountTile/OrbitingArrayTile.fire()).
+			# no-ops (see LanceMountTile/OrbitingArrayTile.fire()). Not
+			# ported to the batch pool - real Projectile path always, even
+			# with the toggle on.
 			row.tile.fire(source)
 		else:
 			var data = row.data
 			var packet = data.packet.copy()
 			if data.get("bank_mode", "") == "bank":
 				packet.is_banked_shot = true
-			data.mount._fire_combined_projectile(source, packet, 0)
+			if use_batch:
+				_fire_via_batch_pool(source, data.mount, packet)
+			else:
+				data.mount._fire_combined_projectile(source, packet, 0)
 		_shots_fired += 1
 	_volleys_fired += 1
 	_update_stats()
+
+# EXPERIMENTAL - see ProjectileBatchPool.gd's own header. Deliberately
+# rough/approximate, not a faithful port of _fire_combined_projectile's
+# real formula - straight-line-toward-the-dummy only, no muzzle-position
+# lookup, no synergy-specific movement, no pattern fanout. Good enough for
+# a side-by-side FEEL/perf comparison, not for balance validation.
+const BATCH_SHOT_SPEED = 700.0
+const BATCH_SHOT_RADIUS = 10.0
+const BATCH_SHOT_LIFETIME = 3.0
+
+func _fire_via_batch_pool(source: Node, mount, packet):
+	if not _batch_pool or not is_instance_valid(_dummy):
+		return
+	var from_pos = source.global_position
+	var to_pos = _dummy.global_position
+	var dir = (to_pos - from_pos)
+	if dir == Vector2.ZERO:
+		dir = Vector2.RIGHT
+	var dmg = packet.magnitude * mount._get_damage_multiplier() * mount._get_power_multiplier()
+	var color = EnergyPacket.get_color_blend(packet.synergies)
+	var scale_mult = clamp(1.0 + log(1.0 + packet.magnitude / 200.0) * 0.5, 1.0, 5.0)
+	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME, color, scale_mult, source.is_player, source)
 
 func _reset_dummy_stats():
 	if is_instance_valid(_dummy):

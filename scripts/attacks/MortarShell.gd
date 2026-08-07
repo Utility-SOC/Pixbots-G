@@ -26,6 +26,34 @@ var _elapsed: float = 0.0
 var _landed: bool = false
 var _impact_elapsed: float = 0.0
 
+# Node-churn fix (play report: "missiles make big problems (13 missile
+# launchers)") - a Missile Rack's Hunter salvo can put up to 5 shells in
+# flight per rack per volley, and 13 stacked racks routinely overlap their
+# independent charge cycles, so un-pooled shells were accumulating far
+# faster than any single direct-fire weapon ever would. Same free-list
+# pattern as Projectile.gd's _visual_node_pool (see that file's header
+# comment) - acquire()/release() instead of .new()/queue_free(), reusing
+# whole MortarShell instances rather than rebuilding one from scratch every
+# shot. No request_ready() call needed on reacquire - this script has no
+# _ready() to rerun; setup() below already reassigns every field a fresh
+# instance would have, including the flight-state fields release() leaves
+# mid-impact-flash.
+const _POOL_MAX = 64
+static var _shell_pool: Array = []
+
+static func acquire() -> Node2D:
+	if not _shell_pool.is_empty():
+		return _shell_pool.pop_back()
+	return load("res://scripts/attacks/MortarShell.gd").new()
+
+func release():
+	if is_inside_tree() and get_parent():
+		get_parent().remove_child(self)
+	if _shell_pool.size() < _POOL_MAX:
+		_shell_pool.append(self)
+	else:
+		queue_free() # already at cap - let this one go rather than growing unbounded
+
 # Effective blast radius for THIS shell, computed once in setup() from its
 # own synergies (see Projectile.explosion_radius_for - shared formula, not
 # duplicated) - replaces the old flat AOE_RADIUS=95.0 constant, which never
@@ -53,6 +81,8 @@ const IMPACT_FLASH_TIME = 0.28
 # through the real hit pipeline" - see _detonate_equal_split() below.
 var radius_mult: float = 1.0
 var equal_split_all_victims: bool = false
+# See _detonate_equal_split's own comment on the fanout cap this gates.
+const MAX_FULL_PIPELINE_VICTIMS_PER_SHELL = 12
 
 func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_source: Node, p_aoe_bonus: float = 0.0, p_radius_mult: float = 1.0, p_equal_split: bool = false):
 	start_pos = p_start
@@ -67,6 +97,17 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 	equal_split_all_victims = p_equal_split
 	global_position = p_target # node sits at the impact point; shell is drawn offset
 
+	# Reset flight state - required for pooled reuse (see acquire()/release()
+	# above): a shell handed back by acquire() is, by construction, always
+	# one that just finished its impact flash (_landed true, _impact_elapsed
+	# past IMPACT_FLASH_TIME), so without this reset a reused shell would
+	# immediately re-trigger release() on its very next _process() instead
+	# of actually flying. Harmless no-op for a genuinely fresh instance,
+	# whose fields all already start at these same defaults.
+	_elapsed = 0.0
+	_landed = false
+	_impact_elapsed = 0.0
+
 	var total_mag = 0.0
 	for k in synergies:
 		total_mag += synergies[k]
@@ -80,7 +121,8 @@ func _process(delta: float):
 	if _landed:
 		_impact_elapsed += delta
 		if _impact_elapsed >= IMPACT_FLASH_TIME:
-			queue_free()
+			release()
+			return
 		queue_redraw()
 		return
 	_elapsed += delta
@@ -202,7 +244,25 @@ func _detonate_equal_split(victims: Array, world: Node) -> void:
 	var src = source_mech if (source_mech and is_instance_valid(source_mech)) else null
 	var share = damage / float(struck.size())
 	var ProjScript = load("res://scripts/entities/Projectile.gd")
-	for v in struck:
+	var element = EnergyPacket.element_name(_dominant_synergy())
+	for i in range(struck.size()):
+		var v = struck[i]
+		# Fanout cap (play report: "missiles make big problems (13 missile
+		# launchers)") - a wide AOE burst catching a big on-screen crowd
+		# used to spin up one full, brand-new Projectile object PER victim
+		# with no ceiling at all; with several Mythic racks stacked and all
+		# in AOE mode, that's O(shells x victims) transient allocations in
+		# a single frame. Every struck victim still gets the exact same
+		# equal damage share either way - only the first
+		# MAX_FULL_PIPELINE_VICTIMS_PER_SHELL (by no particular order,
+		# EntityCache's own group order) get the full _handle_hit() pass
+		# for proper elemental status/procs; the rest take a plain
+		# apply_damage() call, same lightweight path the falloff-splash
+		# ring above already uses.
+		if i >= MAX_FULL_PIPELINE_VICTIMS_PER_SHELL:
+			if is_instance_valid(v) and v.has_method("apply_damage"):
+				v.apply_damage(share, element, src, false, source_label)
+			continue
 		var proj = ProjScript.new()
 		proj.synergies = synergies.duplicate()
 		proj.damage = share

@@ -566,7 +566,7 @@ func _fire_mortar(mech, packet: EnergyPacket):
 	var effective_mortar_speed = MORTAR_SPEED * (1.0 + pierce_ratio * 2.0)
 	var flight_time = clamp(muzzle.distance_to(target_pos) / effective_mortar_speed, 0.12, 2.2)
 	var dmg = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
-	var shell = load("res://scripts/attacks/MortarShell.gd").new()
+	var shell = load("res://scripts/attacks/MortarShell.gd").acquire()
 	shell.setup(muzzle, target_pos, flight_time, dmg, packet.synergies.duplicate(), mech.get("is_player") == true, mech, packet.aoe_bonus)
 	world.add_child(shell)
 

@@ -226,7 +226,7 @@ func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2,
 		# (matches "a spread... instead of one big payload").
 		flight_time += i * 0.06
 
-		var shell = MortarShellScript.new()
+		var shell = MortarShellScript.acquire()
 		shell.setup(muzzle, impact_pos, flight_time, per_shell_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus)
 		world.add_child(shell)
 
@@ -249,7 +249,7 @@ func _fire_aoe_burst(mech, world: Node, muzzle: Vector2, target_pos: Vector2, pa
 	var flight_time = clamp(muzzle.distance_to(target_pos) / SHELL_SPEED_BASE, 0.12, 2.2)
 
 	var MortarShellScript = load("res://scripts/attacks/MortarShell.gd")
-	var shell = MortarShellScript.new()
+	var shell = MortarShellScript.acquire()
 	shell.setup(muzzle, target_pos, flight_time, base_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus, radius_mult, true)
 	world.add_child(shell)
 

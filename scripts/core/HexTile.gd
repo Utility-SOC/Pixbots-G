@@ -271,7 +271,19 @@ func _pattern_pellet_count(max_pellets: int, min_pellets: int) -> int:
 	return clamp(int(round(max_pellets / capacity_factor)), min_pellets, max_pellets)
 
 func get_muzzle_position(mech) -> Vector2:
-	var renderer = mech.get_node_or_null("MechRenderer")
+	# Perf fix (live playtest: "shoot_fired" the dominant remaining cost
+	# after the pattern-fanout/AI-throttle fixes - the user's own
+	# suggestion: "more precalculating and caching rather than on the fly
+	# calculation"). Mech.gd ALREADY caches its own MechRenderer child in
+	# _renderer, set once in _ready() - this was doing its own fresh
+	# string-keyed get_node_or_null("MechRenderer") tree lookup on every
+	# single shot instead of just reading that existing cache. Guarded
+	# duck-typed check (not a direct mech._renderer access) because this
+	# also runs against ComponentDiagramView's PreviewMechContext preview
+	# stub, a bare Node2D with no _renderer field at all (see
+	# _attach_part_hitbox's matching comment on that same stub) - falls
+	# back to the original lookup for that one non-Mech caller.
+	var renderer = mech._renderer if ("_renderer" in mech and mech._renderer) else mech.get_node_or_null("MechRenderer")
 	if not renderer:
 		return mech.global_position
 

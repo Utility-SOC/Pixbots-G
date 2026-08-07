@@ -322,15 +322,20 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# weaponsfire at high difficulty was hitting 1-3 fps). Applied only to
 	# top-level volleys - pattern children of a volley that DOES fire still
 	# split normally, skipped volleys simply skip their split too.
+	# saturation_k is hoisted to function scope (GDScript block-scopes `var`
+	# inside `if`) so the Shotgun/Radial pattern branches below can reuse the
+	# exact same saturation reading instead of recomputing it - see their own
+	# comment on why they need it too.
+	var saturation_k = 1
 	if not _pattern_child:
-		var k = ProjectileManager.consolidation_factor()
-		if k > 1:
+		saturation_k = ProjectileManager.consolidation_factor()
+		if saturation_k > 1:
 			if _consolidation_buffer == null:
 				_consolidation_buffer = packet.copy()
 			else:
 				_consolidation_buffer.add_synergies_batch(packet.synergies)
 			_consolidation_shots += 1
-			if _consolidation_shots < k:
+			if _consolidation_shots < saturation_k:
 				return
 			packet = _consolidation_buffer
 			_consolidation_buffer = null
@@ -362,6 +367,21 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 			return
 		if pattern == 1: # Shotgun: up to 5 pellets, +/-24 deg spread
 			var pellet_count = _pattern_pellet_count(SHOTGUN_MAX_PELLETS, SHOTGUN_MIN_PELLETS)
+			# Perf plan (wave-138 playtest: pattern fanout was the dominant
+			# "shoot" cost, uncapped by the saturation system that already
+			# throttles every OTHER mount) - each pellet independently pays
+			# the full per-shot construction cost via its own recursive
+			# _fire_combined_projectile call, so an 8-shard Radial burst was
+			# ~8x a normal mount's cost with zero saturation relief. Applied
+			# AFTER _pattern_pellet_count's own capacity_factor clamp
+			# (compose, don't override), same divide-by-k-with-a-floor shape
+			# as whole-volley consolidation above. At saturation_k == 1
+			# (the vast majority of real play) this is an exact no-op.
+			# per_pellet_amplify is derived from the FINAL pellet_count
+			# below, so total volley damage is unchanged either way - fewer,
+			# proportionally bigger pellets, same total energy delivered.
+			if saturation_k > 1:
+				pellet_count = max(SHOTGUN_MIN_PELLETS, ceili(float(pellet_count) / saturation_k))
 			var per_pellet_amplify = (SHOTGUN_MAX_PELLETS * 0.4) / float(pellet_count)
 			var angle_step = 48.0 / max(1, pellet_count - 1)
 			for i in range(pellet_count):
@@ -372,6 +392,10 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 			return
 		elif pattern == 2: # Radial burst: up to 8 shots, full circle
 			var shard_count = _pattern_pellet_count(RADIAL_MAX_PELLETS, RADIAL_MIN_PELLETS)
+			# See the Shotgun branch's own comment just above - same
+			# saturation-aware fanout cap, same damage-neutral mechanism.
+			if saturation_k > 1:
+				shard_count = max(RADIAL_MIN_PELLETS, ceili(float(shard_count) / saturation_k))
 			var per_shard_amplify = (RADIAL_MAX_PELLETS * 0.5) / float(shard_count)
 			for i in range(shard_count):
 				var shard = packet.copy()

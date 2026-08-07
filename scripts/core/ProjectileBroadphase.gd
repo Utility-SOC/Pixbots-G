@@ -61,7 +61,18 @@ func _ensure_rust():
 		if ClassDB.class_exists("ProjectileBroadphaseRs"):
 			_rasterizer = ClassDB.instantiate("ProjectileBroadphaseRs")
 
+# Perf plan (wave-138 playtest overlay: this whole module was invisible to
+# FpsCounter's breakdown, a real blind spot next to the "shoot"/
+# "projectile_physics" buckets it does track) - FpsCounter reads-AND-RESETS
+# this once/sec, same convention as Projectile._perf_physics_usec.
+static var _perf_physics_usec: int = 0
+
 func _physics_process(_delta):
+	var _t_bp = Time.get_ticks_usec()
+	_physics_process_body(_delta)
+	_perf_physics_usec += Time.get_ticks_usec() - _t_bp
+
+func _physics_process_body(_delta):
 	_ensure_rust()
 	if _reports.is_empty():
 		return

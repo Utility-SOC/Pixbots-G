@@ -61,6 +61,13 @@ var perf_label: Label
 # and Projectile._physics_process (441 live shots was the number that
 # raised this - see Projectile.gd's _perf_physics_usec for the full story).
 var perf_label2: Label
+# Seventh line (wave-138 playtest: "shoot"/"projectile_physics" dwarfing
+# everything else, but with no way to tell how much of "shoot" was real
+# firing work vs. per-tick overhead on ticks that had nothing ready to fire,
+# and ProjectileBroadphase/Mech.apply_damage were both completely invisible
+# blind spots) - see Mech._perf_shoot_fired_usec/_perf_shoot_checked_only_usec/
+# _perf_apply_damage_usec and ProjectileBroadphase._perf_physics_usec.
+var perf_label3: Label
 # Sixth line: build/version tag - see _compute_build_version() below.
 var version_label: Label
 var _perf_sample_timer: float = 0.0
@@ -198,6 +205,15 @@ func _ready():
 	perf_label2.modulate = Color(0.8, 0.9, 1.0)
 	box.add_child(perf_label2)
 
+	perf_label3 = Label.new()
+	perf_label3.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	perf_label3.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	perf_label3.add_theme_font_size_override("font_size", 12)
+	perf_label3.add_theme_constant_override("outline_size", 3)
+	perf_label3.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	perf_label3.modulate = Color(0.85, 1.0, 0.8)
+	box.add_child(perf_label3)
+
 	_build_version_text = _compute_build_version()
 	version_label = Label.new()
 	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -306,6 +322,23 @@ func _process(delta: float):
 		ProjectileManager._perf_rust_call_usec = 0
 		perf_label2.text = "per sec: status_bars_draw %.0fms  projectile_physics %.0fms  projectile_construct %.0fms  flight_collect %.0fms  flight_rust_call %.0fms" % [
 			status_bar_ms, proj_physics_ms, construct_ms, collect_ms, rust_call_ms
+		]
+
+		# shoot_fired/shoot_checked: splits shoot_ms above by whether that
+		# tick's _shoot() call actually fired a weapon or just paid the
+		# charge-check/tax-math overhead for nothing - see Mech._shoot's own
+		# comment. broadphase/apply_dmg: two real costs that were previously
+		# invisible to this whole overlay.
+		var shoot_fired_ms = Mech._perf_shoot_fired_usec / 1000.0
+		var shoot_checked_ms = Mech._perf_shoot_checked_only_usec / 1000.0
+		var broadphase_ms = ProjectileBroadphase._perf_physics_usec / 1000.0
+		var apply_dmg_ms = Mech._perf_apply_damage_usec / 1000.0
+		Mech._perf_shoot_fired_usec = 0
+		Mech._perf_shoot_checked_only_usec = 0
+		ProjectileBroadphase._perf_physics_usec = 0
+		Mech._perf_apply_damage_usec = 0
+		perf_label3.text = "per sec: shoot_fired %.0fms  shoot_checked %.0fms  broadphase %.0fms  apply_dmg %.0fms" % [
+			shoot_fired_ms, shoot_checked_ms, broadphase_ms, apply_dmg_ms
 		]
 
 ## Resolves once at _ready() (see _build_version_text) - never called again,

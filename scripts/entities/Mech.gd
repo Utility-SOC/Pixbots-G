@@ -835,6 +835,26 @@ static var _perf_ability_systems_usec: int = 0
 static var _perf_diag_ai_tactics_usec: int = 0
 static var _perf_diag_shoot_usec: int = 0
 
+# Perf plan (wave-138 playtest: 2fps, "shoot 466ms/sec" dwarfing everything
+# else on the overlay) - splits that one bucket into "ticks where a weapon
+# actually fired" vs. "ticks that paid the full charge-check/tax-math
+# overhead but had nothing ready" (see Mech._shoot's own comment). FpsCounter
+# reads-AND-RESETS these two once/sec exactly like _perf_shoot_usec itself -
+# _perf_shoot_usec is left untouched so nothing that already reads it breaks.
+static var _perf_shoot_fired_usec: int = 0
+static var _perf_shoot_checked_only_usec: int = 0
+# Diagnostic-only (see _perf_diag_shoot_usec's own comment just above for why
+# this needs to be separate from anything FpsCounter resets) - a plain
+# free-running fire-event count, never touched by FpsCounter. Headless
+# checks zero it themselves before measuring a window, then read the delta.
+static var _perf_diag_shots_fired_count: int = 0
+# Companion counter to the one above - every _shoot() CALL (fired or not),
+# vs. _perf_diag_shots_fired_count's fired-only count. The gap between the
+# two is exactly the AI_SHOOT_CHECK_HZ throttle's win: a headless check can
+# assert this call count drops while the fired count stays the same (see
+# _ai_shoot_timer's own comment).
+static var _perf_diag_shoot_call_count: int = 0
+
 # Diagnostic-only bypass for move_and_slide() on the AI branches below (see
 # scripts/debug/MechPhysicsCostDiagnostic.gd) - isolates move_and_slide's own
 # PhysicsServer2D sweep/solve cost from everything else in this function.
@@ -1135,6 +1155,33 @@ var _lod_ai_timer: float = 0.0
 # whole far population on the same tick.
 var _lod_weapon_charge_timer: float = randf() * 0.25
 var _lod_weapon_charge_elapsed: float = 0.0
+
+# Perf plan (wave-138 playtest: "shoot 466ms/sec" dwarfing everything else)
+# - every non-player, non-boss mech in engagement range calls _shoot() on
+# EVERY physics tick with no fire-rate gate at that call site at all (only
+# an internal charge-check inside _shoot_impl, which still pays the tax/
+# jamming-math overhead in full even on ticks where nothing was ready).
+# Weapon charge accumulation itself is untouched by this - _tick_weapon_
+# charges already runs unthrottled and safely clamps at the required
+# amount (Mech.gd's own _lod_weapon_charge_timer/_tick_weapon_charges), so
+# gating the CHECK doesn't change WHEN a ready weapon fires, only how often
+# the AI re-runs the surrounding overhead while genuinely nothing is ready.
+# AI_SHOOT_CHECK_HZ (20) was picked with real margin over the fastest real
+# fire cadence found across the weapon-tuning space: default fire_rate is
+# 0.25 (4Hz), the fastest SquadDirector.gd override is 0.15 (~6.7Hz), and
+# even the rare worst case - that fast an override COMBINED with the
+# maximum Reverse Accumulator charge_required discount (floored at 0.75,
+# Mech.gd's _collect_weapon_mounts_and_tile_capabilities) - tops out
+# around ~19Hz. 20Hz still meaningfully cuts overhead (60Hz physics -> 20Hz
+# checks = 1/3 the calls) while staying at or above every real cadence
+# found; any residual delay-to-first-shot-after-ready is bounded to one
+# throttle interval and self-corrects every cycle, it never compounds into
+# an actual DPS loss. Randomized start offset (thundering-herd avoidance),
+# same convention as _lod_weapon_charge_timer above. Bosses are excluded
+# entirely (see the call site) - matches this file's existing stance that
+# a boss's kit/behavior matters more than the savings would.
+const AI_SHOOT_CHECK_HZ = 20.0
+var _ai_shoot_timer: float = randf() * (1.0 / AI_SHOOT_CHECK_HZ)
 
 # Simulation LOD (task #34 follow-up) - same throttle-while-far pattern as
 # _lod_weapon_charge_timer/_lod_weapon_charge_elapsed above, extended to the
@@ -1518,8 +1565,14 @@ func _tick_weapon_charges(delta: float):
 # auto-release in _tick_weapon_charges) gets counted uniformly from one spot.
 func _shoot(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = true, delta: float = 0.0):
 	var _t_shoot = Time.get_ticks_usec()
-	_shoot_impl(target_pos, is_outward, fire_left_arm, delta)
-	_perf_shoot_usec += Time.get_ticks_usec() - _t_shoot
+	_perf_diag_shoot_call_count += 1
+	var _fired = _shoot_impl(target_pos, is_outward, fire_left_arm, delta)
+	var _elapsed = Time.get_ticks_usec() - _t_shoot
+	_perf_shoot_usec += _elapsed
+	if _fired:
+		_perf_shoot_fired_usec += _elapsed
+	else:
+		_perf_shoot_checked_only_usec += _elapsed
 
 # --- Rust packet-tax batching: tried, measured, reverted (2026-08-03) ---
 # rust_ext/src/packet_tax.rs + Mech._batch_scale_packets_fallback (the
@@ -1591,9 +1644,12 @@ func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = tr
 		# Thermal venting: firing sheds heat proportional to the volley
 		heat = max(0.0, heat - required_charge * 0.6)
 		fired_a_shot = true
+		_perf_diag_shots_fired_count += 1
 
 	if fired_a_shot and was_cloaked and not shadow_stealth_fire:
 		_break_cloak()
+
+	return fired_a_shot
 
 # Pure-GDScript reference implementation kept ONLY so PacketTaxParityCheck.gd
 # can keep validating rust_ext/src/packet_tax.rs's correctness for whenever
@@ -2902,7 +2958,14 @@ func _execute_ai_tactics(delta):
 		# AI combat shooting (out of range = hold charge, same as the player)
 		if dist < engagement_distance + 150.0 and not _diag_skip_shoot:
 			var _t_shoot_diag = Time.get_ticks_usec()
-			_shoot(target.global_position, true, true, delta)
+			if is_boss:
+				_shoot(target.global_position, true, true, delta)
+			else:
+				# See _ai_shoot_timer's own comment above.
+				_ai_shoot_timer -= delta
+				if _ai_shoot_timer <= 0.0:
+					_ai_shoot_timer = 1.0 / AI_SHOOT_CHECK_HZ
+					_shoot(target.global_position, true, true, delta)
 			_perf_diag_shoot_usec += Time.get_ticks_usec() - _t_shoot_diag
 
 
@@ -3082,7 +3145,18 @@ func _apply_smoke_mitigation(amount: float, element: String) -> float:
 		amount *= SMOKE_DAMAGE_MULT
 	return amount
 
+# Perf plan (wave-138 playtest overlay: this function was invisible to
+# FpsCounter's breakdown, same blind spot as ProjectileBroadphase) - thin
+# timing wrapper, same rename-body pattern as Mech._shoot/_shoot_impl.
+# FpsCounter reads-AND-RESETS _perf_apply_damage_usec once/sec.
+static var _perf_apply_damage_usec: int = 0
+
 func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false, source_label_override: String = ""):
+	var _t_dmg = Time.get_ticks_usec()
+	_apply_damage_body(amount, element, source, was_reflected, source_label_override)
+	_perf_apply_damage_usec += Time.get_ticks_usec() - _t_dmg
+
+func _apply_damage_body(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false, source_label_override: String = ""):
 	if amount > 0 and element == "VORTEX" and vortex_damage_reduction > 0.0:
 		amount *= (1.0 - vortex_damage_reduction)
 

@@ -571,6 +571,14 @@ func _ready():
 	took_damage.connect(_on_own_took_damage)
 
 	# Build default body
+	# Perf instrumentation (bot_spawn confirmed real+dominant by live
+	# playtest: 927ms/sec while actively spawning, ~all of the frame
+	# budget - see FpsCounter.gd). This is the first of three candidate
+	# costs inside that bucket (shape generation here, build_loadout_for_
+	# role's solver/cache below, MechRenderer._rebuild_visuals further
+	# down) - splitting them out so the NEXT playtest screenshot shows
+	# which one actually dominates instead of guessing.
+	var _t_shape = Time.get_ticks_usec()
 	equip_component(ComponentEquipment.create_starter_torso(combat_role if not is_player else "", base_rarity))
 	equip_component(ComponentEquipment.create_starter_arm(true, combat_role if not is_player else "", base_rarity))
 	equip_component(ComponentEquipment.create_starter_arm(false, combat_role if not is_player else "", base_rarity))
@@ -578,6 +586,7 @@ func _ready():
 	equip_component(ComponentEquipment.create_starter_leg(false, combat_role if not is_player else "", base_rarity))
 	equip_component(ComponentEquipment.create_starter_head(combat_role if not is_player else "", base_rarity))
 	equip_component(_create_role_backpack(combat_role if not is_player else "", base_rarity))
+	_perf_shape_gen_usec += Time.get_ticks_usec() - _t_shape
 
 	if not is_player:
 		visual_seed = randi()
@@ -606,9 +615,12 @@ func _ready():
 		_mosey_wander_offset = randf_range(-0.4, 0.4)
 
 	if not is_player:
+		var _t_loadout = Time.get_ticks_usec()
 		build_loadout_for_role(combat_role)
-	
+		_perf_build_loadout_usec += Time.get_ticks_usec() - _t_loadout
+
 	# Attach Visual Renderer
+	var _t_visuals = Time.get_ticks_usec()
 	var renderer = load("res://scripts/visuals/MechRenderer.gd").new()
 	renderer.name = "MechRenderer"
 	add_child(renderer)
@@ -617,7 +629,8 @@ func _ready():
 	# Pass the full components dict so the renderer can draw each piece
 	renderer.components = components
 	renderer._rebuild_visuals()
-	
+	_perf_visual_build_usec += Time.get_ticks_usec() - _t_visuals
+
 	# Collision shape - sized to match this mech's actual visual scale
 	# (role-based, e.g. scout renders ~0.8x, brawler ~1.2x, boss up to 1.8x
 	# before the extra mega/regular boss node-scale on top) rather than
@@ -794,6 +807,13 @@ func _update_obstacle_phasing():
 static var _perf_ai_tactics_usec: int = 0
 static var _perf_shoot_usec: int = 0
 static var _perf_move_usec: int = 0
+# Breakdown of the "bot_spawn" bucket confirmed dominant by live playtest
+# (927ms/sec while actively spawning - see SquadDirector._perf_bot_spawn_
+# usec's own comment). Three candidate costs inside Mech._ready(), split
+# out so the next playtest screenshot shows which one actually dominates.
+static var _perf_shape_gen_usec: int = 0
+static var _perf_build_loadout_usec: int = 0
+static var _perf_visual_build_usec: int = 0
 # Direct per-region instrumentation for the CHASE branch of
 # _execute_ai_tactics (see scripts/debug/MechPhysicsCostDiagnostic.gd) -
 # added because comparing whole-config deltas (with/without separation,

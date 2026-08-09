@@ -68,6 +68,10 @@ var perf_label2: Label
 # blind spots) - see Mech._perf_shoot_fired_usec/_perf_shoot_checked_only_usec/
 # _perf_apply_damage_usec and ProjectileBroadphase._perf_physics_usec.
 var perf_label3: Label
+# Eighth line: breakdown of the "bot_spawn" bucket on perf_label3 (confirmed
+# dominant by live playtest: 927ms/sec while actively spawning) - see
+# Mech._perf_shape_gen_usec/_perf_build_loadout_usec/_perf_visual_build_usec.
+var perf_label4: Label
 # Sixth line: build/version tag - see _compute_build_version() below.
 var version_label: Label
 var _perf_sample_timer: float = 0.0
@@ -214,6 +218,15 @@ func _ready():
 	perf_label3.modulate = Color(0.85, 1.0, 0.8)
 	box.add_child(perf_label3)
 
+	perf_label4 = Label.new()
+	perf_label4.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	perf_label4.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	perf_label4.add_theme_font_size_override("font_size", 12)
+	perf_label4.add_theme_constant_override("outline_size", 3)
+	perf_label4.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	perf_label4.modulate = Color(1.0, 0.85, 1.0)
+	box.add_child(perf_label4)
+
 	_build_version_text = _compute_build_version()
 	version_label = Label.new()
 	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -347,6 +360,18 @@ func _process(delta: float):
 		SquadDirector._perf_bot_spawn_usec = 0
 		perf_label3.text = "per sec: shoot_fired %.0fms  shoot_checked %.0fms  broadphase %.0fms  apply_dmg %.0fms  bot_spawn %.0fms" % [
 			shoot_fired_ms, shoot_checked_ms, broadphase_ms, apply_dmg_ms, bot_spawn_ms
+		]
+
+		# bot_spawn breakdown - see Mech._perf_shape_gen_usec/_perf_build_
+		# loadout_usec/_perf_visual_build_usec's own comment.
+		var shape_gen_ms = Mech._perf_shape_gen_usec / 1000.0
+		var build_loadout_ms = Mech._perf_build_loadout_usec / 1000.0
+		var visual_build_ms = Mech._perf_visual_build_usec / 1000.0
+		Mech._perf_shape_gen_usec = 0
+		Mech._perf_build_loadout_usec = 0
+		Mech._perf_visual_build_usec = 0
+		perf_label4.text = "bot_spawn breakdown: shape_gen %.0fms  build_loadout %.0fms  visual_build %.0fms" % [
+			shape_gen_ms, build_loadout_ms, visual_build_ms
 		]
 
 ## Resolves once at _ready() (see _build_version_text) - never called again,

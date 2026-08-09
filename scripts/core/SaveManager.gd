@@ -1007,3 +1007,15 @@ func load_component_loadout(slot_index: int, slot_type: int):
 
 func has_component_loadout(slot_index: int, slot_type: int) -> bool:
 	return FileAccess.file_exists(SAVE_DIR + "comp_loadout_" + str(slot_type) + "_" + str(slot_index) + ".json")
+
+func clone_mech_loadout(source_mech, target_mech) -> void:
+	for slot in source_mech.components.keys():
+		var src_comp = source_mech.components[slot]
+		if src_comp != null:
+			var serialized = _serialize_component(src_comp)
+			var cloned_comp = _deserialize_component(serialized)
+			if target_mech.components.has(slot) and target_mech.components[slot] != null:
+				target_mech.unequip_component(slot).queue_free()
+			target_mech.equip_component(cloned_comp)
+
+

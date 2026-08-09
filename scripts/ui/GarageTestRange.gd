@@ -433,14 +433,33 @@ func _fire_via_batch_pool(source: Node, mount, packet):
 	if not _batch_pool or not is_instance_valid(_dummy):
 		return
 	var from_pos = source.global_position
+	if mount != null and mount.has_method("get_muzzle_position"):
+		from_pos = mount.get_muzzle_position(source)
+	elif mount != null and "global_position" in mount:
+		from_pos = mount.global_position
+
 	var to_pos = _dummy.global_position
 	var dir = (to_pos - from_pos)
 	if dir == Vector2.ZERO:
 		dir = Vector2.RIGHT
 	var dmg = packet.magnitude * mount._get_damage_multiplier() * mount._get_power_multiplier()
-	var color = EnergyPacket.get_color_blend(packet.synergies)
+
+	var dominant = 0
+	var max_power = -1.0
+	if packet != null and "synergies" in packet:
+		for syn_type in packet.synergies:
+			var p = packet.synergies[syn_type]
+			if syn_type != EnergyPacket.SynergyType.RAW or packet.synergies.size() == 1:
+				if p > max_power:
+					max_power = p
+					dominant = syn_type
+
+	var color = EnergyPacket.get_color_for_synergy(dominant) if dominant != 0 else Color(0.9, 0.9, 1.0)
+	if packet != null and "synergies" in packet and packet.synergies.size() > 1:
+		color = EnergyPacket.get_color_blend(packet.synergies)
+
 	var scale_mult = clamp(1.0 + log(1.0 + packet.magnitude / 200.0) * 0.5, 1.0, 5.0)
-	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME, color, scale_mult, source.is_player, source)
+	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME, color, scale_mult, source.is_player, source, dominant)
 
 func _reset_dummy_stats():
 	if is_instance_valid(_dummy):

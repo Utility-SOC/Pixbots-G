@@ -21,6 +21,8 @@ func get_group(group: StringName) -> Array:
 	# counters into one stamp so the cache invalidates whenever either side
 	# advances, and a physics tick never reuses last render-frame's snapshot.
 	var stamp = (int(Engine.get_physics_frames()) << 20) | (int(Engine.get_process_frames()) & 0xFFFFF)
+	if get_tree().paused:
+		stamp = -1 # Force invalidation while paused so the Garage Test Range can see the dummy
 	if stamp != _stamp:
 		_stamp = stamp
 		_cache.clear()

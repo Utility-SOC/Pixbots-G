@@ -547,34 +547,43 @@ func _build_captures(director):
 		_lbl(captures_vbox, "\n(no captures yet - defeat enemies to start building this list)", COL_DIM, 12)
 		return
 
-	var role_order: Array = SquadTemplateMutator.ALL_ROLES.duplicate()
-	for r in captured:
-		if not role_order.has(r):
-			role_order.append(r)
+	var grouped: Dictionary = {}
+	for key in captured:
+		var entry = captured[key]
+		var tmpl = entry.get("template_name", "Unknown Template")
+		if not grouped.has(tmpl):
+			grouped[tmpl] = []
+		grouped[tmpl].append(entry)
+		
+	var templates = grouped.keys()
+	templates.sort()
+	
+	for tmpl in templates:
+		_lbl(captures_vbox, "\n=== %s ===" % str(tmpl).to_upper(), Color(0.9, 0.9, 0.9), 14)
+		var entries = grouped[tmpl]
+		entries.sort_custom(func(a, b): return a.get("role_name", "") < b.get("role_name", ""))
+		
+		for entry in entries:
+			var role = entry.get("role_name", "Unknown Role")
+			var rarity_idx = clamp(int(entry.get("rarity", 0)), 0, RARITY_NAMES.size() - 1)
+			var components: Dictionary = entry.get("components", {})
 
-	for role in role_order:
-		if not captured.has(role):
-			continue
-		var entry = captured[role]
-		var rarity_idx = clamp(int(entry.get("rarity", 0)), 0, RARITY_NAMES.size() - 1)
-		var components: Dictionary = entry.get("components", {})
+			var tile_count = 0
+			var rarity_counts: Dictionary = {}
+			for slot in components:
+				var comp_data = components[slot]
+				for tile_data in comp_data.get("tiles", []):
+					tile_count += 1
+					var tr = int(tile_data.get("rarity", 0))
+					rarity_counts[tr] = rarity_counts.get(tr, 0) + 1
 
-		var tile_count = 0
-		var rarity_counts: Dictionary = {}
-		for slot in components:
-			var comp_data = components[slot]
-			for tile_data in comp_data.get("tiles", []):
-				tile_count += 1
-				var tr = int(tile_data.get("rarity", 0))
-				rarity_counts[tr] = rarity_counts.get(tr, 0) + 1
+			var breakdown: Array[String] = []
+			for tr in range(RARITY_NAMES.size() - 1, -1, -1):
+				if rarity_counts.has(tr):
+					breakdown.append("%dx %s" % [rarity_counts[tr], RARITY_NAMES[tr]])
 
-		var breakdown: Array[String] = []
-		for tr in range(RARITY_NAMES.size() - 1, -1, -1):
-			if rarity_counts.has(tr):
-				breakdown.append("%dx %s" % [rarity_counts[tr], RARITY_NAMES[tr]])
-
-		_lbl(captures_vbox, "\n%s  [%s]" % [str(role).capitalize(), RARITY_NAMES[rarity_idx]], COL_CORE, 14)
-		_lbl(captures_vbox, "   fitness %.0f | %d components | %d tiles | %s" % [float(entry.get("fitness", 0.0)), components.size(), tile_count, ", ".join(breakdown)], COL_GOOD, 12)
+			_lbl(captures_vbox, "%s  [%s]" % [str(role).capitalize(), RARITY_NAMES[rarity_idx]], COL_CORE, 14)
+			_lbl(captures_vbox, "   fitness %.0f | %d components | %d tiles | %s" % [float(entry.get("fitness", 0.0)), components.size(), tile_count, ", ".join(breakdown)], COL_GOOD, 12)
 
 # --- Death Log ---------------------------------------------------------------
 # Player deaths only (deliberately not a kill log - the user's own scoping

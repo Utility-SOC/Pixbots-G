@@ -145,7 +145,13 @@ func _make_bot_offer(role: String, director) -> Dictionary:
 		var cap = director.captured_loadouts[role]
 		var rarity = int(cap.get("rarity", HexTile.Rarity.LEGENDARY))
 		return {
-			"role": role, "source": "captured", "fitness": float(cap.get("fitness", 0.0)),
+			# "role" stays whatever key captured_loadouts is actually indexed
+			# by (SquadDirector.gd now uses a composite "template:role" key,
+			# not a plain role) - re-lookups on purchase/re-roll depend on
+			# this matching the dict key exactly. "role_name" is the clean,
+			# human-readable role alone (SquadDirector stores it alongside
+			# the composite key) - display code should use this, not "role".
+			"role": role, "role_name": cap.get("role_name", role), "source": "captured", "fitness": float(cap.get("fitness", 0.0)),
 			"rarity": rarity, "components": cap.get("components", {}),
 			"price": BOT_PRICE_BY_RARITY.get(rarity, BOT_PRICE_BY_RARITY[HexTile.Rarity.LEGENDARY]),
 		}
@@ -156,7 +162,7 @@ func _make_bot_offer(role: String, director) -> Dictionary:
 		var comp = _build_generated_component(slot, role, rarity)
 		serialized[slot] = SaveManager._serialize_component(comp)
 	return {
-		"role": role, "source": "generated", "fitness": 0.0,
+		"role": role, "role_name": role, "source": "generated", "fitness": 0.0,
 		"rarity": rarity, "components": serialized,
 		"price": BOT_PRICE_BY_RARITY[rarity],
 	}
@@ -166,9 +172,10 @@ func _add_bot_row(vbox: VBoxContainer, main, i: int):
 	var rarity_names = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
 	var tag = "CAPTURED (fitness %.0f)" % offer.fitness if offer.source == "captured" else "workshop build"
 	var btn = Button.new()
-	btn.text = "%s %s [%s]  |  %d scrap" % [rarity_names[offer.rarity], str(offer.role).capitalize(), tag, offer.price]
+	var display_role = str(offer.get("role_name", offer.role)).capitalize()
+	btn.text = "%s %s [%s]  |  %d scrap" % [rarity_names[offer.rarity], display_role, tag, offer.price]
 	if offer.source == "captured":
-		btn.tooltip_text = "The actual tile-by-tile layout of the best %s enemy you've faced." % offer.role
+		btn.tooltip_text = "The actual tile-by-tile layout of the best %s enemy you've faced." % display_role
 	btn.pressed.connect(func():
 		if purchase_bot(i, main):
 			_reopen(main)

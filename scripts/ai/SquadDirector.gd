@@ -622,9 +622,12 @@ func _maybe_capture_loadout(mech: Node, fitness: float):
 	if not ("combat_role" in mech) or not ("components" in mech):
 		return
 	var role = mech.combat_role
-	if role == "":
+	var tmpl = mech.get("spawn_template_name")
+	if role == "" or tmpl == null or tmpl == "":
 		return
-	var existing = captured_loadouts.get(role)
+		
+	var key = tmpl + ":" + role
+	var existing = captured_loadouts.get(key)
 	if existing != null and float(existing.get("fitness", 0.0)) >= fitness:
 		return
 
@@ -632,12 +635,15 @@ func _maybe_capture_loadout(mech: Node, fitness: float):
 	for slot in mech.components:
 		serialized_components[slot] = SaveManager._serialize_component(mech.components[slot])
 
-	captured_loadouts[role] = {
+	captured_loadouts[key] = {
 		"fitness": fitness,
 		"rarity": int(mech.base_rarity) if "base_rarity" in mech else 0,
 		"components": serialized_components,
+		"role_name": role,
+		"template_name": tmpl
 	}
-	print("[DIRECTOR] New high-fitness '", role, "' loadout captured (fitness %.1f)" % fitness)
+	print("[DIRECTOR] New high-fitness '", key, "' loadout captured (fitness %.1f)" % fitness)
+
 
 func log_player_damage(amount: float, element: String):
 	if not player_element_usage.has(element):

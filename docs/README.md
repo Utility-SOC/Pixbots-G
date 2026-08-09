@@ -36,3 +36,7 @@ real content.
 - **[DISCLOSURES.md](DISCLOSURES.md)** — third-party license disclosures
   (Godot, godot-rust, Python tooling, Rust crate tree). Read before
   shipping/publishing, or when adding a new third-party dependency.
+- **[PIXELBOTS_2_HEX_TO_CUBE_MAPPING.md](PIXELBOTS_2_HEX_TO_CUBE_MAPPING.md)**
+  — design proposal for how the 2D hex grid maps into 3D cube volumes for
+  Pixelbots 2 (documentation only, no PB1 code implied). Read alongside
+  `Status.md`'s "1a. Pixelbots 2" section before any future 3D/PB2 work.

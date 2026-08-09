@@ -600,10 +600,17 @@ func on_tile_clicked(tile: HexTile):
 				vbox.add_child(aim_btn)
 
 			if tile.tile_type == "Weapon Mount" and "mythic_firing_threshold" in tile:
+				# Plain "v/1000 + k" reads fine up to the base 1.2M ceiling,
+				# but Accumulator-scaled thresholds (see WeaponMountTile.
+				# get_threshold_options()) can now reach into the hundreds
+				# of millions - "180075k" is unreadable. M/B-suffixed
+				# instead, same idea as any other huge-number game HUD uses.
 				var get_lbl = func():
 					var v = tile.mythic_firing_threshold
 					if v == 0: return "Auto-fire (0)"
-					return str(v / 1000) + "k"
+					if v >= 1000000000: return "%.1fB" % (v / 1000000000.0)
+					if v >= 1000000: return "%.1fM" % (v / 1000000.0)
+					return "%.0fk" % (v / 1000.0)
 				# Threshold options extend upward/downward with adjacent
 				# Accumulator/Reverse Accumulator investment - see
 				# WeaponMountTile.get_threshold_options()'s own comment.

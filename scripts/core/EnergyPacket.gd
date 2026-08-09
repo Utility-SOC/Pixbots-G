@@ -91,6 +91,12 @@ var range_mult: float = 1.0
 # scaled to the charge actually banked) - see Mech._tick_weapon_charges.
 var auto_dump_threshold: float = 0.0
 var traversal_steps: int = 0
+# Chopper split factor (see ReverseAccumulatorTile.gd's "Chopper" and
+# Mech._get_adjacent_chopper_split_factor) - how many equal shares
+# HexTile._fire_combined_projectile/MissileRackTile._fire_combined_
+# projectile should peel this packet into at fire time via split() below.
+# 1 = no split (default), matches every other Mythic-ability packet stamp.
+var chopper_split: int = 1
 var charge_required: float = 1.0 :
 	set(val):
 		charge_required = min(val, MAX_CHARGE_REQUIRED)
@@ -198,6 +204,7 @@ func split(ratio: float) -> EnergyPacket:
 	new_packet.acc_charge_mult = acc_charge_mult
 	new_packet.acc_damage_mult = acc_damage_mult
 	new_packet.range_mult = range_mult
+	new_packet.chopper_split = chopper_split
 	new_packet.synergies.clear()
 	for k in synergies:
 		new_packet.synergies[k] = synergies[k] * ratio
@@ -225,6 +232,7 @@ func copy() -> EnergyPacket:
 	new_packet.acc_damage_mult = acc_damage_mult
 	new_packet.range_mult = range_mult
 	new_packet.auto_dump_threshold = auto_dump_threshold
+	new_packet.chopper_split = chopper_split
 	return new_packet
 
 func merge(other: EnergyPacket):
@@ -237,6 +245,7 @@ func merge(other: EnergyPacket):
 	acc_damage_mult = max(acc_damage_mult, other.acc_damage_mult)
 	range_mult = max(range_mult, other.range_mult)
 	auto_dump_threshold = max(auto_dump_threshold, other.auto_dump_threshold)
+	chopper_split = max(chopper_split, other.chopper_split)
 	for k in other.synergies:
 		synergies[k] = synergies.get(k, 0.0) + other.synergies[k]
 	for k in other.proc_synergies:

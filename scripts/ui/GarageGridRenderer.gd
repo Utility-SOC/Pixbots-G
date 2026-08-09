@@ -795,7 +795,7 @@ func _draw_descriptive_icon(tile: HexTile, center: Vector2):
 		if trig != "None":
 			draw_string(ThemeDB.fallback_font, center + Vector2(-6, 5), trig, HORIZONTAL_ALIGNMENT_CENTER, 20, 14, acc_color)
 
-	elif type == "Reverse Accumulator":
+	elif type == "Chopper": # was "Reverse Accumulator" - see ReverseAccumulatorTile.gd's _init()
 		# The literal mirror of Accumulator's icon: same capacitor plates,
 		# but drawn with inward-pointing arrows (discharging, not charging)
 		# and a distinct color so the two read as opposites at a glance.

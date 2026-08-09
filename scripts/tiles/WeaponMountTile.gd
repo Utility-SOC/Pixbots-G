@@ -31,74 +31,19 @@ func cycle_mythic_pattern():
 func cycle_mythic_aim_direction():
 	mythic_aim_direction = (mythic_aim_direction + 1) % 6
 
-# MYTHIC ability: Set a massive energy threshold (300k, 600k, 900k, 1.2M by
-# default) that must be met before the weapon fires. It will accumulate
-# incoming packets across ticks until the sum meets or exceeds this value,
-# at which point it releases a catastrophic single shot. 0 means disabled
-# (auto-fire).
-const BASE_THRESHOLD_OPTIONS = [0, 300000, 600000, 900000, 1200000]
-@export var mythic_firing_threshold: int = 0
-
-# Design request: "I want the capacity options for the weapons mount to
-# directly attenuate upward when accumulators are equipped (allowing for
-# shots much larger than 12,000,000 energy, and with reverse accumulators
-# smaller than 300,000)." The base 5-option list is fixed, but a mount with
-# real Accumulator/Reverse Accumulator investment adjacent to it should be
-# able to reach thresholds far outside that range in either direction -
-# reuses the exact same adjacency scan the accumulator bank-charge system
-# already relies on (Mech._get_adjacent_accumulator_bonus/
-# _get_adjacent_reverse_accumulator_discount, both static - no live Mech
-# instance needed), so "how much accumulator investment is here" means the
-# same thing in both systems.
-#
-# Accumulators extend the CEILING: each step multiplies the previous tier
-# by (1 + total adjacent bank_amplify), so a single Mythic-tier Accumulator
-# (bank_amplify ~2.5) reaches ~4.2M on the first new tier and clears 12M+
-# with two or three stacked - matching the request's own reference number.
-# Reverse Accumulators extend the FLOOR the same way in reverse, dividing
-# down from 300k, but never below a 1,000-energy hard stop and never
-# touching the 0 ("disabled/auto-fire") option itself.
-#
-# grid/coord are optional - a caller with no grid context (e.g. a debug
-# spawn with no real component) just gets the base 5 options, same as
-# before this feature existed.
-func get_threshold_options(grid: HexGridComponent = null, coord: HexCoord = null) -> Array:
-	var options = BASE_THRESHOLD_OPTIONS.duplicate()
-	if grid == null or coord == null or not grid.has_tile(coord):
-		return options
-
-	var acc_bonus = Mech._get_adjacent_accumulator_bonus(grid, coord)
-	if acc_bonus.amplify > 0.0:
-		var scale = 1.0 + acc_bonus.amplify
-		var tier = float(BASE_THRESHOLD_OPTIONS[-1])
-		for i in range(4):
-			tier *= scale
-			options.append(int(tier))
-
-	var rev_discount = Mech._get_adjacent_reverse_accumulator_discount(grid, coord)
-	if rev_discount > 0.0:
-		var scale = 1.0 + rev_discount
-		var tier = float(BASE_THRESHOLD_OPTIONS[1]) # 300000
-		var floor_tiers = []
-		for i in range(3):
-			tier /= scale
-			if tier < 1000.0:
-				break
-			floor_tiers.append(int(tier))
-		floor_tiers.reverse()
-		# Insert after the leading 0 (index 0), before the base 300k tier.
-		for i in range(floor_tiers.size()):
-			options.insert(1 + i, floor_tiers[i])
-
-	return options
-
-func cycle_mythic_firing_threshold(grid: HexGridComponent = null, coord: HexCoord = null):
-	var options = get_threshold_options(grid, coord)
-	var idx = options.find(mythic_firing_threshold)
-	if idx == -1: idx = 0
-	idx = (idx + 1) % options.size()
-	mythic_firing_threshold = options[idx]
-
+# MYTHIC ability: "firing quanta" - how many frames of energy this mount
+# batches into one burst before firing (1 = "Auto," fire whenever charged).
+# Was a standalone energy-threshold system (0/300k/600k/900k/1.2M) with its
+# own accumulator-scaling math; replaced by the same shared frame-quanta
+# dial MissileRackTile already used (1->2->16->64), now Accumulator-adjacency
+# -aware for both tile types via HexTile.get_frame_multiplier_options()/
+# cycle_mythic_frame_multiplier() - one unified capacity model instead of
+# two incompatible ones. See Mech._get_adjacent_accumulator_capacity_bonus
+# for how an adjacent Mythic Accumulator's own dial extends this mount's
+# reachable ceiling, and ReverseAccumulatorTile.gd ("Chopper") for the
+# separate split-fire ability that replaced the old threshold system's
+# reverse-accumulator floor-lowering.
+@export var mythic_frame_multiplier: int = 1
 
 var pending_packets: Array = [] # Stores dictionary: { "packet": packet, "step": step }
 var current_charge: float = 0.0 # Used by Mech to track accumulator charging

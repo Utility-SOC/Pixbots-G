@@ -327,7 +327,7 @@ var _consolidation_shots: int = 0
 # FpsCounter, same as every other _perf_*_usec counter in this codebase.
 static var _perf_projectile_construct_usec: int = 0
 
-func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0):
+func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0, _chopper_child: bool = false):
 	if not _ProjectileClass: return
 
 	# Whole-volley consolidation under saturation (playtest: rational
@@ -339,7 +339,7 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# exact same saturation reading instead of recomputing it - see their own
 	# comment on why they need it too.
 	var saturation_k = 1
-	if not _pattern_child:
+	if not _pattern_child and not _chopper_child:
 		saturation_k = ProjectileManager.consolidation_factor()
 		if saturation_k > 1:
 			if _consolidation_buffer == null:
@@ -360,6 +360,27 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 			_consolidation_buffer = null
 			_consolidation_shots = 0
 
+	# Chopper split (ReverseAccumulatorTile.gd, renamed-in-place - see that
+	# file's header): "takes what would fire as ONE combined shot and fires
+	# it as N smaller shots instead," same total magnitude redistributed
+	# evenly via EnergyPacket.split()'s existing "peel one even share at a
+	# time" idiom (already used by SplitterTile/ComponentLinkTile - no new
+	# math). Deliberately mutually exclusive with the mythic_pattern branch
+	# below (a Chopper-split mount's pattern setting is skipped for that
+	# release) - this bounds worst-case fanout to chopper_split alone
+	# instead of chopper_split * pattern_pellets, the same class of
+	# uncapped-fanout problem the saturation cap above exists to prevent.
+	if not _pattern_child and not _chopper_child and packet.chopper_split > 1:
+		var n = packet.chopper_split
+		if saturation_k > 1:
+			n = max(1, ceili(float(n) / saturation_k))
+		if n > 1:
+			for i in range(n - 1):
+				var piece = packet.split(1.0 / float(n) / (1.0 - (1.0 / float(n)) * i))
+				_fire_combined_projectile(mech, piece, step, false, 0.0, true)
+			_fire_combined_projectile(mech, packet, step, false, 0.0, true)
+			return
+
 	# MYTHIC Weapon Mount firing patterns: split the volley into a shotgun
 	# spread or a 360-degree radial burst by recursively firing scaled-down
 	# child packets. _pattern_child guards recursion (children are marked
@@ -372,7 +393,7 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# the mode selected. Beam (pattern 3, below) never had this restriction,
 	# confirming it was an oversight specific to Shotgun/Radial rather than
 	# an intentional "patterns only apply to instant volleys" design call.
-	if not _pattern_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC:
+	if not _pattern_child and not _chopper_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC:
 		var pattern = int(get("mythic_pattern"))
 		if pattern == 4: # Mortar: remote payload at the aim point (see MortarShell.gd)
 			_fire_mortar(mech, packet)
@@ -481,7 +502,7 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# angles), which could aim it anywhere from 15 to a full 180 degrees off
 	# depending on how the mount happened to be wired into the grid - that
 	# was the actual "unreliable" bug, not RNG.
-	var is_beam = not _pattern_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC and int(get("mythic_pattern")) == 3
+	var is_beam = not _pattern_child and not _chopper_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC and int(get("mythic_pattern")) == 3
 	if is_beam:
 		proj.damage *= 1.2
 		proj.base_speed *= 2.5
@@ -624,5 +645,41 @@ func _get_damage_multiplier() -> float:
 	if "damage_multiplier" in self:
 		return get("damage_multiplier")
 	return 1.0
+
+# Shared Mythic "firing quanta" dial - how many frames of energy a mount
+# batches into one burst before releasing it (Auto/1 = fire whenever
+# charged). Originated on MissileRackTile (its 1->2->16->64 cycle);
+# WeaponMountTile now shares it too, replacing its old standalone
+# mythic_firing_threshold energy-value system (design ruling: one unified
+# capacity model for both weapon types instead of two incompatible ones).
+# Shared here via the same "prop" in self duck-typed idiom
+# _get_damage_multiplier() above already uses, rather than duplicating
+# this in both tile files - see WeaponMountTile.gd/MissileRackTile.gd's
+# own @export var mythic_frame_multiplier declarations.
+const BASE_FRAME_MULTIPLIER_OPTIONS = [1, 2, 16, 64]
+
+# grid/coord optional - a caller with no grid context (e.g. a debug spawn
+# with no real component) just gets the base list, same convention
+# get_threshold_options() (its predecessor) used.
+func get_frame_multiplier_options(grid: HexGridComponent = null, coord: HexCoord = null) -> Array:
+	var options = BASE_FRAME_MULTIPLIER_OPTIONS.duplicate()
+	if grid == null or coord == null or not grid.has_tile(coord):
+		return options
+	var bonus = Mech._get_adjacent_accumulator_capacity_bonus(grid, coord)
+	if bonus > 0:
+		# One additional ceiling tier, not a whole new ladder - matches the
+		# "each adjacent accumulator adds an additional capacity" request
+		# literally (singular addition), unlike the old threshold system's
+		# multi-tier ceiling extension.
+		options.append(BASE_FRAME_MULTIPLIER_OPTIONS[-1] + bonus)
+	return options
+
+func cycle_mythic_frame_multiplier(grid: HexGridComponent = null, coord: HexCoord = null):
+	if rarity != Rarity.MYTHIC or not ("mythic_frame_multiplier" in self):
+		return
+	var options = get_frame_multiplier_options(grid, coord)
+	var idx = options.find(get("mythic_frame_multiplier"))
+	if idx == -1: idx = 0
+	set("mythic_frame_multiplier", options[(idx + 1) % options.size()])
 
 # Specific variants can be created as subclasses extending HexTile

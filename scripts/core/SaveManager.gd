@@ -713,7 +713,11 @@ func _serialize_tile(tile) -> Dictionary:
 	# The tail entries are the tile-config knobs (Resonator per-path
 	# dropoff, Splitter ratios, Accumulator auto-dump, Catalyst gating) -
 	# same sweep, JSON-safe types only (Arrays/floats/ints/strings).
-	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n"]:
+	# mythic_frame_multiplier/mythic_capacity_dial/mythic_split_factor added
+	# alongside the quanta-of-frames/Chopper redesign - mythic_frame_
+	# multiplier was a pre-existing omission (Missile Rack's frame-accel
+	# setting never survived a save before this), the other two are new.
+	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_capacity_dial", "mythic_split_factor"]:
 		if prop in tile:
 			data[prop] = tile.get(prop)
 
@@ -732,6 +736,16 @@ func _deserialize_tile(data: Dictionary):
 		tile = script.new()
 		
 	tile.tile_type = data.get("tile_type", "Unknown")
+	# Migration: ReverseAccumulatorTile.gd's tile_type flavor changed from
+	# "Reverse Accumulator" to "Chopper" (class_name/script_path
+	# deliberately UNCHANGED so old saves' script_path still resolves via
+	# _load_cached - see that file's header). tile.tile_type just got
+	# overwritten from the saved string above, so without this an old
+	# save's tile would come back stamped "Reverse Accumulator" forever and
+	# silently stop matching Mech._get_adjacent_chopper_split_factor's
+	# "Chopper" comparison.
+	if tile.tile_type == "Reverse Accumulator":
+		tile.tile_type = "Chopper"
 	tile.category = int(data.get("category", 0))
 	tile.rarity = int(data.get("rarity", 0))
 	# AFTER the rarity assignment above - its setter re-rolls
@@ -780,7 +794,7 @@ func _deserialize_tile(data: Dictionary):
 			tile.visual_class = int(data["visual_class"])
 
 	# Mythic ability state + tile-config knobs (see _serialize_tile's sweep)
-	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n"]:
+	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_capacity_dial", "mythic_split_factor"]:
 		if data.has(prop) and prop in tile:
 			tile.set(prop, data[prop])
 

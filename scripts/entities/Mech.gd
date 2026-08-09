@@ -2038,6 +2038,7 @@ func _collect_weapon_mounts_and_tile_capabilities():
 				var bank_quality = 1.0
 				var bank_auto_dump = 0.0
 				var reverse_discount = 0.0
+				var chopper_split = 1
 				if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Missile Rack") and tile.grid_position:
 					var bank = _get_adjacent_accumulator_bonus(comp.hex_grid, tile.grid_position)
 					bank_charge = bank.charge
@@ -2048,6 +2049,11 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					# never be discounted below 25% of its real charge time,
 					# no matter how many adjacent tiles contribute.
 					reverse_discount = min(0.75, _get_adjacent_reverse_accumulator_discount(comp.hex_grid, tile.grid_position))
+					# Chopper (renamed-in-place ReverseAccumulatorTile.gd):
+					# separate ability from the discount above - how many
+					# smaller shots this mount's one combined release gets
+					# split into, see _get_adjacent_chopper_split_factor.
+					chopper_split = _get_adjacent_chopper_split_factor(comp.hex_grid, tile.grid_position)
 
 				# Detect routed-through accumulators via the recorded mults
 				var probe = tile.pending_packets[0].packet
@@ -2055,47 +2061,27 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					if tile.pending_packets[i].packet.acc_damage_mult > probe.acc_damage_mult:
 						probe = tile.pending_packets[i].packet
 				var has_routed_acc = probe.acc_damage_mult > 1.001
-				
-				# Mythic Firing Threshold (User request: catastrophically powerful single shot)
-				# Bypasses standard accumulator split-fire and rapid-fire completely.
-				var threshold = tile.get("mythic_firing_threshold")
-				if threshold == null:
-					threshold = 0
-				
+
+				# Firing quanta (shared Mythic dial - see HexTile.
+				# get_frame_multiplier_options()/cycle_mythic_frame_
+				# multiplier(), and WeaponMountTile.gd's field comment for
+				# why this replaced the old standalone energy-threshold
+				# system). 1 = "Auto," fire whenever charged.
 				var frame_multiplier = tile.get("mythic_frame_multiplier")
 				if frame_multiplier == null:
 					frame_multiplier = 1
-				
-				if threshold > 0:
+
+				if frame_multiplier > 1 or tile.tile_type == "Missile Rack":
 					var combined = tile.pending_packets[0].packet.copy()
 					for i in range(1, tile.pending_packets.size()):
 						combined.merge(tile.pending_packets[i].packet)
-					
-					var rate = combined.magnitude / max(0.001, combined.charge_required)
-					var time_to_charge = float(threshold) / max(0.001, rate)
-					var mag_mult = float(threshold) / max(0.001, combined.magnitude)
-					
-					combined.charge_required = time_to_charge
-					combined.magnitude = float(threshold)
-					for k in combined.synergies:
-						combined.synergies[k] *= mag_mult
-					
-					precalculated_weapons.append({
-						"mount": tile,
-						"packet": combined,
-						"step": 0,
-						"slot_type": comp.slot_type
-					})
-				elif frame_multiplier > 1 or tile.tile_type == "Missile Rack":
-					var combined = tile.pending_packets[0].packet.copy()
-					for i in range(1, tile.pending_packets.size()):
-						combined.merge(tile.pending_packets[i].packet)
-					
+
 					combined.charge_required *= float(frame_multiplier)
 					combined.magnitude *= float(frame_multiplier)
 					for k in combined.synergies:
 						combined.synergies[k] *= float(frame_multiplier)
-					
+					combined.chopper_split = chopper_split
+
 					precalculated_weapons.append({
 						"mount": tile,
 						"packet": combined,
@@ -2125,6 +2111,13 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					# already (copy/merge carry it); adjacent bank accumulators
 					# contribute theirs here - highest threshold wins.
 					enhanced.auto_dump_threshold = max(enhanced.auto_dump_threshold, bank_auto_dump)
+					# Chopper split applies to the alpha-strike bank shot only -
+					# deliberately NOT stamped onto normal_entry below (the
+					# small continuous mouse-fire side has no "alpha strike"
+					# to redistribute, and splitting it would just add
+					# pointless recursion/projectile overhead to already-
+					# frequent shots).
+					enhanced.chopper_split = chopper_split
 
 					# Normal-fire entry: the base (unamplified) packet, at
 					# whatever charge_required routing naturally gave it.
@@ -2161,6 +2154,7 @@ func _collect_weapon_mounts_and_tile_capabilities():
 
 					for step in step_groups:
 						step_groups[step].charge_required *= RAPID_FIRE_CHARGE_MULT * (1.0 - reverse_discount)
+						step_groups[step].chopper_split = chopper_split
 						precalculated_weapons.append({
 							"mount": tile,
 							"packet": step_groups[step],
@@ -2489,9 +2483,53 @@ static func _get_adjacent_reverse_accumulator_discount(grid: HexGridComponent, c
 		var n = coord.neighbor(d)
 		if grid.has_tile(n):
 			var neighbor_tile = grid.get_tile(n)
-			if neighbor_tile.tile_type == "Reverse Accumulator" and neighbor_tile.has_method("get_charge_discount"):
+			# tile_type is "Chopper" now (renamed in place from "Reverse
+			# Accumulator" - see ReverseAccumulatorTile.gd's _init()); the
+			# class/file/get_charge_discount() are unchanged.
+			if neighbor_tile.tile_type == "Chopper" and neighbor_tile.has_method("get_charge_discount"):
 				total_discount += neighbor_tile.get_charge_discount()
 	return total_discount
+
+# New, separate from _get_adjacent_accumulator_bonus's dict above (a
+# different stat - the capacity DIAL, not bank_charge/bank_amplify) - see
+# HexTile.get_frame_multiplier_options(). Only MYTHIC-rarity Accumulators
+# count: mythic_capacity_dial only ever cycles away from its 1 (no-op)
+# default at Mythic rarity (AccumulatorTile.cycle_mythic_capacity_dial's
+# own gate), so this rarity check is belt-and-suspenders, not the only
+# thing preventing a freebie.
+static func _get_adjacent_accumulator_capacity_bonus(grid: HexGridComponent, coord: HexCoord) -> int:
+	var total = 0
+	for d in range(6):
+		var n = coord.neighbor(d)
+		if grid.has_tile(n):
+			var neighbor_tile = grid.get_tile(n)
+			# dial == 1 is the off/default state (matches every other Mythic
+			# dial's "1 = no bonus" convention) - must be excluded, not just
+			# summed, or a default-dialed Accumulator would still contribute
+			# a spurious +1 tier just by sitting adjacent.
+			if neighbor_tile.tile_type == "Accumulator" and neighbor_tile.rarity == HexTile.Rarity.MYTHIC and "mythic_capacity_dial" in neighbor_tile and int(neighbor_tile.mythic_capacity_dial) > 1:
+				total += int(neighbor_tile.mythic_capacity_dial)
+	return total
+
+# Mirrors the shape above for Chopper. Unlike the capacity bonus (which
+# EXTENDS a mount's own pre-existing dial), a mount has no split ability
+# at all without a Chopper present, so this IS the split factor outright,
+# not an addend: zero/only-default-dialed adjacent Choppers correctly
+# floors to 1 (no split); one Chopper dialed to 2 gives a 2-way split;
+# two Choppers each dialed to 2 combine additively to a 4-way split.
+static func _get_adjacent_chopper_split_factor(grid: HexGridComponent, coord: HexCoord) -> int:
+	var total = 0
+	for d in range(6):
+		var n = coord.neighbor(d)
+		if grid.has_tile(n):
+			var neighbor_tile = grid.get_tile(n)
+			# dial == 1 is the off/default state - excluded, not just summed,
+			# same reasoning as _get_adjacent_accumulator_capacity_bonus above
+			# (a default-dialed Chopper sitting next to a REAL dialed one
+			# must not silently add a spurious +1 to the split factor).
+			if neighbor_tile.tile_type == "Chopper" and neighbor_tile.rarity == HexTile.Rarity.MYTHIC and "mythic_split_factor" in neighbor_tile and int(neighbor_tile.mythic_split_factor) > 1:
+				total += int(neighbor_tile.mythic_split_factor)
+	return max(1, total)
 
 func _collect_transfers(comp) -> Dictionary:
 	var result = {}

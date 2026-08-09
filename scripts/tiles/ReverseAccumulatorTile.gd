@@ -17,7 +17,14 @@ extends HexTile
 @export var discount_base: float = TileStatsRegistry.get_stat("ReverseAccumulatorTile", "discount_base", 0.15) # fraction shaved off an adjacent mount's charge_required, before rarity/level scaling
 
 func _init():
-	tile_type = "Reverse Accumulator"
+	tile_type = "Chopper" # was "Reverse Accumulator" - a chopper circuit
+	# chops a continuous signal into rapid pulses, matching this tile's new
+	# split-fire ability below. Deliberately NOT a file/class_name rename -
+	# a real save stores script_path: "res://scripts/tiles/
+	# ReverseAccumulatorTile.gd", and SaveManager._load_cached() resolves
+	# tiles by that exact path, so renaming the file would silently drop
+	# every existing save's copy of this tile. See SaveManager.
+	# _deserialize_tile's matching tile_type migration shim.
 	category = TileCategory.STORAGE
 
 func get_weight() -> float:
@@ -39,3 +46,22 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 # a mount can never be discounted to free/negative charge time.
 func get_charge_discount() -> float:
 	return discount_base * _get_power_multiplier()
+
+# MYTHIC ability (brand new - this tile had none before): how many smaller
+# shots a mount's one combined release gets chopped into (2/16/64), SAME
+# total magnitude redistributed evenly (EnergyPacket.split(), see HexTile.
+# _fire_combined_projectile's chopper-split block) - a rate-of-fire/
+# alpha-strike tradeoff, not a damage bonus. Multiple adjacent Choppers
+# combine additively (Mech._get_adjacent_chopper_split_factor) - unlike
+# Accumulator's capacity dial (which only ever EXTENDS a mount's own
+# pre-existing dial), a mount has no split ability at all without an
+# adjacent Chopper, so the aggregate IS the split factor outright.
+const SPLIT_FACTOR_OPTIONS = [1, 2, 16, 64]
+@export var mythic_split_factor: int = 1
+
+func cycle_mythic_split_factor():
+	if rarity != HexTile.Rarity.MYTHIC:
+		return
+	var idx = SPLIT_FACTOR_OPTIONS.find(mythic_split_factor)
+	if idx == -1: idx = 0
+	mythic_split_factor = SPLIT_FACTOR_OPTIONS[(idx + 1) % SPLIT_FACTOR_OPTIONS.size()]

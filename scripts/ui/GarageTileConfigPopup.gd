@@ -470,7 +470,67 @@ func on_tile_clicked(tile: HexTile):
 		)
 		vbox.add_child(dump_opt)
 
-		_show_popup(popup, Vector2(280, 160))
+		var popup_height = 160
+		if tile.rarity == HexTile.Rarity.MYTHIC:
+			# MYTHIC ability: capacity dial (1/2/16/64) - contributes to any
+			# adjacent Weapon Mount/Missile Rack's own firing-quanta ceiling,
+			# see HexTile.get_frame_multiplier_options(). Per-tile, not
+			# group-applied like trigger key/auto-dump above (each
+			# Accumulator's own dial matters independently to whichever
+			# mount it happens to sit next to).
+			var dial_lbl_fn = func():
+				var v = tile.mythic_capacity_dial
+				return "Off (no bonus)" if v <= 1 else "+%d" % v
+			var dial_btn = Button.new()
+			dial_btn.text = "Capacity dial: %s (click to cycle)" % dial_lbl_fn.call()
+			dial_btn.tooltip_text = "Adds this much to the reachable firing-quanta ceiling of any adjacent Weapon Mount/Missile Rack."
+			dial_btn.pressed.connect(func():
+				tile.cycle_mythic_capacity_dial()
+				dial_btn.text = "Capacity dial: %s (click to cycle)" % dial_lbl_fn.call()
+				garage._mark_player_grid_dirty()
+			)
+			vbox.add_child(dial_btn)
+			popup_height = 200
+
+		_show_popup(popup, Vector2(280, popup_height))
+
+	elif tile.tile_type == "Chopper":
+		var popup = PopupPanel.new()
+		var vbox = VBoxContainer.new()
+		popup.add_child(vbox)
+
+		var label = Label.new()
+		label.text = "Configure Chopper"
+		vbox.add_child(label)
+
+		var desc = Label.new()
+		desc.text = "Shaves charge time off an adjacent Weapon Mount/Missile Rack (always active, every rarity)."
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD
+		vbox.add_child(desc)
+
+		if tile.rarity < HexTile.Rarity.MYTHIC:
+			var hint = Label.new()
+			hint.text = "Mythic ability locked - upgrade this tile to Mythic."
+			hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+			vbox.add_child(hint)
+		else:
+			# MYTHIC ability: split-fire dial - see ReverseAccumulatorTile.gd's
+			# mythic_split_factor field comment and HexTile._fire_combined_
+			# projectile's chopper-split block.
+			var split_lbl_fn = func():
+				var v = tile.mythic_split_factor
+				return "Off (no split)" if v <= 1 else "%d-way split" % v
+			var split_btn = Button.new()
+			split_btn.text = "Chopper split: %s (click to cycle)" % split_lbl_fn.call()
+			split_btn.tooltip_text = "Splits an adjacent mount's one combined shot into several smaller ones of the same total magnitude - more, smaller hits instead of one big one. Adjacent Choppers combine additively."
+			split_btn.pressed.connect(func():
+				tile.cycle_mythic_split_factor()
+				split_btn.text = "Chopper split: %s (click to cycle)" % split_lbl_fn.call()
+				garage._mark_player_grid_dirty()
+			)
+			vbox.add_child(split_btn)
+
+		_show_popup(popup, Vector2(280, 180))
 
 	elif tile.tile_type == "Magnet":
 		var popup = PopupPanel.new()
@@ -599,47 +659,28 @@ func on_tile_clicked(tile: HexTile):
 				)
 				vbox.add_child(aim_btn)
 
-			if tile.tile_type == "Weapon Mount" and "mythic_firing_threshold" in tile:
-				# Plain "v/1000 + k" reads fine up to the base 1.2M ceiling,
-				# but Accumulator-scaled thresholds (see WeaponMountTile.
-				# get_threshold_options()) can now reach into the hundreds
-				# of millions - "180075k" is unreadable. M/B-suffixed
-				# instead, same idea as any other huge-number game HUD uses.
+			# Firing quanta (shared Mythic dial - see HexTile.get_frame_
+			# multiplier_options()/cycle_mythic_frame_multiplier()) - unified
+			# capacity model for both Weapon Mount and Missile Rack, replacing
+			# what used to be two separate systems (Weapon Mount's standalone
+			# energy-threshold picker and Missile Rack's own hardcoded
+			# "Volley Frame Accel" cycle). Auto = fire whenever charged.
+			if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Missile Rack") and "mythic_frame_multiplier" in tile:
 				var get_lbl = func():
-					var v = tile.mythic_firing_threshold
-					if v == 0: return "Auto-fire (0)"
-					if v >= 1000000000: return "%.1fB" % (v / 1000000000.0)
-					if v >= 1000000: return "%.1fM" % (v / 1000000.0)
-					return "%.0fk" % (v / 1000.0)
-				# Threshold options extend upward/downward with adjacent
-				# Accumulator/Reverse Accumulator investment - see
-				# WeaponMountTile.get_threshold_options()'s own comment.
+					var v = tile.mythic_frame_multiplier
+					return "Auto" if v <= 1 else "%dx" % v
 				# garage.active_component is this tile's owning component
 				# (same reference is_fixed_sink's callers already rely on).
-				var thresh_grid = garage.active_component.hex_grid if garage.active_component else null
-				var thresh_btn = Button.new()
-				thresh_btn.text = "Firing Threshold: %s (click to cycle)" % get_lbl.call()
-				thresh_btn.tooltip_text = "If set, the mount will not fire until this much energy accumulates, releasing a catastrophic single shot. Adjacent Accumulators raise the available thresholds; adjacent Reverse Accumulators lower them."
-				thresh_btn.pressed.connect(func():
-					tile.cycle_mythic_firing_threshold(thresh_grid, tile.grid_position)
-					thresh_btn.text = "Firing Threshold: %s (click to cycle)" % get_lbl.call()
+				var quanta_grid = garage.active_component.hex_grid if garage.active_component else null
+				var quanta_btn = Button.new()
+				quanta_btn.text = "Firing Quanta: %s (click to cycle)" % get_lbl.call()
+				quanta_btn.tooltip_text = "Batches this many frames of energy into one burst before firing (Auto = fire whenever charged). Adjacent Mythic Accumulators raise the highest reachable tier."
+				quanta_btn.pressed.connect(func():
+					tile.cycle_mythic_frame_multiplier(quanta_grid, tile.grid_position)
+					quanta_btn.text = "Firing Quanta: %s (click to cycle)" % get_lbl.call()
 					garage._mark_player_grid_dirty()
 				)
-				vbox.add_child(thresh_btn)
-
-			if tile.tile_type == "Missile Rack" and "mythic_frame_multiplier" in tile:
-				var get_mul_lbl = func():
-					var v = tile.mythic_frame_multiplier
-					return "%dx Frames" % v
-				var mul_btn = Button.new()
-				mul_btn.text = "Volley Frame Accel: %s (click to cycle)" % get_mul_lbl.call()
-				mul_btn.tooltip_text = "Accumulate multiple frames of energy before firing, scaling the payload and leaving a persistent puddle on impact."
-				mul_btn.pressed.connect(func():
-					tile.cycle_mythic_frame_multiplier()
-					mul_btn.text = "Volley Frame Accel: %s (click to cycle)" % get_mul_lbl.call()
-					garage._mark_player_grid_dirty()
-				)
-				vbox.add_child(mul_btn)
+				vbox.add_child(quanta_btn)
 
 		_show_popup(popup, Vector2(300, 160))
 

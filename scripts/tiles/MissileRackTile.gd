@@ -63,19 +63,11 @@ var bank_current_charge: float = 0.0
 func cycle_mythic_mode():
 	mythic_mode = (mythic_mode + 1) % 2
 
+# Cycle is inherited from HexTile.cycle_mythic_frame_multiplier() (shared
+# with WeaponMountTile - see that file's field comment) - this used to be
+# a hardcoded local 1->2->16->64 cycle; now Accumulator-adjacency-aware
+# via HexTile.get_frame_multiplier_options() like Weapon Mount's is.
 @export var mythic_frame_multiplier: int = 1
-
-func cycle_mythic_frame_multiplier():
-	if rarity != HexTile.Rarity.MYTHIC:
-		return
-	if mythic_frame_multiplier == 1:
-		mythic_frame_multiplier = 2
-	elif mythic_frame_multiplier == 2:
-		mythic_frame_multiplier = 16
-	elif mythic_frame_multiplier == 16:
-		mythic_frame_multiplier = 64
-	else:
-		mythic_frame_multiplier = 1
 
 func clear_pending():
 	pending_packets.clear()
@@ -132,7 +124,7 @@ const ProjectileScript = preload("res://scripts/entities/Projectile.gd")
 const RANGE_MULT = 2.5 # "ultra long range" - well past a direct-fire mount's reach
 const MIN_RANGE = 350.0 # can't hit anything closer than this - not a point-defense gun
 
-func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0):
+func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0, _chopper_child: bool = false):
 	# Whole-volley consolidation under saturation - identical gate to
 	# HexTile._fire_combined_projectile's own (see that file's field comment
 	# on _consolidation_buffer/_consolidation_shots, inherited here since
@@ -140,7 +132,7 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# would otherwise never engage ProjectileManager.consolidation_factor()
 	# at all). Same total energy delivered downrange (still as a full
 	# salvo), a fraction of the Area2D population under heavy fire.
-	if not _pattern_child:
+	if not _pattern_child and not _chopper_child:
 		var k = ProjectileManager.consolidation_factor()
 		if k > 1:
 			if _consolidation_buffer == null:
@@ -160,6 +152,26 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 			packet = _consolidation_buffer
 			_consolidation_buffer = null
 			_consolidation_shots = 0
+
+	# Chopper split (see HexTile._fire_combined_projectile's matching block
+	# for the full rationale/saturation-aware clamp) - a Missile Rack's
+	# "one combined release" is a whole Hunter salvo or AOE burst; splitting
+	# it peels the SAME total magnitude into N smaller releases instead of
+	# one, each independently going through targeting/salvo-count below.
+	# Deliberately mutually exclusive with nothing here (Missile Rack has no
+	# mythic_pattern fanout to bound against), but still saturation-clamped
+	# for the same worst-case-fanout reason.
+	if not _pattern_child and not _chopper_child and packet.chopper_split > 1:
+		var n = packet.chopper_split
+		var saturation_k = ProjectileManager.consolidation_factor()
+		if saturation_k > 1:
+			n = max(1, ceili(float(n) / saturation_k))
+		if n > 1:
+			for i in range(n - 1):
+				var piece = packet.split(1.0 / float(n) / (1.0 - (1.0 / float(n)) * i))
+				_fire_combined_projectile(mech, piece, step, false, 0.0, true)
+			_fire_combined_projectile(mech, packet, step, false, 0.0, true)
+			return
 
 	var world = mech.get_parent()
 	if not world:

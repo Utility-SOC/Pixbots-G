@@ -119,3 +119,5 @@ applies on top. Edit it to add or reweight baseline squad compositions
 without touching code. To override it per-player instead of per-install,
 drop a `default_squads.json` into `user://ai_profiles/` — the user copy
 wins. Its role names use the current role set (see valid roles above).
+
+

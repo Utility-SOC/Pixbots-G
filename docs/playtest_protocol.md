@@ -66,3 +66,5 @@ There's no wave-skip button, so Rival Challenges (every 10 waves) and the Mythic
 ## What to send back
 
 For anything that misbehaves: what you did, what you expected, what actually happened, and the wave/map type if relevant. Screenshots help but aren't required - a one-line description is usually enough for me to find it in the code.
+
+

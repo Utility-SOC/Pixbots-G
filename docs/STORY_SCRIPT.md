@@ -935,3 +935,5 @@ Seed ideas:
 - First concrete gameplay hook: **"The Eye" challenge enemy** (see Status.md's Gameplay & Balance Improvements - Frank's Challenges) - a sensor-sweep unit that needs LOW power weapon signatures to stay undetected/vulnerable; full power blinds/interferes with it. The challenge's own flavor text is a natural place to introduce the sweep concept concretely for the first time.
 - Treat the existing "Corp is watching these matches, no, I don't know why" line as the surface of something bigger rather than just corporate-sponsorship flavor - future lines lean on that subtext without ever breaking character or making a dread infodump.
 - Keep it texture, not a reveal - background detail in rotating quips/intros, never a cutscene infodump or a tonal break into genuine dread. The shop stays warm. The world outside just... isn't, and Frank doesn't comment on it any more than he'd comment on the weather.
+
+

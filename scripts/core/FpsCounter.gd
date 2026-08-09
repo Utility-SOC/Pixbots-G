@@ -337,8 +337,16 @@ func _process(delta: float):
 		Mech._perf_shoot_checked_only_usec = 0
 		ProjectileBroadphase._perf_physics_usec = 0
 		Mech._perf_apply_damage_usec = 0
-		perf_label3.text = "per sec: shoot_fired %.0fms  shoot_checked %.0fms  broadphase %.0fms  apply_dmg %.0fms" % [
-			shoot_fired_ms, shoot_checked_ms, broadphase_ms, apply_dmg_ms
+		# bot_spawn: user report (2026-08-09) - "while they are spawning it is
+		# REALLY slow, and when they are just existing it isn't nearly as
+		# bad." Wraps SquadDirector._spawn_bot_for_role's add_child(bot) call,
+		# which triggers Mech._ready() -> build_loadout_for_role() (AutoEquip
+		# Solver + procedural shape generation) synchronously in one frame -
+		# the likely burst-cost culprit, unconfirmed without a real playtest.
+		var bot_spawn_ms = SquadDirector._perf_bot_spawn_usec / 1000.0
+		SquadDirector._perf_bot_spawn_usec = 0
+		perf_label3.text = "per sec: shoot_fired %.0fms  shoot_checked %.0fms  broadphase %.0fms  apply_dmg %.0fms  bot_spawn %.0fms" % [
+			shoot_fired_ms, shoot_checked_ms, broadphase_ms, apply_dmg_ms, bot_spawn_ms
 		]
 
 ## Resolves once at _ready() (see _build_version_text) - never called again,

@@ -13,6 +13,11 @@ const StockBuildEvolution = preload("res://scripts/ai/StockBuildEvolution.gd")
 const DroneBayTileScript = preload("res://scripts/tiles/DroneBayTile.gd")
 const WarRoomSnapshotScript = preload("res://scripts/ai/WarRoomSnapshot.gd")
 
+# Perf instrumentation - see _spawn_bot_for_role's add_child(bot) call site.
+# Read/reset by FpsCounter.gd on its usual 1-second sample interval, same
+# static-var-read-across-classes pattern Mech._perf_shoot_usec etc. use.
+static var _perf_bot_spawn_usec: int = 0
+
 # --- AI evolution: three near-identical evolutionary subsystems (squad
 # composition, loadout doctrine, boss kits), each mutate/crossover/cull/
 # graduate/select for their own data type. Composed-RefCounted-helper
@@ -1126,8 +1131,21 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	if has_shields or role == "commander" or difficulty >= 3:
 		bot.max_shield_hp = (base_hp * 0.5) * wave_multiplier
 		bot.shield_hp = bot.max_shield_hp
-		
+
+	# Perf instrumentation (user report: "while they are [spawning] it is
+	# REALLY slow, and when they are just existing it isn't nearly as bad" -
+	# a burst cost at spawn time, not a steady-state one). add_child triggers
+	# Mech._ready() synchronously in THIS frame, which chains into
+	# build_loadout_for_role() -> AutoEquipSolver + ComponentEquipment.
+	# generate_shape()/generate_procedural_shape() - exactly the kind of
+	# heavy one-shot construction work that would read as "slow while
+	# spawning, fine once they exist." No live playtest available in this
+	# environment to confirm the exact hot function inside that chain -
+	# surfaced on FpsCounter's HUD (see that file) so the next real playtest
+	# gives real numbers instead of a guess.
+	var _t_spawn = Time.get_ticks_usec()
 	add_child(bot)
+	_perf_bot_spawn_usec += Time.get_ticks_usec() - _t_spawn
 
 	# One-time visibility sync for the Blind mechanic (see Main.
 	# _update_player_blind_state): that check only re-walks the "enemy"

@@ -2393,7 +2393,10 @@ var _spawn_primed: bool = false
 # Sums get_bank_charge()/get_bank_amplify() from every Accumulator tile
 # directly hex-adjacent to `coord` within `grid` - see AccumulatorTile.gd
 # and the capacitor-bank branch in the precalculated_weapons loop above.
-func _get_adjacent_accumulator_bonus(grid: HexGridComponent, coord: HexCoord) -> Dictionary:
+# static: uses no instance state at all (pure function of grid/coord), so
+# WeaponMountTile.get_threshold_options() can call it directly without
+# needing a live Mech instance around - see that function's own comment.
+static func _get_adjacent_accumulator_bonus(grid: HexGridComponent, coord: HexCoord) -> Dictionary:
 	var total_charge = 0.0
 	var total_amplify = 0.0
 	var worst_quality = 1.0
@@ -2418,7 +2421,7 @@ func _get_adjacent_accumulator_bonus(grid: HexGridComponent, coord: HexCoord) ->
 # them into one Dictionary return would make both harder to read. Multiple
 # adjacent Reverse Accumulators stack additively; floored at the call site
 # (see below) so a mount can never reach free/negative charge time.
-func _get_adjacent_reverse_accumulator_discount(grid: HexGridComponent, coord: HexCoord) -> float:
+static func _get_adjacent_reverse_accumulator_discount(grid: HexGridComponent, coord: HexCoord) -> float:
 	var total_discount = 0.0
 	for d in range(6):
 		var n = coord.neighbor(d)

@@ -599,7 +599,42 @@ func on_tile_clicked(tile: HexTile):
 				)
 				vbox.add_child(aim_btn)
 
-		_show_popup(popup, Vector2(300, 150))
+			if tile.tile_type == "Weapon Mount" and "mythic_firing_threshold" in tile:
+				var get_lbl = func():
+					var v = tile.mythic_firing_threshold
+					if v == 0: return "Auto-fire (0)"
+					return str(v / 1000) + "k"
+				# Threshold options extend upward/downward with adjacent
+				# Accumulator/Reverse Accumulator investment - see
+				# WeaponMountTile.get_threshold_options()'s own comment.
+				# garage.active_component is this tile's owning component
+				# (same reference is_fixed_sink's callers already rely on).
+				var thresh_grid = garage.active_component.hex_grid if garage.active_component else null
+				var thresh_btn = Button.new()
+				thresh_btn.text = "Firing Threshold: %s (click to cycle)" % get_lbl.call()
+				thresh_btn.tooltip_text = "If set, the mount will not fire until this much energy accumulates, releasing a catastrophic single shot. Adjacent Accumulators raise the available thresholds; adjacent Reverse Accumulators lower them."
+				thresh_btn.pressed.connect(func():
+					tile.cycle_mythic_firing_threshold(thresh_grid, tile.grid_position)
+					thresh_btn.text = "Firing Threshold: %s (click to cycle)" % get_lbl.call()
+					garage._mark_player_grid_dirty()
+				)
+				vbox.add_child(thresh_btn)
+
+			if tile.tile_type == "Missile Rack" and "mythic_frame_multiplier" in tile:
+				var get_mul_lbl = func():
+					var v = tile.mythic_frame_multiplier
+					return "%dx Frames" % v
+				var mul_btn = Button.new()
+				mul_btn.text = "Volley Frame Accel: %s (click to cycle)" % get_mul_lbl.call()
+				mul_btn.tooltip_text = "Accumulate multiple frames of energy before firing, scaling the payload and leaving a persistent puddle on impact."
+				mul_btn.pressed.connect(func():
+					tile.cycle_mythic_frame_multiplier()
+					mul_btn.text = "Volley Frame Accel: %s (click to cycle)" % get_mul_lbl.call()
+					garage._mark_player_grid_dirty()
+				)
+				vbox.add_child(mul_btn)
+
+		_show_popup(popup, Vector2(300, 160))
 
 	elif tile.tile_type == "Jammer Module":
 		# Deliberately its own branch, NOT folded into the Mythic-gated

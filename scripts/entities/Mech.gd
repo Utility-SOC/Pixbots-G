@@ -704,8 +704,12 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 	# to whichever roles fell through without a guaranteed special backpack
 	# of their own (including a "scout"/"ambusher" that rolled OUT of their
 	# usual jammer/cloak chance above).
-	if role != "" and randf() < 0.12:
-		return ComponentEquipment.create_drone_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
+	if role != "":
+		var roll = randf()
+		if roll < 0.08:
+			return ComponentEquipment.create_drone_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
+		elif roll < 0.12:
+			return ComponentEquipment.create_missile_backpack()
 
 	# Smoke Grenade cover (per the user: "some types of enemies... have
 	# smoke grenades", later widened to "bosses should absolutely get
@@ -1503,15 +1507,26 @@ func _force_jumpjets_on():
 # - full power preserved (this only changes TIMING, not magnitude).
 const BOSS_BANK_RECHARGE_TIME = 2.5
 
+func _get_rarity_charge_multiplier(tile) -> float:
+	if not "rarity" in tile:
+		return 1.0
+	match tile.rarity:
+		1: return 1.25 # UNCOMMON
+		2: return 1.5  # RARE
+		3: return 2.0  # LEGENDARY
+		4: return 2.5  # MYTHIC
+	return 1.0
+
 func _tick_weapon_charges(delta: float):
 	for data in precalculated_weapons:
 		var mount = data.mount
 		var required = data.packet.charge_required
+		var r_mult = _get_rarity_charge_multiplier(mount)
 		if data.get("bank_mode", "") == "bank":
 			if is_boss:
 				mount.bank_current_charge = min(required, mount.bank_current_charge + delta * (required / BOSS_BANK_RECHARGE_TIME))
 			elif mount.bank_current_charge < required:
-				mount.bank_current_charge = min(required, mount.bank_current_charge + delta / max(0.01, fire_rate))
+				mount.bank_current_charge = min(required, mount.bank_current_charge + (delta * r_mult) / max(0.01, fire_rate))
 			if mount.bank_current_charge >= required:
 				# AI never clicks a mouse: auto-release the bank when full.
 				if not is_player:
@@ -1548,13 +1563,14 @@ func _tick_weapon_charges(delta: float):
 				heat = max(0.0, heat - required * banked_frac * 0.6)
 		else:
 			if mount.current_charge < required:
-				mount.current_charge = min(required, mount.current_charge + delta / max(0.01, fire_rate))
+				mount.current_charge = min(required, mount.current_charge + (delta * r_mult) / max(0.01, fire_rate))
 
 	# Lance mounts fire themselves - no mouse/key trigger, see
 	# LanceMountTile.gd's own header comment.
 	for lance in lance_mounts:
+		var r_mult = _get_rarity_charge_multiplier(lance)
 		if lance.cooldown_timer > 0.0:
-			lance.cooldown_timer -= delta
+			lance.cooldown_timer -= delta * r_mult
 		elif lance.ready_to_fire:
 			lance.fire(self)
 
@@ -2039,8 +2055,54 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					if tile.pending_packets[i].packet.acc_damage_mult > probe.acc_damage_mult:
 						probe = tile.pending_packets[i].packet
 				var has_routed_acc = probe.acc_damage_mult > 1.001
-
-				if bank_charge > 0.0 or has_routed_acc:
+				
+				# Mythic Firing Threshold (User request: catastrophically powerful single shot)
+				# Bypasses standard accumulator split-fire and rapid-fire completely.
+				var threshold = tile.get("mythic_firing_threshold")
+				if threshold == null:
+					threshold = 0
+				
+				var frame_multiplier = tile.get("mythic_frame_multiplier")
+				if frame_multiplier == null:
+					frame_multiplier = 1
+				
+				if threshold > 0:
+					var combined = tile.pending_packets[0].packet.copy()
+					for i in range(1, tile.pending_packets.size()):
+						combined.merge(tile.pending_packets[i].packet)
+					
+					var rate = combined.magnitude / max(0.001, combined.charge_required)
+					var time_to_charge = float(threshold) / max(0.001, rate)
+					var mag_mult = float(threshold) / max(0.001, combined.magnitude)
+					
+					combined.charge_required = time_to_charge
+					combined.magnitude = float(threshold)
+					for k in combined.synergies:
+						combined.synergies[k] *= mag_mult
+					
+					precalculated_weapons.append({
+						"mount": tile,
+						"packet": combined,
+						"step": 0,
+						"slot_type": comp.slot_type
+					})
+				elif frame_multiplier > 1 or tile.tile_type == "Missile Rack":
+					var combined = tile.pending_packets[0].packet.copy()
+					for i in range(1, tile.pending_packets.size()):
+						combined.merge(tile.pending_packets[i].packet)
+					
+					combined.charge_required *= float(frame_multiplier)
+					combined.magnitude *= float(frame_multiplier)
+					for k in combined.synergies:
+						combined.synergies[k] *= float(frame_multiplier)
+					
+					precalculated_weapons.append({
+						"mount": tile,
+						"packet": combined,
+						"step": 0,
+						"slot_type": comp.slot_type
+					})
+				elif bank_charge > 0.0 or has_routed_acc:
 					var combined = tile.pending_packets[0].packet.copy()
 					for i in range(1, tile.pending_packets.size()):
 						combined.merge(tile.pending_packets[i].packet)
@@ -3931,6 +3993,14 @@ func build_loadout_for_role(role_name: String):
 	# new counter-element into a role that doesn't normally use one.
 	if spawn_profile != null:
 		add_tile.call("res://scripts/tiles/InfuserTile.gd", tier.call(1))
+		
+	# Inject AmplifierTiles into the solver's inventory for AI bots to
+	# build lethal, denser power grids. Guaranteed amplifiers scale with
+	# the bot's base rarity.
+	if spawn_template_name != "":
+		var num_amps = min(4, base_rarity + 1)
+		for i in range(num_amps):
+			add_tile.call("res://scripts/tiles/AmplifierTile.gd", base_rarity)
 
 	var solver = load("res://scripts/core/AutoEquipSolver.gd").new()
 

@@ -97,6 +97,9 @@ var hud_canvas: CanvasLayer
 var wave_label: Label
 var timer_label: Label
 var extraction_marker: Node2D = null
+
+var missile_charge_bg: ColorRect
+var missile_charge_fg: ColorRect
 var extraction_indicator: Polygon2D = null
 # Jammers are no longer a full-screen dim (see JammerField.gd) - the
 # player's Blind state is now "standing inside a hostile JammerField",
@@ -335,6 +338,21 @@ func _setup_hud():
 	extraction_indicator.visible = false
 	hud_canvas.add_child(extraction_indicator)
 
+	# Missile Rack HUD element
+	missile_charge_bg = ColorRect.new()
+	missile_charge_bg.color = Color(0.1, 0.1, 0.1, 0.8)
+	missile_charge_bg.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	missile_charge_bg.size = Vector2(20, 200)
+	missile_charge_bg.position = Vector2(20, 720 - 200 - 20)
+	missile_charge_bg.visible = false
+	hud_canvas.add_child(missile_charge_bg)
+
+	missile_charge_fg = ColorRect.new()
+	missile_charge_fg.color = Color(1.0, 0.6, 0.1, 1.0) # High contrast orange
+	missile_charge_fg.size = Vector2(16, 196)
+	missile_charge_fg.position = Vector2(2, 2)
+	missile_charge_bg.add_child(missile_charge_fg)
+
 	# Boss UI
 	var b_width = 400
 	var b_height = 30
@@ -467,6 +485,22 @@ func _update_hud():
 		else:
 			timer_label.text = "Extraction Ready! Follow indicator."
 			timer_label.modulate = Color(0.2, 1.0, 0.4)
+	
+	if player and is_instance_valid(player):
+		var max_charge = 0.0
+		var current = 0.0
+		for data in player.precalculated_weapons:
+			if data.mount and data.mount.tile_type == "Missile Rack":
+				if data.packet.charge_required > max_charge:
+					max_charge = data.packet.charge_required
+					current = data.mount.current_charge
+		if max_charge > 0.0:
+			missile_charge_bg.visible = true
+			var ratio = clamp(current / max_charge, 0.0, 1.0)
+			missile_charge_fg.size.y = 196.0 * ratio
+			missile_charge_fg.position.y = 2 + 196.0 * (1.0 - ratio)
+		else:
+			missile_charge_bg.visible = false
 
 
 func _process(delta: float):

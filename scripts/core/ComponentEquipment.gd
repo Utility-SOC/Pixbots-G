@@ -645,6 +645,16 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 		torso.hex_grid.add_tile(tip, link)
 		torso.fixed_sinks.append(tip)
 
+	if role != "":
+		var microcore_h = _first_free_hex(torso, torso.fixed_sinks)
+		if microcore_h != null:
+			var micro = load("res://scripts/tiles/MicrocoreTile.gd").new()
+			micro.body_slot = HexTile.BodySlot.TORSO
+			# Enemy microcores are +1 rarity above their component rarity
+			micro.rarity = min(HexTile.Rarity.MYTHIC, p_rarity + 1)
+			torso.hex_grid.add_tile(microcore_h, micro)
+			torso.fixed_sinks.append(microcore_h)
+
 	# Accessory Return (INBOUND - receives energy back from Head/Backpack;
 	# doesn't need core power, so it doesn't need its own spoke - BUT it
 	# must never sit ON one, or it silently blocks that spoke's outbound
@@ -776,6 +786,16 @@ static func create_starter_leg(is_left: bool, role: String = "", p_rarity: int =
 	actuator.rarity = p_rarity
 	leg.hex_grid.add_tile(mount_h, actuator)
 	leg.fixed_sinks.append(mount_h)
+
+	if role != "":
+		var microcore_h = _first_free_hex(leg, leg.fixed_sinks)
+		if microcore_h != null:
+			var micro = load("res://scripts/tiles/MicrocoreTile.gd").new()
+			micro.body_slot = slot
+			# Enemy microcores are +1 rarity above their component rarity
+			micro.rarity = min(HexTile.Rarity.MYTHIC, p_rarity + 1)
+			leg.hex_grid.add_tile(microcore_h, micro)
+			leg.fixed_sinks.append(microcore_h)
 
 	return leg
 
@@ -1069,7 +1089,7 @@ static func create_missile_backpack():
 	
 	# Pre-wire with microcores and mounts
 	var microcore_class = load("res://scripts/tiles/MicrocoreTile.gd")
-	var mount_class = load("res://scripts/tiles/WeaponMountTile.gd")
+	var mount_class = load("res://scripts/tiles/MissileRackTile.gd")
 	
 	# Add 3 Microcores (Legendary)
 	for i in range(3):

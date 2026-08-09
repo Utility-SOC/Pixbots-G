@@ -85,6 +85,60 @@ unit is) is deliberately left untuned here — that's a PB2-era balancing
 decision, not something to lock in from a documentation pass with no
 renderer to test it against.
 
+## A better alternative: de-staggered cross-sections
+
+Raised in discussion after the above was first written, and a real
+improvement on it: instead of extruding perpendicular to the natural
+diagonal cube-coordinate plane, **de-stagger the hex grid into offset
+coordinates first**, then extrude straight up in a dedicated Z axis.
+
+Today's hex rows are visually staggered (alternating rows shifted by
+half a hex-width — the standard pointy-top layout `GarageGridRenderer`
+already draws). Re-express that same grid in offset coordinates (a
+well-known alternative to axial coordinates for exactly this purpose:
+shift every even row right so hex centers line up into straight
+columns) and each hex's position becomes a simple `(column, row)` pair
+with a real vertical column above it — no diagonal plane, no tilt to
+fight. The single authored 2D hex grid becomes one cross-sectional
+slice of a voxel volume; Z is a purpose-built extrusion axis, not a
+side effect of hex-cube geometry.
+
+This is a genuine improvement over the cube-coordinate approach above:
+easier to build tooling around (straightforward column/row/layer voxel
+data, much closer to how voxel engines already work), and it sidesteps
+the diagonal-plane problem by construction rather than by fighting it
+with extrusion math. The tradeoff: de-staggering is a deliberate
+simplification, not an exact geometric correspondence — a hex's true 6
+neighbors don't map onto simple orthogonal/diagonal offset-grid
+neighbors without care (the offset flips by row parity), so the exact
+neighbor-mapping needs to be worked out carefully, not assumed.
+
+**Taper, and the failure mode it can cause.** The natural refinement on
+top of a flat per-tile column height: taper the cross-section as it
+extrudes upward, and let the taper rate depend on local width — wide
+areas (torso) stay broad for many layers before narrowing to a point,
+narrow areas (an arm) narrow almost immediately. Real risk if handled
+naively: if a column's *height* is also driven by local width (not just
+its taper rate), an area that's thin *everywhere along its length* —
+exactly what an upgraded arm becomes, since `generate_shape()`'s
+existing template grows arms as long, thin rectangles as rarity rises —
+never gets tall anywhere. The result reads as a flat ribbon or disk
+instead of a limb.
+
+The fix is to decouple the two things "taper by local width" bundles
+together: column **height** stays driven by tile weight/rarity (as
+above), completely independent of local 2D width, with a minimum floor
+so nothing ever goes fully flat. Local width only controls the taper's
+**shape** — how far the cross-section spreads outward before narrowing
+to a point at the top of an already-real column. A thin arm segment
+still gets real height from its own tile; it just doesn't spread far
+before tapering, reading as a spike or rod rather than collapsing to a
+disk. The related guardrail (a maximum per-component-type dimension, so
+an upgraded arm can't grow into an unbounded noodle) is really a 2D
+shape-generation budget question — bounding how long/thin `generate_
+shape` lets a limb grow — as much as it is a 3D-extrusion one, and
+belongs in that layer too, not just this one.
+
 ## Why no new shape-generation work is needed
 
 `ComponentEquipment.generate_shape()` and `generate_procedural_shape()`
@@ -117,6 +171,10 @@ documentation:
   spiky, blocky "porcupine" silhouette? Either could be the right
   aesthetic call — this proposal doesn't assume the answer is "smooth it
   out."
+- **The exact de-staggered offset-coordinate neighbor mapping**, if that
+  approach is the one taken forward — a hex's true 6 neighbors don't
+  translate to simple orthogonal/diagonal offset-grid neighbors without
+  the row-parity correction worked out carefully first.
 - **Limb-to-torso attachment geometry.** Whether the seam where a limb's
   extruded volume meets the torso's needs special-cased geometry beyond
   the per-tile extrusion rule, or whether it just works because both
@@ -131,9 +189,13 @@ documentation:
 
 The hex grid is already true hex geometry, so the hex→cube
 correspondence this needs is exact math, not invention. A direct
-coordinate reinterpretation alone gives a flat diagonal plane — the
-missing piece is extrusion, and the game already has the data (tile
-weight, rarity) to drive it meaningfully without adding anything new.
-The existing procedural shape generation already supplies the "wild"
-asymmetry; this proposal is only about how that asymmetry becomes
-volume once PB2 actually starts building a renderer for it.
+coordinate reinterpretation alone gives a flat diagonal plane; the
+de-staggered cross-section approach sidesteps that entirely and is the
+more practical direction to build. Either way, the missing piece is
+extrusion — the game already has the data (tile weight, rarity) to
+drive it meaningfully without adding anything new, as long as column
+height stays decoupled from local width (with a floor) so nothing
+degenerates into a flat disk. The existing procedural shape generation
+already supplies the "wild" asymmetry; this proposal is only about how
+that asymmetry becomes volume once PB2 actually starts building a
+renderer for it.

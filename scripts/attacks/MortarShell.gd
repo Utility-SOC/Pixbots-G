@@ -1,3 +1,4 @@
+class_name MortarShell
 extends Node2D
 
 # Remote-payload delivery (fourth-review ruling / Mythic Weapon Mount
@@ -21,6 +22,7 @@ var source_mech: Node = null
 # than for a direct-fire Projectile. See Projectile.gd's source_label
 # comment for the full story.
 var source_label: String = ""
+var frame_multiplier: int = 1
 
 var _elapsed: float = 0.0
 var _landed: bool = false
@@ -44,7 +46,13 @@ static var _shell_pool: Array = []
 static func acquire() -> Node2D:
 	if not _shell_pool.is_empty():
 		return _shell_pool.pop_back()
+	# load(path), not the bare global class name - see this file's other
+	# callers' matching comment (HexTile._fire_mortar, MissileRackTile's
+	# two fire functions) for why: referencing the class_name here caused
+	# "Identifier not found: MortarShell" at this file's OWN compile time,
+	# not just at external call sites.
 	return load("res://scripts/attacks/MortarShell.gd").new()
+
 
 func release():
 	if is_inside_tree() and get_parent():
@@ -84,7 +92,7 @@ var equal_split_all_victims: bool = false
 # See _detonate_equal_split's own comment on the fanout cap this gates.
 const MAX_FULL_PIPELINE_VICTIMS_PER_SHELL = 12
 
-func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_source: Node, p_aoe_bonus: float = 0.0, p_radius_mult: float = 1.0, p_equal_split: bool = false):
+func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_source: Node, p_aoe_bonus: float = 0.0, p_radius_mult: float = 1.0, p_equal_split: bool = false, p_frame_multiplier: int = 1):
 	start_pos = p_start
 	target_pos = p_target
 	flight_time = max(0.15, p_flight_time)
@@ -95,6 +103,7 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 	source_label = Mech.resolve_attacker_label(p_source)
 	radius_mult = p_radius_mult
 	equal_split_all_victims = p_equal_split
+	frame_multiplier = p_frame_multiplier
 	global_position = p_target # node sits at the impact point; shell is drawn offset
 
 	# Reset flight state - required for pooled reuse (see acquire()/release()
@@ -115,7 +124,8 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 	if total_mag > 0.0:
 		for k in synergies:
 			ratios[k] = synergies[k] / total_mag
-	effective_radius = max(40.0, Projectile.explosion_radius_for(ratios, p_aoe_bonus) * radius_mult)
+	var fm_scale = sqrt(max(1.0, float(frame_multiplier)))
+	effective_radius = max(40.0, Projectile.explosion_radius_for(ratios, p_aoe_bonus) * radius_mult) * fm_scale
 
 func _process(delta: float):
 	if _landed:
@@ -129,7 +139,27 @@ func _process(delta: float):
 	if _elapsed >= flight_time:
 		_landed = true
 		_detonate()
+		_spawn_puddle()
 	queue_redraw()
+
+func _spawn_puddle():
+	var world = get_parent()
+	if not world:
+		return
+	var Puddle = load("res://scripts/attacks/ElementalPuddle.gd")
+	if Puddle:
+		var puddle = Puddle.new()
+		# Puddle radius matches the missile's full blast radius - the area
+		# that got hit should be visibly hazardous afterward.
+		# Duration scales aggressively with frame multiplier: 3s base + 0.8s per extra frame, max 60s.
+		# (e.g. 64x frame_multiplier -> ~53 second puddle)
+		var duration = min(60.0, 3.0 + (frame_multiplier - 1) * 0.8)
+		var puddle_radius = effective_radius
+		
+		# A puddle inherits the shell's damage as a DoT.
+		puddle.setup(puddle_radius, duration, damage, synergies, fired_by_player)
+		puddle.global_position = target_pos
+		world.add_child(puddle)
 
 # Design ruling: the payload does exactly what DIRECT FIRE of this packet
 # would do on impact. Implemented literally - a real (movement-neutered)
@@ -299,14 +329,22 @@ func _draw():
 
 	var t = _elapsed / flight_time
 	# Ground telegraph at the impact point: tightening dashed ring.
-	var warn = Color(1.0, 0.35, 0.2, 0.55) if not fired_by_player else Color(0.4, 0.8, 1.0, 0.45)
-	draw_arc(Vector2.ZERO, effective_radius, 0, TAU, 24, warn, 2.0)
-	draw_arc(Vector2.ZERO, effective_radius * (1.0 - t * 0.85), 0, TAU, 20, Color(warn.r, warn.g, warn.b, 0.8), 2.0)
+	var warn = Color(1.0, 0.2, 0.2, 0.9) if not fired_by_player else Color(0.2, 1.0, 0.5, 0.9)
+	draw_arc(Vector2.ZERO, effective_radius, 0, TAU, 24, warn, 4.0)
+	draw_arc(Vector2.ZERO, effective_radius * (1.0 - t * 0.85), 0, TAU, 20, Color(warn.r, warn.g, warn.b, 0.9), 4.0)
 
-	# The shell itself: straight-line lerp with a fake parabolic height,
-	# drawn relative to this node (which sits at the target).
-	var flat = start_pos.lerp(target_pos, t) - target_pos
-	var height = -sin(t * PI) * ARC_HEIGHT
-	var shell_pos = flat + Vector2(0, height)
-	draw_circle(shell_pos, 5.0, Color(0.2, 0.21, 0.24))
+	# The physical shell arcing through the air.
+	var shell_pos = start_pos.lerp(target_pos, t)
+	shell_pos.y -= sin(t * PI) * ARC_HEIGHT
+	# Draw relative to the MortarShell's position (which is target_pos)
+	shell_pos -= target_pos
+	
+	if equal_split_all_victims:
+		var color = EnergyPacket.get_color_blend(synergies)
+		draw_circle(shell_pos, 12.0, color)
+		draw_circle(shell_pos, 6.0, Color(1, 1, 1, 0.9))
+	else:
+		var color = EnergyPacket.get_color_blend(synergies)
+		draw_circle(shell_pos, 10.0, color)
+		draw_circle(shell_pos, 5.0, Color(1, 1, 1, 0.9))
 	draw_circle(shell_pos + Vector2(-1.5, -1.5), 2.0, Color(0.55, 0.58, 0.64))

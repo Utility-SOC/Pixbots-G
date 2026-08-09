@@ -602,7 +602,18 @@ func _fire_mortar(mech, packet: EnergyPacket):
 	var effective_mortar_speed = MORTAR_SPEED * (1.0 + pierce_ratio * 2.0)
 	var flight_time = clamp(muzzle.distance_to(target_pos) / effective_mortar_speed, 0.12, 2.2)
 	var dmg = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
+	# load(path), not the bare global class name - MortarShell.acquire()
+	# here triggered "Identifier 'MortarShell' not declared in the current
+	# scope" at HexTile.gd's own compile time (a real circular-dependency-
+	# shaped failure: HexTile is foundational enough that most of the tile
+	# hierarchy - CoreTile, LootManager, DebugMenu, BrandTileFactory - failed
+	# to compile right along with it, matching the "missiles work
+	# intermittently, no projectile visible" playtest report exactly - a
+	# live session launched before this broke kept running on its last-good
+	# compiled state, but anything that forced a fresh reload hit the wall).
+	# load() resolves at runtime, not parse time, so it can't hit this.
 	var shell = load("res://scripts/attacks/MortarShell.gd").acquire()
+
 	shell.setup(muzzle, target_pos, flight_time, dmg, packet.synergies.duplicate(), mech.get("is_player") == true, mech, packet.aoe_bonus)
 	world.add_child(shell)
 

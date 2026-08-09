@@ -63,6 +63,20 @@ var bank_current_charge: float = 0.0
 func cycle_mythic_mode():
 	mythic_mode = (mythic_mode + 1) % 2
 
+@export var mythic_frame_multiplier: int = 1
+
+func cycle_mythic_frame_multiplier():
+	if rarity != HexTile.Rarity.MYTHIC:
+		return
+	if mythic_frame_multiplier == 1:
+		mythic_frame_multiplier = 2
+	elif mythic_frame_multiplier == 2:
+		mythic_frame_multiplier = 16
+	elif mythic_frame_multiplier == 16:
+		mythic_frame_multiplier = 64
+	else:
+		mythic_frame_multiplier = 1
+
 func clear_pending():
 	pending_packets.clear()
 
@@ -213,7 +227,6 @@ func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2,
 	var shell_count = int(TileStatsRegistry.get_stat_by_rarity("MissileRackTile", "shell_count", rarity, SHELL_COUNT_BY_RARITY))
 	var per_shell_damage = (base_damage / float(shell_count)) * PER_SHELL_DAMAGE_FRACTION
 
-	var MortarShellScript = load("res://scripts/attacks/MortarShell.gd")
 	for i in range(shell_count):
 		# Ring layout, one jittered slot per shell - reads as a scattered
 		# salvo rather than N shells landing in an identical stack.
@@ -226,8 +239,10 @@ func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2,
 		# (matches "a spread... instead of one big payload").
 		flight_time += i * 0.06
 
-		var shell = MortarShellScript.acquire()
-		shell.setup(muzzle, impact_pos, flight_time, per_shell_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus)
+		# load(path), not the bare global class name - see HexTile._fire_mortar's
+		# matching comment for why (compile-time circular-dependency failure).
+		var shell = load("res://scripts/attacks/MortarShell.gd").acquire()
+		shell.setup(muzzle, impact_pos, flight_time, per_shell_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus, 1.0, false, mythic_frame_multiplier)
 		world.add_child(shell)
 
 # AOE mode (Mythic mythic_mode == 1 only, user-designed): a single big burst
@@ -248,10 +263,12 @@ func _fire_aoe_burst(mech, world: Node, muzzle: Vector2, target_pos: Vector2, pa
 	var radius_mult = AOE_BASE_RADIUS_MULT * exp(AOE_EXPLOSION_EXP_K * r_explosion)
 	var flight_time = clamp(muzzle.distance_to(target_pos) / SHELL_SPEED_BASE, 0.12, 2.2)
 
-	var MortarShellScript = load("res://scripts/attacks/MortarShell.gd")
-	var shell = MortarShellScript.acquire()
-	shell.setup(muzzle, target_pos, flight_time, base_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus, radius_mult, true)
+	# load(path), not the bare global class name - see HexTile._fire_mortar's
+	# matching comment for why (compile-time circular-dependency failure).
+	var shell = load("res://scripts/attacks/MortarShell.gd").acquire()
+	shell.setup(muzzle, target_pos, flight_time, base_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus, radius_mult, true, mythic_frame_multiplier)
 	world.add_child(shell)
+
 
 # Scans the opposing EntityCache group (same convention as MortarShell.
 # _detonate/Projectile.gd's own homing-target scans) for the single FARTHEST

@@ -114,12 +114,37 @@ An analysis of the codebase (`scripts/core/`, `scripts/entities/`, `scripts/ai/`
 +------------------------------------+----------------------------------------------+
 ```
 
-### Hotspot 1: Un-Indexed Spatial Ability Queries ($O(N \times M)$ Scans)
+### Hotspot 1: Un-Indexed Spatial Ability Queries ($O(N \times M)$ Scans) - RE-AUDITED, NOT CURRENTLY A HOTSPOT
 * **Code Locations:** [JammerModuleSystem.gd](file:///j:/pixel_bots/godot/scripts/entities/JammerModuleSystem.gd), [HealBeaconSystem.gd](file:///j:/pixel_bots/godot/scripts/entities/HealBeaconSystem.gd), [MagnetSystem.gd](file:///j:/pixel_bots/godot/scripts/entities/MagnetSystem.gd), [AegisShieldPulseSystem.gd](file:///j:/pixel_bots/godot/scripts/entities/AegisShieldPulseSystem.gd).
-* **The Problem:** 
+* **The original claim (kept for history):**
   * Each active jammer, heal beacon, and magnet system iterates through `EntityCache.get_group("enemy")` or global node lists every tick or sub-interval to check radial distances (`global_position.distance_to(...)`).
   * With 60+ mechs, dozens of drones, and 10+ active jammer/healer mechs, this results in hundreds of un-indexed distance calculations per frame.
-* **Remediation:** 
+* **2026-08-09 re-audit finding: this does not match current code.** Read all
+  four files directly rather than trusting the claim:
+  * `JammerModuleSystem._emit_synergy_jam_pulse`, `HealBeaconSystem._emit_pulse`,
+    and `AegisShieldPulseSystem._emit_pulse` all only run when their own
+    `*_pulse_timer` expires (a several-second cooldown per mech), not every
+    tick - the O(allies) scan inside each is a rare event per mech, not a
+    per-frame cost.
+  * `AllySystemHelper.get_allies()` (shared by all three) is already just a
+    direct return of the cached `EntityCache.get_group("enemy")` array for AI
+    mechs, or a small `drone_nodes` list for the player - no redundant
+    per-call scanning.
+  * `MagnetSystem` is player-only (its own header: "Player Magnet field
+    logic"), not "10+ active" instances - the expensive loot-pull loop is
+    already throttled to `MAGNET_UPDATE_HZ` (10Hz), and the one genuinely
+    per-frame loop (Mythic Repel projectile reflection) is over the small
+    `"projectile"` group, which its own comment already justifies as cheap.
+  * This lines up with the wave-138 live-playtest hotspot investigation
+    (see this doc's Master Roadmap / the git history around that fix): the
+    measured dominant costs were `shoot`, `broadphase`, and `apply_damage` -
+    never these ability systems, at real combat scale.
+  * **Conclusion: no AuraBatcher/Rust spatial-grid work is warranted here
+    right now.** Leaving the original remediation text below for reference
+    in case a future live-profiling pass (real screenshot with real
+    numbers, not a static read) finds otherwise - don't build this from
+    the audit claim alone.
+* **Original remediation (unconfirmed, do not build without new profiling evidence):**
   * Unify spatial aura queries into [ProximityQueryRs](file:///j:/pixel_bots/godot/rust_ext/src/proximity_query.rs) using spatial grid buckets.
   * Instead of each mech executing independent spatial queries, a centralized `AuraBatcher` autoload should register all active aura origins, execute **one batched spatial bucket query in Rust**, and dispatch target lists back to GDScript.
 

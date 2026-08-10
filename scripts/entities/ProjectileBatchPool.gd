@@ -26,6 +26,15 @@ var _direction: PackedVector2Array
 var _speed: PackedFloat32Array
 var _damage: PackedFloat32Array
 var _radius: PackedFloat32Array
+# Position at the START of this tick's movement, before _step_simulate
+# applies velocity*delta - lets _step_hit_test check the swept SEGMENT a
+# shot travelled this tick, not just its end-of-tick point. A pure end-
+# point check tunnels: a fast/swirling shot (Vortex's tangential wobble
+# especially) can hop clean over a target's hit radius between two
+# consecutive tick positions without either one landing inside it - real,
+# demonstrated bug (a Vortex-ratio shot missed a stationary target
+# entirely at a normal 60fps tick rate in this session's own repro).
+var _prev_position: PackedVector2Array
 var _elapsed: PackedFloat32Array
 var _lifetime: PackedFloat32Array
 var _color: Array = []
@@ -91,6 +100,7 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	capacity = p_capacity
 	_alive.resize(capacity)
 	_position.resize(capacity)
+	_prev_position.resize(capacity)
 	_direction.resize(capacity)
 	_speed.resize(capacity)
 	_damage.resize(capacity)
@@ -274,6 +284,7 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	var i = _free_indices.pop_back()
 	_alive[i] = 1
 	_position[i] = pos
+	_prev_position[i] = pos
 	_direction[i] = dir.normalized() if dir != Vector2.ZERO else Vector2.RIGHT
 	_speed[i] = speed
 	_damage[i] = dmg
@@ -352,6 +363,7 @@ func _step_simulate(delta: float):
 		for i in range(_highest_active + 1):
 			if _alive[i] == 0:
 				continue
+			_prev_position[i] = _position[i]
 			_position[i] += _direction[i] * _speed[i] * delta
 		return
 
@@ -402,6 +414,7 @@ func _step_simulate(delta: float):
 		_lightning_segment_index[i] = results_flat[base + 9]
 		_lightning_prev_offset[i] = results_flat[base + 10]
 		_lightning_target_offset[i] = results_flat[base + 11]
+		_prev_position[i] = _position[i]
 		_position[i] += velocity * delta
 
 func _step_hit_test():
@@ -410,14 +423,21 @@ func _step_hit_test():
 	for i in range(_highest_active + 1):
 		if _alive[i] == 0:
 			continue
-		var pos = _position[i]
+		# Swept-segment check (this tick's prev_position -> position), not
+		# just the end-of-tick point - a point-only check tunnels: a fast or
+		# swirling shot (Vortex's tangential wobble especially) can hop clean
+		# over a target's hit radius between two consecutive tick positions
+		# without either one landing inside it. Real, demonstrated bug (a
+		# Vortex-ratio shot missed a stationary target entirely at a normal
+		# 60fps tick rate before this fix - see this session's own repro).
 		for t in _targets:
 			if not is_instance_valid(t):
 				continue
 			if t.get("is_dead") == true:
 				continue
 			var t_radius = t.get("broadphase_radius") if "broadphase_radius" in t else 20.0
-			if pos.distance_to(t.global_position) <= _radius[i] + t_radius:
+			var nearest_on_path = Geometry2D.get_closest_point_to_segment(t.global_position, _prev_position[i], _position[i])
+			if nearest_on_path.distance_to(t.global_position) <= _radius[i] + t_radius:
 				# Dedup (mirrors Projectile.gd's _handled_targets guard) - a
 				# pierce shot re-checking the same still-in-range target on a
 				# later tick must not double-hit it.

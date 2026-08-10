@@ -16,6 +16,15 @@ extends Node2D
 
 const DEFAULT_CAPACITY = 2048
 
+# Kinetic range/lifetime scaling (Phase 1 of the batch-pool full-parity
+# plan, 2026-08-10). Reuses the real constants directly (not duplicated
+# magic numbers) via a preloaded script reference, same "load(path), not
+# the bare global class name" convention this codebase already uses
+# elsewhere for Projectile.gd (see MissileRackTile.gd's own matching
+# comment on why: a fresh checkout/fresh class-cache headless run can fail
+# to resolve a bare global class_name reference).
+const _ProjectileScript = preload("res://scripts/entities/Projectile.gd")
+
 var capacity: int = DEFAULT_CAPACITY
 var _free_indices: Array[int] = []
 
@@ -37,6 +46,16 @@ var _radius: PackedFloat32Array
 var _prev_position: PackedVector2Array
 var _elapsed: PackedFloat32Array
 var _lifetime: PackedFloat32Array
+# Distance-based expiry cap, alongside the time-based _lifetime above - real
+# Projectile.gd expires a shot on whichever of these two independent caps
+# hits first (Projectile.gd:1414-1417). Previously absent entirely: every
+# batch shot used one flat caller-supplied lifetime regardless of synergy,
+# so Fire-dominant shots lived far too long and Kinetic-dominant ones
+# lived far too short (KINETIC_RANGE_BONUS never had anything to spend it
+# on). See _compute_lifetime()/_compute_max_range() below and spawn()'s use
+# of them.
+var _max_range: PackedFloat32Array
+var _distance_traveled: PackedFloat32Array
 var _color: Array = []
 var _scale: PackedFloat32Array
 var _fired_by_player: PackedByteArray
@@ -134,6 +153,8 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_radius.resize(capacity)
 	_elapsed.resize(capacity)
 	_lifetime.resize(capacity)
+	_max_range.resize(capacity)
+	_distance_traveled.resize(capacity)
 	_scale.resize(capacity)
 	_fired_by_player.resize(capacity)
 	_color.resize(capacity)
@@ -321,7 +342,19 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_damage[i] = dmg
 	_radius[i] = radius
 	_elapsed[i] = 0.0
-	_lifetime[i] = lifetime
+	# `lifetime` stays an explicit per-call override when the caller passes a
+	# real positive value (every existing BatchPool*Check.gd call site does
+	# this deliberately, for ratio-independent controlled testing - keeping
+	# them authoritative here is a zero-behavior-change guarantee for all of
+	# them). <= 0.0 opts into auto-computing from this shot's own ratios
+	# instead, mirroring real Projectile._get_lifetime() - this is what
+	# GarageTestRange._fire_via_batch_pool now uses instead of one flat
+	# constant for every synergy.
+	var r_fire_for_life = ratios.get(EnergyPacket.SynergyType.FIRE, 0.0)
+	var r_kin_for_life = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
+	_lifetime[i] = lifetime if lifetime > 0.0 else _compute_lifetime(r_fire_for_life, r_kin_for_life)
+	_max_range[i] = _compute_max_range(r_kin_for_life)
+	_distance_traveled[i] = 0.0
 	_color[i] = color
 	_scale[i] = scale_mult
 	_fired_by_player[i] = 1 if by_player else 0
@@ -354,6 +387,32 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	if i > _highest_active:
 		_highest_active = i
 	return i
+
+# Direct port of Projectile._get_lifetime() (Projectile.gd:509-522), taking
+# the two ratios that formula actually branches on rather than a whole
+# ratios Dictionary - matches this pool's existing per-field style
+# (_apply_status_effects already reads individual _r_* arrays the same way).
+# `ratios.has(X)` in the real version is equivalent here to `r_x > 0.0`:
+# EnergyPacket.compute_ratios() only ever produces a key for a synergy with
+# real nonzero contribution, so a spawned shot's r_fire/r_kin are exactly
+# 0.0 precisely when the real dict wouldn't have had that key at all.
+static func _compute_lifetime(r_fire: float, r_kin: float) -> float:
+	var base_life = 4.0
+	if r_fire > 0.0:
+		base_life = lerp(base_life, 0.4, r_fire)
+		if r_kin > 0.0:
+			base_life += 1.0 * r_kin
+	elif r_kin > 0.0:
+		base_life += 8.0 * r_kin
+	return max(0.1, base_life)
+
+# Direct port of the max_range half of Projectile._calculate_stats()
+# (Projectile.gd:548) - the is_beam_shot/range_mult multipliers that
+# formula also applies don't have a batch-pool equivalent concept (no beam
+# shots, no per-mount range_mult plumbed through spawn() today), so this is
+# the BASE_RANGE + KINETIC_RANGE_BONUS term only.
+static func _compute_max_range(r_kin: float) -> float:
+	return _ProjectileScript.BASE_RANGE + _ProjectileScript.KINETIC_RANGE_BONUS * r_kin
 
 # Pure function (no MultiMesh involved, testable directly - same "test the
 # math, not a MultiMesh round-trip" reasoning as _compute_trail_render) -
@@ -428,7 +487,11 @@ func _step_simulate(delta: float):
 			if _alive[i] == 0:
 				continue
 			_prev_position[i] = _position[i]
-			_position[i] += _direction[i] * _speed[i] * delta
+			var step = _direction[i] * _speed[i] * delta
+			_position[i] += step
+			_distance_traveled[i] += step.length()
+			if _distance_traveled[i] >= _max_range[i]:
+				despawn(i)
 		return
 
 	var live_indices := PackedInt32Array()
@@ -479,7 +542,11 @@ func _step_simulate(delta: float):
 		_lightning_prev_offset[i] = results_flat[base + 10]
 		_lightning_target_offset[i] = results_flat[base + 11]
 		_prev_position[i] = _position[i]
-		_position[i] += velocity * delta
+		var step = velocity * delta
+		_position[i] += step
+		_distance_traveled[i] += step.length()
+		if _distance_traveled[i] >= _max_range[i]:
+			despawn(i)
 
 func _step_hit_test():
 	if _targets.is_empty():

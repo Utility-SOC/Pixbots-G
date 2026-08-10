@@ -422,12 +422,20 @@ func _fire_selected():
 
 # EXPERIMENTAL - see ProjectileBatchPool.gd's own header. Deliberately
 # rough/approximate, not a faithful port of _fire_combined_projectile's
-# real formula - straight-line-toward-the-dummy only, no muzzle-position
-# lookup, no synergy-specific movement, no pattern fanout. Good enough for
-# a side-by-side FEEL/perf comparison, not for balance validation.
+# real formula - straight-line-toward-the-dummy only, no pattern fanout.
+# Real flight math (synergy-specific movement) and real muzzle-position
+# lookup ARE both wired in now (batch-pool full-parity plan, 2026-08-10) -
+# this comment used to say otherwise, kept stale across several sessions'
+# worth of work landing underneath it. "No pattern fanout" is still
+# accurate: one shot per mount-fire, no shotgun/radial multi-shot spread.
 const BATCH_SHOT_SPEED = 700.0
 const BATCH_SHOT_RADIUS = 10.0
-const BATCH_SHOT_LIFETIME = 3.0
+# No longer a flat lifetime for every synergy - passed as -1.0 below so
+# ProjectileBatchPool.spawn() auto-computes it from this shot's own ratios
+# (mirrors Projectile._get_lifetime()) instead of every batch shot living
+# exactly 3s regardless of whether it's Fire (should die fast) or Kinetic
+# (should live long enough to spend its extended range).
+const BATCH_SHOT_LIFETIME_AUTO = -1.0
 
 func _fire_via_batch_pool(source: Node, mount, packet):
 	if not _batch_pool or not is_instance_valid(_dummy):
@@ -468,7 +476,7 @@ func _fire_via_batch_pool(source: Node, mount, packet):
 
 	var scale_mult = clamp(1.0 + log(1.0 + packet.magnitude / 200.0) * 0.5, 1.0, 5.0)
 	var ratios = EnergyPacket.compute_ratios(packet.synergies) if packet != null and "synergies" in packet else {}
-	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME, color, scale_mult, source.is_player, source, dominant, ratios)
+	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME_AUTO, color, scale_mult, source.is_player, source, dominant, ratios)
 
 func _reset_dummy_stats():
 	if is_instance_valid(_dummy):

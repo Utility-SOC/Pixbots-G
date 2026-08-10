@@ -140,14 +140,20 @@ func _ready():
 
 	# EXPERIMENTAL - see ProjectileBatchPool.gd's own header. When on, FIRE/
 	# Auto spawn into the no-Node-tree batch pool instead of real
-	# Projectile instances - straight-line flight only, simplified hit
-	# detection, no chain lightning/status procs yet. Purely for side-by-
-	# side comparison; the real path (every other firing site in the game)
-	# never routes through this.
+	# Projectile instances. Reached full behavioral+visual parity with the
+	# real path as of the batch-pool full-parity plan (2026-08-10) - real
+	# per-synergy flight math, Lightning's teleport-hop/re-target chain,
+	# Poison's mine mode, Vampiric homing, elemental resistance, status
+	# procs, Vampiric heal, Explosion/biome AoE, part-hitbox damage
+	# routing, and bespoke visual ornaments all included now, not a
+	# simplified stand-in. Still purely for side-by-side comparison; the
+	# real path (every other firing site in the game) never routes through
+	# this, and cutting real combat over to it needs separate explicit
+	# approval after live playtesting, not just this parity work landing.
 	_batch_toggle = CheckButton.new()
 	_batch_toggle.text = "Batch Renderer (experimental)"
 	_batch_toggle.modulate = Color(1.0, 0.7, 0.3)
-	_batch_toggle.tooltip_text = "Fire through the experimental no-Node-tree batch pool instead of real Projectiles - straight-line only, for perf comparison. Test Range only, not wired into live combat."
+	_batch_toggle.tooltip_text = "Fire through the experimental no-Node-tree batch pool instead of real Projectiles - full behavioral/visual parity with the real path as of 2026-08-10, still Test Range only, not wired into live combat."
 	controls.add_child(_batch_toggle)
 
 	var reset_btn = Button.new()

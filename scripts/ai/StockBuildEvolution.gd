@@ -27,6 +27,12 @@ const MAX_TRACKED_DEVIATIONS = 8
 # ~15-20% of spawns for a (template, role, rarity) that already has a stock
 # build test a fresh deviation instead of replaying it.
 const DEVIATION_TEST_RATE = 0.175
+# Promotion gate (per the user: "anything that does better than the current
+# best in X out of Y sessions gets promoted to the new best template") -
+# a deviation must beat the current build's fitness in at least this
+# fraction of the tracked batch, not just once via a single lucky outlier,
+# before it's trusted to replace the champion.
+const PROMOTION_WIN_RATE = 0.5
 
 var director
 
@@ -83,21 +89,33 @@ func _flush(key: String):
 	if not batch or batch.is_empty():
 		return
 
-	var best = batch[0]
-	for entry in batch:
-		if entry["fitness"] > best["fitness"]:
-			best = entry
-
 	var parts = key.split(":", true, 2)
 	var template_name = parts[0]
 	var role = parts[1] if parts.size() > 1 else ""
 	var rarity = int(parts[2]) if parts.size() > 2 else 0
 	var current = get_stock_build(template_name, role, rarity)
 
-	# Never regress - only promote if the best tracked deviation actually
-	# beat the current build's own track record.
-	if current != null and best["fitness"] <= current.get_average_fitness():
-		return
+	# Tally how many tracked sessions actually beat the current build (not
+	# just whether the single best one did), and remember the best of those
+	# winners as the promotion candidate.
+	var best = null
+	var wins = 0
+	for entry in batch:
+		var beats_current = current == null or entry["fitness"] > current.get_average_fitness()
+		if beats_current:
+			wins += 1
+			if best == null or entry["fitness"] > best["fitness"]:
+				best = entry
+
+	if best == null:
+		return # nothing in this batch ever beat the current build
+
+	if current != null:
+		# Never regress on a fluke - only promote once the deviation has
+		# beaten the current build consistently, not just once in the batch.
+		var required_wins = int(ceil(batch.size() * PROMOTION_WIN_RATE))
+		if wins < required_wins:
+			return
 
 	var new_build = StockBuildMutator.promote(current, best["components"]) if current else StockBuildMutator.establish(template_name, role, rarity, best["components"])
 	if current:

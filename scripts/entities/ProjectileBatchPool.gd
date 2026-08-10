@@ -289,10 +289,25 @@ func _setup_multimesh():
 		# Trail layer added FIRST so it draws behind the main body (additive
 		# blend makes this mostly moot for color, but keeps the main body's
 		# silhouette on top for the two-surface hot-core trick to still read).
+		# Fire (1) and Kinetic (7) get their OWN bespoke trail mesh instead of
+		# reusing the main body's (Phase 10 of the batch-pool full-parity
+		# plan, 2026-08-10) - real Projectile.gd gives these two genuinely
+		# distinct ornaments (Fire's GPUParticles2D smoke trail, Kinetic's
+		# Trail2D speed-line) instead of the uniform reused-shape trail every
+		# other synergy gets here. A literal GPUParticles2D per shot is
+		# correctly ruled out for a Node-less MultiMesh pool (see this file's
+		# own header) - a tapered, alpha-gradient "comet" mesh is the
+		# MultiMesh-native substitute, closer to a heat/speed streak than the
+		# uniform-scaled main-body copy every other trail still uses.
+		var trail_mesh = mesh
+		if syn_idx == 1: # FIRE
+			trail_mesh = _build_tapered_trail_mesh(22.0, 7.0)
+		elif syn_idx == 7: # KINETIC
+			trail_mesh = _build_tapered_trail_mesh(16.0, 3.0)
 		var trail_mm = MultiMesh.new()
 		trail_mm.transform_format = MultiMesh.TRANSFORM_2D
 		trail_mm.use_colors = true
-		trail_mm.mesh = mesh # same mesh resource, no second build
+		trail_mm.mesh = trail_mesh
 		trail_mm.instance_count = capacity
 		for i in range(capacity):
 			trail_mm.set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
@@ -385,6 +400,33 @@ static func _build_synergy_mesh(poly: PackedVector2Array) -> ArrayMesh:
 		arrays1[Mesh.ARRAY_TEX_UV] = uvs_inner
 		arr_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays1)
 
+	return arr_mesh
+
+# MultiMesh-native substitute for a real GPUParticles2D/Trail2D per-shot
+# trail (Phase 10 of the batch-pool full-parity plan, 2026-08-10) - a
+# tapered "comet" triangle, wide and fully opaque at the front (nearest the
+# shot's own body), narrowing to a transparent point at the back. The alpha
+# fade is baked into the mesh's own per-VERTEX colors (Mesh.ARRAY_COLOR),
+# which MultiMesh's per-INSTANCE color (see trail_mm.use_colors) multiplies
+# against - so this compounds with the existing whole-trail alpha fade
+# (_compute_trail_render's TRAIL_ALPHA_MULT) rather than fighting it.
+static func _build_tapered_trail_mesh(length: float, width: float) -> ArrayMesh:
+	var vertices = PackedVector3Array([
+		Vector3(0.0, width * 0.5, 0.0),
+		Vector3(0.0, -width * 0.5, 0.0),
+		Vector3(-length, 0.0, 0.0),
+	])
+	var colors = PackedColorArray([
+		Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 0),
+	])
+	var indices = PackedInt32Array([0, 1, 2])
+	var arrays = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var arr_mesh = ArrayMesh.new()
+	arr_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return arr_mesh
 
 # --- Public API -------------------------------------------------------------
@@ -1036,9 +1078,44 @@ static func _compute_trail_render(render_pos: Vector2, direction: Vector2, main_
 # the second, so two simultaneous secondaries land on opposite sides
 # instead of overlapping.
 static func _compute_echo_render(render_pos: Vector2, elapsed: float, phase: float, alpha: float, synergy: int) -> Dictionary:
+	if synergy == EnergyPacket.SynergyType.PIERCE:
+		# Pierce as a secondary gets a STATIC glowing core, not an orbiting
+		# dot (Phase 10 of the batch-pool full-parity plan, 2026-08-10) -
+		# mirrors Projectile.gd's own Pierce-secondary ornament exactly (a
+		# fixed white core at zero offset, Projectile.gd:971-979 - not a
+		# moving element like every other secondary treatment).
+		return {"position": render_pos, "color": Color(1.0, 1.0, 1.0, alpha * 0.8)}
 	var angle = elapsed * ECHO_ORBIT_SPEED + phase
 	var offset = Vector2(cos(angle), sin(angle)) * ECHO_ORBIT_RADIUS
 	var c = EnergyPacket.get_color_for_synergy(synergy) * 1.5
+	c.a = alpha
+	return {"position": render_pos + offset, "color": c}
+
+# Vortex-dominant 3-orb helix (Phase 10) - mirrors Projectile.gd's own
+# Vortex Helix Orbs exactly (3 orbiting orbs, own fixed radius/speed,
+# Projectile.gd:1019-1034), which the generic 2-echo mechanism above
+# can't reproduce: that trick borrows a shot's OWN secondary synergies'
+# otherwise-idle channels, but a shot whose DOMINANT is Vortex has already
+# spent its own main+trail channels on itself, leaving no "free channel of
+# its own" for secondaries to use. Generalizes the same safety invariant
+# one level further: when Vortex is dominant, the shot's normal 2-echo
+# rendering is skipped entirely (see _step_render's own gate) so these 3
+# FIXED channels (RAW/EXPLOSION/PIERCE main-body, chosen as thematically
+# neutral/low-collision-risk picks) are GUARANTEED idle for this slot -
+# nothing else will ever write index i in those channels for a Vortex-
+# dominant shot, the same "no other live shot touches this index in a
+# channel that isn't its own dominant" argument the class-level echo
+# comment already relies on, just applied to the dominant shot's own
+# bespoke ornament instead of a secondary's.
+const VORTEX_HELIX_CHANNELS = [0, 6, 8] # RAW, EXPLOSION, PIERCE main-body slots
+const VORTEX_HELIX_SPEED = 15.0
+const VORTEX_HELIX_RADIUS = 8.0
+
+static func _compute_vortex_helix_render(render_pos: Vector2, elapsed: float, orb_index: int, alpha: float) -> Dictionary:
+	var phase = orb_index * (PI * 2.0 / 3.0)
+	var angle = elapsed * VORTEX_HELIX_SPEED + phase
+	var offset = Vector2(cos(angle), sin(angle)) * VORTEX_HELIX_RADIUS
+	var c = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.VORTEX)
 	c.a = alpha
 	return {"position": render_pos + offset, "color": c}
 
@@ -1064,21 +1141,33 @@ func _step_render():
 			_trail_multimeshes[syn].set_instance_transform_2d(i, trail_xform)
 			_trail_multimeshes[syn].set_instance_color(i, trail_render["color"])
 
-			# Secondary-synergy echoes - orbiting instances for up to 2
-			# non-dominant ratios, so a blended packet reads as more than
-			# just its single loudest element. Borrows each secondary's OWN
-			# otherwise-idle main-body (echo 1) / trail (echo 2) multimesh
-			# channel at this same slot index - see the class-level comment
-			# on _secondary_synergy_1/_secondary_synergy_2 for why that's safe.
-			var syn2_1 = _secondary_synergy_1[i]
-			if syn2_1 != NO_SYNERGY:
-				var echo1 = _compute_echo_render(render_pos, _elapsed[i], 0.0, c.a, syn2_1)
-				var echo1_xform = Transform2D(rot, echo1["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
-				_synergy_multimeshes[syn2_1].set_instance_transform_2d(i, echo1_xform)
-				_synergy_multimeshes[syn2_1].set_instance_color(i, echo1["color"])
-			var syn2_2 = _secondary_synergy_2[i]
-			if syn2_2 != NO_SYNERGY:
-				var echo2 = _compute_echo_render(render_pos, _elapsed[i], PI, c.a, syn2_2)
-				var echo2_xform = Transform2D(rot, echo2["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
-				_trail_multimeshes[syn2_2].set_instance_transform_2d(i, echo2_xform)
-				_trail_multimeshes[syn2_2].set_instance_color(i, echo2["color"])
+			if syn == EnergyPacket.SynergyType.VORTEX:
+				# Vortex-dominant 3-orb helix (Phase 10) instead of the
+				# generic 2-echo mechanism - see _compute_vortex_helix_
+				# render's own header for why this needs 3 FIXED channels
+				# and skips secondary echoes entirely rather than trying to
+				# combine both on one slot.
+				for orb_index in range(3):
+					var orb = _compute_vortex_helix_render(render_pos, _elapsed[i], orb_index, c.a)
+					var orb_xform = Transform2D(rot, orb["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
+					_synergy_multimeshes[VORTEX_HELIX_CHANNELS[orb_index]].set_instance_transform_2d(i, orb_xform)
+					_synergy_multimeshes[VORTEX_HELIX_CHANNELS[orb_index]].set_instance_color(i, orb["color"])
+			else:
+				# Secondary-synergy echoes - orbiting instances for up to 2
+				# non-dominant ratios, so a blended packet reads as more than
+				# just its single loudest element. Borrows each secondary's OWN
+				# otherwise-idle main-body (echo 1) / trail (echo 2) multimesh
+				# channel at this same slot index - see the class-level comment
+				# on _secondary_synergy_1/_secondary_synergy_2 for why that's safe.
+				var syn2_1 = _secondary_synergy_1[i]
+				if syn2_1 != NO_SYNERGY:
+					var echo1 = _compute_echo_render(render_pos, _elapsed[i], 0.0, c.a, syn2_1)
+					var echo1_xform = Transform2D(rot, echo1["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
+					_synergy_multimeshes[syn2_1].set_instance_transform_2d(i, echo1_xform)
+					_synergy_multimeshes[syn2_1].set_instance_color(i, echo1["color"])
+				var syn2_2 = _secondary_synergy_2[i]
+				if syn2_2 != NO_SYNERGY:
+					var echo2 = _compute_echo_render(render_pos, _elapsed[i], PI, c.a, syn2_2)
+					var echo2_xform = Transform2D(rot, echo2["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
+					_trail_multimeshes[syn2_2].set_instance_transform_2d(i, echo2_xform)
+					_trail_multimeshes[syn2_2].set_instance_color(i, echo2["color"])

@@ -2652,11 +2652,58 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscr
 	# the left arm link, nothing inside the left arm" (the Torso's own live
 	# view uses a separate, uncapped-until-natural-drain engine, so it
 	# looked like the energy was there and simply never arriving).
-	const SIMULATE_GRID_STEP_CAP = 1000
+	# Lowered from 1000 (2026-08-10 live playtest: wave 9-12 bot spawning
+	# collapsed to 2-7fps - _recalculate_grid() was costing ~200ms PER BOT,
+	# because common-rarity builds with no Mythic-overcharge intent at all
+	# were routinely hitting the full 1000-step cap on plain Reflector/edge-
+	# bounce loops that never resolve to zero active packets on their own -
+	# NOT the intentional Mythic-overcharge mechanic (that's explicitly
+	# about all-Mythic annexes building magnitude before releasing it, and
+	# is unaffected by this: MythicOverchargeSplitCheck.gd's split/bounce
+	# behavior resolves in a handful of steps regardless of this cap, and
+	# LongPathStepCapCheck.gd's legitimate 150-step straight-line crossing
+	# stays comfortably inside 200). Combined with the negligible-packet
+	# cull just below (user's own proposal), which lets DECAY-capable loops
+	# (ones crossing empty hexes, which lose 5% magnitude per pass) resolve
+	# well before ever reaching this cap - pure Reflector/edge-bounce loops
+	# never decay at all, so for THOSE this cap is what actually bounds the
+	# cost, not the cull.
+	const SIMULATE_GRID_STEP_CAP = 200
+	# Negligible-packet culling (user's own proposal, 2026-08-10): a packet
+	# that's decayed to a trivial fraction of the energy actually in play
+	# is rounding-error noise, not a meaningful part of the build - letting
+	# it keep consuming simulation steps forever (it can never merge away
+	# since merge only fires for exact position+direction matches) is pure
+	# waste. Two floors, matching the user's own framing exactly:
+	#   - an absolute floor for low-total builds (their own example: "some
+	#     4 energy packets running around" - well under the ~600 energy
+	#     single-packet baseline this game's payload scale standardizes
+	#     around, per Status.md's own design directive).
+	#   - a floor relative to the CURRENT total active energy for high-
+	#     total (Mythic-overcharge-scale) builds - "greater than 1,200,000
+	#     energy total" is their own number; 0.05% of that (~600, the same
+	#     baseline) is "a rounding error" by comparison to a real overcharge
+	#     loop, without touching the loop's actual dominant packets at all.
+	const NEGLIGIBLE_MAGNITUDE_FLOOR = 2.0
+	const HIGH_TOTAL_ENERGY_THRESHOLD = 1200000.0
+	const HIGH_TOTAL_RELATIVE_CULL_FRACTION = 0.0005
 	while active_packets.size() > 0 and steps < SIMULATE_GRID_STEP_CAP:
 		steps += 1
+
+		var total_active_magnitude = 0.0
+		for p in active_packets:
+			if p.is_active:
+				total_active_magnitude += p.magnitude
+		var relative_floor = 0.0
+		if total_active_magnitude > HIGH_TOTAL_ENERGY_THRESHOLD:
+			relative_floor = total_active_magnitude * HIGH_TOTAL_RELATIVE_CULL_FRACTION
+		var cull_floor = max(NEGLIGIBLE_MAGNITUDE_FLOOR, relative_floor)
+		for p in active_packets:
+			if p.is_active and p.magnitude < cull_floor:
+				p.is_active = false
+
 		var next_packets: Array[EnergyPacket] = []
-		
+
 		for p in active_packets:
 			if not p.is_active: continue
 			var dir = p.direction

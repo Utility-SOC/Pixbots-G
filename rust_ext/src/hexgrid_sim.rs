@@ -59,7 +59,38 @@ const SYN_COUNT: usize = 10;
 const MAX_MAGNITUDE: f64 = 600000.0;
 const NORMAL_MAGNITUDE_CAP: f64 = 150000.0;
 const MYTHIC_RARITY: i64 = 4;
-const STEP_CAP: i64 = 1000;
+// Lowered from 1000 (2026-08-10 live playtest: wave 9-12 bot spawning
+// collapsed to 2-7fps - common-rarity builds with no Mythic-overcharge
+// intent at all were routinely hitting the full 1000-step cap on plain
+// Reflector/edge-bounce loops that never resolve to zero active packets
+// on their own, NOT the intentional Mythic-overcharge mechanic (that's
+// explicitly about all-Mythic annexes building magnitude before releasing
+// it - MythicOverchargeSplitCheck.gd's split/bounce behavior resolves in
+// a handful of steps regardless of this cap, and LongPathStepCapCheck.gd's
+// legitimate 150-step straight-line crossing stays comfortably inside
+// 200). This is the REAL hot path - Mech._simulate_grid's own GDScript
+// STEP_CAP constant only governs its fallback loop, which real spawns
+// never reach once RustGridSim.try_simulate() succeeds (confirmed via
+// live diagnostic: it does, for every role/rarity combination tested).
+const STEP_CAP: i64 = 200;
+// Negligible-packet culling (user's own proposal, 2026-08-10): a packet
+// that's decayed to a trivial fraction of the energy actually in play is
+// rounding-error noise, not a meaningful part of the build - letting it
+// keep consuming simulation steps forever (it can never merge away since
+// merge only fires for exact position+direction matches) is pure waste.
+// Two floors, matching the user's own framing exactly: an absolute floor
+// for low-total builds (their own example: "some 4 energy packets
+// running around" - well under the ~600 energy single-packet baseline
+// this game's payload scale standardizes around, per Status.md's own
+// design directive), and a floor relative to the CURRENT total active
+// energy for high-total (Mythic-overcharge-scale) builds - "greater than
+// 1,200,000 energy total" is their own number; 0.05% of that (~600, the
+// same baseline) is "a rounding error" by comparison to a real overcharge
+// loop, without touching the loop's actual dominant packets at all.
+// Mirrored in Mech._simulate_grid's own GDScript fallback loop.
+const NEGLIGIBLE_MAGNITUDE_FLOOR: f64 = 2.0;
+const HIGH_TOTAL_ENERGY_THRESHOLD: f64 = 1200000.0;
+const HIGH_TOTAL_RELATIVE_CULL_FRACTION: f64 = 0.0005;
 const SYN_RAW: usize = 0;
 const SYN_LIGHTNING: usize = 3;
 const SYN_KINETIC: usize = 7;
@@ -935,6 +966,25 @@ impl HexGridSim {
         let mut steps = 0i64;
         while !active.is_empty() && steps < STEP_CAP {
             steps += 1;
+
+            let mut total_active_magnitude = 0.0f64;
+            for p in active.iter() {
+                if p.active {
+                    total_active_magnitude += p.magnitude;
+                }
+            }
+            let relative_floor = if total_active_magnitude > HIGH_TOTAL_ENERGY_THRESHOLD {
+                total_active_magnitude * HIGH_TOTAL_RELATIVE_CULL_FRACTION
+            } else {
+                0.0
+            };
+            let cull_floor = NEGLIGIBLE_MAGNITUDE_FLOOR.max(relative_floor);
+            for p in active.iter_mut() {
+                if p.active && p.magnitude < cull_floor {
+                    p.active = false;
+                }
+            }
+
             let mut next: Vec<Packet> = Vec::new();
 
             for p0 in active.iter() {

@@ -87,6 +87,30 @@ func _ready():
 	_check("unregister_target() stops that target from being hit-tested",
 		target.hp == hp_before2 and pool._alive[miss_idx] == 1)
 
+	# --- B3: ghost-trail render layer ---
+	# _compute_trail_render is a pure static function (no MultiMesh/
+	# RenderingServer involved) precisely so it's testable directly -
+	# get_instance_transform_2d/get_instance_color don't reliably reflect a
+	# same-frame set_instance_* write under --headless with no real render
+	# sync ever occurring (confirmed via an isolated bare-MultiMesh probe),
+	# so this checks the computation ProjectileBatchPool._step_render()
+	# feeds into the MultiMesh, not a round-trip through it.
+	var render_pos = Vector2(50, 50)
+	var main_color = Color(1.0, 0.2, 0.1, 1.0)
+	var trail = ProjectileBatchPoolScript._compute_trail_render(render_pos, Vector2.RIGHT, main_color)
+	_check("the ghost trail sits TRAIL_OFFSET_PX behind the main body along -direction",
+		trail["position"].distance_to(render_pos - Vector2(ProjectileBatchPoolScript.TRAIL_OFFSET_PX, 0)) < 0.01)
+	_check("the ghost trail is dimmer than the main body by TRAIL_ALPHA_MULT",
+		abs(trail["color"].a - main_color.a * ProjectileBatchPoolScript.TRAIL_ALPHA_MULT) < 0.001)
+	_check("the ghost trail keeps the main body's hue, only alpha changes",
+		trail["color"].r == main_color.r and trail["color"].g == main_color.g and trail["color"].b == main_color.b)
+
+	# despawn() must clear BOTH the main and trail MultiMesh layers so a
+	# freed slot doesn't leave an orphaned ghost quad on screen - the arrays
+	# being correctly parallel-sized is what makes that possible.
+	_check("_trail_multimeshes/_trail_instances are parallel-sized to _synergy_multimeshes (one trail layer per synergy)",
+		pool._trail_multimeshes.size() == pool._synergy_multimeshes.size() and pool._trail_instances.size() == pool._synergy_instances.size())
+
 	if failures == 0:
 		print("PASS: ProjectileBatchPool V1 - spawn/cap/simulate/despawn/recycle/hit-test all correct, no per-shot Nodes involved")
 	get_tree().quit(0 if failures == 0 else 1)

@@ -75,6 +75,18 @@ var _add_material: CanvasItemMaterial
 var _synergy_multimeshes: Array[MultiMesh] = []
 var _synergy_instances: Array[MultiMeshInstance2D] = []
 
+# Ghost-trail layer (B3, visual flourish) - real trails (FireTrail2D/Trail2D/
+# GPUParticles2D/Line2D) are genuine child-Node/particle systems, fundamentally
+# incompatible with this Node-less pool. Instead: one extra MultiMeshInstance2D
+# per synergy, same mesh as the main body reused (no second mesh build),
+# drawn a fixed offset behind each live shot along its current direction at
+# reduced scale/alpha - reads as a short streak without any per-shot Node.
+const TRAIL_OFFSET_PX = 14.0
+const TRAIL_SCALE_MULT = 0.55
+const TRAIL_ALPHA_MULT = 0.35
+var _trail_multimeshes: Array[MultiMesh] = []
+var _trail_instances: Array[MultiMeshInstance2D] = []
+
 func _init(p_capacity: int = DEFAULT_CAPACITY):
 	capacity = p_capacity
 	_alive.resize(capacity)
@@ -135,6 +147,8 @@ func _setup_multimesh():
 
 	_synergy_multimeshes.resize(10)
 	_synergy_instances.resize(10)
+	_trail_multimeshes.resize(10)
+	_trail_instances.resize(10)
 
 	for syn_idx in range(10):
 		var poly = _get_polygon_for_synergy(syn_idx)
@@ -143,6 +157,23 @@ func _setup_multimesh():
 			var quad = QuadMesh.new()
 			quad.size = Vector2(10, 10)
 			mesh = quad
+
+		# Trail layer added FIRST so it draws behind the main body (additive
+		# blend makes this mostly moot for color, but keeps the main body's
+		# silhouette on top for the two-surface hot-core trick to still read).
+		var trail_mm = MultiMesh.new()
+		trail_mm.transform_format = MultiMesh.TRANSFORM_2D
+		trail_mm.use_colors = true
+		trail_mm.mesh = mesh # same mesh resource, no second build
+		trail_mm.instance_count = capacity
+		for i in range(capacity):
+			trail_mm.set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
+		var trail_inst = MultiMeshInstance2D.new()
+		trail_inst.multimesh = trail_mm
+		trail_inst.material = _add_material
+		add_child(trail_inst)
+		_trail_multimeshes[syn_idx] = trail_mm
+		_trail_instances[syn_idx] = trail_inst
 
 		var mm = MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_2D
@@ -285,6 +316,7 @@ func despawn(i: int):
 	var old_syn = _dominant_synergy[i]
 	if old_syn >= 0 and old_syn < 10:
 		_synergy_multimeshes[old_syn].set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
+		_trail_multimeshes[old_syn].set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
 	_source_mech[i] = null
 	_free_indices.append(i)
 
@@ -439,6 +471,19 @@ func _apply_status_effects(i: int, target: Node):
 		if rvm > 0.5 and randf() < 0.3:
 			target.apply_status("immobilized", 0.5)
 
+# Pure computation for the ghost-trail layer (B3), split out from
+# _step_render() so it's testable directly without needing a real
+# MultiMesh/RenderingServer round-trip - get_instance_transform_2d/
+# get_instance_color don't reliably reflect a same-frame set_instance_*
+# write under --headless with no actual render sync ever occurring
+# (confirmed via an isolated probe: set-then-immediately-get on a bare
+# MultiMesh returns stale/default data in this environment). Testing the
+# math here sidesteps that engine/environment limitation entirely.
+static func _compute_trail_render(render_pos: Vector2, direction: Vector2, main_color: Color) -> Dictionary:
+	var trail_c = main_color
+	trail_c.a = main_color.a * TRAIL_ALPHA_MULT
+	return {"position": render_pos - direction * TRAIL_OFFSET_PX, "color": trail_c}
+
 func _step_render():
 	for i in range(_highest_active + 1):
 		if _alive[i] == 0:
@@ -453,3 +498,10 @@ func _step_render():
 			c.a = 1.0 - life_frac
 			_synergy_multimeshes[syn].set_instance_transform_2d(i, xform)
 			_synergy_multimeshes[syn].set_instance_color(i, c)
+
+			# Ghost-trail layer (B3) - fixed offset behind current heading,
+			# smaller and dimmer than the main body. See TRAIL_* consts.
+			var trail_render = _compute_trail_render(render_pos, _direction[i], c)
+			var trail_xform = Transform2D(rot, trail_render["position"]).scaled(Vector2(_scale[i], _scale[i]) * TRAIL_SCALE_MULT)
+			_trail_multimeshes[syn].set_instance_transform_2d(i, trail_xform)
+			_trail_multimeshes[syn].set_instance_color(i, trail_render["color"])

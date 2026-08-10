@@ -56,20 +56,27 @@ func maybe_introduce_experimental_template():
 	if director.templates.is_empty() or _count_experimental() >= MAX_EXPERIMENTAL_TEMPLATES:
 		return
 
-	# Three sources of fresh doctrine: mutate one proven parent (35%),
+	# Three sources of fresh doctrine: mutate one proven parent (55%),
 	# crossbreed two proven parents (30%, needs 2+ candidates), or a fully
-	# random composition for genetic diversity (35% - nudged up from 30% so
-	# the Director keeps stumbling into compositions nobody bred on purpose,
-	# not just refinements of what already works).
+	# random composition for genetic diversity (15%). Weighted toward
+	# mutate/crossover rather than fully-random - both start from an
+	# already-proven parent's role composition (lineage carried via
+	# parent_name), so they tend to land closer to viable on the first
+	# trial than a from-scratch roll, which means fewer get culled after
+	# only MIN_TRIALS_BEFORE_CULL and fewer brand-new template identities
+	# (each a fresh StockBuildEvolution/AutoEquipSolver cache key) need
+	# minting per unit time to keep the experimental roster full. random_
+	# template() is kept, just dialed back - the Director still needs to
+	# stumble into compositions nobody bred on purpose sometimes.
 	var candidates = director.templates.filter(func(t): return not t.is_experimental)
 	if candidates.is_empty():
 		candidates = director.templates
 
 	var new_template: SquadTemplate = null
 	var roll = randf()
-	if roll < 0.35:
+	if roll < 0.55:
 		new_template = SquadTemplateMutator.mutate(_pick_fitness_weighted_parent(candidates))
-	elif roll < 0.65 and candidates.size() >= 2:
+	elif roll < 0.85 and candidates.size() >= 2:
 		var parent_a = _pick_fitness_weighted_parent(candidates)
 		# Distributed evolution: once imports are in the mix, bias crossover
 		# toward mixing lineages from DIFFERENT pilots rather than always

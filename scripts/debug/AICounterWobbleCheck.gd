@@ -66,9 +66,13 @@ func _ready():
 		BossEvolutionScript.MAX_EXPERIMENTAL_BOSS_PROFILES == 6)
 
 	# --- 4. Main.gd cadence tightened ---------------------------------------
+	# Template cadence widened 2->3 waves (see this session's template-churn
+	# throttle work, TemplateChurnThrottleCheck.gd) - each new experimental
+	# template identity (a fresh StockBuildEvolution/AutoEquipSolver cache
+	# key) gets more real playtime before the roster can churn again.
 	var main_source: String = FileAccess.get_file_as_string("res://scripts/core/Main.gd")
-	_check("Main.gd rolls experimental templates every 2 waves now",
-		main_source.contains("current_wave % 2 == 0"))
+	_check("Main.gd rolls experimental templates every 3 waves now",
+		main_source.contains("current_wave % 3 == 0"))
 	_check("Main.gd rolls experimental profiles every 3 waves now",
 		main_source.contains("current_wave % 3 == 0"))
 	_check("Main.gd rolls experimental boss profiles every 4 waves now",

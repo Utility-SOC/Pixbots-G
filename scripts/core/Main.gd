@@ -1047,8 +1047,12 @@ func _start_wave():
 	# Periodically let the director try out a new experimental squad
 	# composition (mutation or fresh random template). Not every wave, so
 	# each trial gets a few waves to actually accumulate deployments before
-	# the next one shows up.
-	if current_wave % 2 == 0:
+	# the next one shows up. Was every 2 waves - widened to 3 so each new
+	# template identity (a fresh StockBuildEvolution/AutoEquipSolver cache
+	# key) gets more real playtime before the roster potentially churns
+	# again, favoring reuse of what's already registered over constantly
+	# minting new ones.
+	if current_wave % 3 == 0:
 		director.maybe_introduce_experimental_template()
 	if current_wave % 3 == 0:
 		director.maybe_introduce_experimental_profile()

@@ -4105,13 +4105,37 @@ func build_loadout_for_role(role_name: String):
 	if spawn_profile != null:
 		add_tile.call("res://scripts/tiles/InfuserTile.gd", tier.call(1))
 		
-	# Inject AmplifierTiles into the solver's inventory for AI bots to
-	# build lethal, denser power grids. Guaranteed amplifiers scale with
-	# the bot's base rarity.
+	# Inject a real Amplifier/Splitter/Elemental Infuser pool into the
+	# solver's inventory for AI bots (user request 2026-08-10: "enemy bots
+	# need to be able to use splitter/amplifier loops and have lots of
+	# elemental infusers... try to use less than 20% directional conduit").
+	# AutoEquipSolver only ever synthesizes a fresh Directional Conduit as
+	# a LAST RESORT once inventory genuinely runs dry (see AutoEquipSolver.
+	# gd's FILLER_TILE_PRIORITY/_straight_tile_priority - Amplifier/
+	# Catalyst/Elemental Infuser/Splitter are ALL already prioritized ahead
+	# of Directional Conduit for every cell type) - the fix belongs here,
+	# in how much real inventory gets supplied, not in the solver's
+	# placement logic. The previous fixed `min(4, base_rarity + 1)`
+	# Amplifier-only pool was nowhere near enough to cover a real grid (a
+	# Mythic Torso alone has 70+ open cells) - this scales with the bot's
+	# actual open-hex budget instead, and rotates through all three
+	# pass-through types so hubs get real Splitters to fan out into loops
+	# and straight runs get Amplifier/Infuser variety instead of defaulting
+	# to wire.
 	if spawn_template_name != "":
-		var num_amps = min(4, base_rarity + 1)
-		for i in range(num_amps):
-			add_tile.call("res://scripts/tiles/AmplifierTile.gd", base_rarity)
+		var open_hex_budget = 0
+		for slot in components:
+			var comp = components[slot]
+			if comp and comp.valid_hexes:
+				open_hex_budget += comp.valid_hexes.size()
+		var filler_count = clampi(open_hex_budget, 4, 250)
+		var filler_types = [
+			"res://scripts/tiles/AmplifierTile.gd",
+			"res://scripts/tiles/SplitterTile.gd",
+			"res://scripts/tiles/InfuserTile.gd",
+		]
+		for i in range(filler_count):
+			add_tile.call(filler_types[i % filler_types.size()], base_rarity)
 
 	var solver = AutoEquipSolverScript.new()
 	_perf_fresh_inventory_usec += Time.get_ticks_usec() - _t_fresh_inventory

@@ -123,6 +123,22 @@ static func dominant_synergy_of(synergies_dict: Dictionary) -> int:
 			max_syn = k
 	return max_syn
 
+# Static form of the ratio derivation Projectile._setup used to compute
+# inline (ratios[k] = synergies[k] / total_power, RAW=1.0 when total_power
+# is zero) - shared with ProjectileBatchPool.gd's spawn() call site so both
+# paths use identical math instead of duplicating it.
+static func compute_ratios(synergies_dict: Dictionary) -> Dictionary:
+	var ratios: Dictionary = {}
+	var total_power: float = 0.0
+	for k in synergies_dict:
+		total_power += synergies_dict[k]
+	if total_power <= 0:
+		ratios[SynergyType.RAW] = 1.0
+	else:
+		for k in synergies_dict:
+			ratios[k] = synergies_dict[k] / total_power
+	return ratios
+
 func total_synergy_magnitude() -> float:
 	var total: float = 0.0
 	for v in synergies.values():

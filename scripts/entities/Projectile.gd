@@ -345,10 +345,7 @@ func _ready():
 		total_power += synergies[k]
 	if total_power <= 0:
 		total_power = 1.0
-		ratios[EnergyPacket.SynergyType.RAW] = 1.0
-	else:
-		for k in synergies:
-			ratios[k] = synergies[k] / total_power
+	ratios = EnergyPacket.compute_ratios(synergies)
 
 	_is_poison_mine = ratios.get(EnergyPacket.SynergyType.POISON, 0.0) > MINE_POISON_THRESHOLD
 	# Mines use their own separate movement model (_physics_process_mine) -

@@ -33,6 +33,33 @@ var _scale: PackedFloat32Array
 var _fired_by_player: PackedByteArray
 var _source_mech: Array = []
 var _dominant_synergy: PackedByteArray # 0..9 (RAW, FIRE, ICE, LIGHTNING, VORTEX, POISON, EXPLOSION, KINETIC, PIERCE, VAMPIRIC)
+var _dominant_synergy_name: Array = [] # element name String, for apply_damage's resistance lookup
+
+# --- Flight-math state (mirrors Projectile.gd's _flight_r_*/_prepare_
+# flight_state fields - see ProjectileFlight.compute_batch_flat's own
+# field-order comment, rust_ext/src/projectile_flight.rs:287-294) ---
+var _r_kin: PackedFloat32Array
+var _r_ice: PackedFloat32Array # only feeds steering_resistance locally, not part of the Rust request stride itself
+var _r_vamp: PackedFloat32Array
+var _r_fire: PackedFloat32Array
+var _r_psn: PackedFloat32Array
+var _r_vtx: PackedFloat32Array
+var _r_ltg: PackedFloat32Array
+var _r_prc: PackedFloat32Array
+var _visual_offset: PackedVector2Array
+var _lightning_segment_index: PackedFloat32Array
+var _lightning_prev_offset: PackedFloat32Array
+var _lightning_target_offset: PackedFloat32Array
+# Synthetic per-slot identity fed to compute_batch_flat as instance_ids -
+# these aren't real Nodes, so there's no real get_instance_id(). A bare
+# slot index would give the lightning-jitter seed (hashes off instance_id,
+# see projectile_flight.rs) the exact same jaggedness pattern every time a
+# slot gets reused; a monotonic counter avoids that for free.
+var _spawn_gen: PackedInt64Array
+var _next_spawn_gen: int = 1
+
+var _flight_checked: bool = false
+var _flight_rasterizer = null
 
 var _highest_active: int = -1
 
@@ -58,13 +85,39 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_color.resize(capacity)
 	_source_mech.resize(capacity)
 	_dominant_synergy.resize(capacity)
+	_dominant_synergy_name.resize(capacity)
+	_r_kin.resize(capacity)
+	_r_ice.resize(capacity)
+	_r_vamp.resize(capacity)
+	_r_fire.resize(capacity)
+	_r_psn.resize(capacity)
+	_r_vtx.resize(capacity)
+	_r_ltg.resize(capacity)
+	_r_prc.resize(capacity)
+	_visual_offset.resize(capacity)
+	_lightning_segment_index.resize(capacity)
+	_lightning_prev_offset.resize(capacity)
+	_lightning_target_offset.resize(capacity)
+	_spawn_gen.resize(capacity)
 	for i in range(capacity):
 		_free_indices.append(i)
 		_color[i] = Color.WHITE
+		_dominant_synergy_name[i] = "RAW"
 
 func _ready():
 	process_priority = -900
 	_setup_multimesh()
+	_ensure_flight_rust()
+
+# Same pattern as ProjectileManager._ensure_flight_rust() - real Node
+# instance_ids don't exist for these slots, so this pool makes its own
+# ProjectileFlight instance rather than sharing ProjectileManager's (which
+# batches only real registered Projectile.gd Nodes).
+func _ensure_flight_rust():
+	if not _flight_checked:
+		_flight_checked = true
+		if ClassDB.class_exists("ProjectileFlight"):
+			_flight_rasterizer = ClassDB.instantiate("ProjectileFlight")
 
 # Build per-synergy meshes matching Projectile.gd's procedural shapes,
 # featuring a bright additive material and white-hot core for full visual parity.
@@ -176,7 +229,7 @@ func register_target(target: Node):
 func unregister_target(target: Node):
 	_targets.erase(target)
 
-func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0) -> int:
+func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}) -> int:
 	if _free_indices.is_empty():
 		return -1
 	var i = _free_indices.pop_back()
@@ -193,6 +246,23 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_fired_by_player[i] = 1 if by_player else 0
 	_source_mech[i] = source
 	_dominant_synergy[i] = clamp(dominant_synergy, 0, 9)
+	_dominant_synergy_name[i] = EnergyPacket.element_name(dominant_synergy)
+
+	_r_kin[i] = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
+	_r_ice[i] = ratios.get(EnergyPacket.SynergyType.ICE, 0.0)
+	_r_vamp[i] = ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
+	_r_fire[i] = ratios.get(EnergyPacket.SynergyType.FIRE, 0.0)
+	_r_psn[i] = ratios.get(EnergyPacket.SynergyType.POISON, 0.0)
+	_r_vtx[i] = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
+	_r_ltg[i] = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
+	_r_prc[i] = ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)
+	_visual_offset[i] = Vector2.ZERO
+	_lightning_segment_index[i] = -1.0 # forces the first segment to roll on tick 1, same as Projectile.gd's default
+	_lightning_prev_offset[i] = 0.0
+	_lightning_target_offset[i] = 0.0
+	_spawn_gen[i] = _next_spawn_gen
+	_next_spawn_gen += 1
+
 	if i > _highest_active:
 		_highest_active = i
 	return i
@@ -215,15 +285,81 @@ func _process(delta):
 	_step_hit_test()
 	_step_render()
 
+const REQUEST_STRIDE = 20 # MUST match rust_ext/src/projectile_flight.rs's compute_batch_flat contract
+const RESPONSE_STRIDE = 12
+
+# NOTE: this does NOT include Lightning's blink-hop teleport (Projectile.
+# _update_blink/_apply_blink_hop) - that's a separate targeting-query-driven
+# system, out of scope here (see this session's batch-pool parity plan).
+# The zigzag visual jaggedness (part of compute_batch_flat's own output) IS
+# included below.
 func _step_simulate(delta: float):
+	# Lifetime expiry first, before this tick's movement batch, so an
+	# about-to-expire slot never gets included in the Rust call below.
 	for i in range(_highest_active + 1):
 		if _alive[i] == 0:
 			continue
 		_elapsed[i] += delta
 		if _elapsed[i] >= _lifetime[i]:
 			despawn(i)
+
+	if not _flight_rasterizer:
+		# No Rust extension loaded - degrade to the old straight-line
+		# movement rather than not moving at all.
+		for i in range(_highest_active + 1):
+			if _alive[i] == 0:
+				continue
+			_position[i] += _direction[i] * _speed[i] * delta
+		return
+
+	var live_indices := PackedInt32Array()
+	var instance_ids := PackedInt64Array()
+	var requests_flat := PackedFloat64Array()
+	for i in range(_highest_active + 1):
+		if _alive[i] == 0:
 			continue
-		_position[i] += _direction[i] * _speed[i] * delta
+		live_indices.append(i)
+		instance_ids.append(_spawn_gen[i])
+		# Mirrors Projectile._prepare_flight_state's local derivation
+		# (Projectile.gd:1122,1126) - these two aren't part of the Rust
+		# request stride's ratio fields, they're precomputed on this side.
+		var steering_resistance = 1.0 + (3.0 * _r_ice[i])
+		var straighten = clamp(1.0 - _r_kin[i], 0.0, 1.0)
+		requests_flat.append(_r_kin[i])
+		requests_flat.append(_r_vamp[i])
+		requests_flat.append(_r_fire[i])
+		requests_flat.append(_r_psn[i])
+		requests_flat.append(_r_vtx[i])
+		requests_flat.append(_r_ltg[i])
+		requests_flat.append(_r_prc[i])
+		requests_flat.append(_direction[i].x)
+		requests_flat.append(_direction[i].y)
+		requests_flat.append(0.0) # target_direction.x - Test Range shots don't home
+		requests_flat.append(0.0) # target_direction.y
+		requests_flat.append(0.0) # has_homing_target
+		requests_flat.append(_speed[i]) # final_speed
+		requests_flat.append(_elapsed[i]) # time_alive
+		requests_flat.append(delta)
+		requests_flat.append(steering_resistance)
+		requests_flat.append(straighten)
+		requests_flat.append(_lightning_segment_index[i])
+		requests_flat.append(_lightning_prev_offset[i])
+		requests_flat.append(_lightning_target_offset[i])
+
+	if live_indices.is_empty():
+		return
+
+	var results_flat: PackedFloat64Array = _flight_rasterizer.compute_batch_flat(instance_ids, requests_flat)
+	for k in range(live_indices.size()):
+		var i = live_indices[k]
+		var base = k * RESPONSE_STRIDE
+		_direction[i] = Vector2(results_flat[base], results_flat[base + 1])
+		var velocity = Vector2(results_flat[base + 2], results_flat[base + 3])
+		_visual_offset[i] = Vector2(results_flat[base + 4], results_flat[base + 5])
+		_lightning_segment_index[i] = results_flat[base + 9]
+		_lightning_prev_offset[i] = results_flat[base + 10]
+		_lightning_target_offset[i] = results_flat[base + 11]
+		_position[i] += velocity * delta
 
 func _step_hit_test():
 	if _targets.is_empty():
@@ -241,7 +377,7 @@ func _step_hit_test():
 			if pos.distance_to(t.global_position) <= _radius[i] + t_radius:
 				if t.has_method("apply_damage"):
 					var src = _source_mech[i] if is_instance_valid(_source_mech[i]) else null
-					t.apply_damage(_damage[i], "RAW", src, false, "Batch Test Shot")
+					t.apply_damage(_damage[i], _dominant_synergy_name[i], src, false, "Batch Test Shot")
 				despawn(i)
 				break
 
@@ -250,8 +386,12 @@ func _step_render():
 		if _alive[i] == 0:
 			continue
 		var rot = _direction[i].angle()
-		var xform = Transform2D(rot, _position[i]).scaled(Vector2(_scale[i], _scale[i]))
+		var render_pos = _position[i] + _visual_offset[i]
+		var xform = Transform2D(rot, render_pos).scaled(Vector2(_scale[i], _scale[i]))
 		var syn = _dominant_synergy[i]
 		if syn >= 0 and syn < 10:
+			var c = _color[i]
+			var life_frac = clamp(_elapsed[i] / _lifetime[i], 0.0, 1.0) if _lifetime[i] > 0.0 else 0.0
+			c.a = 1.0 - life_frac
 			_synergy_multimeshes[syn].set_instance_transform_2d(i, xform)
-			_synergy_multimeshes[syn].set_instance_color(i, _color[i])
+			_synergy_multimeshes[syn].set_instance_color(i, c)

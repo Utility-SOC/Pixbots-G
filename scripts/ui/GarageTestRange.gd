@@ -459,7 +459,8 @@ func _fire_via_batch_pool(source: Node, mount, packet):
 		color = EnergyPacket.get_color_blend(packet.synergies)
 
 	var scale_mult = clamp(1.0 + log(1.0 + packet.magnitude / 200.0) * 0.5, 1.0, 5.0)
-	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME, color, scale_mult, source.is_player, source, dominant)
+	var ratios = EnergyPacket.compute_ratios(packet.synergies) if packet != null and "synergies" in packet else {}
+	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME, color, scale_mult, source.is_player, source, dominant, ratios)
 
 func _reset_dummy_stats():
 	if is_instance_valid(_dummy):

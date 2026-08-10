@@ -678,21 +678,24 @@ const ACCUMULATOR_TIER_CHECK_ORDER = [Rarity.MYTHIC, Rarity.LEGENDARY, Rarity.RA
 
 # grid/coord optional - a caller with no grid context (e.g. a debug spawn
 # with no real component) just gets the no-accumulator-present list ([1],
-# Auto only), same convention get_threshold_options() (its predecessor) used.
+# Auto only), same convention get_threshold_options() (its predecessor)
+# used - UNLESS this mount is itself Mythic (see the self.rarity check
+# just below, which short-circuits before that no-context fallback matters).
+#
+# A Mythic mount "keeps its internal accumulator" (per the user) - it's
+# self-sufficient for the full ladder up to 256 regardless of what's
+# adjacent, same as it always could pre-rework. Only non-Mythic mounts
+# depend entirely on external Accumulator tiles for anything past Auto.
 func get_frame_multiplier_options(grid: HexGridComponent = null, coord: HexCoord = null) -> Array:
+	if rarity == Rarity.MYTHIC:
+		return _mythic_frame_multiplier_ladder()
 	if grid == null or coord == null or not grid.has_tile(coord):
 		return [1]
 	var achieved_tier = Mech._get_adjacent_accumulator_capacity_tier(grid, coord)
 	if achieved_tier == -1:
 		return [1]
 	if achieved_tier == Rarity.MYTHIC:
-		var options: Array = [1]
-		var v = 2
-		var ceiling = ACCUMULATOR_CAPACITY_TIERS[Rarity.MYTHIC][0]
-		while v <= ceiling:
-			options.append(v)
-			v *= 2
-		return options
+		return _mythic_frame_multiplier_ladder()
 	# Non-Mythic: cumulative list of every tier's own ceiling up to (and
 	# including) the achieved one, not every intermediate power of two.
 	var options: Array = [1]
@@ -700,6 +703,20 @@ func get_frame_multiplier_options(grid: HexGridComponent = null, coord: HexCoord
 		options.append(ACCUMULATOR_CAPACITY_TIERS[tier][0])
 		if tier == achieved_tier:
 			break
+	return options
+
+# Every power of two from 1 up to the Mythic tier's ceiling (256) - shared
+# by a self-sufficient Mythic mount (get_frame_multiplier_options' own
+# rarity == MYTHIC short-circuit) and a non-Mythic mount that reached the
+# Mythic tier via an adjacent Mythic Accumulator, so both paths build the
+# exact same ladder.
+func _mythic_frame_multiplier_ladder() -> Array:
+	var options: Array = [1]
+	var v = 2
+	var ceiling = ACCUMULATOR_CAPACITY_TIERS[Rarity.MYTHIC][0]
+	while v <= ceiling:
+		options.append(v)
+		v *= 2
 	return options
 
 func cycle_mythic_frame_multiplier(grid: HexGridComponent = null, coord: HexCoord = null):

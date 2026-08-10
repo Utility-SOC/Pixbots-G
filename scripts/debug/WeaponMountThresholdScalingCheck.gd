@@ -62,10 +62,22 @@ func _make_grid_with_accumulators(origin: HexCoord, acc_specs: Array):
 func _ready():
 	var origin = HexCoord.new(0, 0)
 
-	# --- 1: no accumulators adjacent -----------------------------------------
+	# --- 1: no accumulators adjacent, non-Mythic mount -----------------------
 	var s1 = _make_grid_with_accumulators(origin, [])
-	_check("with nothing adjacent, options are Auto only",
+	_check("with nothing adjacent, a non-Mythic mount's options are Auto only",
 		s1.mount.get_frame_multiplier_options(s1.grid, origin) == [1])
+
+	# --- 1b: a Mythic mount "keeps its internal accumulator" (per the user) -
+	# it's self-sufficient for the full ladder with NOTHING adjacent at all,
+	# unlike every other rarity. Regression case: the rarity+count rework
+	# initially made this purely adjacency-driven, which silently took this
+	# away from Mythic mounts too.
+	var s1b = _make_grid_with_accumulators(origin, [])
+	s1b.mount.rarity = HexTile.Rarity.MYTHIC
+	_check("a Mythic mount unlocks the full 256 ladder on its own, no Accumulator needed",
+		s1b.mount.get_frame_multiplier_options(s1b.grid, origin) == [1, 2, 4, 8, 16, 32, 64, 128, 256])
+	_check("a Mythic mount with no grid context at all (e.g. a bare debug spawn) still gets its full self-sufficient ladder",
+		s1b.mount.get_frame_multiplier_options() == [1, 2, 4, 8, 16, 32, 64, 128, 256])
 
 	# --- 2: a single COMMON accumulator (need 1) unlocks 2x by itself -------
 	var s2 = _make_grid_with_accumulators(origin, [HexTile.Rarity.COMMON])

@@ -93,6 +93,17 @@ var _lightning_target_offset: PackedFloat32Array
 # isn't worth it here).
 var _blink_timer: PackedFloat32Array
 var _hops_left: PackedInt32Array
+
+# Poison mine-crawl mode (Phase 3 of the batch-pool full-parity plan,
+# 2026-08-10) - unlike Lightning's hop (an event layered on top of the
+# normal flight step), this is a genuine full movement-MODE switch in the
+# real system: Projectile._physics_process_body early-returns into
+# _physics_process_mine instead of the organic Rust-driven flight block at
+# all once poison_ratio > MINE_POISON_THRESHOLD (real system also skips
+# _update_blink entirely for mine shots, even ones that also carry real
+# Lightning ratio - mine mode fully replaces movement, not just distorts
+# it). Set once at spawn, never changes for a slot's lifetime.
+var _is_mine: PackedByteArray
 # Synthetic per-slot identity fed to compute_batch_flat as instance_ids -
 # these aren't real Nodes, so there's no real get_instance_id(). A bare
 # slot index would give the lightning-jitter seed (hashes off instance_id,
@@ -190,6 +201,7 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_lightning_target_offset.resize(capacity)
 	_blink_timer.resize(capacity)
 	_hops_left.resize(capacity)
+	_is_mine.resize(capacity)
 	_spawn_gen.resize(capacity)
 	_pierce_count.resize(capacity)
 	_handled_targets.resize(capacity)
@@ -387,6 +399,8 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_r_vtx[i] = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
 	_r_ltg[i] = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	_r_prc[i] = ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)
+	# Mirrors Projectile.gd:350's _is_poison_mine derivation exactly.
+	_is_mine[i] = 1 if _r_psn[i] > _ProjectileScript.MINE_POISON_THRESHOLD else 0
 	# Mirrors Projectile.gd:598-601's pierce_count derivation.
 	_pierce_count[i] = 1 + int(4.0 * _r_prc[i]) if _r_prc[i] > 0.0 else 1
 	_handled_targets[i] = {}
@@ -495,11 +509,16 @@ func _step_simulate(delta: float):
 		if _elapsed[i] >= _lifetime[i]:
 			despawn(i)
 
+	# Mine-mode slots are a fully disjoint movement track from here on (see
+	# _is_mine's own field comment) - handled entirely by _step_mine_movement,
+	# excluded from every loop below via `if _is_mine[i]: continue`.
+	_step_mine_movement(delta)
+
 	if not _flight_rasterizer:
 		# No Rust extension loaded - degrade to the old straight-line
 		# movement rather than not moving at all.
 		for i in range(_highest_active + 1):
-			if _alive[i] == 0:
+			if _alive[i] == 0 or _is_mine[i] == 1:
 				continue
 			_prev_position[i] = _position[i]
 			var step = _direction[i] * _speed[i] * delta
@@ -514,7 +533,7 @@ func _step_simulate(delta: float):
 	var instance_ids := PackedInt64Array()
 	var requests_flat := PackedFloat64Array()
 	for i in range(_highest_active + 1):
-		if _alive[i] == 0:
+		if _alive[i] == 0 or _is_mine[i] == 1:
 			continue
 		live_indices.append(i)
 		instance_ids.append(_spawn_gen[i])
@@ -565,6 +584,53 @@ func _step_simulate(delta: float):
 			despawn(i)
 	_step_blink_hops(delta)
 
+# Poison mine-crawl movement (Phase 3) - direct port of Projectile.
+# _physics_process_mine (real system's own header: "no gravity lob, vortex
+# swirl, fire drag, homing, or range-based speed bonuses - just a straight
+# crawl (or a dead stop with no KINETIC)... Lightning's cosmetic zig-zag
+# visual offset is kept even at zero velocity"). Completely bypasses the
+# Rust flight call for these slots (see the two `_is_mine[i] == 1: continue`
+# skips added to the Rust-request and no-Rust-fallback loops above) - the
+# real system's own early-return means a mine shot never even reaches the
+# organic flight block, so this has to be a fully separate movement path,
+# not a distortion layered on top of the shared one.
+func _step_mine_movement(delta: float):
+	for i in range(_highest_active + 1):
+		if _alive[i] == 0 or _is_mine[i] == 0:
+			continue
+		_prev_position[i] = _position[i]
+		var velocity = _direction[i] * _ProjectileScript.MINE_CRAWL_SPEED * _r_kin[i]
+		var step = velocity * delta
+		_position[i] += step
+		_distance_traveled[i] += step.length()
+		if _distance_traveled[i] >= _max_range[i]:
+			despawn(i)
+			continue
+
+		# Cosmetic zig-zag visual offset, ported from Projectile.gd:1519-1533 -
+		# reuses the SAME per-slot _lightning_segment_index/_lightning_prev_
+		# offset/_lightning_target_offset fields the Rust call normally
+		# drives for non-mine shots (mine shots never reach that call, so
+		# these would otherwise sit frozen at their spawn-time defaults).
+		# _spawn_gen[i] substitutes for get_instance_id() as the per-shot
+		# jitter seed - same substitution this pool already makes feeding
+		# the Rust call's own instance_ids (see that field's own comment).
+		if _r_ltg[i] > 0.0:
+			var ortho = Vector2(-_direction[i].y, _direction[i].x)
+			var segment_length = 0.045
+			var segment_index = int(_elapsed[i] / segment_length)
+			if float(segment_index) != _lightning_segment_index[i]:
+				_lightning_segment_index[i] = float(segment_index)
+				_lightning_prev_offset[i] = _lightning_target_offset[i]
+				var seed = int(hash(_spawn_gen[i])) ^ segment_index
+				_lightning_target_offset[i] = (float(abs(seed) % 2000) / 1000.0) - 1.0
+			var seg_t = clamp(fmod(_elapsed[i], segment_length) / segment_length, 0.0, 1.0)
+			seg_t = seg_t * seg_t
+			var lightning_wave = lerp(_lightning_prev_offset[i], _lightning_target_offset[i], seg_t)
+			_visual_offset[i] = ortho * lightning_wave * (26.0 * _r_ltg[i])
+		else:
+			_visual_offset[i] = Vector2.ZERO
+
 # Lightning teleport-hop pass (Phase 2) - direct port of Projectile.
 # _update_blink/_apply_blink_hop's actual behavior, just with a plain
 # linear-scan target lookup instead of ProjectileTargetingBatcher (see the
@@ -576,7 +642,7 @@ func _step_simulate(delta: float):
 # real-system design property (Projectile.gd:1401-1403's own comment).
 func _step_blink_hops(delta: float):
 	for i in range(_highest_active + 1):
-		if _alive[i] == 0:
+		if _alive[i] == 0 or _is_mine[i] == 1:
 			continue
 		if _hops_left[i] <= 0 or _r_ltg[i] <= _ProjectileScript.LIGHTNING_BLINK_MIN:
 			continue

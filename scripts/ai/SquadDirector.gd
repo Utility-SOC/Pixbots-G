@@ -894,6 +894,10 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 		bot = load("res://scripts/entities/JammerMech.gd").new()
 	elif role == "support":
 		bot = load("res://scripts/entities/SupportMech.gd").new()
+	elif role == "anti_missile":
+		bot = load("res://scripts/entities/AntiMissileJammerMech.gd").new()
+	elif role == "remediation":
+		bot = load("res://scripts/entities/EnvironmentalRemediationMech.gd").new()
 	else:
 		bot = load("res://scripts/entities/Mech.gd").new()
 
@@ -1135,6 +1139,21 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			base_hp = 350.0
 			bot.base_speed = 70.0
 			bot.engagement_distance = 600.0
+		"anti_missile":
+			# Backline point-defense - same "high HP, slow, deep backline"
+			# archetype as jammer/support/commander (it needs to survive
+			# long enough near a squad for its aura to matter, not win fights
+			# on its own).
+			base_hp = 280.0
+			bot.base_speed = 65.0
+			bot.engagement_distance = 550.0
+		"remediation":
+			# Utility unit, not a fighter - moderately tough (worth killing
+			# on purpose rather than dying to stray splash) but no real
+			# offensive profile of its own.
+			base_hp = 220.0
+			bot.base_speed = 90.0
+			bot.engagement_distance = 400.0
 
 	bot.max_hp = base_hp * wave_multiplier
 	bot.hp = bot.max_hp

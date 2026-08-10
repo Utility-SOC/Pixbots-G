@@ -77,6 +77,16 @@ func _get_role_visual_profile(role: String) -> Dictionary:
 			# scout/jammer/support used to have. Regal purple/gold, and the
 			# tallest baseline scale since Overlord bosses use this role.
 			return {"color": Color(0.35, 0.15, 0.45), "scale": 1.3, "accent": "commander"}
+		"anti_missile":
+			# Amber, matching AntiMissileJammerMech's own aura-ring color.
+			# Reuses the "jammer" silhouette accent - both are stationary-ish
+			# aura utility units, no bespoke body shape needed.
+			return {"color": Color(0.75, 0.45, 0.1), "scale": 1.05, "accent": "jammer"}
+		"remediation":
+			# Green, matching EnvironmentalRemediationMech's own aura-ring
+			# color. Reuses the "support" silhouette accent for the same
+			# reason as anti_missile above.
+			return {"color": Color(0.3, 0.65, 0.3), "scale": 0.95, "accent": "support"}
 		"boss":
 			return {"color": Color(0.1, 0.1, 0.1), "scale": 1.8, "accent": "boss"}
 		_:

@@ -705,6 +705,50 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 		if ai_core_pos:
 			torso.hex_grid.add_tile(ai_core_pos, ai_core)
 
+	# Missile Rack access for enemies (user request 2026-08-10: "I want
+	# enemies to get access to missiles"). Feeding a MissileRackTile into
+	# Mech.build_loadout_for_role's generic inventory list (like Amplifier/
+	# Catalyst/Splitter/Conduit above) does NOT work for this tile: those
+	# are pass-through/junction tile types the solver can place ALONG a
+	# path to an existing fixed_sink, but AutoEquipSolver._solve_impl only
+	# ever routes energy TO fixed_sinks that already exist here at starter-
+	# shape construction time - it never creates a brand-new terminal sink
+	# for an OUTPUT-category inventory tile (confirmed empirically: neither
+	# a fresh MissileRackTile nor the pre-existing commander ShieldTile/
+	# AccumulatorTile role-tile entries ever actually get placed, at any
+	# rarity). So this mirrors the self-powered ai_mount Weapon Mount
+	# pattern immediately above instead: its own off-axis fixed sink plus a
+	# dedicated adjacent Microcore, entirely independent of the main
+	# energy-routing tree. Sniper/commander are both backline roles whose
+	# long engagement_distance (SquadDirector.gd) suits a Missile Rack's
+	# own "ultra long range ground to ground" targeting identity.
+	if role == "sniper" or role == "commander":
+		var missile_mount = load("res://scripts/tiles/MissileRackTile.gd").new()
+		missile_mount.body_slot = HexTile.BodySlot.TORSO
+		missile_mount.rarity = p_rarity
+		var missile_mount_pos = _first_free_off_axis_hex(torso)
+		if missile_mount_pos == null:
+			missile_mount_pos = _first_free_hex(torso, torso.fixed_sinks)
+		if missile_mount_pos != null and not torso.hex_grid.has_tile(missile_mount_pos):
+			torso.hex_grid.add_tile(missile_mount_pos, missile_mount)
+			torso.fixed_sinks.append(missile_mount_pos)
+
+			var missile_core = load("res://scripts/tiles/MicrocoreTile.gd").new()
+			missile_core.rarity = p_rarity
+			var missile_core_pos = null
+			for d in range(6):
+				var n = missile_mount_pos.neighbor(d)
+				for h in torso.valid_hexes:
+					if h.equals(n) and not torso.hex_grid.has_tile(h):
+						missile_core_pos = h
+						missile_core.active_faces.clear()
+						missile_core.active_faces.append((d + 3) % 6)
+						break
+				if missile_core_pos:
+					break
+			if missile_core_pos:
+				torso.hex_grid.add_tile(missile_core_pos, missile_core)
+
 	return torso
 	
 static func create_starter_arm(is_left: bool, role: String = "", p_rarity: int = HexTile.Rarity.COMMON):

@@ -1028,6 +1028,19 @@ func _start_wave():
 		t_recon_amphib.spawn_weight = 60.0
 		director.register_template(t_recon_amphib)
 
+		# anti_missile/remediation are kept out of SquadTemplateMutator.
+		# ALL_ROLES (same precedent as "diver" - see that role's own comment
+		# above) so they don't dilute the generic role-mutation pool; they
+		# enter play only via these two explicit seed templates, same as
+		# Amphibious Recon does for diver.
+		var t_flak_screen = load("res://scripts/ai/SquadTemplate.gd").new("Flak Screen", {"anti_missile": 1, "sniper": 2})
+		t_flak_screen.spawn_weight = 50.0
+		director.register_template(t_flak_screen)
+
+		var t_hazmat_detail = load("res://scripts/ai/SquadTemplate.gd").new("Hazmat Detail", {"remediation": 1, "brawler": 2})
+		t_hazmat_detail.spawn_weight = 50.0
+		director.register_template(t_hazmat_detail)
+
 		# Restore learned weights/fitness onto the defaults just registered,
 		# plus any evolved compositions and solver profiles from previous
 		# sessions. Must run AFTER the defaults exist so the merge-by-name

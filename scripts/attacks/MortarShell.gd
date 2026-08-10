@@ -27,6 +27,11 @@ var frame_multiplier: int = 1
 var _elapsed: float = 0.0
 var _landed: bool = false
 var _impact_elapsed: float = 0.0
+# Set instead of detonating when an "anti_missile_aura" member (see
+# AntiMissileJammerMech.gd) covers the impact point at landing time - the
+# shell still runs its normal landed/impact-flash/release lifecycle, just
+# with no damage and no puddle. See _is_neutralized_by_anti_missile_aura().
+var _crashed_harmlessly: bool = false
 
 # Node-churn fix (play report: "missiles make big problems (13 missile
 # launchers)") - a Missile Rack's Hunter salvo can put up to 5 shells in
@@ -116,6 +121,13 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 	_elapsed = 0.0
 	_landed = false
 	_impact_elapsed = 0.0
+	_crashed_harmlessly = false
+
+	# Point-defense target group (AntiMissileJammerMech.gd) - safe to call
+	# unconditionally on every setup(), including pooled reacquires; Godot
+	# re-registers a node's groups automatically on tree re-entry, and
+	# add_to_group() itself is a no-op if already a member.
+	add_to_group("mortar_shell")
 
 	var total_mag = 0.0
 	for k in synergies:
@@ -138,9 +150,33 @@ func _process(delta: float):
 	_elapsed += delta
 	if _elapsed >= flight_time:
 		_landed = true
-		_detonate()
-		_spawn_puddle()
+		if _is_neutralized_by_anti_missile_aura():
+			_crashed_harmlessly = true
+		else:
+			_detonate()
+			_spawn_puddle()
 	queue_redraw()
+
+# Point-defense counter (AntiMissileJammerMech.gd, user request 2026-08-10):
+# a shell landing within an active "anti_missile_aura" member's radius
+# crashes harmlessly instead of detonating - no damage, no puddle. Mirrors
+# the existing "pierce_immunity_aura" group-scan pattern (Mech._is_pierce_
+# execution_exempt()). Checked against target_pos, not global_position -
+# this node sits at the impact point for its whole flight (see the class
+# header comment), so that's the same point AntiMissileJammerMech's own
+# active in-flight scan is already defending. Only defends its own side:
+# an aura mech only neutralizes shells fired by the OTHER side.
+func _is_neutralized_by_anti_missile_aura() -> bool:
+	if not is_inside_tree():
+		return false
+	for aura in get_tree().get_nodes_in_group("anti_missile_aura"):
+		if not is_instance_valid(aura):
+			continue
+		if aura.get("is_player") == fired_by_player:
+			continue # defends its own side only, not friendly fire
+		if aura.global_position.distance_to(target_pos) <= aura.jammer_radius:
+			return true
+	return false
 
 func _spawn_puddle():
 	var world = get_parent()
@@ -320,6 +356,14 @@ func _dominant_synergy() -> int:
 
 func _draw():
 	if _landed:
+		if _crashed_harmlessly:
+			# Neutralized by an anti-missile aura: a small fizzling puff
+			# instead of the colorful impact flash - reads as "shot down /
+			# crashed" rather than "detonated."
+			var ct = _impact_elapsed / IMPACT_FLASH_TIME
+			draw_circle(Vector2.ZERO, 12.0 * (1.0 - ct), Color(0.55, 0.55, 0.58, 0.6 * (1.0 - ct)))
+			draw_arc(Vector2.ZERO, 16.0 * (0.5 + 0.5 * ct), 0, TAU, 12, Color(0.8, 0.8, 0.8, 0.5 * (1.0 - ct)), 2.0)
+			return
 		# Impact flash: expanding filled ring.
 		var t = _impact_elapsed / IMPACT_FLASH_TIME
 		var color = EnergyPacket.get_color_blend(synergies)

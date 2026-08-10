@@ -87,6 +87,10 @@ func _ready():
 	collision_mask = 4 if _by_player else 8
 	monitorable = false
 	monitoring = true
+	# Findable by EnvironmentalRemediationMech.gd's throttled group scan -
+	# "cleans up standing residue from missile explosions" (user request
+	# 2026-08-10).
+	add_to_group("missile_puddle")
 	
 	var shape = CollisionShape2D.new()
 	var circle = CircleShape2D.new()
@@ -132,6 +136,13 @@ func _on_body_entered(body):
 func _on_body_exited(body):
 	if _victims.has(body):
 		_victims.erase(body)
+
+# EnvironmentalRemediationMech.gd's cleanup aura calls this instead of a
+# direct queue_free() - reuses the existing fade-out path (_process's
+# alpha tween over the last 40% of _duration) so a cleaned puddle visibly
+# fizzles out over a fraction of a second instead of instantly popping.
+func remediate():
+	_duration = min(_duration, _life_timer + 0.3)
 
 func _process(delta):
 	_life_timer += delta

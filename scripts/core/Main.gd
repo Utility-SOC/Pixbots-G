@@ -1008,7 +1008,12 @@ func _start_wave():
 		# used to ship with zero healing/jamming/execute-immunity backup at
 		# all (just brawler/sniper muscle). A dedicated support slot means
 		# every Commander encounter now has real backline sustain.
-		var t_command = load("res://scripts/ai/SquadTemplate.gd").new("Command Escort", {"commander": 1, "support": 1, "brawler": 1, "sniper": 1})
+		# anti_missile added here too (not just Flak Screen below): the
+		# Commander is the squad's single highest-value target and now
+		# carries a Missile Rack of its own (Mech.build_loadout_for_role) -
+		# worth a dedicated point-defense escort on top of its existing
+		# support slot.
+		var t_command = load("res://scripts/ai/SquadTemplate.gd").new("Command Escort", {"commander": 1, "support": 1, "anti_missile": 1, "brawler": 1, "sniper": 1})
 		t_command.has_shields = true
 		t_command.spawn_weight = 55.0 # rare-ish: a Commander on the field should feel like an event
 		director.register_template(t_command)
@@ -1021,6 +1026,13 @@ func _start_wave():
 		t_support_escort.spawn_weight = 45.0 # baseline rare-ish; SquadDirector up-weights hard once PIERCE-execution share is detected
 		director.register_template(t_support_escort)
 
+		# A second remediation exposure point alongside Hazmat Detail below -
+		# a support-flavored squad that keeps its own brawler clear of
+		# missile residue rather than pushing through it.
+		var t_cleanup_escort = load("res://scripts/ai/SquadTemplate.gd").new("Cleanup Escort", {"support": 1, "remediation": 1, "brawler": 1})
+		t_cleanup_escort.spawn_weight = 40.0
+		director.register_template(t_cleanup_escort)
+
 		# Divers flank through water other roles have to route around -
 		# paired with a scout for the same "hit-and-fade" playstyle rather
 		# than a tanky escort, since the whole point is terrain, not brawn.
@@ -1031,8 +1043,10 @@ func _start_wave():
 		# anti_missile/remediation are kept out of SquadTemplateMutator.
 		# ALL_ROLES (same precedent as "diver" - see that role's own comment
 		# above) so they don't dilute the generic role-mutation pool; they
-		# enter play only via these two explicit seed templates, same as
-		# Amphibious Recon does for diver.
+		# enter play only via explicit seed templates instead, same as
+		# Amphibious Recon does for diver - these two are their dedicated
+		# showcases, Command Escort and Cleanup Escort above are additional
+		# exposure points.
 		var t_flak_screen = load("res://scripts/ai/SquadTemplate.gd").new("Flak Screen", {"anti_missile": 1, "sniper": 2})
 		t_flak_screen.spawn_weight = 50.0
 		director.register_template(t_flak_screen)

@@ -471,26 +471,23 @@ func on_tile_clicked(tile: HexTile):
 		vbox.add_child(dump_opt)
 
 		var popup_height = 160
-		if tile.rarity == HexTile.Rarity.MYTHIC:
-			# MYTHIC ability: capacity dial (1/2/16/64) - contributes to any
-			# adjacent Weapon Mount/Missile Rack's own firing-quanta ceiling,
-			# see HexTile.get_frame_multiplier_options(). Per-tile, not
-			# group-applied like trigger key/auto-dump above (each
-			# Accumulator's own dial matters independently to whichever
-			# mount it happens to sit next to).
-			var dial_lbl_fn = func():
-				var v = tile.mythic_capacity_dial
-				return "Off (no bonus)" if v <= 1 else "+%d" % v
-			var dial_btn = Button.new()
-			dial_btn.text = "Capacity dial: %s (click to cycle)" % dial_lbl_fn.call()
-			dial_btn.tooltip_text = "Adds this much to the reachable firing-quanta ceiling of any adjacent Weapon Mount/Missile Rack."
-			dial_btn.pressed.connect(func():
-				tile.cycle_mythic_capacity_dial()
-				dial_btn.text = "Capacity dial: %s (click to cycle)" % dial_lbl_fn.call()
-				garage._mark_player_grid_dirty()
-			)
-			vbox.add_child(dial_btn)
-			popup_height = 200
+		# Capacity contribution (every rarity now, not just Mythic - see
+		# HexTile.ACCUMULATOR_CAPACITY_TIERS): automatic, no dial to
+		# configure - purely this tile's rarity + how many same-or-higher-
+		# rarity Accumulators also sit adjacent to the same mount. Just an
+		# informational readout so a player can see what this specific
+		# Accumulator is contributing without digging through docs.
+		var tier_info = HexTile.ACCUMULATOR_CAPACITY_TIERS.get(tile.rarity, [2, 1])
+		var ceiling_lbl = Label.new()
+		const RARITY_NAMES = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
+		var rarity_name = RARITY_NAMES[tile.rarity] if tile.rarity >= 0 and tile.rarity < RARITY_NAMES.size() else str(tile.rarity)
+		if tier_info[1] <= 1:
+			ceiling_lbl.text = "%s alone grants up to %dx firing-quanta on an adjacent mount." % [rarity_name, tier_info[0]]
+		else:
+			ceiling_lbl.text = "%d+ %s-or-higher Accumulators adjacent to the same mount grant up to %dx." % [tier_info[1], rarity_name, tier_info[0]]
+		ceiling_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		vbox.add_child(ceiling_lbl)
+		popup_height = 190
 
 		_show_popup(popup, Vector2(280, popup_height))
 

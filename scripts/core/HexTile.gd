@@ -646,36 +646,64 @@ func _get_damage_multiplier() -> float:
 		return get("damage_multiplier")
 	return 1.0
 
-# Shared Mythic "firing quanta" dial - how many frames of energy a mount
-# batches into one burst before releasing it (Auto/1 = fire whenever
-# charged). Originated on MissileRackTile (its 1->2->16->64 cycle);
-# WeaponMountTile now shares it too, replacing its old standalone
-# mythic_firing_threshold energy-value system (design ruling: one unified
-# capacity model for both weapon types instead of two incompatible ones).
-# Shared here via the same "prop" in self duck-typed idiom
-# _get_damage_multiplier() above already uses, rather than duplicating
-# this in both tile files - see WeaponMountTile.gd/MissileRackTile.gd's
-# own @export var mythic_frame_multiplier declarations.
-const BASE_FRAME_MULTIPLIER_OPTIONS = [1, 2, 16, 64]
+# Shared "firing quanta" dial - how many frames of energy a mount batches
+# into one burst before releasing it (Auto/1 = fire whenever charged).
+# Originated on MissileRackTile (its 1->2->16->64 cycle); WeaponMountTile
+# shares it too (one unified capacity model for both weapon types).
+#
+# Rarity progression (per the user, replacing the old Mythic-Accumulator-
+# only gate - "accumulators need to be made available early in game"):
+# an adjacent Accumulator's RARITY and COUNT determine how high this dial
+# can reach, independent of the MOUNT's own rarity - a COMMON mount next
+# to a capable Accumulator benefits exactly like a Mythic one would.
+# [ceiling multiplier, minimum count of accumulators at that rarity-or-
+# higher needed to unlock it]. Counting is cumulative (rarity-or-higher):
+# 2 LEGENDARY accumulators satisfy RARE's "need 2" too, not just their own
+# tier's "need 3" - a higher rarity is always a strict upgrade. A single
+# Mythic Accumulator alone (need 1) unlocks the full ladder up to 256,
+# with every intermediate power of two filled in for fine-grained control;
+# every other tier only adds its own ceiling as one new option, not the
+# powers of two it skips over (matches the pre-existing ladder's own
+# curated-not-exhaustive shape, e.g. RARE's 16 skips 8).
+const ACCUMULATOR_CAPACITY_TIERS = {
+	Rarity.MYTHIC: [256, 1],
+	Rarity.LEGENDARY: [32, 3],
+	Rarity.RARE: [16, 2],
+	Rarity.UNCOMMON: [4, 2],
+	Rarity.COMMON: [2, 1],
+}
+# Rarity.MYTHIC (4) down to Rarity.COMMON (0) - Dictionary iteration order
+# isn't guaranteed to match enum value order, so this walk is explicit.
+const ACCUMULATOR_TIER_CHECK_ORDER = [Rarity.MYTHIC, Rarity.LEGENDARY, Rarity.RARE, Rarity.UNCOMMON, Rarity.COMMON]
 
 # grid/coord optional - a caller with no grid context (e.g. a debug spawn
-# with no real component) just gets the base list, same convention
-# get_threshold_options() (its predecessor) used.
+# with no real component) just gets the no-accumulator-present list ([1],
+# Auto only), same convention get_threshold_options() (its predecessor) used.
 func get_frame_multiplier_options(grid: HexGridComponent = null, coord: HexCoord = null) -> Array:
-	var options = BASE_FRAME_MULTIPLIER_OPTIONS.duplicate()
 	if grid == null or coord == null or not grid.has_tile(coord):
+		return [1]
+	var achieved_tier = Mech._get_adjacent_accumulator_capacity_tier(grid, coord)
+	if achieved_tier == -1:
+		return [1]
+	if achieved_tier == Rarity.MYTHIC:
+		var options: Array = [1]
+		var v = 2
+		var ceiling = ACCUMULATOR_CAPACITY_TIERS[Rarity.MYTHIC][0]
+		while v <= ceiling:
+			options.append(v)
+			v *= 2
 		return options
-	var bonus = Mech._get_adjacent_accumulator_capacity_bonus(grid, coord)
-	if bonus > 0:
-		# One additional ceiling tier, not a whole new ladder - matches the
-		# "each adjacent accumulator adds an additional capacity" request
-		# literally (singular addition), unlike the old threshold system's
-		# multi-tier ceiling extension.
-		options.append(BASE_FRAME_MULTIPLIER_OPTIONS[-1] + bonus)
+	# Non-Mythic: cumulative list of every tier's own ceiling up to (and
+	# including) the achieved one, not every intermediate power of two.
+	var options: Array = [1]
+	for tier in [Rarity.COMMON, Rarity.UNCOMMON, Rarity.RARE, Rarity.LEGENDARY]:
+		options.append(ACCUMULATOR_CAPACITY_TIERS[tier][0])
+		if tier == achieved_tier:
+			break
 	return options
 
 func cycle_mythic_frame_multiplier(grid: HexGridComponent = null, coord: HexCoord = null):
-	if rarity != Rarity.MYTHIC or not ("mythic_frame_multiplier" in self):
+	if not ("mythic_frame_multiplier" in self):
 		return
 	var options = get_frame_multiplier_options(grid, coord)
 	var idx = options.find(get("mythic_frame_multiplier"))

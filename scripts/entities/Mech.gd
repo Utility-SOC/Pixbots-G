@@ -2524,25 +2524,37 @@ static func _get_adjacent_reverse_accumulator_discount(grid: HexGridComponent, c
 	return total_discount
 
 # New, separate from _get_adjacent_accumulator_bonus's dict above (a
-# different stat - the capacity DIAL, not bank_charge/bank_amplify) - see
-# HexTile.get_frame_multiplier_options(). Only MYTHIC-rarity Accumulators
-# count: mythic_capacity_dial only ever cycles away from its 1 (no-op)
-# default at Mythic rarity (AccumulatorTile.cycle_mythic_capacity_dial's
-# own gate), so this rarity check is belt-and-suspenders, not the only
-# thing preventing a freebie.
-static func _get_adjacent_accumulator_capacity_bonus(grid: HexGridComponent, coord: HexCoord) -> int:
-	var total = 0
+# different stat - the capacity CEILING, not bank_charge/bank_amplify) -
+# see HexTile.get_frame_multiplier_options().
+# Returns the highest HexTile.Rarity tier this mount's adjacent
+# Accumulators collectively qualify for (see HexTile.ACCUMULATOR_CAPACITY_
+# TIERS/ACCUMULATOR_TIER_CHECK_ORDER for the ceiling+count-required table),
+# or -1 if no Accumulator is adjacent at all (Auto only). Counting is
+# cumulative (rarity-or-higher): a mix of rarities all count toward a
+# lower tier's requirement, since a higher-rarity Accumulator is always at
+# least as good as a lower one - only the ACHIEVED tier (the highest one
+# whose count requirement is met) matters, not which specific rarities
+# made it up.
+static func _get_adjacent_accumulator_capacity_tier(grid: HexGridComponent, coord: HexCoord) -> int:
+	var counts_by_rarity: Dictionary = {}
 	for d in range(6):
 		var n = coord.neighbor(d)
 		if grid.has_tile(n):
 			var neighbor_tile = grid.get_tile(n)
-			# dial == 1 is the off/default state (matches every other Mythic
-			# dial's "1 = no bonus" convention) - must be excluded, not just
-			# summed, or a default-dialed Accumulator would still contribute
-			# a spurious +1 tier just by sitting adjacent.
-			if neighbor_tile.tile_type == "Accumulator" and neighbor_tile.rarity == HexTile.Rarity.MYTHIC and "mythic_capacity_dial" in neighbor_tile and int(neighbor_tile.mythic_capacity_dial) > 1:
-				total += int(neighbor_tile.mythic_capacity_dial)
-	return total
+			if neighbor_tile.tile_type == "Accumulator":
+				counts_by_rarity[neighbor_tile.rarity] = counts_by_rarity.get(neighbor_tile.rarity, 0) + 1
+	if counts_by_rarity.is_empty():
+		return -1
+
+	for check_rarity in HexTile.ACCUMULATOR_TIER_CHECK_ORDER:
+		var cumulative_count = 0
+		for r in counts_by_rarity:
+			if int(r) >= check_rarity:
+				cumulative_count += counts_by_rarity[r]
+		var required = HexTile.ACCUMULATOR_CAPACITY_TIERS[check_rarity][1]
+		if cumulative_count >= required:
+			return check_rarity
+	return -1
 
 # Mirrors the shape above for Chopper. Unlike the capacity bonus (which
 # EXTENDS a mount's own pre-existing dial), a mount has no split ability
@@ -2556,8 +2568,7 @@ static func _get_adjacent_chopper_split_factor(grid: HexGridComponent, coord: He
 		var n = coord.neighbor(d)
 		if grid.has_tile(n):
 			var neighbor_tile = grid.get_tile(n)
-			# dial == 1 is the off/default state - excluded, not just summed,
-			# same reasoning as _get_adjacent_accumulator_capacity_bonus above
+			# dial == 1 is the off/default state - excluded, not just summed
 			# (a default-dialed Chopper sitting next to a REAL dialed one
 			# must not silently add a spurious +1 to the split factor).
 			if neighbor_tile.tile_type == "Chopper" and neighbor_tile.rarity == HexTile.Rarity.MYTHIC and "mythic_split_factor" in neighbor_tile and int(neighbor_tile.mythic_split_factor) > 1:

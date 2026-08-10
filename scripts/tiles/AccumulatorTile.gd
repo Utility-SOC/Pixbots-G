@@ -73,19 +73,12 @@ func get_bank_charge() -> float:
 func get_bank_amplify() -> float:
 	return TileStatsRegistry.get_stat("AccumulatorTile", "bank_amplify_base", 0.5) * _get_power_multiplier()
 
-# MYTHIC ability: an independent capacity dial (1/2/16/64, same value set
-# as WeaponMountTile/MissileRackTile's own shared frame-quanta dial - see
-# HexTile.get_frame_multiplier_options()). Doesn't do anything by itself -
-# a Mythic Accumulator dialed above 1 that sits directly adjacent to a
-# Weapon Mount or Missile Rack extends THAT mount's own reachable quanta
-# ceiling by this value (Mech._get_adjacent_accumulator_capacity_bonus).
-# 1 = no bonus, matching every other Mythic dial's off/default state.
-const CAPACITY_DIAL_OPTIONS = [1, 2, 16, 64]
-@export var mythic_capacity_dial: int = 1
-
-func cycle_mythic_capacity_dial():
-	if rarity != HexTile.Rarity.MYTHIC:
-		return
-	var idx = CAPACITY_DIAL_OPTIONS.find(mythic_capacity_dial)
-	if idx == -1: idx = 0
-	mythic_capacity_dial = CAPACITY_DIAL_OPTIONS[(idx + 1) % CAPACITY_DIAL_OPTIONS.size()]
+# Frame-quanta capacity contribution: an Accumulator sitting directly
+# adjacent to a Weapon Mount or Missile Rack extends THAT mount's own
+# reachable quanta ceiling automatically, purely from its rarity and how
+# many same-or-higher-rarity Accumulators are also adjacent - no manual
+# dial needed here anymore (was Mythic-only with its own capacity dial;
+# now every rarity contributes, see HexTile.ACCUMULATOR_CAPACITY_TIERS/
+# Mech._get_adjacent_accumulator_capacity_tier for the ceiling+count-
+# required table per rarity, and HexTile.get_frame_multiplier_options()
+# for how that ceiling turns into the mount's own cyclable option list).

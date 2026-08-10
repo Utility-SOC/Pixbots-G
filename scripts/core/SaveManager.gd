@@ -713,11 +713,17 @@ func _serialize_tile(tile) -> Dictionary:
 	# The tail entries are the tile-config knobs (Resonator per-path
 	# dropoff, Splitter ratios, Accumulator auto-dump, Catalyst gating) -
 	# same sweep, JSON-safe types only (Arrays/floats/ints/strings).
-	# mythic_frame_multiplier/mythic_capacity_dial/mythic_split_factor added
-	# alongside the quanta-of-frames/Chopper redesign - mythic_frame_
-	# multiplier was a pre-existing omission (Missile Rack's frame-accel
-	# setting never survived a save before this), the other two are new.
-	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_capacity_dial", "mythic_split_factor"]:
+	# mythic_frame_multiplier/mythic_split_factor added alongside the quanta-
+	# of-frames/Chopper redesign - mythic_frame_multiplier was a pre-existing
+	# omission (Missile Rack's frame-accel setting never survived a save
+	# before this). mythic_capacity_dial (Accumulator's old Mythic-only
+	# capacity dial) was removed from this sweep when Accumulator capacity
+	# became automatic (rarity+count driven, every rarity, no per-tile dial
+	# - see AccumulatorTile.gd) - harmless either way since this whole loop
+	# is guarded by `prop in tile`/`data.has(prop) and prop in tile`, so an
+	# old save's stale mythic_capacity_dial value is just silently ignored
+	# on load, never an error.
+	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_split_factor"]:
 		if prop in tile:
 			data[prop] = tile.get(prop)
 
@@ -793,8 +799,10 @@ func _deserialize_tile(data: Dictionary):
 		if data.has("visual_class"):
 			tile.visual_class = int(data["visual_class"])
 
-	# Mythic ability state + tile-config knobs (see _serialize_tile's sweep)
-	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_capacity_dial", "mythic_split_factor"]:
+	# Mythic ability state + tile-config knobs (see _serialize_tile's sweep -
+	# mythic_capacity_dial deliberately removed from this list, see that
+	# comment for why an old save's stale value there is harmless)
+	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_split_factor"]:
 		if data.has(prop) and prop in tile:
 			tile.set(prop, data[prop])
 

@@ -1,24 +1,33 @@
 extends Node
 
-# Regression harness for the unified frame-quanta capacity system (replaces
-# the old standalone energy-threshold system this file used to test - see
-# HexTile.get_frame_multiplier_options()/cycle_mythic_frame_multiplier(),
-# AccumulatorTile.mythic_capacity_dial, and ReverseAccumulatorTile.gd's new
-# "Chopper" split ability). Covers:
-#   1. Base options with nothing adjacent.
-#   2. A Mythic Accumulator at its default dial (1) contributes nothing -
-#      no freebie just from proximity.
-#   3. One Mythic Accumulator dialed to 64 adds exactly one +64 tier.
-#   4. Two stacked (64 + 16) add exactly one +80 tier (not a whole ladder).
-#   5. A non-Mythic Accumulator, even forcibly dialed to 64, contributes
-#      nothing - proves the Mythic-only gate on the consumer side, not
-#      just the producer's own cycle-gate.
-#   6. cycle_mythic_frame_multiplier() walks the full dynamic list exactly
-#      once each, including wraparound.
-#   7. Cycling is a no-op at non-Mythic rarity.
-#   8. Chopper split-factor aggregation: one dialed to 2 -> factor 2; two
+# Regression harness for the unified frame-quanta capacity system (also
+# covers Chopper's separate split-factor ability). Rewritten for the
+# rarity+count Accumulator ladder (replaces the old Mythic-Accumulator-
+# only dial - per the user: "accumulators need to be made available early
+# in game" - basic/COMMON accumulators now grant a real 2x ceiling instead
+# of doing nothing until Mythic). See HexTile.ACCUMULATOR_CAPACITY_TIERS/
+# get_frame_multiplier_options()/Mech._get_adjacent_accumulator_capacity_
+# tier(). Counting is cumulative (rarity-or-higher): a higher-rarity
+# Accumulator always counts toward a lower tier's requirement too. Covers:
+#   1. No accumulator adjacent -> Auto only ([1]).
+#   2. A single COMMON accumulator (need 1) unlocks the 2x tier by itself.
+#   3. A single UNCOMMON accumulator (needs 2, only has 1) falls back to
+#      COMMON's tier via cumulative counting, NOT to nothing.
+#   4. Two UNCOMMON accumulators meet UNCOMMON's own need-2 -> 4x tier.
+#   5. Two RARE accumulators meet RARE's need-2 -> 16x tier.
+#   6. Two LEGENDARY accumulators don't meet LEGENDARY's need-3, but DO
+#      satisfy RARE's need-2 cumulatively (LEGENDARY >= RARE) -> 16x tier.
+#   7. Three LEGENDARY accumulators meet LEGENDARY's own need-3 -> 32x tier.
+#   8. A single MYTHIC accumulator (need 1) unlocks the FULL powers-of-two
+#      ladder up to 256, not just its own ceiling as one option.
+#   9. A mix (1 MYTHIC + 2 RARE) still reaches the Mythic tier - MYTHIC's
+#      need-1 is satisfied regardless of what else is present.
+#  10. cycle_mythic_frame_multiplier() now works on ANY mount rarity (the
+#      old Mythic-mount-only gate is gone) - walks the full dynamic list
+#      exactly once each, including wraparound.
+#  11. Chopper split-factor aggregation: one dialed to 2 -> factor 2; two
 #      stacked (2+2) -> factor 4; none/default-only -> factor 1.
-#   9. End-to-end numeric split correctness: N resulting packets each carry
+#  12. End-to-end numeric split correctness: N resulting packets each carry
 #      total/N magnitude and sum back to the original (mirrors the user's
 #      own 600k -> 2x300k / 4x150k example).
 
@@ -38,92 +47,87 @@ func _check(label: String, cond: bool):
 		push_error("FAIL: " + label)
 		failures += 1
 
+func _make_grid_with_accumulators(origin: HexCoord, acc_specs: Array):
+	# acc_specs: Array of HexTile.Rarity values, one Accumulator per entry,
+	# placed on however many of the 6 neighbor slots are needed (at most 6).
+	var grid = HexGridComponentScript.new()
+	var mount = WeaponMountTileScript.new()
+	grid.add_tile(origin, mount)
+	for i in range(acc_specs.size()):
+		var acc = AccumulatorTileScript.new()
+		acc.rarity = acc_specs[i]
+		grid.add_tile(origin.neighbor(i), acc)
+	return {"grid": grid, "mount": mount}
+
 func _ready():
 	var origin = HexCoord.new(0, 0)
+
+	# --- 1: no accumulators adjacent -----------------------------------------
+	var s1 = _make_grid_with_accumulators(origin, [])
+	_check("with nothing adjacent, options are Auto only",
+		s1.mount.get_frame_multiplier_options(s1.grid, origin) == [1])
+
+	# --- 2: a single COMMON accumulator (need 1) unlocks 2x by itself -------
+	var s2 = _make_grid_with_accumulators(origin, [HexTile.Rarity.COMMON])
+	_check("a single COMMON accumulator unlocks the 2x tier by itself",
+		s2.mount.get_frame_multiplier_options(s2.grid, origin) == [1, 2])
+
+	# --- 3: a single UNCOMMON accumulator (needs 2) falls back to COMMON's --
+	# tier via cumulative counting, not to nothing.
+	var s3 = _make_grid_with_accumulators(origin, [HexTile.Rarity.UNCOMMON])
+	_check("a lone UNCOMMON accumulator (short of its own need-2) still grants COMMON's 2x tier, not nothing",
+		s3.mount.get_frame_multiplier_options(s3.grid, origin) == [1, 2])
+
+	# --- 4: two UNCOMMON accumulators meet UNCOMMON's own need-2 ------------
+	var s4 = _make_grid_with_accumulators(origin, [HexTile.Rarity.UNCOMMON, HexTile.Rarity.UNCOMMON])
+	_check("two UNCOMMON accumulators meet UNCOMMON's need-2, unlocking 4x",
+		s4.mount.get_frame_multiplier_options(s4.grid, origin) == [1, 2, 4])
+
+	# --- 5: two RARE accumulators meet RARE's need-2, unlocking 16x ---------
+	var s5 = _make_grid_with_accumulators(origin, [HexTile.Rarity.RARE, HexTile.Rarity.RARE])
+	_check("two RARE accumulators meet RARE's need-2, unlocking 16x",
+		s5.mount.get_frame_multiplier_options(s5.grid, origin) == [1, 2, 4, 16])
+
+	# --- 6: two LEGENDARY don't meet their own need-3, but DO satisfy -------
+	# RARE's need-2 cumulatively (LEGENDARY >= RARE).
+	var s6 = _make_grid_with_accumulators(origin, [HexTile.Rarity.LEGENDARY, HexTile.Rarity.LEGENDARY])
+	_check("two LEGENDARY accumulators (short of their own need-3) still satisfy RARE's need-2 cumulatively",
+		s6.mount.get_frame_multiplier_options(s6.grid, origin) == [1, 2, 4, 16])
+
+	# --- 7: three LEGENDARY meet LEGENDARY's own need-3, unlocking 32x ------
+	var s7 = _make_grid_with_accumulators(origin, [HexTile.Rarity.LEGENDARY, HexTile.Rarity.LEGENDARY, HexTile.Rarity.LEGENDARY])
+	_check("three LEGENDARY accumulators meet LEGENDARY's own need-3, unlocking 32x",
+		s7.mount.get_frame_multiplier_options(s7.grid, origin) == [1, 2, 4, 16, 32])
+
+	# --- 8: a single MYTHIC accumulator (need 1) unlocks the FULL powers-of-
+	# two ladder up to 256, not just 256 as one bare option.
+	var s8 = _make_grid_with_accumulators(origin, [HexTile.Rarity.MYTHIC])
+	_check("a single MYTHIC accumulator unlocks every power of two up to 256",
+		s8.mount.get_frame_multiplier_options(s8.grid, origin) == [1, 2, 4, 8, 16, 32, 64, 128, 256])
+
+	# --- 9: a mix (1 MYTHIC + 2 RARE) still reaches the Mythic tier ---------
+	var s9 = _make_grid_with_accumulators(origin, [HexTile.Rarity.MYTHIC, HexTile.Rarity.RARE, HexTile.Rarity.RARE])
+	_check("a mix including one MYTHIC accumulator reaches the full 256 ladder regardless of what else is present",
+		s9.mount.get_frame_multiplier_options(s9.grid, origin) == [1, 2, 4, 8, 16, 32, 64, 128, 256])
+
+	# --- 10: cycling works on ANY mount rarity now (old Mythic-mount-only ---
+	# gate is gone), walks the full dynamic list exactly once each, wraps.
+	var s10 = _make_grid_with_accumulators(origin, [HexTile.Rarity.RARE, HexTile.Rarity.RARE])
+	s10.mount.rarity = HexTile.Rarity.COMMON # a COMMON mount, not Mythic
+	var full_options = s10.mount.get_frame_multiplier_options(s10.grid, origin)
+	var seen_set = {}
+	for i in range(full_options.size()):
+		seen_set[s10.mount.mythic_frame_multiplier] = true
+		s10.mount.cycle_mythic_frame_multiplier(s10.grid, origin)
+	_check("cycling on a COMMON-rarity mount (gated by adjacent Accumulators, not the mount's own rarity) visits every option exactly once",
+		seen_set.size() == full_options.size())
+	_check("cycling wraps back to the start after a full cycle",
+		s10.mount.mythic_frame_multiplier == full_options[0])
+
 	var n0 = origin.neighbor(0)
 	var n1 = origin.neighbor(1)
 
-	# --- 1: no accumulators adjacent -----------------------------------------
-	var grid_a = HexGridComponentScript.new()
-	var mount_a = WeaponMountTileScript.new()
-	grid_a.add_tile(origin, mount_a)
-	_check("with nothing adjacent, options match the base list exactly",
-		mount_a.get_frame_multiplier_options(grid_a, origin) == [1, 2, 16, 64])
-
-	# --- 2: Mythic Accumulator at default dial (1) contributes nothing ------
-	var grid_b = HexGridComponentScript.new()
-	var mount_b = WeaponMountTileScript.new()
-	grid_b.add_tile(origin, mount_b)
-	var acc_default = AccumulatorTileScript.new()
-	acc_default.rarity = HexTile.Rarity.MYTHIC
-	grid_b.add_tile(n0, acc_default)
-	_check("a Mythic Accumulator left at its default dial (1) contributes no bonus",
-		mount_b.get_frame_multiplier_options(grid_b, origin) == [1, 2, 16, 64])
-
-	# --- 3: one Mythic Accumulator dialed to 64 adds exactly one +64 tier ---
-	var grid_c = HexGridComponentScript.new()
-	var mount_c = WeaponMountTileScript.new()
-	grid_c.add_tile(origin, mount_c)
-	var acc_c = AccumulatorTileScript.new()
-	acc_c.rarity = HexTile.Rarity.MYTHIC
-	acc_c.mythic_capacity_dial = 64
-	grid_c.add_tile(n0, acc_c)
-	_check("one Mythic Accumulator dialed to 64 adds exactly one +64 tier",
-		mount_c.get_frame_multiplier_options(grid_c, origin) == [1, 2, 16, 64, 128])
-
-	# --- 4: two stacked (64 + 16) add exactly one +80 tier -------------------
-	var grid_d = HexGridComponentScript.new()
-	var mount_d = WeaponMountTileScript.new()
-	grid_d.add_tile(origin, mount_d)
-	var acc_d1 = AccumulatorTileScript.new()
-	acc_d1.rarity = HexTile.Rarity.MYTHIC
-	acc_d1.mythic_capacity_dial = 64
-	grid_d.add_tile(n0, acc_d1)
-	var acc_d2 = AccumulatorTileScript.new()
-	acc_d2.rarity = HexTile.Rarity.MYTHIC
-	acc_d2.mythic_capacity_dial = 16
-	grid_d.add_tile(n1, acc_d2)
-	_check("two stacked Accumulators (64+16) add exactly one +80 tier, not a whole ladder",
-		mount_d.get_frame_multiplier_options(grid_d, origin) == [1, 2, 16, 64, 144])
-
-	# --- 5: non-Mythic Accumulator contributes nothing, even if dial forced -
-	var grid_e = HexGridComponentScript.new()
-	var mount_e = WeaponMountTileScript.new()
-	grid_e.add_tile(origin, mount_e)
-	var acc_e = AccumulatorTileScript.new()
-	acc_e.rarity = HexTile.Rarity.RARE
-	acc_e.mythic_capacity_dial = 64 # forced directly, bypassing the cycle's own gate
-	grid_e.add_tile(n0, acc_e)
-	_check("a non-Mythic Accumulator contributes nothing even with its dial forced to 64",
-		mount_e.get_frame_multiplier_options(grid_e, origin) == [1, 2, 16, 64])
-
-	# --- 6/7: cycling walks the full list once each, wraps, no-ops below Mythic
-	var grid_f = HexGridComponentScript.new()
-	var mount_f = WeaponMountTileScript.new()
-	grid_f.add_tile(origin, mount_f)
-	var acc_f = AccumulatorTileScript.new()
-	acc_f.rarity = HexTile.Rarity.MYTHIC
-	acc_f.mythic_capacity_dial = 64
-	grid_f.add_tile(n0, acc_f)
-
-	mount_f.rarity = HexTile.Rarity.RARE # non-Mythic mount: cycling must no-op
-	var before = mount_f.mythic_frame_multiplier
-	mount_f.cycle_mythic_frame_multiplier(grid_f, origin)
-	_check("cycling is a no-op at non-Mythic rarity",
-		mount_f.mythic_frame_multiplier == before)
-
-	mount_f.rarity = HexTile.Rarity.MYTHIC
-	var full_options = mount_f.get_frame_multiplier_options(grid_f, origin)
-	var seen_set = {}
-	for i in range(full_options.size()):
-		seen_set[mount_f.mythic_frame_multiplier] = true
-		mount_f.cycle_mythic_frame_multiplier(grid_f, origin)
-	_check("cycling through the whole dynamic list visits every option exactly once",
-		seen_set.size() == full_options.size())
-	_check("cycling wraps back to the start after a full cycle",
-		mount_f.mythic_frame_multiplier == full_options[0])
-
-	# --- 8: Chopper split-factor aggregation ---------------------------------
+	# --- 11: Chopper split-factor aggregation ---------------------------------
 	var grid_g = HexGridComponentScript.new()
 	var mount_g = WeaponMountTileScript.new()
 	grid_g.add_tile(origin, mount_g)
@@ -158,7 +162,7 @@ func _ready():
 	_check("a default-dialed (1) adjacent Chopper contributes nothing alongside a real one (got %d, expect 2)" % MechScript._get_adjacent_chopper_split_factor(grid_h, origin),
 		MechScript._get_adjacent_chopper_split_factor(grid_h, origin) == 2)
 
-	# --- 9: end-to-end numeric split correctness ------------------------------
+	# --- 12: end-to-end numeric split correctness -----------------------------
 	# Mirrors the exact peel-loop HexTile._fire_combined_projectile uses.
 	var original = EnergyPacketScript.new(600000.0, null)
 	original.synergies.clear()
@@ -182,5 +186,5 @@ func _ready():
 		abs(total_check - 600000.0) < 1.0)
 
 	if failures == 0:
-		print("PASS: unified frame-quanta capacity system (Weapon Mount/Missile Rack/Accumulator dial) and Chopper split-factor aggregation both correct")
+		print("PASS: rarity+count Accumulator capacity ladder (cumulative counting, mount-rarity-independent) and Chopper split-factor aggregation both correct")
 	get_tree().quit(0 if failures == 0 else 1)

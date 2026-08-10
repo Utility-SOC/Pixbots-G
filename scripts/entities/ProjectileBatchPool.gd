@@ -551,9 +551,31 @@ func _step_simulate(delta: float):
 		requests_flat.append(_r_prc[i])
 		requests_flat.append(_direction[i].x)
 		requests_flat.append(_direction[i].y)
-		requests_flat.append(0.0) # target_direction.x - Test Range shots don't home
-		requests_flat.append(0.0) # target_direction.y
-		requests_flat.append(0.0) # has_homing_target
+		# Vampiric homing ("The Hunter") - Phase 4 of the batch-pool full-
+		# parity plan, 2026-08-10. The shared Rust code already has this
+		# steering branch fully implemented and parity-tested; this pool
+		# just used to hardcode has_homing_target=0.0/target_direction=zero
+		# unconditionally. Threshold (0.05) and acquire-range formula both
+		# mirror Projectile._calculate_stats()/_request_homing_target()
+		# exactly (Projectile.gd:605, 1635-1637). Always picks the NEAREST
+		# live target via the same direct scan Phase 2's blink-hop uses
+		# (real Projectile.gd prefers the FURTHEST target when Kinetic+
+		# Vampiric are both present - skipped here since the Test Range
+		# only ever has one real target, making that distinction moot in
+		# this system's only actual deployment).
+		var target_dir = Vector2.ZERO
+		var has_homing = 0.0
+		if _r_vamp[i] > 0.05:
+			var acquire_dist = 400.0 + 300.0 * _r_vamp[i]
+			if _r_ltg[i] > 0.0:
+				acquire_dist += 500.0 * _r_ltg[i]
+			var homing_target = _find_nearest_target(_position[i], acquire_dist, i)
+			if homing_target != null:
+				target_dir = (homing_target.global_position - _position[i]).normalized()
+				has_homing = 1.0
+		requests_flat.append(target_dir.x)
+		requests_flat.append(target_dir.y)
+		requests_flat.append(has_homing)
 		requests_flat.append(_speed[i]) # final_speed
 		requests_flat.append(_elapsed[i]) # time_alive
 		requests_flat.append(delta)

@@ -78,6 +78,21 @@ var _visual_offset: PackedVector2Array
 var _lightning_segment_index: PackedFloat32Array
 var _lightning_prev_offset: PackedFloat32Array
 var _lightning_target_offset: PackedFloat32Array
+# Lightning teleport-hop state (Phase 2 of the batch-pool full-parity plan,
+# 2026-08-10) - mirrors Projectile.gd's own _blink_timer/_lightning_hops_
+# left fields exactly. This is a real gameplay-defining mechanic, not just
+# cosmetic: every BLINK_INTERVAL a Lightning-ratio shot teleport-hops
+# toward the nearest live target instead of flying to it - the zigzag
+# jaggedness already coming out of compute_batch_flat above is purely
+# cosmetic and was the only part of Lightning's identity this pool had
+# before this phase. Targeting is a plain per-tick linear scan against
+# this pool's own small _targets array (resolved decision: the real
+# ProjectileTargetingBatcher exists specifically to avoid expensive scans
+# across dozens of live enemies in real combat - a problem the handful-of-
+# targets Test Range doesn't have, so extending that shared infrastructure
+# isn't worth it here).
+var _blink_timer: PackedFloat32Array
+var _hops_left: PackedInt32Array
 # Synthetic per-slot identity fed to compute_batch_flat as instance_ids -
 # these aren't real Nodes, so there's no real get_instance_id(). A bare
 # slot index would give the lightning-jitter seed (hashes off instance_id,
@@ -173,6 +188,8 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_lightning_segment_index.resize(capacity)
 	_lightning_prev_offset.resize(capacity)
 	_lightning_target_offset.resize(capacity)
+	_blink_timer.resize(capacity)
+	_hops_left.resize(capacity)
 	_spawn_gen.resize(capacity)
 	_pierce_count.resize(capacity)
 	_handled_targets.resize(capacity)
@@ -377,6 +394,9 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_lightning_segment_index[i] = -1.0 # forces the first segment to roll on tick 1, same as Projectile.gd's default
 	_lightning_prev_offset[i] = 0.0
 	_lightning_target_offset[i] = 0.0
+	# Mirrors Projectile.gd:565-570's _lightning_hops_left derivation exactly.
+	_blink_timer[i] = 0.0
+	_hops_left[i] = int(round(4.0 * _r_ltg[i])) if _r_ltg[i] > _ProjectileScript.LIGHTNING_BLINK_MIN else 0
 	_spawn_gen[i] = _next_spawn_gen
 	_next_spawn_gen += 1
 
@@ -465,11 +485,6 @@ func _process(delta):
 const REQUEST_STRIDE = 20 # MUST match rust_ext/src/projectile_flight.rs's compute_batch_flat contract
 const RESPONSE_STRIDE = 12
 
-# NOTE: this does NOT include Lightning's blink-hop teleport (Projectile.
-# _update_blink/_apply_blink_hop) - that's a separate targeting-query-driven
-# system, out of scope here (see this session's batch-pool parity plan).
-# The zigzag visual jaggedness (part of compute_batch_flat's own output) IS
-# included below.
 func _step_simulate(delta: float):
 	# Lifetime expiry first, before this tick's movement batch, so an
 	# about-to-expire slot never gets included in the Rust call below.
@@ -492,6 +507,7 @@ func _step_simulate(delta: float):
 			_distance_traveled[i] += step.length()
 			if _distance_traveled[i] >= _max_range[i]:
 				despawn(i)
+		_step_blink_hops(delta)
 		return
 
 	var live_indices := PackedInt32Array()
@@ -547,6 +563,61 @@ func _step_simulate(delta: float):
 		_distance_traveled[i] += step.length()
 		if _distance_traveled[i] >= _max_range[i]:
 			despawn(i)
+	_step_blink_hops(delta)
+
+# Lightning teleport-hop pass (Phase 2) - direct port of Projectile.
+# _update_blink/_apply_blink_hop's actual behavior, just with a plain
+# linear-scan target lookup instead of ProjectileTargetingBatcher (see the
+# _blink_timer/_hops_left field comment for why). Runs AFTER this tick's
+# normal movement (mirrors Projectile.gd:1391-1404's own ordering: position
+# += velocity*delta, THEN _update_blink) so a hop's teleport distance
+# stacks onto the SAME tick's swept segment for _step_hit_test - a hop
+# "spends range budget and gets swept for whatever it crosses," same
+# real-system design property (Projectile.gd:1401-1403's own comment).
+func _step_blink_hops(delta: float):
+	for i in range(_highest_active + 1):
+		if _alive[i] == 0:
+			continue
+		if _hops_left[i] <= 0 or _r_ltg[i] <= _ProjectileScript.LIGHTNING_BLINK_MIN:
+			continue
+		_blink_timer[i] -= delta
+		if _blink_timer[i] > 0.0:
+			continue
+		_blink_timer[i] = _ProjectileScript.BLINK_INTERVAL
+		var max_dist = _ProjectileScript.BLINK_ACQUIRE_RANGE * (1.0 + _r_kin[i])
+		var target = _find_nearest_target(_position[i], max_dist, i)
+		if target == null:
+			continue
+		var to_target = target.global_position - _position[i]
+		if to_target.length() < 2.0:
+			continue
+		var hop = to_target * min(1.0, _r_ltg[i])
+		_position[i] += hop
+		_direction[i] = to_target.normalized()
+		_distance_traveled[i] += hop.length()
+		if _distance_traveled[i] >= _max_range[i]:
+			despawn(i)
+
+# Nearest live, not-yet-handled-by-this-shot target within max_dist - mirrors
+# ProjectileTargetingBatcher._resolve_blink's own candidate filter (valid,
+# not dead, excludes _handled_targets) but as a plain synchronous scan over
+# this pool's own tiny _targets array rather than a batched cross-shot
+# query. No friend/foe filtering, matching _step_hit_test's own existing
+# simplification (the Test Range only ever has one dummy target regardless
+# of side).
+func _find_nearest_target(pos: Vector2, max_dist: float, slot_idx: int) -> Node:
+	var best: Node = null
+	var best_dist = max_dist
+	for t in _targets:
+		if not is_instance_valid(t) or t.get("is_dead") == true:
+			continue
+		if _handled_targets[slot_idx].has(t.get_instance_id()):
+			continue
+		var d = pos.distance_to(t.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = t
+	return best
 
 func _step_hit_test():
 	if _targets.is_empty():

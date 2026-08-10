@@ -33,6 +33,13 @@ const DEVIATION_TEST_RATE = 0.175
 # fraction of the tracked batch, not just once via a single lucky outlier,
 # before it's trusted to replace the champion.
 const PROMOTION_WIN_RATE = 0.5
+# Same-role squad-mates get independently-tracked builds up to this many
+# slots (0-based, clamped) - bounds the key-space multiplier per (template,
+# role, rarity) since role counts themselves cap at 4 (SquadTemplateMutator.
+# mutate's bump op), and the common case (one of a role per squad) sees no
+# change at all - slot is always 0. See SquadDirector._assemble_squad for
+# where the slot index gets assigned at spawn time.
+const MAX_SUB_ARCHETYPE_SLOTS = 3
 
 var director
 
@@ -44,32 +51,32 @@ var _tracked_deviations: Dictionary = {}
 func _init(p_director):
 	director = p_director
 
-static func _key(template_name: String, role: String, rarity: int) -> String:
-	return template_name + ":" + role + ":" + str(rarity)
+static func _key(template_name: String, role: String, rarity: int, slot: int = 0) -> String:
+	return template_name + ":" + role + ":" + str(rarity) + ":" + str(slot)
 
-func get_stock_build(template_name: String, role: String, rarity: int) -> StockBuild:
+func get_stock_build(template_name: String, role: String, rarity: int, slot: int = 0) -> StockBuild:
 	for b in director.stock_builds:
-		if b.template_name == template_name and b.role == role and b.rarity == rarity:
+		if b.template_name == template_name and b.role == role and b.rarity == rarity and b.sub_archetype_slot == slot:
 			return b
 	return null
 
 func should_test_deviation() -> bool:
 	return randf() < DEVIATION_TEST_RATE
 
-# Registers a (template, role, rarity)'s very first build - not a
+# Registers a (template, role, rarity, slot)'s very first build - not a
 # "deviation" (there was nothing to deviate from), so it's accepted
 # unconditionally.
-func establish_stock_build(template_name: String, role: String, rarity: int, serialized_components: Dictionary):
+func establish_stock_build(template_name: String, role: String, rarity: int, serialized_components: Dictionary, slot: int = 0):
 	# Guard a duplicate race - two mechs of a brand-new (template, role,
-	# rarity) can both miss on the same spawn beat before either's result
-	# lands here. Keep whichever registers first; don't double-register.
-	if get_stock_build(template_name, role, rarity) != null:
+	# rarity, slot) can both miss on the same spawn beat before either's
+	# result lands here. Keep whichever registers first; don't double-register.
+	if get_stock_build(template_name, role, rarity, slot) != null:
 		return
-	director.stock_builds.append(StockBuildMutator.establish(template_name, role, rarity, serialized_components))
+	director.stock_builds.append(StockBuildMutator.establish(template_name, role, rarity, serialized_components, slot))
 	director.request_save_learned_state()
 
-func record_deviation_result(template_name: String, role: String, rarity: int, serialized_components: Dictionary, fitness: float):
-	var key = _key(template_name, role, rarity)
+func record_deviation_result(template_name: String, role: String, rarity: int, serialized_components: Dictionary, fitness: float, slot: int = 0):
+	var key = _key(template_name, role, rarity, slot)
 	if not _tracked_deviations.has(key):
 		_tracked_deviations[key] = []
 	_tracked_deviations[key].append({"components": serialized_components, "fitness": fitness})
@@ -89,11 +96,12 @@ func _flush(key: String):
 	if not batch or batch.is_empty():
 		return
 
-	var parts = key.split(":", true, 2)
+	var parts = key.split(":", true, 3)
 	var template_name = parts[0]
 	var role = parts[1] if parts.size() > 1 else ""
 	var rarity = int(parts[2]) if parts.size() > 2 else 0
-	var current = get_stock_build(template_name, role, rarity)
+	var slot = int(parts[3]) if parts.size() > 3 else 0
+	var current = get_stock_build(template_name, role, rarity, slot)
 
 	# Tally how many tracked sessions actually beat the current build (not
 	# just whether the single best one did), and remember the best of those
@@ -117,7 +125,7 @@ func _flush(key: String):
 		if wins < required_wins:
 			return
 
-	var new_build = StockBuildMutator.promote(current, best["components"]) if current else StockBuildMutator.establish(template_name, role, rarity, best["components"])
+	var new_build = StockBuildMutator.promote(current, best["components"]) if current else StockBuildMutator.establish(template_name, role, rarity, best["components"], slot)
 	if current:
 		director.stock_builds.erase(current)
 	director.stock_builds.append(new_build)

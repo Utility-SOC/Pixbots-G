@@ -154,7 +154,7 @@ func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss
 	for lsb in loaded_stock_builds:
 		var existing_sb: StockBuild = null
 		for sb in stock_builds:
-			if sb.template_name == lsb.template_name and sb.role == lsb.role and sb.rarity == lsb.rarity:
+			if sb.template_name == lsb.template_name and sb.role == lsb.role and sb.rarity == lsb.rarity and sb.sub_archetype_slot == lsb.sub_archetype_slot:
 				existing_sb = sb
 				break
 		if existing_sb:
@@ -518,7 +518,7 @@ func _assemble_squad(selected_template: SquadTemplate) -> Squad:
 					# somehow were anyway rather than risk it.
 					if not is_instance_valid(squad):
 						return null # already gone - nothing left to free
-				var bot = _spawn_bot_for_role(role, selected_template.has_shields, 0, selected_template.template_name)
+				var bot = _spawn_bot_for_role(role, selected_template.has_shields, 0, selected_template.template_name, false, i)
 				if not is_instance_valid(bot):
 					continue
 				squad.add_member(bot)
@@ -888,7 +888,7 @@ func _all_roles_filled(roles: Dictionary) -> bool:
 # "grunt") rather than blanket-immunizing the whole roster.
 const WATER_SAFETY_EXCLUDED_ROLES = ["sniper", "brawler"]
 
-func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0, template_name: String = "", force_full_counter: bool = false) -> Node:
+func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0, template_name: String = "", force_full_counter: bool = false, sub_archetype_slot: int = 0) -> Node:
 	var bot
 	if role == "jammer":
 		bot = load("res://scripts/entities/JammerMech.gd").new()
@@ -907,6 +907,12 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	# for_role() looks it up.
 	if "spawn_template_name" in bot:
 		bot.spawn_template_name = template_name
+	# Which same-role slot within the squad this bot filled - same timing
+	# requirement as spawn_template_name above (StockBuildEvolution reads it
+	# via build_loadout_for_role). Clamped here (not by the caller) so every
+	# call site gets the cap for free.
+	if "sub_archetype_slot" in bot:
+		bot.sub_archetype_slot = clamp(sub_archetype_slot, 0, StockBuildEvolution.MAX_SUB_ARCHETYPE_SLOTS - 1)
 	if "spawn_profile" in bot:
 		bot.spawn_profile = get_active_solver_profile(role)
 		# Per-bot element jitter: ~35% of bots clone the profile with a
@@ -1254,7 +1260,7 @@ func credit_bot_death(mech: Node):
 	# evolving pool (see StockBuildEvolution). Only bots that actually rolled
 	# a deviation test this spawn (Mech.build_loadout_for_role) carry these.
 	if mech.get("_is_deviation_test") == true and stock_build_evolution:
-		stock_build_evolution.record_deviation_result(mech.spawn_template_name, mech.combat_role, mech.base_rarity, mech._deviation_components, fitness)
+		stock_build_evolution.record_deviation_result(mech.spawn_template_name, mech.combat_role, mech.base_rarity, mech._deviation_components, fitness, mech.get("sub_archetype_slot") if "sub_archetype_slot" in mech else 0)
 
 	if not ("spawn_profile" in mech) or not mech.spawn_profile:
 		return

@@ -374,6 +374,13 @@ var spawn_profile: SolverProfile = null
 # The key StockBuildEvolution scopes cached/evolving loadouts by, alongside
 # combat_role - see build_loadout_for_role().
 var spawn_template_name: String = ""
+# Which same-role slot within its squad this bot filled (set by SquadDirector.
+# _assemble_squad before add_child(), same pattern as spawn_template_name
+# above) - lets same-role squad-mates independently evolve their own
+# StockBuild via StockBuildEvolution instead of always sharing one build for
+# the whole role. 0 for anything spawned outside normal squad-assembly
+# (debug spawns, bosses, the safety-fallback trio in Main._spawn_wave_async).
+var sub_archetype_slot: int = 0
 # Set by build_loadout_for_role() when this spawn rolled a deviation test
 # against an existing StockBuild - SquadDirector.credit_bot_death() reads
 # these to report the deviation's fitness back to StockBuildEvolution.
@@ -3944,7 +3951,7 @@ func build_loadout_for_role(role_name: String):
 	var stock = null
 	var use_stock = false
 	if stock_evo and spawn_template_name != "":
-		stock = stock_evo.get_stock_build(spawn_template_name, role_name, base_rarity)
+		stock = stock_evo.get_stock_build(spawn_template_name, role_name, base_rarity, sub_archetype_slot)
 		use_stock = stock != null and not stock_evo.should_test_deviation()
 
 	if use_stock:
@@ -4084,7 +4091,7 @@ func build_loadout_for_role(role_name: String):
 			if components.has(slot):
 				serialized[slot] = SaveManager._serialize_component(components[slot])
 		if stock == null:
-			stock_evo.establish_stock_build(spawn_template_name, role_name, base_rarity, serialized)
+			stock_evo.establish_stock_build(spawn_template_name, role_name, base_rarity, serialized, sub_archetype_slot)
 		else:
 			# This spawn rolled a deviation test against an existing build -
 			# don't apply the result yet, just remember it. credit_bot_death()

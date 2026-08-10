@@ -17,10 +17,11 @@ extends RefCounted
 
 const StockBuild = preload("res://scripts/ai/StockBuild.gd")
 
-# The very first build for a (template, role) - nothing to compare against
-# yet, so it's permanent from the start (not experimental).
-static func establish(template_name: String, role: String, rarity: int, serialized_components: Dictionary) -> StockBuild:
+# The very first build for a (template, role, sub_archetype_slot) - nothing
+# to compare against yet, so it's permanent from the start (not experimental).
+static func establish(template_name: String, role: String, rarity: int, serialized_components: Dictionary, sub_archetype_slot: int = 0) -> StockBuild:
 	var build = StockBuild.new(template_name, role, rarity)
+	build.sub_archetype_slot = sub_archetype_slot
 	build.serialized_components = serialized_components
 	build.is_experimental = false
 	build.base_spawn_weight = 100.0
@@ -34,6 +35,7 @@ static func establish(template_name: String, role: String, rarity: int, serializ
 # start experimental and have to prove themselves after the fact.
 static func promote(parent: StockBuild, serialized_components: Dictionary) -> StockBuild:
 	var build = StockBuild.new(parent.template_name, parent.role, parent.rarity)
+	build.sub_archetype_slot = parent.sub_archetype_slot
 	build.serialized_components = serialized_components
 	build.is_experimental = false
 	build.parent_name = parent.template_name + ":" + parent.role

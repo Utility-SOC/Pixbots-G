@@ -27,6 +27,14 @@ extends Resource
 # silently freeze that (template, role)'s gear at whatever rarity it first
 # happened to spawn at, defeating wave scaling entirely.
 @export var rarity: int = 0
+# Which same-role slot within a squad this build belongs to (0-based,
+# capped at StockBuildEvolution.MAX_SUB_ARCHETYPE_SLOTS) - part of the key
+# alongside (template_name, role, rarity) so squad-mates filling the SAME
+# role can independently evolve toward different tactical niches (e.g. one
+# brawler goes full-melee-speedy, another goes mid-range) instead of
+# always sharing one shared build. See StockBuildEvolution.gd/SquadDirector.
+# _assemble_squad for how this gets assigned at spawn time.
+@export var sub_archetype_slot: int = 0
 @export var is_experimental: bool = false
 @export var base_spawn_weight: float = 100.0
 @export var spawn_weight: float = 100.0
@@ -78,6 +86,7 @@ func to_dict() -> Dictionary:
 		"template_name": template_name,
 		"role": role,
 		"rarity": rarity,
+		"sub_archetype_slot": sub_archetype_slot,
 		"is_experimental": is_experimental,
 		"base_spawn_weight": base_spawn_weight,
 		"spawn_weight": spawn_weight,
@@ -93,6 +102,7 @@ func from_dict(data: Dictionary):
 	if data.has("template_name"): template_name = str(data["template_name"])
 	if data.has("role"): role = str(data["role"])
 	if data.has("rarity"): rarity = int(data["rarity"])
+	if data.has("sub_archetype_slot"): sub_archetype_slot = int(data["sub_archetype_slot"])
 	if data.has("is_experimental"): is_experimental = bool(data["is_experimental"])
 	if data.has("base_spawn_weight"): base_spawn_weight = float(data["base_spawn_weight"])
 	if data.has("spawn_weight"): spawn_weight = float(data["spawn_weight"])

@@ -165,7 +165,7 @@ static func merge_imported(target_templates: Array, target_solver_profiles: Arra
 	for lsb in loaded_stock_builds:
 		var collision_s = false
 		for sb in target_stock_builds:
-			if sb.template_name == lsb.template_name and sb.role == lsb.role and sb.rarity == lsb.rarity:
+			if sb.template_name == lsb.template_name and sb.role == lsb.role and sb.rarity == lsb.rarity and sb.sub_archetype_slot == lsb.sub_archetype_slot:
 				collision_s = true
 				break
 		if collision_s:

@@ -26,6 +26,18 @@ func _make_target(world: Node, pos: Vector2) -> Node:
 	t.hp = 100000.0
 	t.global_position = pos
 	world.add_child(t)
+	# Phase 11 of the batch-pool full-parity plan (2026-08-10) added part-
+	# hitbox damage routing: a target with real components now only takes
+	# ~20% of a hit on its global hp (the rest lands on structural tile hp
+	# instead - see ProjectileBatchPool._apply_damage_to_target). This
+	# check's whole purpose is verifying resistance/pierce/dedup math
+	# against exact hp deltas, which is a property independent of THAT
+	# routing (its own dedicated coverage lives in
+	# BatchPoolPartDamageRoutingCheck.gd) - clearing components after
+	# _ready() has already built them forces the plain apply_damage
+	# fallback, keeping this check's original exact-magnitude assertions
+	# meaningful without needing to guess at a random tile-damage split.
+	t.components.clear()
 	return t
 
 func _ready():

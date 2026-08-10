@@ -801,6 +801,37 @@ func _find_nearest_target(pos: Vector2, max_dist: float, slot_idx: int) -> Node:
 			best = t
 	return best
 
+# Part-hitbox damage routing (Phase 11 of the batch-pool full-parity plan,
+# 2026-08-10) - real combat never applies damage straight to a target's
+# total HP. Every hit (including AoE/biome splash - PartHitbox Area2D
+# children sit on the same collision layer/mask a physics query matches,
+# so a real Explosion/biome burst lands on THEM too, not the parent
+# CharacterBody2D) actually goes through PartHitbox.apply_damage ->
+# Mech.apply_part_damage(slot, amount, element), which sends only ~20% to
+# global HP and the rest to that specific component's own structural tile
+# HP (plus a chance to disable/destroy a priority tile - see Mech.gd's own
+# _roll_component_disable). The batch pool has no real per-part collision
+# geometry (shots aren't Nodes; building one would be a genuinely bigger
+# architectural addition than anything else in this plan, not attempted
+# here) - this picks a RANDOM valid slot from the target's own components
+# each hit instead, mirroring apply_part_damage's own inner tile pick
+# ("still not picky about exactly where the structural HP damage lands"),
+# just one level up (which COMPONENT, not just which tile within it).
+# Falls back to plain apply_damage for anything that isn't a real Mech
+# (has_method gate), same graceful degradation PartHitbox.apply_damage
+# itself already uses. Note apply_part_damage's own signature has no
+# source/was_reflected/label params at all - real combat already loses
+# that context for the global-HP portion of a part-routed hit (its own
+# internal apply_damage(amount*0.2, element) call passes neither), so
+# dropping them here isn't a new simplification, it matches real behavior.
+func _apply_damage_to_target(target: Node, amount: float, element: String, src: Node = null, source_label: String = "Batch Test Shot"):
+	if target.has_method("apply_part_damage") and "components" in target and not target.components.is_empty():
+		var slots = target.components.keys()
+		var slot = slots[randi() % slots.size()]
+		target.apply_part_damage(slot, amount, element)
+	elif target.has_method("apply_damage"):
+		target.apply_damage(amount, element, src, false, source_label)
+
 func _step_hit_test():
 	if _targets.is_empty():
 		return
@@ -829,9 +860,9 @@ func _step_hit_test():
 				if _handled_targets[i].has(target_id):
 					continue
 				_handled_targets[i][target_id] = true
-				if t.has_method("apply_damage"):
+				if t.has_method("apply_damage") or t.has_method("apply_part_damage"):
 					var src = _source_mech[i] if is_instance_valid(_source_mech[i]) else null
-					t.apply_damage(_damage[i], _dominant_synergy_name[i], src, false, "Batch Test Shot")
+					_apply_damage_to_target(t, _damage[i], _dominant_synergy_name[i], src, "Batch Test Shot")
 
 				# hit_decay computed BEFORE any hop/pierce decrement below,
 				# mirroring Projectile._handle_hit's own ordering exactly
@@ -968,10 +999,10 @@ func _apply_explosion_aoe(i: int, primary_target: Node, hit_decay: float):
 	for t in _targets:
 		if not is_instance_valid(t) or t == primary_target or t.get("is_dead") == true:
 			continue
-		if not t.has_method("apply_damage"):
+		if not t.has_method("apply_damage") and not t.has_method("apply_part_damage"):
 			continue
 		if t.global_position.distance_to(_position[i]) <= radius:
-			t.apply_damage(_damage[i] * 0.5 * hit_decay)
+			_apply_damage_to_target(t, _damage[i] * 0.5 * hit_decay, "RAW")
 
 # Mirrors Projectile._trigger_poison_mine_detonation (Projectile.gd:1547-
 # 1624) - themed by whichever non-Poison/Kinetic/RAW synergy is strongest
@@ -1006,14 +1037,19 @@ func _trigger_poison_mine_detonation(i: int):
 		EnergyPacket.SynergyType.ICE: ["frozen", 3.0],
 	}
 	var dmg_mult = 0.6 if theme == EnergyPacket.SynergyType.ICE else 1.0
+	# Real _trigger_poison_mine_detonation only ever passes an explicit
+	# element for the Lightning theme (Projectile.gd:1580: `col.apply_
+	# damage(burst_damage, "LIGHTNING")`) - every other theme's damage call
+	# has no element arg at all (RAW default, bypasses resistance).
+	var element = "LIGHTNING" if theme == EnergyPacket.SynergyType.LIGHTNING else "RAW"
 
 	for t in _targets:
 		if not is_instance_valid(t) or t.get("is_dead") == true:
 			continue
-		if not t.has_method("apply_damage"):
+		if not t.has_method("apply_damage") and not t.has_method("apply_part_damage"):
 			continue
 		if t.global_position.distance_to(_position[i]) <= radius:
-			t.apply_damage(burst_damage * dmg_mult)
+			_apply_damage_to_target(t, burst_damage * dmg_mult, element)
 			if status_by_theme.has(theme) and t.has_method("apply_status"):
 				t.apply_status(status_by_theme[theme][0], status_by_theme[theme][1])
 
@@ -1051,10 +1087,10 @@ func _apply_area_burst(i: int, radius: float, dmg: float, status_name: String):
 	for t in _targets:
 		if not is_instance_valid(t) or t.get("is_dead") == true:
 			continue
-		if not t.has_method("apply_damage"):
+		if not t.has_method("apply_damage") and not t.has_method("apply_part_damage"):
 			continue
 		if t.global_position.distance_to(_position[i]) <= radius:
-			t.apply_damage(dmg)
+			_apply_damage_to_target(t, dmg, "RAW")
 			if status_name != "" and t.has_method("apply_status"):
 				t.apply_status(status_name, 5.0)
 

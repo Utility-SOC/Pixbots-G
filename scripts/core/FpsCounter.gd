@@ -79,6 +79,13 @@ var perf_label4: Label
 # AutoEquipSolver.gd's own _perf_bfs_usec/_perf_lengthen_path_usec/
 # _perf_reattach_usec/_perf_placement_scan_usec.
 var perf_label5: Label
+# Tenth line: build_loadout_for_role's OWN internal breakdown (2026-08-10
+# playtest, wave 172, 3fps: solve()'s breakdown above read all 0ms while
+# build_loadout itself read 1716ms - the cost isn't inside solve() at all,
+# it's somewhere else in build_loadout_for_role that was never separately
+# measured before) - see Mech._perf_stock_lookup_usec/_perf_stock_replay_
+# usec/_perf_fresh_inventory_usec/_perf_post_solve_serialize_usec.
+var perf_label6: Label
 # Sixth line: build/version tag - see _compute_build_version() below.
 var version_label: Label
 var _perf_sample_timer: float = 0.0
@@ -242,6 +249,15 @@ func _ready():
 	perf_label5.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	perf_label5.modulate = Color(0.75, 1.0, 1.0)
 	box.add_child(perf_label5)
+
+	perf_label6 = Label.new()
+	perf_label6.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	perf_label6.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	perf_label6.add_theme_font_size_override("font_size", 12)
+	perf_label6.add_theme_constant_override("outline_size", 3)
+	perf_label6.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	perf_label6.modulate = Color(1.0, 1.0, 0.75)
+	box.add_child(perf_label6)
 
 	_build_version_text = _compute_build_version()
 	version_label = Label.new()
@@ -417,6 +433,22 @@ func _process(delta: float):
 		AutoEquipSolver._perf_extract_plan_usec = 0
 		perf_label5.text = "solve() breakdown: cache_key %.0fms  bfs %.0fms  lengthen_path %.0fms  reattach %.0fms  placement_scan %.0fms  extract_plan %.0fms" % [
 			solver_cache_key_ms, solver_bfs_ms, solver_lengthen_ms, solver_reattach_ms, solver_scan_ms, solver_extract_plan_ms
+		]
+
+		# build_loadout_for_role's own breakdown - see Mech._perf_stock_
+		# lookup_usec's own comment for why this exists (solve() reading 0ms
+		# while build_loadout reads high means the cost is in one of these
+		# four regions instead).
+		var stock_lookup_ms = Mech._perf_stock_lookup_usec / 1000.0
+		var stock_replay_ms = Mech._perf_stock_replay_usec / 1000.0
+		var fresh_inventory_ms = Mech._perf_fresh_inventory_usec / 1000.0
+		var post_solve_serialize_ms = Mech._perf_post_solve_serialize_usec / 1000.0
+		Mech._perf_stock_lookup_usec = 0
+		Mech._perf_stock_replay_usec = 0
+		Mech._perf_fresh_inventory_usec = 0
+		Mech._perf_post_solve_serialize_usec = 0
+		perf_label6.text = "build_loadout breakdown: stock_lookup %.0fms  stock_replay %.0fms  fresh_inventory %.0fms  post_solve_serialize %.0fms" % [
+			stock_lookup_ms, stock_replay_ms, fresh_inventory_ms, post_solve_serialize_ms
 		]
 
 ## Resolves once at _ready() (see _build_version_text) - never called again,

@@ -827,6 +827,29 @@ static var _perf_move_usec: int = 0
 static var _perf_shape_gen_usec: int = 0
 static var _perf_build_loadout_usec: int = 0
 static var _perf_visual_build_usec: int = 0
+# build_loadout_for_role's own internal breakdown (2026-08-10 playtest,
+# wave 172, 3fps: solve()'s OWN breakdown - AutoEquipSolver._perf_bfs_usec
+# etc. - read all 0ms while build_loadout itself read 1716ms, meaning the
+# cost isn't inside solve() at all. Four candidate regions inside build_
+# loadout_for_role that were never separately measured before now:
+#   stock_lookup: StockBuildEvolution.get_stock_build()'s own linear scan
+#     over director.stock_builds - prime suspect, since the sub-archetype
+#     slot rework (this same session) can multiply that array's size up
+#     to 3x per (template, role, rarity).
+#   stock_replay: the per-tile SaveManager._deserialize_tile() loop when
+#     reusing a cached stock build (the common case once a role/template/
+#     rarity/slot has stabilized).
+#   fresh_inventory: building the solver's input inventory (add_tile calls,
+#     role-specific tiles, Nemesis/profile/amplifier injection) BEFORE
+#     solver.solve() is ever called - only happens on a stock miss/
+#     deviation-test roll.
+#   post_solve_serialize: SaveManager._serialize_component() + establish/
+#     deviation-tracking AFTER solve() returns - also stock-miss/deviation-
+#     test only.
+static var _perf_stock_lookup_usec: int = 0
+static var _perf_stock_replay_usec: int = 0
+static var _perf_fresh_inventory_usec: int = 0
+static var _perf_post_solve_serialize_usec: int = 0
 # Direct per-region instrumentation for the CHASE branch of
 # _execute_ai_tactics (see scripts/debug/MechPhysicsCostDiagnostic.gd) -
 # added because comparing whole-config deltas (with/without separation,
@@ -3962,10 +3985,13 @@ func build_loadout_for_role(role_name: String):
 	var stock = null
 	var use_stock = false
 	if stock_evo and spawn_template_name != "":
+		var _t_stock_lookup = Time.get_ticks_usec()
 		stock = stock_evo.get_stock_build(spawn_template_name, role_name, base_rarity, sub_archetype_slot)
 		use_stock = stock != null and not stock_evo.should_test_deviation()
+		_perf_stock_lookup_usec += Time.get_ticks_usec() - _t_stock_lookup
 
 	if use_stock:
+		var _t_stock_replay = Time.get_ticks_usec()
 		# Deliberately NOT SaveManager._deserialize_component() here - that
 		# rebuilds a whole fresh ComponentEquipment (generate_shape() +
 		# per-tile deserialize + several legacy-save-compat sweeps: stray-
@@ -4005,8 +4031,10 @@ func build_loadout_for_role(role_name: String):
 				else:
 					grid.add_tile(h, tile)
 		_recalculate_grid()
+		_perf_stock_replay_usec += Time.get_ticks_usec() - _t_stock_replay
 		return
 
+	var _t_fresh_inventory = Time.get_ticks_usec()
 	var inventory = []
 
 	var add_tile = func(path, rarity, synergy=0):
@@ -4086,6 +4114,7 @@ func build_loadout_for_role(role_name: String):
 			add_tile.call("res://scripts/tiles/AmplifierTile.gd", base_rarity)
 
 	var solver = AutoEquipSolverScript.new()
+	_perf_fresh_inventory_usec += Time.get_ticks_usec() - _t_fresh_inventory
 
 	if components.has(HexTile.BodySlot.TORSO):
 		inventory = solver.solve(components[HexTile.BodySlot.TORSO], inventory, spawn_profile)
@@ -4096,6 +4125,7 @@ func build_loadout_for_role(role_name: String):
 
 	_recalculate_grid()
 
+	var _t_post_solve_serialize = Time.get_ticks_usec()
 	if stock_evo and spawn_template_name != "":
 		var serialized := {}
 		for slot in [HexTile.BodySlot.TORSO, HexTile.BodySlot.ARM_R, HexTile.BodySlot.ARM_L]:
@@ -4110,6 +4140,7 @@ func build_loadout_for_role(role_name: String):
 			# known (see SquadDirector.credit_bot_death).
 			_is_deviation_test = true
 			_deviation_components = serialized
+	_perf_post_solve_serialize_usec += Time.get_ticks_usec() - _t_post_solve_serialize
 
 # Same "reach the SquadDirector from a Mech" pattern already used elsewhere
 # (e.g. MissileRackTile._fire_combined_projectile's SquadDirector.

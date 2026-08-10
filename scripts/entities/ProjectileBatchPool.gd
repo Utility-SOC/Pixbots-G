@@ -58,6 +58,11 @@ var _lightning_target_offset: PackedFloat32Array
 var _spawn_gen: PackedInt64Array
 var _next_spawn_gen: int = 1
 
+# --- Hit-pipeline state (mirrors Projectile.gd's pierce_count/
+# _handled_targets - see _handle_hit, Projectile.gd:1793-1801,1985-1987) ---
+var _pierce_count: PackedInt32Array
+var _handled_targets: Array = [] # per-slot Dictionary[instance_id -> true], same dedup-set shape as Projectile._handled_targets
+
 var _flight_checked: bool = false
 var _flight_rasterizer = null
 
@@ -99,10 +104,13 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_lightning_prev_offset.resize(capacity)
 	_lightning_target_offset.resize(capacity)
 	_spawn_gen.resize(capacity)
+	_pierce_count.resize(capacity)
+	_handled_targets.resize(capacity)
 	for i in range(capacity):
 		_free_indices.append(i)
 		_color[i] = Color.WHITE
 		_dominant_synergy_name[i] = "RAW"
+		_handled_targets[i] = {}
 
 func _ready():
 	process_priority = -900
@@ -256,6 +264,9 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_r_vtx[i] = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
 	_r_ltg[i] = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	_r_prc[i] = ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)
+	# Mirrors Projectile.gd:598-601's pierce_count derivation.
+	_pierce_count[i] = 1 + int(4.0 * _r_prc[i]) if _r_prc[i] > 0.0 else 1
+	_handled_targets[i] = {}
 	_visual_offset[i] = Vector2.ZERO
 	_lightning_segment_index[i] = -1.0 # forces the first segment to roll on tick 1, same as Projectile.gd's default
 	_lightning_prev_offset[i] = 0.0
@@ -375,11 +386,58 @@ func _step_hit_test():
 				continue
 			var t_radius = t.get("broadphase_radius") if "broadphase_radius" in t else 20.0
 			if pos.distance_to(t.global_position) <= _radius[i] + t_radius:
+				# Dedup (mirrors Projectile.gd's _handled_targets guard) - a
+				# pierce shot re-checking the same still-in-range target on a
+				# later tick must not double-hit it.
+				var target_id = t.get_instance_id()
+				if _handled_targets[i].has(target_id):
+					continue
+				_handled_targets[i][target_id] = true
 				if t.has_method("apply_damage"):
 					var src = _source_mech[i] if is_instance_valid(_source_mech[i]) else null
 					t.apply_damage(_damage[i], _dominant_synergy_name[i], src, false, "Batch Test Shot")
-				despawn(i)
+				_apply_status_effects(i, t)
+				_pierce_count[i] -= 1
+				if _pierce_count[i] <= 0:
+					despawn(i)
 				break
+
+# Portable subset of Projectile._apply_synergy_status_effects
+# (Projectile.gd:1864-1911) - deliberately excludes anything that touches
+# camera/UI (crit floaters, screen shake), Vampiric heal, Explosion AoE,
+# and biome cross-triggers (vampiric heal/AoE/biome all touch other Nodes/
+# EntityCache groups - bigger scope for a still-experimental, non-combat-
+# facing system, see this session's batch-pool parity plan). EXPLOSION's
+# "concussed" proc is also skipped - its ratio isn't tracked per-slot here.
+func _apply_status_effects(i: int, target: Node):
+	if not target.has_method("apply_status"):
+		return
+	if _r_fire[i] > 0.1:
+		target.apply_status("burning", 3.0 * _r_fire[i])
+	if _r_ice[i] > 0.1:
+		target.apply_status("frozen", 3.0 * _r_ice[i])
+	var rl = _r_ltg[i]
+	if rl > 0.15 and randf() < 0.35 * rl:
+		target.apply_status("paralyzed", 0.4 + 0.5 * rl)
+	if _r_psn[i] > 0.1:
+		target.apply_status("poisoned", 4.0 + 3.0 * _r_psn[i])
+	var rk = _r_kin[i]
+	if rk > 0.2:
+		target.apply_status("staggered", 0.4 + 0.3 * rk)
+		if "external_force" in target:
+			target.external_force += _direction[i] * 260.0 * rk
+	if _r_prc[i] > 0.15:
+		target.apply_status("rent", 4.0)
+	var rv = _r_vtx[i]
+	if rv > 0.15:
+		if "vortex_drag_point" in target:
+			target.vortex_drag_point = _position[i]
+		target.apply_status("vortexed", 0.4 + 0.6 * rv)
+	var rvm = _r_vamp[i]
+	if rvm > 0.1:
+		target.apply_status("bleeding", 3.0 + 2.0 * rvm)
+		if rvm > 0.5 and randf() < 0.3:
+			target.apply_status("immobilized", 0.5)
 
 func _step_render():
 	for i in range(_highest_active + 1):

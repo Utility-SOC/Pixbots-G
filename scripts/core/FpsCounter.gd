@@ -333,8 +333,15 @@ func _process(delta: float):
 		HexTile._perf_projectile_construct_usec = 0
 		ProjectileManager._perf_collect_usec = 0
 		ProjectileManager._perf_rust_call_usec = 0
-		perf_label2.text = "per sec: status_bars_draw %.0fms  projectile_physics %.0fms  projectile_construct %.0fms  flight_collect %.0fms  flight_rust_call %.0fms" % [
-			status_bar_ms, proj_physics_ms, construct_ms, collect_ms, rust_call_ms
+		# blink_query: ProjectileTargetingBatcher._resolve_blink()'s whole
+		# batched call - replaces what used to be an invisible cost hidden
+		# inside projectile_physics above (every Lightning-ratio projectile's
+		# own independent O(entities) scan, now one shared batched query per
+		# tick - see Projectile._update_blink's own comment for the full story).
+		var blink_ms = Projectile._perf_blink_query_usec / 1000.0
+		Projectile._perf_blink_query_usec = 0
+		perf_label2.text = "per sec: status_bars_draw %.0fms  projectile_physics %.0fms  projectile_construct %.0fms  flight_collect %.0fms  flight_rust_call %.0fms  blink_query %.0fms" % [
+			status_bar_ms, proj_physics_ms, construct_ms, collect_ms, rust_call_ms, blink_ms
 		]
 
 		# shoot_fired/shoot_checked: splits shoot_ms above by whether that

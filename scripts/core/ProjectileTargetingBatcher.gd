@@ -40,12 +40,38 @@ extends Node
 # next tick) - negligible against the existing 0.1s throttle interval, same
 # tier of soft-heuristic timing slop every other batcher this session
 # already accepted.
+#
+# Lightning blink-hop target search (request_blink_target/_resolve_blink,
+# added 2026-08-09) - confirmed real, severe hotspot via live playtest:
+# every Lightning-ratio Projectile was independently linear-scanning the
+# WHOLE enemy/player pool every BLINK_INTERVAL (0.11s) in what used to be
+# Projectile._update_blink's own inline scan - O(shots x entities), 4-6fps
+# whenever firing a Lightning-heavy weapon with entities on screen, fine
+# with none. Reuses _batch_find_best_fallback (same single-winner shape
+# proven by homing above), extended with a per-query "exclude" set for
+# Projectile._handled_targets (already-hit targets on that projectile's
+# own chain - homing never needed this, self-exclusion was enough).
+# GDScript-only this pass, deliberately bypassing the Rust ProximityQueryRs
+# path even when loaded (that signature doesn't support per-query
+# exclusion yet - see _resolve_blink's own comment) - port only if a live
+# playtest shows the GDScript fix alone doesn't recover enough headroom,
+# same "prototype first, measure before porting" rule that already caught
+# vortex's own revert above.
 
 var _checked: bool = false
 var _rasterizer = null
 
 var _homing_requests: Dictionary = {} # projectile_id -> {proj, pos, min_dist, prefer_furthest}
 var _vortex_requests: Dictionary = {} # projectile_id -> {proj, pos, radius, elapsed}
+# Lightning blink-hop target search (confirmed real hotspot, live playtest:
+# every Lightning-ratio projectile was independently linear-scanning the
+# WHOLE enemy/player pool every 0.11s - see Projectile._update_blink's own
+# comment). Same register-per-tick/resolve-once shape as the two above;
+# "exclude" holds a direct reference to that projectile's own _handled_
+# targets Dictionary (already-hit targets on its own chain) - see
+# _batch_find_best_fallback's "exclude" field comment for why passing the
+# live reference instead of a copy is safe here.
+var _blink_requests: Dictionary = {} # projectile_id -> {proj, pos, max_dist, fired_by_player, exclude}
 
 func _ready():
 	process_priority = 998 # after projectiles' own _physics_process, same "resolve batched requests late" ordering as ProjectileBroadphase.gd (1000)/SeparationBatcher.gd
@@ -69,12 +95,17 @@ func request_homing_target(proj: Node, min_dist: float, prefer_furthest: bool):
 func request_vortex_pull(proj: Node, radius: float, elapsed: float):
 	_vortex_requests[proj.get_instance_id()] = {"proj": proj, "pos": proj.global_position, "radius": radius, "elapsed": elapsed}
 
+func request_blink_target(proj: Node, max_dist: float, fired_by_player: bool, exclude: Dictionary):
+	_blink_requests[proj.get_instance_id()] = {"proj": proj, "pos": proj.global_position, "max_dist": max_dist, "fired_by_player": fired_by_player, "exclude": exclude}
+
 func _physics_process(_delta):
 	_ensure_rust()
 	_resolve_homing()
 	_resolve_vortex()
+	_resolve_blink()
 	_homing_requests.clear()
 	_vortex_requests.clear()
+	_blink_requests.clear()
 
 func _resolve_homing():
 	if _homing_requests.is_empty():
@@ -169,6 +200,58 @@ func _resolve_vortex():
 			if target and is_instance_valid(target):
 				proj._apply_vortex_pull_to_target(target, req.elapsed)
 
+# Splits pending blink requests by fired_by_player (a Lightning shot hunts
+# the OPPOSITE side's pool - player-fired hunts enemies, enemy-fired hunts
+# the player), builds each pool's candidate list once, resolves both
+# through the grid-bucket fallback. Deliberately ALWAYS uses
+# _batch_find_best_fallback directly, even when the Rust extension is
+# loaded (unlike _resolve_homing/_resolve_vortex above) - per-query
+# exclusion sets are a GDScript-only extension this pass (see this file's
+# header and _batch_find_best_fallback's "exclude" comment); the Rust
+# ProximityQueryRs.batch_find_best signature doesn't know about "exclude"
+# and would silently ignore it, which would let a chain re-hit a target it
+# already struck. Revisit only if a live playtest shows the GDScript fix
+# alone doesn't recover enough headroom to justify porting.
+func _resolve_blink():
+	if _blink_requests.is_empty():
+		return
+
+	var enemy_queries: Array = []
+	var player_queries: Array = []
+	for id in _blink_requests:
+		var req = _blink_requests[id]
+		var q = {"id": id, "pos": req.pos, "radius": req.max_dist, "prefer_furthest": false, "exclude": req.exclude}
+		if req.fired_by_player:
+			enemy_queries.append(q)
+		else:
+			player_queries.append(q)
+
+	var _t_blink = Time.get_ticks_usec()
+	if not enemy_queries.is_empty():
+		var enemy_candidates: Array = []
+		for m in EntityCache.get_group("enemy"):
+			if is_instance_valid(m) and not m.get("is_dead"):
+				enemy_candidates.append({"id": m.get_instance_id(), "pos": m.global_position})
+		_apply_blink_results(_batch_find_best_fallback(enemy_queries, enemy_candidates))
+	if not player_queries.is_empty():
+		var player_candidates: Array = []
+		for p in EntityCache.get_group("player"):
+			if is_instance_valid(p) and not p.get("is_dead"):
+				player_candidates.append({"id": p.get_instance_id(), "pos": p.global_position})
+		_apply_blink_results(_batch_find_best_fallback(player_queries, player_candidates))
+	Projectile._perf_blink_query_usec += Time.get_ticks_usec() - _t_blink
+
+func _apply_blink_results(results: Array):
+	for r in results:
+		var id = int(r.id)
+		var proj = instance_from_id(id)
+		if not proj or not is_instance_valid(proj):
+			continue
+		if r.found:
+			proj._cached_blink_target = instance_from_id(int(r.best_id))
+		else:
+			proj._cached_blink_target = null
+
 # Pure-GDScript reference implementation of
 # ProximityQueryRs.batch_radius_query - the fallback contract every
 # Rust-ported system in this codebase keeps (see
@@ -219,6 +302,13 @@ func _cell_key(pos: Vector2, cell_size: float) -> String:
 # only the running best (closest or furthest) candidate per query instead
 # of collecting every hit, matching the Rust side's own no-hits-array
 # design.
+#
+# "exclude" (optional per-query Dictionary, id -> true, same as-a-set shape
+# Projectile._handled_targets already uses) - added for Lightning blink-hop
+# (see request_blink_target/_resolve_blink), which needs to skip specific
+# already-hit targets per query, not just self. Homing's own queries never
+# set this field, so q.has("exclude") is false for them and this is a
+# complete no-op on that path - byte-for-byte unchanged behavior there.
 func _batch_find_best_fallback(queries: Array, candidates: Array) -> Array:
 	var radii: Array = []
 	for q in queries:
@@ -242,6 +332,7 @@ func _batch_find_best_fallback(queries: Array, candidates: Array) -> Array:
 		var best_id = -1
 		var best_dist = 0.0
 		var found = false
+		var exclude = q.get("exclude", null)
 		for dx in range(-span, span + 1):
 			for dy in range(-span, span + 1):
 				var key = "%d:%d" % [qcx + dx, qcy + dy]
@@ -250,6 +341,8 @@ func _batch_find_best_fallback(queries: Array, candidates: Array) -> Array:
 				for i in buckets[key]:
 					var c = candidates[i]
 					if c.id == q.id:
+						continue
+					if exclude != null and exclude.has(c.id):
 						continue
 					var d = q.pos.distance_to(c.pos)
 					if d > q.radius:

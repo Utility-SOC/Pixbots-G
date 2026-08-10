@@ -231,6 +231,11 @@ const VORTEX_QUERY_INTERVAL = 0.05 # nearby-item pull scan
 var _homing_query_timer: float = 0.0
 var _cached_homing_target: Node2D = null
 var _vortex_query_timer: float = 0.0
+# Lightning blink-hop's resolved nearest target, written by
+# ProjectileTargetingBatcher._resolve_blink() (see _update_blink's own
+# comment) - mirrors _cached_homing_target's exact same one-tick-latency
+# request/cache/consume shape.
+var _cached_blink_target: Node = null
 
 # Rust broadphase port (Phase 3 - see
 # C:\Users\Utility\.claude\plans\effervescent-exploring-pine.md): Projectile
@@ -1230,6 +1235,9 @@ static var _perf_physics_usec: int = 0
 # each projectile's own throttle timer actually fires (not every tick).
 static var _perf_homing_query_usec: int = 0
 static var _perf_vortex_query_usec: int = 0
+# Wraps ProjectileTargetingBatcher._resolve_blink()'s whole batched-query
+# call - see _update_blink's own comment for the hotspot this replaced.
+static var _perf_blink_query_usec: int = 0
 
 func _physics_process(delta: float):
 	var _t_phys = Time.get_ticks_usec()
@@ -1429,10 +1437,33 @@ func _physics_process_body(delta: float):
 # the nearest un-hit target within acquisition range, drawing the bolt
 # along the jump. Heading snaps to the target so the residual (kinetic/
 # vortex-shaped) flight between hops keeps closing.
+#
+# Perf fix (live playtest: 4-6fps whenever firing a Lightning-heavy weapon
+# with entities on screen, fine with none - confirmed as every live
+# Lightning-ratio projectile independently linear-scanning the WHOLE
+# enemy/player pool every BLINK_INTERVAL, O(shots x entities)). The scan
+# itself now happens once per tick, batched across every pending request,
+# in ProjectileTargetingBatcher._resolve_blink() - this function only
+# SUBMITS a request (when its own timer expires) and CONSUMES whatever
+# result landed from its previous request (every tick, unconditionally,
+# before submitting a new one). One tick of latency between request and
+# consumption, same accepted-negligible precedent as _cached_homing_target
+# (see ProjectileTargetingBatcher.gd's own header) - BLINK_INTERVAL is
+# 0.11s, one physics tick is a small fraction of that. Consuming BEFORE
+# this tick's ProjectileBroadphase.report_movement call (unchanged call
+# order in _physics_process_body) keeps a hop counted in that tick's
+# tunnel-sweep, exactly like before this change - "hops spend range budget
+# and hit what they cross" is a real, intentional design property, not
+# just an implementation detail, and this preserves it across the latency.
 func _update_blink(delta: float):
 	var r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	if r_ltg <= LIGHTNING_BLINK_MIN:
 		return
+
+	if _cached_blink_target != null:
+		_apply_blink_hop(_cached_blink_target, r_ltg)
+		_cached_blink_target = null
+
 	_blink_timer -= delta
 	if _blink_timer > 0.0:
 		return
@@ -1446,22 +1477,17 @@ func _update_blink(delta: float):
 	# guns blazing... doesn't feel as fun as it should at these power
 	# levels").
 	var r_kin_blink = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
-	var pool = EntityCache.get_group("enemy") if fired_by_player else EntityCache.get_group("player")
-	var best = null
-	var best_dist = BLINK_ACQUIRE_RANGE * (1.0 + r_kin_blink)
-	for v in pool:
-		if not is_instance_valid(v) or v.get("is_dead"):
-			continue
-		if _handled_targets.has(v.get_instance_id()):
-			continue
-		var d = global_position.distance_to(v.global_position)
-		if d < best_dist:
-			best_dist = d
-			best = v
-	if best == null:
-		return
+	var max_dist = BLINK_ACQUIRE_RANGE * (1.0 + r_kin_blink)
+	ProjectileTargetingBatcher.request_blink_target(self, max_dist, fired_by_player, _handled_targets)
 
-	var to_target = best.global_position - global_position
+# Applies a resolved blink-hop target - identical math/behavior to what
+# used to run inline right after the scan (see _update_blink's own
+# comment): only HOW the target was found changed, not what happens once
+# it's found.
+func _apply_blink_hop(target: Node, r_ltg: float):
+	if not is_instance_valid(target):
+		return
+	var to_target = target.global_position - global_position
 	if to_target.length() < 2.0:
 		return
 	var hop = to_target * min(1.0, r_ltg)

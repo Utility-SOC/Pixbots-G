@@ -74,6 +74,17 @@ var _r_psn: PackedFloat32Array
 var _r_vtx: PackedFloat32Array
 var _r_ltg: PackedFloat32Array
 var _r_prc: PackedFloat32Array
+# Explosion ratio - previously not tracked per-slot at all (only fed into
+# the dominant-synergy int/name and the visual shape, never kept as its
+# own ratio field) since nothing needed it until Concussed/Explosion AoE
+# (Phases 5/7 of the batch-pool full-parity plan, 2026-08-10).
+var _r_exp: PackedFloat32Array
+# aoe_bonus - real per-mount AoE-radius stat (EnergyPacket.aoe_bonus, fed
+# into Projectile.explosion_radius_for/poison-mine detonation radius).
+# Previously dropped entirely at the GarageTestRange call site; now
+# threaded through spawn() so Explosion/mine AoE radius matches the real
+# formula instead of silently assuming aoe_bonus=0 for every shot.
+var _aoe_bonus: PackedFloat32Array
 var _visual_offset: PackedVector2Array
 var _lightning_segment_index: PackedFloat32Array
 var _lightning_prev_offset: PackedFloat32Array
@@ -93,6 +104,12 @@ var _lightning_target_offset: PackedFloat32Array
 # isn't worth it here).
 var _blink_timer: PackedFloat32Array
 var _hops_left: PackedInt32Array
+# Captured once at spawn (Phase 6) - _hops_left/_pierce_count only ever
+# count DOWN from these, so "how much is left, as a fraction of how much
+# there ever was" (_compute_hit_decay's whole job) needs the original max
+# kept separately. Mirrors Projectile.gd's own _lightning_hops_max/
+# _pierce_count_max fields exactly.
+var _hops_max: PackedInt32Array
 
 # Poison mine-crawl mode (Phase 3 of the batch-pool full-parity plan,
 # 2026-08-10) - unlike Lightning's hop (an event layered on top of the
@@ -104,6 +121,11 @@ var _hops_left: PackedInt32Array
 # Lightning ratio - mine mode fully replaces movement, not just distorts
 # it). Set once at spawn, never changes for a slot's lifetime.
 var _is_mine: PackedByteArray
+# Detonation guard (Phase 8) - mirrors Projectile.gd's own _mine_detonated:
+# a mine can be detonated by EITHER a contact hit OR running out of
+# lifetime/range, whichever happens first - this stops the other trigger
+# from firing a second detonation on the same slot.
+var _mine_detonated: PackedByteArray
 # Synthetic per-slot identity fed to compute_batch_flat as instance_ids -
 # these aren't real Nodes, so there's no real get_instance_id(). A bare
 # slot index would give the lightning-jitter seed (hashes off instance_id,
@@ -115,7 +137,15 @@ var _next_spawn_gen: int = 1
 # --- Hit-pipeline state (mirrors Projectile.gd's pierce_count/
 # _handled_targets - see _handle_hit, Projectile.gd:1793-1801,1985-1987) ---
 var _pierce_count: PackedInt32Array
+var _pierce_count_max: PackedInt32Array # captured at spawn, see _hops_max's comment above for why
 var _handled_targets: Array = [] # per-slot Dictionary[instance_id -> true], same dedup-set shape as Projectile._handled_targets
+# Resonator Sync proc_synergies (Phase 5) - a SECOND, independent ratio
+# Dictionary a packet can carry (EnergyPacket.proc_synergies), entirely
+# separate from its real elemental composition/damage. Real Projectile.gd
+# reuses its whole status-effect threshold table against this dict too
+# (see _apply_synergy_status_effects's own "sr" parameter and header
+# comment: "a sync-conferred burn behaves identically to a real one").
+var _proc_synergies: Array = [] # per-slot Dictionary, same shape as EnergyPacket.proc_synergies
 
 # --- Secondary-synergy echoes (layered visual representation) - the user:
 # "in the old version I think it was more than the top two being
@@ -195,16 +225,22 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_r_vtx.resize(capacity)
 	_r_ltg.resize(capacity)
 	_r_prc.resize(capacity)
+	_r_exp.resize(capacity)
+	_aoe_bonus.resize(capacity)
 	_visual_offset.resize(capacity)
 	_lightning_segment_index.resize(capacity)
 	_lightning_prev_offset.resize(capacity)
 	_lightning_target_offset.resize(capacity)
 	_blink_timer.resize(capacity)
 	_hops_left.resize(capacity)
+	_hops_max.resize(capacity)
 	_is_mine.resize(capacity)
+	_mine_detonated.resize(capacity)
 	_spawn_gen.resize(capacity)
 	_pierce_count.resize(capacity)
+	_pierce_count_max.resize(capacity)
 	_handled_targets.resize(capacity)
+	_proc_synergies.resize(capacity)
 	_secondary_synergy_1.resize(capacity)
 	_secondary_synergy_2.resize(capacity)
 	for i in range(capacity):
@@ -212,6 +248,7 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 		_color[i] = Color.WHITE
 		_dominant_synergy_name[i] = "RAW"
 		_handled_targets[i] = {}
+		_proc_synergies[i] = {}
 		_secondary_synergy_1[i] = NO_SYNERGY
 		_secondary_synergy_2[i] = NO_SYNERGY
 
@@ -359,7 +396,7 @@ func register_target(target: Node):
 func unregister_target(target: Node):
 	_targets.erase(target)
 
-func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}) -> int:
+func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}, proc_synergies: Dictionary = {}, aoe_bonus: float = 0.0) -> int:
 	if _free_indices.is_empty():
 		return -1
 	var i = _free_indices.pop_back()
@@ -399,11 +436,16 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_r_vtx[i] = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
 	_r_ltg[i] = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	_r_prc[i] = ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)
+	_r_exp[i] = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
+	_aoe_bonus[i] = aoe_bonus
 	# Mirrors Projectile.gd:350's _is_poison_mine derivation exactly.
 	_is_mine[i] = 1 if _r_psn[i] > _ProjectileScript.MINE_POISON_THRESHOLD else 0
+	_mine_detonated[i] = 0
 	# Mirrors Projectile.gd:598-601's pierce_count derivation.
 	_pierce_count[i] = 1 + int(4.0 * _r_prc[i]) if _r_prc[i] > 0.0 else 1
+	_pierce_count_max[i] = _pierce_count[i]
 	_handled_targets[i] = {}
+	_proc_synergies[i] = proc_synergies.duplicate()
 	_visual_offset[i] = Vector2.ZERO
 	_lightning_segment_index[i] = -1.0 # forces the first segment to roll on tick 1, same as Projectile.gd's default
 	_lightning_prev_offset[i] = 0.0
@@ -411,6 +453,7 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	# Mirrors Projectile.gd:565-570's _lightning_hops_left derivation exactly.
 	_blink_timer[i] = 0.0
 	_hops_left[i] = int(round(4.0 * _r_ltg[i])) if _r_ltg[i] > _ProjectileScript.LIGHTNING_BLINK_MIN else 0
+	_hops_max[i] = _hops_left[i]
 	_spawn_gen[i] = _next_spawn_gen
 	_next_spawn_gen += 1
 
@@ -507,6 +550,12 @@ func _step_simulate(delta: float):
 			continue
 		_elapsed[i] += delta
 		if _elapsed[i] >= _lifetime[i]:
+			# Mirrors Projectile._expire()'s own "if _is_poison_mine:
+			# _trigger_poison_mine_detonation()" - a mine that runs out of
+			# time without ever being contacted still detonates rather than
+			# silently vanishing.
+			if _is_mine[i] == 1:
+				_trigger_poison_mine_detonation(i)
 			despawn(i)
 
 	# Mine-mode slots are a fully disjoint movement track from here on (see
@@ -626,6 +675,9 @@ func _step_mine_movement(delta: float):
 		_position[i] += step
 		_distance_traveled[i] += step.length()
 		if _distance_traveled[i] >= _max_range[i]:
+			# Mirrors Projectile._expire()'s mine-detonation-on-timeout, see
+			# the matching comment on the lifetime-expiry pass above.
+			_trigger_poison_mine_detonation(i)
 			despawn(i)
 			continue
 
@@ -738,48 +790,231 @@ func _step_hit_test():
 				if t.has_method("apply_damage"):
 					var src = _source_mech[i] if is_instance_valid(_source_mech[i]) else null
 					t.apply_damage(_damage[i], _dominant_synergy_name[i], src, false, "Batch Test Shot")
+
+				# hit_decay computed BEFORE any hop/pierce decrement below,
+				# mirroring Projectile._handle_hit's own ordering exactly
+				# (Projectile.gd:1925 runs before the hop/pierce decrements
+				# at 1979-1987) - the FIRST hit of a hop/pierce chain gets
+				# full-strength Vampiric heal/Explosion AoE, later legs
+				# progressively taper toward zero.
+				var hit_decay = _compute_hit_decay(i)
 				_apply_status_effects(i, t)
+				_apply_vampiric_heal(i, hit_decay)
+				_apply_explosion_aoe(i, t, hit_decay)
+				_apply_biome_triggers(i, t)
+
+				# Poison mine: contact detonates it immediately (see
+				# _trigger_poison_mine_detonation's own header) instead of
+				# piercing through like a normal shot - consumes the mine
+				# outright regardless of pierce/hop state.
+				if _is_mine[i] == 1:
+					_trigger_poison_mine_detonation(i)
+					despawn(i)
+					break
+
+				# LIGHTNING re-target: instead of despawning, hop out to the
+				# next victim. Each new leg gets the full range budget back
+				# and the blink timer is zeroed so the jump happens on the
+				# very next tick - mirrors Projectile.gd:1979-1983 exactly.
+				if _hops_left[i] > 0:
+					_hops_left[i] -= 1
+					_distance_traveled[i] = 0.0
+					_blink_timer[i] = 0.0
+					break
+
 				_pierce_count[i] -= 1
 				if _pierce_count[i] <= 0:
 					despawn(i)
 				break
 
-# Portable subset of Projectile._apply_synergy_status_effects
-# (Projectile.gd:1864-1911) - deliberately excludes anything that touches
-# camera/UI (crit floaters, screen shake), Vampiric heal, Explosion AoE,
-# and biome cross-triggers (vampiric heal/AoE/biome all touch other Nodes/
-# EntityCache groups - bigger scope for a still-experimental, non-combat-
-# facing system, see this session's batch-pool parity plan). EXPLOSION's
-# "concussed" proc is also skipped - its ratio isn't tracked per-slot here.
+# Ratio-or-less-than-full-strength-per-hop decay factor (Projectile.gd:
+# 1783-1788's own "string of pearls" framing) - full strength (1.0) on a
+# shot's first hit, progressively smaller for later legs of a Lightning
+# hop chain or later pierces of a Pierce shot. Feeds Vampiric Heal/
+# Explosion AoE below so repeated hits from one long-lived shot don't
+# apply the same full-strength side-effect over and over for free.
+func _compute_hit_decay(i: int) -> float:
+	if _hops_max[i] > 0:
+		return float(_hops_left[i]) / float(_hops_max[i])
+	elif _pierce_count_max[i] > 1:
+		return float(_pierce_count[i] - 1) / float(_pierce_count_max[i] - 1)
+	return 1.0
+
+# Direct port of Projectile._apply_synergy_status_effects (Projectile.gd:
+# 1864-1911) - now includes EXPLOSION's "concussed" proc (previously
+# skipped since _r_exp wasn't tracked at all) and reuses the same
+# threshold table against Resonator Sync proc_synergies too, exactly like
+# the real function's own "sr" parameter/header comment ("a sync-conferred
+# burn behaves identically to a real one - just routed through a second,
+# non-damage-affecting dict"). Still deliberately excludes anything that
+# touches camera/UI (crit floaters, screen shake) - cosmetic, and the Test
+# Range dummy doesn't need them for a fair comparison.
 func _apply_status_effects(i: int, target: Node):
 	if not target.has_method("apply_status"):
 		return
-	if _r_fire[i] > 0.1:
-		target.apply_status("burning", 3.0 * _r_fire[i])
-	if _r_ice[i] > 0.1:
-		target.apply_status("frozen", 3.0 * _r_ice[i])
-	var rl = _r_ltg[i]
+	var sr = {
+		EnergyPacket.SynergyType.FIRE: _r_fire[i],
+		EnergyPacket.SynergyType.ICE: _r_ice[i],
+		EnergyPacket.SynergyType.LIGHTNING: _r_ltg[i],
+		EnergyPacket.SynergyType.POISON: _r_psn[i],
+		EnergyPacket.SynergyType.KINETIC: _r_kin[i],
+		EnergyPacket.SynergyType.PIERCE: _r_prc[i],
+		EnergyPacket.SynergyType.EXPLOSION: _r_exp[i],
+		EnergyPacket.SynergyType.VORTEX: _r_vtx[i],
+		EnergyPacket.SynergyType.VAMPIRIC: _r_vamp[i],
+	}
+	_apply_synergy_status_effects_from_dict(i, target, sr)
+	if not _proc_synergies[i].is_empty():
+		_apply_synergy_status_effects_from_dict(i, target, _proc_synergies[i])
+
+func _apply_synergy_status_effects_from_dict(i: int, target: Node, sr: Dictionary):
+	if sr.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1:
+		target.apply_status("burning", 3.0 * sr[EnergyPacket.SynergyType.FIRE])
+	if sr.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1:
+		target.apply_status("frozen", 3.0 * sr[EnergyPacket.SynergyType.ICE])
+	var rl = sr.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	if rl > 0.15 and randf() < 0.35 * rl:
 		target.apply_status("paralyzed", 0.4 + 0.5 * rl)
-	if _r_psn[i] > 0.1:
-		target.apply_status("poisoned", 4.0 + 3.0 * _r_psn[i])
-	var rk = _r_kin[i]
+	if sr.get(EnergyPacket.SynergyType.POISON, 0.0) > 0.1:
+		target.apply_status("poisoned", 4.0 + 3.0 * sr[EnergyPacket.SynergyType.POISON])
+	var rk = sr.get(EnergyPacket.SynergyType.KINETIC, 0.0)
 	if rk > 0.2:
 		target.apply_status("staggered", 0.4 + 0.3 * rk)
 		if "external_force" in target:
 			target.external_force += _direction[i] * 260.0 * rk
-	if _r_prc[i] > 0.15:
+	if sr.get(EnergyPacket.SynergyType.PIERCE, 0.0) > 0.15:
 		target.apply_status("rent", 4.0)
-	var rv = _r_vtx[i]
+	var re = sr.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
+	if re > 0.2 and randf() < 0.5 * re:
+		target.apply_status("concussed", 0.35)
+	var rv = sr.get(EnergyPacket.SynergyType.VORTEX, 0.0)
 	if rv > 0.15:
 		if "vortex_drag_point" in target:
 			target.vortex_drag_point = _position[i]
 		target.apply_status("vortexed", 0.4 + 0.6 * rv)
-	var rvm = _r_vamp[i]
+	var rvm = sr.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
 	if rvm > 0.1:
 		target.apply_status("bleeding", 3.0 + 2.0 * rvm)
 		if rvm > 0.5 and randf() < 0.3:
 			target.apply_status("immobilized", 0.5)
+
+# Mirrors Projectile.gd:1927-1931 - heals the SHOOTER's HP pool, not the
+# hit target, so it's its own function rather than living inside the
+# per-target status-effect loop above (the first status effect that
+# reaches outside the single target this shot actually hit).
+func _apply_vampiric_heal(i: int, hit_decay: float):
+	if _r_vamp[i] <= 0.1 or hit_decay <= 0.0:
+		return
+	var players = EntityCache.get_group("player")
+	if players.size() > 0 and is_instance_valid(players[0]) and players[0].has_method("apply_damage"):
+		players[0].apply_damage(-_damage[i] * 0.3 * _r_vamp[i] * hit_decay)
+
+# Mirrors Projectile.gd:1933-1935/_trigger_explosion. The real version
+# runs a PhysicsShapeQueryParameters2D scene query; this pool has no
+# physics-query infrastructure at all, so it reuses the same linear scan
+# over its own tiny _targets array _step_hit_test already does - the Test
+# Range's target count is always small enough that this is equivalent in
+# practice, not a meaningful simplification. No explicit damage element
+# passed to apply_damage, matching the real _trigger_explosion call
+# exactly (falls back to whatever apply_damage's own default element is -
+# Explosion splash bypasses elemental resistance in the real system too).
+func _apply_explosion_aoe(i: int, primary_target: Node, hit_decay: float):
+	if _r_exp[i] <= 0.1 or hit_decay <= 0.0:
+		return
+	var ratios_for_radius = {EnergyPacket.SynergyType.EXPLOSION: _r_exp[i], EnergyPacket.SynergyType.KINETIC: _r_kin[i]}
+	var radius = _ProjectileScript.explosion_radius_for(ratios_for_radius, _aoe_bonus[i]) * hit_decay
+	for t in _targets:
+		if not is_instance_valid(t) or t == primary_target or t.get("is_dead") == true:
+			continue
+		if not t.has_method("apply_damage"):
+			continue
+		if t.global_position.distance_to(_position[i]) <= radius:
+			t.apply_damage(_damage[i] * 0.5 * hit_decay)
+
+# Mirrors Projectile._trigger_poison_mine_detonation (Projectile.gd:1547-
+# 1624) - themed by whichever non-Poison/Kinetic/RAW synergy is strongest
+# in the packet. Reuses the same linear-_targets-scan approach as
+# _apply_explosion_aoe above (same reasoning). Guarded by _mine_detonated
+# so a mine detonated on contact here never ALSO detonates a second time
+# on lifetime/range expiry (see _step_simulate's own expiry-branch call).
+func _trigger_poison_mine_detonation(i: int):
+	if _mine_detonated[i] == 1:
+		return
+	_mine_detonated[i] = 1
+
+	var theme = -1
+	var theme_ratio = 0.0
+	var theme_candidates = {
+		EnergyPacket.SynergyType.LIGHTNING: _r_ltg[i], EnergyPacket.SynergyType.VORTEX: _r_vtx[i],
+		EnergyPacket.SynergyType.FIRE: _r_fire[i], EnergyPacket.SynergyType.ICE: _r_ice[i],
+		EnergyPacket.SynergyType.EXPLOSION: _r_exp[i], EnergyPacket.SynergyType.PIERCE: _r_prc[i],
+		EnergyPacket.SynergyType.VAMPIRIC: _r_vamp[i],
+	}
+	for k in theme_candidates:
+		if theme_candidates[k] > theme_ratio:
+			theme_ratio = theme_candidates[k]
+			theme = k
+
+	var radius = 220.0 * (1.0 + 0.5 * _aoe_bonus[i])
+	var burst_damage = _damage[i] * 1.5
+	var status_by_theme = {
+		EnergyPacket.SynergyType.LIGHTNING: ["paralyzed", 0.6],
+		EnergyPacket.SynergyType.VORTEX: ["vortexed", 1.2],
+		EnergyPacket.SynergyType.FIRE: ["burning", 5.0],
+		EnergyPacket.SynergyType.ICE: ["frozen", 3.0],
+	}
+	var dmg_mult = 0.6 if theme == EnergyPacket.SynergyType.ICE else 1.0
+
+	for t in _targets:
+		if not is_instance_valid(t) or t.get("is_dead") == true:
+			continue
+		if not t.has_method("apply_damage"):
+			continue
+		if t.global_position.distance_to(_position[i]) <= radius:
+			t.apply_damage(burst_damage * dmg_mult)
+			if status_by_theme.has(theme) and t.has_method("apply_status"):
+				t.apply_status(status_by_theme[theme][0], status_by_theme[theme][1])
+
+# Mirrors Projectile.gd:1937-1965's biome/oil-slick cross-triggers,
+# reading EntityCache.get_group("map_generator")/"oil_slick" exactly like
+# the real system. The Garage Test Range's own private SubViewport/World2D
+# has neither registered (deliberately isolated - see GarageTestRange.gd's
+# own header comment: "the private physics world keeps stray test shots
+# and their AoE from ever touching the actual battlefield"), so this can
+# never actually fire anything observable in the Test Range as currently
+# scoped. Ported and verified against a FAKE map/oil-slick stub
+# (BatchPoolBiomeTriggerCheck.gd) rather than skipped, per the
+# resolved decision to keep "full parity" true in the code even where
+# it's not yet visible in this system's only real deployment. Deliberately
+# does NOT port the real system's obstacle-destruction sub-case (Fire+
+# Forest also queue_frees a directly-hit Obstacle node) - the Test Range
+# has no real obstacles registered as targets, so there's nothing for that
+# to ever apply to here.
+func _apply_biome_triggers(i: int, _target: Node):
+	var maps = EntityCache.get_group("map_generator")
+	if maps.size() > 0 and is_instance_valid(maps[0]) and maps[0].has_method("get_biome_at_world_pos"):
+		var map = maps[0]
+		var biome = map.get_biome_at_world_pos(_position[i])
+		if _r_ltg[i] > 0.1 and biome == map.BiomeType.WATER:
+			_apply_area_burst(i, 400.0, _damage[i] * 2.0, "")
+		if _r_fire[i] > 0.1 and biome == map.BiomeType.FOREST:
+			_apply_area_burst(i, 200.0, _damage[i] * 1.5, "burning")
+	if _r_fire[i] > 0.1:
+		for slick in EntityCache.get_group("oil_slick"):
+			if is_instance_valid(slick) and slick.has_method("ignite") and "IGNITE_RADIUS" in slick:
+				if _position[i].distance_to(slick.global_position) <= slick.IGNITE_RADIUS:
+					slick.ignite()
+
+func _apply_area_burst(i: int, radius: float, dmg: float, status_name: String):
+	for t in _targets:
+		if not is_instance_valid(t) or t.get("is_dead") == true:
+			continue
+		if not t.has_method("apply_damage"):
+			continue
+		if t.global_position.distance_to(_position[i]) <= radius:
+			t.apply_damage(dmg)
+			if status_name != "" and t.has_method("apply_status"):
+				t.apply_status(status_name, 5.0)
 
 # Pure computation for the ghost-trail layer (B3), split out from
 # _step_render() so it's testable directly without needing a real

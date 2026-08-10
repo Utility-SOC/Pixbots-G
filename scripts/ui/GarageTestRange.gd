@@ -476,7 +476,13 @@ func _fire_via_batch_pool(source: Node, mount, packet):
 
 	var scale_mult = clamp(1.0 + log(1.0 + packet.magnitude / 200.0) * 0.5, 1.0, 5.0)
 	var ratios = EnergyPacket.compute_ratios(packet.synergies) if packet != null and "synergies" in packet else {}
-	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME_AUTO, color, scale_mult, source.is_player, source, dominant, ratios)
+	# proc_synergies/aoe_bonus (Phase 5/7 of the batch-pool full-parity
+	# plan, 2026-08-10) - previously dropped entirely here, so Resonator
+	# Sync procs and mount-fed AoE-radius bonuses never reached the batch
+	# pool at all.
+	var proc_synergies = packet.proc_synergies if packet != null and "proc_synergies" in packet else {}
+	var aoe_bonus = packet.aoe_bonus if packet != null and "aoe_bonus" in packet else 0.0
+	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME_AUTO, color, scale_mult, source.is_player, source, dominant, ratios, proc_synergies, aoe_bonus)
 
 func _reset_dummy_stats():
 	if is_instance_valid(_dummy):

@@ -72,6 +72,33 @@ var _next_spawn_gen: int = 1
 var _pierce_count: PackedInt32Array
 var _handled_targets: Array = [] # per-slot Dictionary[instance_id -> true], same dedup-set shape as Projectile._handled_targets
 
+# --- Secondary-synergy echoes (layered visual representation) - the user:
+# "in the old version I think it was more than the top two being
+# represented in projectiles." Real Projectile.gd never makes synergies
+# compete for one "winner" slot: Fire gets its own particle trail, Vortex
+# its own spiral, Poison its own toxic trail, PLUS small orbiting helix
+# particles for any secondary elements - each driven independently by its
+# OWN ratio (see Projectile.gd:987-1037's helix particles, angle = time_
+# alive*speed+phase). A single dominant-color main body (B1/the dominant-
+# color fix) only tells half the story for a genuinely blended packet.
+#
+# Up to 2 secondary synergies (the next-biggest ratios after the dominant,
+# above SECONDARY_SYNERGY_THRESHOLD) get small orbiting "echo" instances
+# using THEIR OWN procedural mesh/color - reusing the SAME per-synergy
+# MultiMesh sets already built for the main body/trail layers, since pool
+# slot `i` is a unique identity: no other live shot will ever write to
+# index `i` in ANY of the 10 synergy multimeshes while this shot is alive,
+# so borrowing two synergy channels this shot ISN'T using as its own
+# dominant is always safe. Echo 1 reuses the target synergy's MAIN body
+# multimesh, echo 2 its TRAIL multimesh - both otherwise idle for this slot.
+const SECONDARY_SYNERGY_THRESHOLD = 0.15
+const ECHO_ORBIT_RADIUS = 16.0
+const ECHO_ORBIT_SPEED = 8.0 # rad/s, matches Projectile.gd helix particles' rough pace
+const ECHO_SCALE_MULT = 0.4
+const NO_SYNERGY: int = 255 # sentinel for PackedByteArray (unsigned, can't hold -1)
+var _secondary_synergy_1: PackedByteArray
+var _secondary_synergy_2: PackedByteArray
+
 var _flight_checked: bool = false
 var _flight_rasterizer = null
 
@@ -128,11 +155,15 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_spawn_gen.resize(capacity)
 	_pierce_count.resize(capacity)
 	_handled_targets.resize(capacity)
+	_secondary_synergy_1.resize(capacity)
+	_secondary_synergy_2.resize(capacity)
 	for i in range(capacity):
 		_free_indices.append(i)
 		_color[i] = Color.WHITE
 		_dominant_synergy_name[i] = "RAW"
 		_handled_targets[i] = {}
+		_secondary_synergy_1[i] = NO_SYNERGY
+		_secondary_synergy_2[i] = NO_SYNERGY
 
 func _ready():
 	process_priority = -900
@@ -316,18 +347,51 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_spawn_gen[i] = _next_spawn_gen
 	_next_spawn_gen += 1
 
+	var secondaries = _compute_secondary_synergies(ratios, _dominant_synergy[i])
+	_secondary_synergy_1[i] = secondaries[0]
+	_secondary_synergy_2[i] = secondaries[1]
+
 	if i > _highest_active:
 		_highest_active = i
 	return i
+
+# Pure function (no MultiMesh involved, testable directly - same "test the
+# math, not a MultiMesh round-trip" reasoning as _compute_trail_render) -
+# the two next-biggest ratios after the dominant, above SECONDARY_SYNERGY_
+# THRESHOLD, sorted descending. Returns [syn_or_NO_SYNERGY, syn_or_NO_SYNERGY].
+static func _compute_secondary_synergies(ratios: Dictionary, dominant: int) -> Array:
+	var best1 = NO_SYNERGY
+	var best1_val = SECONDARY_SYNERGY_THRESHOLD
+	var best2 = NO_SYNERGY
+	var best2_val = SECONDARY_SYNERGY_THRESHOLD
+	for syn_type in ratios:
+		if int(syn_type) == dominant:
+			continue
+		var v = ratios[syn_type]
+		if v > best1_val:
+			best2 = best1
+			best2_val = best1_val
+			best1 = int(syn_type)
+			best1_val = v
+		elif v > best2_val:
+			best2 = int(syn_type)
+			best2_val = v
+	return [best1, best2]
 
 func despawn(i: int):
 	if i < 0 or i >= capacity or _alive[i] == 0:
 		return
 	_alive[i] = 0
-	var old_syn = _dominant_synergy[i]
-	if old_syn >= 0 and old_syn < 10:
-		_synergy_multimeshes[old_syn].set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
-		_trail_multimeshes[old_syn].set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
+	# Clear EVERY synergy's main+trail slot for this index, not just the
+	# dominant's - secondary echoes (see the block comment above) may have
+	# borrowed other synergies' otherwise-idle channels at this same index,
+	# and an orphaned echo would linger visibly if only the dominant's
+	# slot got cleared.
+	for syn in range(10):
+		_synergy_multimeshes[syn].set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
+		_trail_multimeshes[syn].set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
+	_secondary_synergy_1[i] = NO_SYNERGY
+	_secondary_synergy_2[i] = NO_SYNERGY
 	_source_mech[i] = null
 	_free_indices.append(i)
 
@@ -504,6 +568,19 @@ static func _compute_trail_render(render_pos: Vector2, direction: Vector2, main_
 	trail_c.a = main_color.a * TRAIL_ALPHA_MULT
 	return {"position": render_pos - direction * TRAIL_OFFSET_PX, "color": trail_c}
 
+# Pure computation for one secondary-synergy echo (same "test the math, not
+# a MultiMesh round-trip" reasoning as _compute_trail_render) - orbits the
+# main body, mirroring Projectile.gd's helix particles (angle = time_alive*
+# speed+phase, Projectile.gd:1433). phase=0.0 for the first echo, PI for
+# the second, so two simultaneous secondaries land on opposite sides
+# instead of overlapping.
+static func _compute_echo_render(render_pos: Vector2, elapsed: float, phase: float, alpha: float, synergy: int) -> Dictionary:
+	var angle = elapsed * ECHO_ORBIT_SPEED + phase
+	var offset = Vector2(cos(angle), sin(angle)) * ECHO_ORBIT_RADIUS
+	var c = EnergyPacket.get_color_for_synergy(synergy) * 1.5
+	c.a = alpha
+	return {"position": render_pos + offset, "color": c}
+
 func _step_render():
 	for i in range(_highest_active + 1):
 		if _alive[i] == 0:
@@ -525,3 +602,22 @@ func _step_render():
 			var trail_xform = Transform2D(rot, trail_render["position"]).scaled(Vector2(_scale[i], _scale[i]) * TRAIL_SCALE_MULT)
 			_trail_multimeshes[syn].set_instance_transform_2d(i, trail_xform)
 			_trail_multimeshes[syn].set_instance_color(i, trail_render["color"])
+
+			# Secondary-synergy echoes - orbiting instances for up to 2
+			# non-dominant ratios, so a blended packet reads as more than
+			# just its single loudest element. Borrows each secondary's OWN
+			# otherwise-idle main-body (echo 1) / trail (echo 2) multimesh
+			# channel at this same slot index - see the class-level comment
+			# on _secondary_synergy_1/_secondary_synergy_2 for why that's safe.
+			var syn2_1 = _secondary_synergy_1[i]
+			if syn2_1 != NO_SYNERGY:
+				var echo1 = _compute_echo_render(render_pos, _elapsed[i], 0.0, c.a, syn2_1)
+				var echo1_xform = Transform2D(rot, echo1["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
+				_synergy_multimeshes[syn2_1].set_instance_transform_2d(i, echo1_xform)
+				_synergy_multimeshes[syn2_1].set_instance_color(i, echo1["color"])
+			var syn2_2 = _secondary_synergy_2[i]
+			if syn2_2 != NO_SYNERGY:
+				var echo2 = _compute_echo_render(render_pos, _elapsed[i], PI, c.a, syn2_2)
+				var echo2_xform = Transform2D(rot, echo2["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
+				_trail_multimeshes[syn2_2].set_instance_transform_2d(i, echo2_xform)
+				_trail_multimeshes[syn2_2].set_instance_color(i, echo2["color"])

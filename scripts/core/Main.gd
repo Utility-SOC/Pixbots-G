@@ -24,9 +24,41 @@ const DRONE_RESPAWN_DELAY = 8.0
 
 var current_mode: String = "sandbox"
 var current_wave: int = 1
+# Guaranteed once-per-wave Mythic-tier introduction, from MYTHIC_MILESTONE_
+# START_WAVE onward - replaces the old per-spawn mythic_seed_chance random
+# roll (SquadDirector._spawn_bot_for_role used to independently roll up to
+# 20% of ALL spawns to Mythic, regardless of role/template, which scattered
+# rarity unpredictably across every wave and was real AutoEquipSolver
+# topology-cache/StockBuildEvolution-cache churn - see this session's own
+# spawn-perf investigation). A deterministic, single, predictable event per
+# wave instead of a diffuse chance across many bots - reset in _start_wave(),
+# consumed by the first SquadDirector._spawn_bot_for_role call that checks
+# it each wave. Per the user: first Mythic-tier grunt at wave 75 (bosses get
+# their own separate always-on rule from that point too - see Main.
+# _spawn_boss); wave 110+ additionally lets the loot table start dropping
+# Mythic-tier COMPONENTS (not just tiles) - that's a LootManager-side change,
+# explicitly out of scope here, not yet implemented.
+const MYTHIC_MILESTONE_START_WAVE = 75
+var _wave_guaranteed_mythic_used: bool = false
 var campaign_data: Dictionary = {}
 var active_enemies: int = 0
 var garage_timer: float = 90.0
+# Wave spawns spread across roughly this much of garage_timer's own 90s
+# countdown (user: "90 per wave just for spawning, they spawn spread out
+# over 90 seconds") instead of the old ~2-3s burst (a whole wave's worth
+# of squads separated only by a fixed 0.12s anti-freeze beat, all landing
+# in the first few seconds after wave start) - see _spawn_wave_async's own
+# comment. Deliberately less than garage_timer's full 90.0 (WAVE_SPAWN_
+# SAFETY_MARGIN_SECONDS below reserves the tail end) so the last spawned
+# squad still has real time to matter before extraction opens, rather than
+# walking in right as the marker appears.
+const WAVE_SPAWN_SPREAD_SECONDS = 75.0
+const WAVE_SPAWN_SAFETY_MARGIN_SECONDS = 8.0
+# Used only to ESTIMATE how many squads remain (for interval pacing) -
+# real squad sizes vary 3-5 per SquadTemplate.required_roles; the interval
+# recomputes every squad against the actual remaining enemy count, so this
+# only needs to be roughly right, not exact.
+const WAVE_SPAWN_AVG_SQUAD_SIZE_ESTIMATE = 4.0
 
 # Tournament mode bracket (see the current_wave % 1 dispatch below): the
 # 15 Regulars, then whichever Elite Four champions this save has already
@@ -922,14 +954,21 @@ func _start_wave():
 	# of trusting it. 10s is generous headroom over the ~2-3s a legitimate
 	# 50-squad-max, 0.12s-per-beat spawn should ever take.
 	if _spawning_wave:
-		if Time.get_ticks_msec() - _spawning_wave_started_at < 10000:
+		# Watchdog threshold raised alongside the spawn-pacing change below
+		# (see _spawn_wave_async's own comment) - spawning a full wave now
+		# legitimately takes up to ~garage_timer's own duration (spread
+		# across it, not a 2-3s burst), so the old 10s "must be stuck"
+		# assumption would false-positive on every normal wave. Generous
+		# headroom over WAVE_SPAWN_SPREAD_SECONDS + the safety margin.
+		if Time.get_ticks_msec() - _spawning_wave_started_at < int((WAVE_SPAWN_SPREAD_SECONDS + 20.0) * 1000.0):
 			return
-		push_warning("[Main] _spawning_wave was stuck true for 10s+ (wave %d) - forcing recovery" % current_wave)
+		push_warning("[Main] _spawning_wave was stuck true for %ds+ (wave %d) - forcing recovery" % [int(WAVE_SPAWN_SPREAD_SECONDS + 20.0), current_wave])
 		_spawning_wave = false
 		_clear_stale_wave_enemies()
 	_update_hud()
 	print("--- WAVE ", current_wave, " COMMENCING ---")
 	LootManager.current_wave = current_wave
+	_wave_guaranteed_mythic_used = false
 	# Reactive music: combat loop (faster arps + drums) for the wave.
 	AudioManager.set_combat_state(true)
 
@@ -1192,9 +1231,34 @@ var _active_enemies_drift_timer: float = 0.0
 # better: squads arrive in the central region one handful at a time, like
 # minis being set down mid-table rather than marched in from the edges
 # (see _pick_spawn_anchor).
+# Adaptive inter-squad wait (user: "90 per wave just for spawning, they
+# spawn spread out over 90 seconds" - see WAVE_SPAWN_SPREAD_SECONDS' own
+# field comment): spreads the REMAINING squads across whatever's left of
+# the spread window, recomputed after every squad (not a fixed pre-
+# computed total) since real squad sizes vary 3-5, not a fixed count -
+# this keeps the pacing accurate rather than drifting off an initial
+# estimate. Falls back to the old fast 0.12s anti-freeze beat once
+# garage_timer drops into the safety-margin tail, or once there's nothing
+# left to spawn, so a wave still finishes promptly rather than idling.
+# Pulled out of _spawn_wave_async's loop into its own pure function so it
+# can be tested directly without driving the full spawn coroutine.
+func _compute_spawn_interval(target_enemy_count: int, wave_start_garage_timer: float) -> float:
+	var remaining_enemies = max(0, target_enemy_count - active_enemies)
+	if remaining_enemies <= 0 or garage_timer <= WAVE_SPAWN_SAFETY_MARGIN_SECONDS:
+		return 0.12
+	var elapsed_wave_time = wave_start_garage_timer - garage_timer
+	var remaining_spread_time = max(0.0, WAVE_SPAWN_SPREAD_SECONDS - elapsed_wave_time)
+	var estimated_remaining_squads = max(1.0, ceil(remaining_enemies / WAVE_SPAWN_AVG_SQUAD_SIZE_ESTIMATE))
+	return max(0.12, remaining_spread_time / estimated_remaining_squads)
+
 func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Array = []) -> void:
 	_spawning_wave = true
 	_spawning_wave_started_at = Time.get_ticks_msec()
+	# Captured once, rather than assuming garage_timer always starts at
+	# exactly 90.0 - it's whatever garage_timer actually reads the moment
+	# this wave's spawning begins, so elapsed-time math below stays correct
+	# even if some other code path changes garage_timer's starting value.
+	var wave_start_garage_timer = garage_timer
 	var safety_break = 0
 	while active_enemies < target_enemy_count and safety_break < 50:
 		safety_break += 1
@@ -1228,8 +1292,9 @@ func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Arr
 			active_enemies += 1
 			_wave_spawned_any = true
 
-		# One squad per beat - this is the anti-freeze.
-		await get_tree().create_timer(0.12).timeout
+		# Adaptive pacing - see _compute_spawn_interval's own comment.
+		var interval = _compute_spawn_interval(target_enemy_count, wave_start_garage_timer)
+		await get_tree().create_timer(interval).timeout
 
 	_spawning_wave = false
 
@@ -1304,7 +1369,14 @@ func _pick_spawn_anchor() -> Vector2:
 # flavor. First-pass numbers, not measured against real playtesting.
 func _spawn_boss(director, is_mega: bool):
 	var profile = director.get_active_boss_profile()
-	var boss = director._spawn_bot_for_role(profile.base_role)
+	# Per the user: once the wave-75 Mythic milestone hits, EVERY boss from
+	# then on gets guaranteed Mythic-tier hexes, not just a once-per-wave
+	# grunt chance - passed as the rarity FLOOR (p_rarity), same pattern
+	# Nemesis Bounties/forced-Mythic rivals already use, so difficulty-
+	# scaling/gear-parity inside _spawn_bot_for_role can only push it UP
+	# from Mythic (a no-op, already at the ceiling), never override it down.
+	var boss_rarity_floor = HexTile.Rarity.MYTHIC if current_wave >= MYTHIC_MILESTONE_START_WAVE else 0
+	var boss = director._spawn_bot_for_role(profile.base_role, false, boss_rarity_floor)
 	boss.boss_profile = profile
 	var hp_mult = profile.hp_mult
 	if is_mega:

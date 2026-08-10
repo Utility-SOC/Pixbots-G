@@ -1058,17 +1058,24 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	# Mythic seeding, independent of the difficulty-gated gear-parity above
 	# (which on its own never reaches past RARE, or only mirrors the
 	# player's own tier - neither ever introduces a FIRST Mythic on its
-	# own). Per the user: as waves climb, the chance any given enemy is
-	# built entirely at Mythic tier should steadily increase, tuned so a
-	# player realistically sees their first Mythic-tier enemy (and, via
-	# LootManager's matching wave-scaled drop chance, an actual Mythic
-	# drop) by around wave/level 30 - not guaranteed, just increasingly
-	# likely as more enemies get rolled against the chance.
-	if main and "current_wave" in main:
-		var mythic_seed_chance = clamp((float(main.current_wave) - 5.0) / 150.0, 0.0, 0.2)
-		if randf() < mythic_seed_chance:
+	# own). Used to be a per-spawn random roll (up to 20% of ALL spawns,
+	# every wave, regardless of role/template) - real, measured
+	# AutoEquipSolver topology-cache/StockBuildEvolution-cache churn (see
+	# this session's own spawn-perf investigation: rarity is part of both
+	# cache keys, so scattering it unpredictably across most spawns meant
+	# a large share never got a cache hit). Replaced with a deterministic,
+	# once-per-wave guarantee instead: first Mythic-tier grunt at wave 75
+	# (Main.MYTHIC_MILESTONE_START_WAVE), a single predictable event rather
+	# than a diffuse chance across many bots. main._wave_guaranteed_mythic_
+	# used is reset once per wave in Main._start_wave(); whichever bot
+	# happens to be first through this function that wave consumes it.
+	# Bosses get their own separate always-Mythic rule from wave 75 on -
+	# see Main._spawn_boss.
+	if main and "current_wave" in main and "MYTHIC_MILESTONE_START_WAVE" in main and int(main.current_wave) >= int(main.MYTHIC_MILESTONE_START_WAVE):
+		if "_wave_guaranteed_mythic_used" in main and not main._wave_guaranteed_mythic_used:
+			main._wave_guaranteed_mythic_used = true
 			bot.base_rarity = HexTile.Rarity.MYTHIC
-		
+
 	var base_hp = 100.0
 	match role:
 		"jammer":

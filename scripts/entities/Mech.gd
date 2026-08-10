@@ -3998,17 +3998,18 @@ func build_loadout_for_role(role_name: String):
 			tile.secondary_synergy = synergy
 		inventory.append(tile)
 
-	# Tile rarity now scales with base_rarity instead of being hardcoded -
-	# previously every enemy got the exact same fixed-rarity weapon tiles
-	# regardless of base_rarity (only component/frame SIZE scaled), so a
-	# "Mythic-tier" enemy's huge grid ended up sparsely filled with COMMON/
-	# UNCOMMON/RARE gear. The offsets below preserve each role's original
-	# relative shape (signature tile strongest, support tiles trail behind
-	# it) rather than flattening everything to the same tier - the old
-	# hardcoded ceiling was RARE (2), so that's offset 0; UNCOMMON (1) was
-	# one step below that ceiling, COMMON (0) was two steps below.
+	# Tile rarity matches base_rarity uniformly (the player doesn't need to
+	# see Mythic tiles until facing Mythic foes - a bot's own base_rarity
+	# already gates that, per Main.MYTHIC_MILESTONE_START_WAVE). Used to
+	# offset support tiles a step or two below the signature tile's rarity
+	# ("signature tile strongest, support tiles trail behind") - real, but
+	# rarity is part of both AutoEquipSolver's topology-cache key and
+	# StockBuildEvolution's cache key, so that variance multiplied the
+	# effective cache-key space per role for no gameplay benefit at low/mid
+	# rarity. Microcore's own +1-above-component exception lives separately
+	# in ComponentEquipment.gd's fixed-sink placement, not here.
 	var tier = func(offset: int) -> int:
-		return clamp(base_rarity - offset, HexTile.Rarity.COMMON, HexTile.Rarity.MYTHIC)
+		return base_rarity
 
 	match role_name:
 		"sniper":

@@ -21,7 +21,33 @@ const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 # is shared with the player's own Garage Auto-Equip.
 static var _topology_cache: Dictionary = {}
 
+# Perf instrumentation (live playtest: build_loadout_for_role costing
+# 1300-2700ms/sec whenever enemies spawn at wave 160+, the single biggest
+# confirmed perf problem this session - see Status.md's own prior note
+# that no headless regression check existed for this solver yet). Four
+# candidate cost centers inside a cache-miss/deviation-roll _solve_impl
+# call, split out so a real playtest (and the new AutoEquipSolverPerfCheck.
+# gd) can show which one actually dominates instead of guessing:
+static var _perf_bfs_usec: int = 0 # the global spanning-tree BFS from Core
+static var _perf_lengthen_path_usec: int = 0 # _lengthen_path()'s restart-scan loop
+static var _perf_reattach_usec: int = 0 # _demote_excess_children()/_try_reattach()'s reroute BFS
+static var _perf_placement_scan_usec: int = 0 # _find_tile_index[_by_priority]/_find_splitter_index_for_faces
+# Added after Step 1's first real measurement showed only ~61% of solve()'s
+# wall-clock time attributed to the four regions above - _topology_cache_key
+# (sorts+string-formats the WHOLE inventory on every call, even cache hits)
+# and _extract_plan (re-walks the whole grid after a miss) are both outside
+# _solve_impl but inside solve()'s own wall-clock cost, and were the two
+# obvious remaining candidates for the missing ~39%.
+static var _perf_cache_key_usec: int = 0
+static var _perf_extract_plan_usec: int = 0
+
 func _topology_cache_key(component: Node, inventory: Array, profile: SolverProfile) -> String:
+	var _t_key = Time.get_ticks_usec()
+	var result = _topology_cache_key_body(component, inventory, profile)
+	_perf_cache_key_usec += Time.get_ticks_usec() - _t_key
+	return result
+
+func _topology_cache_key_body(component: Node, inventory: Array, profile: SolverProfile) -> String:
 	var hex_sig = PackedStringArray()
 	for h in component.valid_hexes:
 		hex_sig.append("%d,%d" % [h.q, h.r])
@@ -42,6 +68,12 @@ func _topology_cache_key(component: Node, inventory: Array, profile: SolverProfi
 # every placed/reconfigured tile except secondary_synergy (see solve()'s
 # replay branch - that one field always stays live per-call).
 func _extract_plan(component: Node) -> Dictionary:
+	var _t_extract = Time.get_ticks_usec()
+	var result = _extract_plan_body(component)
+	_perf_extract_plan_usec += Time.get_ticks_usec() - _t_extract
+	return result
+
+func _extract_plan_body(component: Node) -> Dictionary:
 	var grid = component.hex_grid
 	var targets = component.fixed_sinks
 	var start_v = Vector2i(0, 0)
@@ -211,20 +243,30 @@ func _solve_impl(component: Node, inventory: Array, profile: SolverProfile = nul
 		valid_map[Vector2i(h.q, h.r)] = true
 		
 	# 3. Global BFS from start to build a shared spanning tree
+	var _t_bfs = Time.get_ticks_usec()
 	var came_from = {}
 	var queue = [start]
 	came_from[Vector2i(start.q, start.r)] = null
 
+	# Perf fix (direct profiling: this loop alone was ~44% of a real
+	# solve() call's wall-clock time). HexCoord.neighbor() allocates a
+	# full new RefCounted for every one of the 6 checks per node, even
+	# though roughly 5/6 turn out to already be visited and get discarded
+	# immediately after being converted to a Vector2i for the Dictionary
+	# lookup - see HexCoord.get_direction_offsets()'s own comment. Do the
+	# neighbor math as raw Vector2i first; only allocate a real HexCoord
+	# for a node that's actually new and needs to survive on the queue.
+	var offsets = HexCoord.get_direction_offsets()
 	while queue.size() > 0:
 		var current = queue.pop_front()
 		var current_v = Vector2i(current.q, current.r)
 		for d in range(6):
-			var n = current.neighbor(d)
-			var nv = Vector2i(n.q, n.r)
+			var nv = current_v + offsets[d]
 			if valid_map.has(nv) and not came_from.has(nv):
 				came_from[nv] = current_v
-				queue.push_back(n)
-				
+				queue.push_back(HexCoord.new(nv.x, nv.y))
+	_perf_bfs_usec += Time.get_ticks_usec() - _t_bfs
+
 	var paths = {}
 	for target in targets:
 		var target_v = Vector2i(target.q, target.r)
@@ -642,6 +684,11 @@ func _pick_profile_synergy(profile: SolverProfile) -> int:
 # had a clean reroute available. _try_reattach (below) actually attempts
 # and verifies each candidate rather than assuming one will work.
 func _demote_excess_children(v: Vector2i, cap: int, tree_nodes: Dictionary, parent_map: Dictionary, valid_map: Dictionary, root_v: Vector2i, targets: Array, locked_v: Dictionary = {}) -> void:
+	var _t_reattach = Time.get_ticks_usec()
+	_demote_excess_children_body(v, cap, tree_nodes, parent_map, valid_map, root_v, targets, locked_v)
+	_perf_reattach_usec += Time.get_ticks_usec() - _t_reattach
+
+func _demote_excess_children_body(v: Vector2i, cap: int, tree_nodes: Dictionary, parent_map: Dictionary, valid_map: Dictionary, root_v: Vector2i, targets: Array, locked_v: Dictionary = {}) -> void:
 	if not tree_nodes.has(v):
 		return
 	while tree_nodes[v].size() > cap:
@@ -787,6 +834,12 @@ func _try_reattach(e: Vector2i, tree_nodes: Dictionary, parent_map: Dictionary, 
 # already proved a big-enough tile exists in inventory for every node that
 # reaches this point undemoted.
 func _find_splitter_index_for_faces(inventory: Array, num_faces: int) -> int:
+	var _t_scan = Time.get_ticks_usec()
+	var result = _find_splitter_index_for_faces_body(inventory, num_faces)
+	_perf_placement_scan_usec += Time.get_ticks_usec() - _t_scan
+	return result
+
+func _find_splitter_index_for_faces_body(inventory: Array, num_faces: int) -> int:
 	var best_idx = -1
 	var best_cap = -1
 	for i in range(inventory.size()):
@@ -809,6 +862,12 @@ func _get_direction(from: HexCoord, to: HexCoord) -> int:
 	return 0
 
 func _find_tile_index(inventory: Array, type_name: String) -> int:
+	var _t_scan = Time.get_ticks_usec()
+	var result = _find_tile_index_body(inventory, type_name)
+	_perf_placement_scan_usec += Time.get_ticks_usec() - _t_scan
+	return result
+
+func _find_tile_index_body(inventory: Array, type_name: String) -> int:
 	for i in range(inventory.size()):
 		if inventory[i].tile_type == type_name:
 			return i
@@ -823,6 +882,12 @@ func _find_tile_index(inventory: Array, type_name: String) -> int:
 # stay as plain _find_tile_index calls, inventory here is small enough that
 # rewriting those too wouldn't pay for the extra bookkeeping risk.
 func _find_tile_index_by_priority(inventory: Array, type_priority: Array) -> int:
+	var _t_scan = Time.get_ticks_usec()
+	var result = _find_tile_index_by_priority_body(inventory, type_priority)
+	_perf_placement_scan_usec += Time.get_ticks_usec() - _t_scan
+	return result
+
+func _find_tile_index_by_priority_body(inventory: Array, type_priority: Array) -> int:
 	var best_idx = -1
 	var best_rank = type_priority.size()
 	for i in range(inventory.size()):
@@ -835,6 +900,12 @@ func _find_tile_index_by_priority(inventory: Array, type_priority: Array) -> int
 	return best_idx
 
 func _lengthen_path(path: Array, valid_map: Dictionary, max_length: int) -> Array:
+	var _t_lengthen = Time.get_ticks_usec()
+	var result = _lengthen_path_body(path, valid_map, max_length)
+	_perf_lengthen_path_usec += Time.get_ticks_usec() - _t_lengthen
+	return result
+
+func _lengthen_path_body(path: Array, valid_map: Dictionary, max_length: int) -> Array:
 	var current_path = path.duplicate()
 	var improved = true
 	while improved and current_path.size() < max_length:

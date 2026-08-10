@@ -18,6 +18,12 @@ const SightAndSearch = preload("res://scripts/entities/SightAndSearch.gd")
 const MagnetSystem = preload("res://scripts/entities/MagnetSystem.gd")
 const CloakSystem = preload("res://scripts/entities/CloakSystem.gd")
 const JammerModuleSystem = preload("res://scripts/entities/JammerModuleSystem.gd")
+# Perf fix (see AutoEquipSolver.gd's own perf-instrumentation comment):
+# build_loadout_for_role used to load() this fresh on every single call
+# instead of a preloaded const, the pattern used everywhere else in this
+# file - a small, free, zero-risk win alongside the real solver-cost
+# investigation.
+const AutoEquipSolverScript = preload("res://scripts/core/AutoEquipSolver.gd")
 const HealBeaconSystem = preload("res://scripts/entities/HealBeaconSystem.gd")
 const AegisShieldPulseSystem = preload("res://scripts/entities/AegisShieldPulseSystem.gd")
 const JammerField = preload("res://scripts/visuals/JammerField.gd")
@@ -4060,7 +4066,7 @@ func build_loadout_for_role(role_name: String):
 		for i in range(num_amps):
 			add_tile.call("res://scripts/tiles/AmplifierTile.gd", base_rarity)
 
-	var solver = load("res://scripts/core/AutoEquipSolver.gd").new()
+	var solver = AutoEquipSolverScript.new()
 
 	if components.has(HexTile.BodySlot.TORSO):
 		inventory = solver.solve(components[HexTile.BodySlot.TORSO], inventory, spawn_profile)

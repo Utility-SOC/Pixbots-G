@@ -72,6 +72,13 @@ var perf_label3: Label
 # dominant by live playtest: 927ms/sec while actively spawning) - see
 # Mech._perf_shape_gen_usec/_perf_build_loadout_usec/_perf_visual_build_usec.
 var perf_label4: Label
+# Ninth line: AutoEquipSolver's internal cost breakdown (live playtest:
+# build_loadout - perf_label4 above - confirmed as the single biggest perf
+# problem this session, 1300-2700ms/sec at wave 160+; this line answers
+# WHICH of solve()'s four candidate cost centers actually dominates) - see
+# AutoEquipSolver.gd's own _perf_bfs_usec/_perf_lengthen_path_usec/
+# _perf_reattach_usec/_perf_placement_scan_usec.
+var perf_label5: Label
 # Sixth line: build/version tag - see _compute_build_version() below.
 var version_label: Label
 var _perf_sample_timer: float = 0.0
@@ -227,6 +234,15 @@ func _ready():
 	perf_label4.modulate = Color(1.0, 0.85, 1.0)
 	box.add_child(perf_label4)
 
+	perf_label5 = Label.new()
+	perf_label5.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	perf_label5.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	perf_label5.add_theme_font_size_override("font_size", 12)
+	perf_label5.add_theme_constant_override("outline_size", 3)
+	perf_label5.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	perf_label5.modulate = Color(0.75, 1.0, 1.0)
+	box.add_child(perf_label5)
+
 	_build_version_text = _compute_build_version()
 	version_label = Label.new()
 	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -379,6 +395,28 @@ func _process(delta: float):
 		Mech._perf_visual_build_usec = 0
 		perf_label4.text = "bot_spawn breakdown: shape_gen %.0fms  build_loadout %.0fms  visual_build %.0fms" % [
 			shape_gen_ms, build_loadout_ms, visual_build_ms
+		]
+
+		# AutoEquipSolver's own internal breakdown - only non-zero on a cache
+		# miss/deviation-test roll (a cache hit replays a cached plan and
+		# never enters _solve_impl at all) - see that file's own comment.
+		var solver_bfs_ms = AutoEquipSolver._perf_bfs_usec / 1000.0
+		var solver_lengthen_ms = AutoEquipSolver._perf_lengthen_path_usec / 1000.0
+		var solver_reattach_ms = AutoEquipSolver._perf_reattach_usec / 1000.0
+		var solver_scan_ms = AutoEquipSolver._perf_placement_scan_usec / 1000.0
+		# cache_key runs on EVERY solve() call, even cache hits (sorts+
+		# formats the whole inventory just to check the cache) - extract_plan
+		# only on a miss, once, to build the new cache entry.
+		var solver_cache_key_ms = AutoEquipSolver._perf_cache_key_usec / 1000.0
+		var solver_extract_plan_ms = AutoEquipSolver._perf_extract_plan_usec / 1000.0
+		AutoEquipSolver._perf_bfs_usec = 0
+		AutoEquipSolver._perf_lengthen_path_usec = 0
+		AutoEquipSolver._perf_reattach_usec = 0
+		AutoEquipSolver._perf_placement_scan_usec = 0
+		AutoEquipSolver._perf_cache_key_usec = 0
+		AutoEquipSolver._perf_extract_plan_usec = 0
+		perf_label5.text = "solve() breakdown: cache_key %.0fms  bfs %.0fms  lengthen_path %.0fms  reattach %.0fms  placement_scan %.0fms  extract_plan %.0fms" % [
+			solver_cache_key_ms, solver_bfs_ms, solver_lengthen_ms, solver_reattach_ms, solver_scan_ms, solver_extract_plan_ms
 		]
 
 ## Resolves once at _ready() (see _build_version_text) - never called again,

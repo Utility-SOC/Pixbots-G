@@ -56,6 +56,25 @@ static func get_directions() -> Array[HexCoord]:
 		]
 	return _cached_directions
 
+static var _cached_direction_offsets: Array[Vector2i] = []
+
+# Same 6 directions as get_directions() above, as raw Vector2i instead of
+# HexCoord objects - for hot loops (AutoEquipSolver._solve_impl's BFS
+# spanning tree, confirmed by direct profiling as ~44% of a real solve()
+# call's wall-clock time) that only need a neighbor's (q,r) to check/insert
+# into a Vector2i-keyed Dictionary and immediately discard it otherwise -
+# HexCoord.neighbor() allocates a full new RefCounted for every one of
+# those, even the ~5/6 that turn out to be already-visited and thrown away
+# right after. Construct a real HexCoord only where one actually needs to
+# survive (e.g. pushed onto a BFS queue as a new frontier node).
+static func get_direction_offsets() -> Array[Vector2i]:
+	if _cached_direction_offsets.is_empty():
+		_cached_direction_offsets = [
+			Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1),
+			Vector2i(-1, 0), Vector2i(0, -1), Vector2i(1, -1)
+		]
+	return _cached_direction_offsets
+
 func _to_string() -> String:
 	return "HexCoord(" + str(q) + ", " + str(r) + ")"
 

@@ -478,7 +478,27 @@ func _update_stats():
 		return
 	var dealt = _dummy.max_hp - _dummy.hp
 	var per_volley = dealt / max(1, _volleys_fired)
-	_stats_label.text = "Volleys: %d   Shots: %d   Total damage on dummy: %.0f   Avg per volley: %.0f" % [_volleys_fired, _shots_fired, dealt, per_volley]
+	var text = "Volleys: %d   Shots: %d   Total damage on dummy: %.0f   Avg per volley: %.0f" % [_volleys_fired, _shots_fired, dealt, per_volley]
+	# TEMPORARY diagnostic (2026-08-10) - investigating a live playtest report
+	# of the batch renderer dealing zero damage against the dummy with a real
+	# multi-mount loadout, not reproduced yet in an isolated headless repro.
+	# Surfaces the pool's actual internal state for the first live shot so
+	# the next screenshot carries real numbers instead of visual inference.
+	# Remove once the report is resolved/confirmed fixed.
+	if _batch_toggle and _batch_toggle.button_pressed and _batch_pool:
+		var live = _batch_pool.live_count()
+		if live > 0:
+			for i in range(_batch_pool._highest_active + 1):
+				if _batch_pool._alive[i] == 1:
+					var dist = _batch_pool._position[i].distance_to(_dummy.global_position)
+					text += "\n[DEBUG] live=%d slot=%d pos=%s dist_to_dummy=%.1f dir=%s speed=%.1f dom=%s r_vtx=%.2f r_exp_dmg=%.0f elapsed=%.2f/%.2f" % [
+						live, i, _batch_pool._position[i], dist, _batch_pool._direction[i], _batch_pool._speed[i],
+						_batch_pool._dominant_synergy_name[i], _batch_pool._r_vtx[i], _batch_pool._damage[i],
+						_batch_pool._elapsed[i], _batch_pool._lifetime[i]]
+					break
+		else:
+			text += "\n[DEBUG] live=0 (no shots currently alive in the pool)"
+	_stats_label.text = text
 
 func _process(delta):
 	if _auto_toggle and _auto_toggle.button_pressed:

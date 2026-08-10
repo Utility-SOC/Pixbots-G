@@ -444,19 +444,27 @@ func _fire_via_batch_pool(source: Node, mount, packet):
 		dir = Vector2.RIGHT
 	var dmg = packet.magnitude * mount._get_damage_multiplier() * mount._get_power_multiplier()
 
-	var dominant = 0
-	var max_power = -1.0
-	if packet != null and "synergies" in packet:
-		for syn_type in packet.synergies:
-			var p = packet.synergies[syn_type]
-			if syn_type != EnergyPacket.SynergyType.RAW or packet.synergies.size() == 1:
-				if p > max_power:
-					max_power = p
-					dominant = syn_type
+	# Same dominant-synergy selection the mount's row label already used
+	# (EnergyPacket.dominant_synergy_of, via packet.get_dominant_synergy())
+	# - this used to be a separate, hand-rolled RAW-excluding scan that could
+	# pick a DIFFERENT dominant than what the row promised (confirmed via a
+	# live debug readout: a mount labeled "EXPLOSION" fired a shot whose
+	# batch-pool dominant came out KINETIC), so the shot's shape/damage-
+	# element silently didn't match the weapon the player selected.
+	var dominant = packet.get_dominant_synergy() if packet != null and packet.has_method("get_dominant_synergy") else 0
 
+	# Real Projectile.gd never blends its main body color (_calculate_stats'
+	# own comment: "Keep vibrancy by picking dominant color and boosting") -
+	# get_color_blend() is only ever used there for a secondary lightning-
+	# bolt accent, not the shot itself. The batch pool used to call
+	# get_color_blend() for ANY multi-element packet, which washes toward
+	# gray/white for anything with real RAW content blended in (RAW's color
+	# is pure white) - exactly the "large grey ox" a 600k-energy multi-
+	# element shot rendered as. Match the real path: single dominant color,
+	# boosted, never blended.
 	var color = EnergyPacket.get_color_for_synergy(dominant) if dominant != 0 else Color(0.9, 0.9, 1.0)
-	if packet != null and "synergies" in packet and packet.synergies.size() > 1:
-		color = EnergyPacket.get_color_blend(packet.synergies)
+	color = (color * 1.5)
+	color.a = 1.0
 
 	var scale_mult = clamp(1.0 + log(1.0 + packet.magnitude / 200.0) * 0.5, 1.0, 5.0)
 	var ratios = EnergyPacket.compute_ratios(packet.synergies) if packet != null and "synergies" in packet else {}

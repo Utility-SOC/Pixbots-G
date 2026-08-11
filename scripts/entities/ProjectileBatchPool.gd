@@ -194,15 +194,21 @@ var _add_material: CanvasItemMaterial
 var _synergy_polygons: Array[PackedVector2Array] = [] # outer aura, per synergy (0..9)
 var _synergy_polygons_inner: Array[PackedVector2Array] = [] # 0.5x scale "hot core" - same color, additive overdraw brightens the center, matches the old two-surface mesh exactly
 
+# Rendering mode selector (user request, 2026-08-11: "I want to be able to
+# choose between these") - the old standalone pie_chart_mode bool became a
+# 3-way choice once Shape Blend joined Pie Chart as a second alternate
+# "logo" treatment; only one applies at a time. GarageTestRange.gd's UI and
+# the main-menu Settings screen's Visuals tab both just assign this int.
+enum RenderMode { FLAT, PIE_CHART, SHAPE_BLEND }
+var render_mode: int = RenderMode.FLAT
+
 # Pie Chart mode (user request, 2026-08-11, GarageTestRange.gd's own
 # independent toggle) - replaces ONLY the flat-color hot-core fill above
 # with a pie chart of the shot's REAL synergy ratios (+/-0.5% accurate -
 # see _compute_pie_wedges' own comment on why that's structural, not a
 # tuned tolerance). The aura (still the same per-synergy polygon), ghost
 # trail, Vortex helix, and secondary echoes are all completely untouched -
-# "flat graph + any tail + any aura," the user's own framing. Off by
-# default (every existing behavior unchanged unless explicitly toggled).
-var pie_chart_mode: bool = false
+# "flat graph + any tail + any aura," the user's own framing.
 const PIE_RADIUS = 6.0 # roughly the same footprint as _synergy_polygons_inner's own extent
 const PIE_SEGMENTS_PER_TAU = 40.0 # ~9 degrees/segment - smooths the arc only, never affects wedge SIZE accuracy
 # Fixed draw order (not re-sorted by magnitude) so a shot's pie doesn't
@@ -218,6 +224,34 @@ const PIE_SYNERGY_ORDER = [
 	EnergyPacket.SynergyType.KINETIC, EnergyPacket.SynergyType.PIERCE,
 	EnergyPacket.SynergyType.VAMPIRIC,
 ]
+
+# Shape Blend mode (user request, 2026-08-11: "what if each of the ten
+# synergies had its own shape, and then when they are combined, their
+# shape is x/y/z amount toward each shape, averaging total shape for the
+# projectiles?"). Unlike Pie Chart mode (which only swaps the inner hot-
+# core fill for a chart, leaving the aura as a single dominant-synergy
+# shape), Shape Blend replaces the shot's WHOLE main-body silhouette - aura
+# AND core - with a literal weighted-average shape across every synergy
+# actually present in this shot's ratios, proportional to those ratios.
+# Trail/echoes/Vortex helix stay driven by dominant/secondary synergy as
+# before - this only changes what the shot's own "logo" looks like.
+#
+# Each of the 10 hand-authored per-synergy polygons above has a different
+# vertex count and isn't necessarily a clean star shape around the origin
+# (LIGHTNING's zigzag even doubles back through the origin twice), so
+# there's no natural 1:1 vertex correspondence to lerp between two of them
+# directly. Instead every synergy's polygon gets resampled ONCE (at setup,
+# not per-frame) onto a common fixed angular grid via a ray-from-origin
+# intersection against its own boundary (_build_radial_profile/
+# _polygon_radius_at_angle below) - this gives a "radius(angle)" profile
+# per synergy that's directly comparable/averageable regardless of the
+# original shape's vertex count or convexity. The blended shape for a shot
+# is then just a per-sample weighted sum of however many profiles are
+# present, by ratio (_compute_blended_polygon) - the same "RAW gets
+# whatever ratio is left over" remainder logic _compute_pie_wedges already
+# uses, reused here via the same _pie_ratios_for_slot() ratio source.
+const SHAPE_BLEND_SAMPLES = 24
+var _synergy_radial_profiles: Array = [] # PackedFloat32Array per synergy (0..9), length SHAPE_BLEND_SAMPLES
 
 # Ghost-trail layer (B3, visual flourish) - real trails (FireTrail2D/Trail2D/
 # GPUParticles2D/Line2D) are genuine child-Node/particle systems, fundamentally
@@ -337,6 +371,14 @@ func _setup_render_polygons():
 	_tapered_trail_points[EnergyPacket.SynergyType.FIRE] = _build_tapered_trail_points(22.0, 7.0)
 	_tapered_trail_points[EnergyPacket.SynergyType.KINETIC] = _build_tapered_trail_points(16.0, 3.0)
 
+	# Shape Blend mode's per-synergy radial profiles - see that mode's own
+	# header comment above for why a fixed angular grid is needed. Built
+	# once here (setup-time, not per-frame) since the 10 base polygons
+	# never change.
+	_synergy_radial_profiles.resize(10)
+	for syn_idx in range(10):
+		_synergy_radial_profiles[syn_idx] = _build_radial_profile(_synergy_polygons[syn_idx], SHAPE_BLEND_SAMPLES)
+
 static func _get_polygon_for_synergy(syn: int) -> PackedVector2Array:
 	match syn:
 		1: # FIRE
@@ -376,6 +418,92 @@ static func _build_tapered_trail_points(length: float, width: float) -> PackedVe
 		Vector2(0.0, -width * 0.5),
 		Vector2(-length, 0.0),
 	])
+
+# --- Shape Blend mode geometry (see that mode's own header comment above) ---
+
+# Ray-from-origin vs. one polygon edge (p1->p2), returning the intersection
+# distance t (>=0) if the ray in direction `dir` (unit vector) crosses that
+# edge, or -1.0 if it doesn't (parallel, or crosses outside the edge's own
+# [0,1] segment range). Standard 2x2 linear-system solve via Cramer's rule,
+# expressed with Godot's own Vector2.cross (a.x*b.y - a.y*b.x) instead of a
+# hand-rolled determinant, so this reads the same as the geometry-textbook
+# derivation it's a direct port of.
+static func _ray_segment_intersection_t(dir: Vector2, p1: Vector2, p2: Vector2) -> float:
+	var e = p2 - p1
+	var det = e.cross(dir)
+	if abs(det) < 0.000001:
+		return -1.0
+	var t = e.cross(p1) / det
+	var s = dir.cross(p1) / det
+	if t >= 0.0 and s >= 0.0 and s <= 1.0:
+		return t
+	return -1.0
+
+# Radius of `poly`'s own boundary at a query `angle`, found by casting a ray
+# from the origin and taking the NEAREST edge it crosses (handles concave/
+# self-touching shapes like LIGHTNING correctly - a plain "sort vertices by
+# their own angle and interpolate" approach breaks down wherever a shape's
+# vertex order isn't already angle-monotonic, which LIGHTNING's zigzag
+# through the origin explicitly isn't). Falls back to the polygon's own
+# farthest vertex distance in the rare degenerate case where no edge is
+# crossed at all, rather than returning 0 and creating a dead spot in every
+# blended shape that includes that synergy.
+static func _polygon_radius_at_angle(poly: PackedVector2Array, angle: float) -> float:
+	var dir = Vector2(cos(angle), sin(angle))
+	var best_t = -1.0
+	var n = poly.size()
+	for e in range(n):
+		var t = _ray_segment_intersection_t(dir, poly[e], poly[(e + 1) % n])
+		if t >= 0.0 and (best_t < 0.0 or t < best_t):
+			best_t = t
+	if best_t >= 0.0:
+		return best_t
+	var max_r = 0.0
+	for pt in poly:
+		max_r = max(max_r, pt.length())
+	return max_r
+
+# Resamples `poly` onto SHAPE_BLEND_SAMPLES fixed angles (0, TAU/N, 2*TAU/N,
+# ...), once per synergy at setup - see the Shape Blend header comment
+# above for why a fixed angular grid, not the polygon's own vertices, is
+# the thing every synergy's shape gets compared/blended on.
+static func _build_radial_profile(poly: PackedVector2Array, samples: int) -> PackedFloat32Array:
+	var profile = PackedFloat32Array()
+	profile.resize(samples)
+	for k in range(samples):
+		var angle = k * TAU / float(samples)
+		profile[k] = _polygon_radius_at_angle(poly, angle)
+	return profile
+
+# Pure function (no rendering, testable directly) - builds one shot's
+# blended main-body polygon from its ratios Dictionary (same shape
+# _pie_ratios_for_slot returns - RAW is implied as whatever's left over,
+# not its own key) and the 10 precomputed radial profiles. Each angle
+# sample's blended radius is the ratio-weighted sum of every present
+# synergy's own radius at that same sample - a literal "x% toward each
+# shape" average, structurally accurate the same way _compute_pie_wedges'
+# wedge angles are (exact ratio arithmetic, not a tuned/eyeballed blend).
+static func _compute_blended_polygon(ratios: Dictionary, profiles: Array) -> PackedVector2Array:
+	var weights = {}
+	var named_total = 0.0
+	for syn in ratios:
+		var r = ratios[syn]
+		if r <= 0.0:
+			continue
+		weights[int(syn)] = r
+		named_total += r
+	var raw_r = max(0.0, 1.0 - named_total)
+	if raw_r > 0.001:
+		weights[EnergyPacket.SynergyType.RAW] = raw_r
+
+	var pts = PackedVector2Array()
+	for k in range(SHAPE_BLEND_SAMPLES):
+		var angle = k * TAU / float(SHAPE_BLEND_SAMPLES)
+		var radius = 0.0
+		for syn in weights:
+			radius += profiles[syn][k] * weights[syn]
+		pts.append(Vector2(cos(angle), sin(angle)) * radius)
+	return pts
 
 # --- Public API -------------------------------------------------------------
 
@@ -579,14 +707,25 @@ func _draw():
 		# the old two-surface MultiMesh mesh exactly (both surfaces there
 		# shared the SAME per-instance color; only the overdraw differed).
 		draw_set_transform(render_pos, rot, Vector2(_scale[i], _scale[i]))
-		draw_colored_polygon(_synergy_polygons[syn], c)
-		if pie_chart_mode:
+		var main_poly = _synergy_polygons[syn]
+		if render_mode == RenderMode.SHAPE_BLEND:
+			# Shape Blend mode - both the aura AND the core below use this
+			# shot's own blended polygon instead of its dominant synergy's
+			# fixed shape (see that mode's own header comment above).
+			main_poly = _blended_polygon_for_slot(i)
+		draw_colored_polygon(main_poly, c)
+		if render_mode == RenderMode.PIE_CHART:
 			# Pie Chart mode (user request, 2026-08-11) - replaces ONLY this
 			# flat hot-core fill with a pie chart of the shot's real
 			# synergy ratios. Drawn within the SAME transform as the aura
 			# line above, so it inherits the shot's position/rotation/
 			# scale for free - only PIE_RADIUS controls its footprint.
 			_draw_pie_wedges(_pie_ratios_for_slot(i), c.a)
+		elif render_mode == RenderMode.SHAPE_BLEND:
+			var inner = PackedVector2Array()
+			for pt in main_poly:
+				inner.append(pt * 0.5)
+			draw_colored_polygon(inner, c)
 		else:
 			draw_colored_polygon(_synergy_polygons_inner[syn], c)
 
@@ -1241,6 +1380,15 @@ func _pie_ratios_for_slot(i: int) -> Dictionary:
 		EnergyPacket.SynergyType.KINETIC: _r_kin[i], EnergyPacket.SynergyType.PIERCE: _r_prc[i],
 		EnergyPacket.SynergyType.VAMPIRIC: _r_vamp[i],
 	}
+
+# Shape Blend mode - this shot's own blended main-body polygon, recomputed
+# from its (fixed, set-at-spawn) ratios every frame it's drawn. Not cached
+# per-slot: SHAPE_BLEND_SAMPLES=24 samples is cheap, and computing fresh
+# means toggling render_mode mid-flight affects already-live shots
+# immediately, same as Pie Chart mode's own _pie_ratios_for_slot() call in
+# _draw() already does.
+func _blended_polygon_for_slot(i: int) -> PackedVector2Array:
+	return _compute_blended_polygon(_pie_ratios_for_slot(i), _synergy_radial_profiles)
 
 # Draws the wedges built by _compute_pie_wedges() as filled triangle fans
 # (center + arc points), one draw_colored_polygon() call per wedge, using

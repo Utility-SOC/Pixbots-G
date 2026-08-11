@@ -69,14 +69,14 @@ func _ready():
 	_check("an empty ratios dict (a pure-RAW shot) produces exactly one full-circle RAW wedge",
 		wedges_e.size() == 1 and wedges_e[0]["synergy"] == EnergyPacket.SynergyType.RAW and abs(wedges_e[0]["end_angle"] - TAU) < 0.0001)
 
-	# --- pie_chart_mode defaults off, doesn't change any other behavior ---
+	# --- render_mode defaults to FLAT, Pie Chart is a plain settable value ---
 	var pool = ProjectileBatchPoolScript.new(4)
 	add_child(pool)
-	_check("pie_chart_mode defaults to false - every existing shot's rendering is unchanged unless explicitly toggled",
-		pool.pie_chart_mode == false)
-	pool.pie_chart_mode = true
-	_check("pie_chart_mode is a plain settable bool (GarageTestRange.gd's toggle just assigns it directly)",
-		pool.pie_chart_mode == true)
+	_check("render_mode defaults to FLAT - every existing shot's rendering is unchanged unless explicitly changed",
+		pool.render_mode == ProjectileBatchPoolScript.RenderMode.FLAT)
+	pool.render_mode = ProjectileBatchPoolScript.RenderMode.PIE_CHART
+	_check("render_mode is a plain settable int (GarageTestRange.gd's selector just assigns it directly)",
+		pool.render_mode == ProjectileBatchPoolScript.RenderMode.PIE_CHART)
 
 	if failures == 0:
 		print("PASS: Pie Chart mode's wedge math is +/-0.5% accurate, contiguous, sums to a full circle, skips zero-ratio synergies, keeps a fixed draw order, and defaults off without disturbing any other rendering")

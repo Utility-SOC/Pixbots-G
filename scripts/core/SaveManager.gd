@@ -204,6 +204,23 @@ func set_difficulty(d: int):
 	config.set_value("Game", "Difficulty", difficulty)
 	config.save(SETTINGS_PATH)
 
+# ProjectileBatchPool.RenderMode int (Flat=0/Pie Chart=1/Shape Blend=2), user
+# request 2026-08-11: "I would like these things ... in the main menu under
+# a[n aesthetic] settings menu." A separate [Rendering] section in the same
+# settings.cfg as everything above - both GarageTestRange.gd's own selector
+# and SettingsMenu.gd's Visuals tab read/write this single shared value, so
+# a choice made in either place is reflected in the other. Not tied to any
+# save slot (a rendering preference, not campaign state), same reasoning as
+# difficulty/pilot_name above.
+var batch_render_mode: int = 0
+
+func set_batch_render_mode(mode: int):
+	batch_render_mode = clamp(mode, 0, 2)
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH) # keep existing sections if present
+	config.set_value("Rendering", "BatchRenderMode", batch_render_mode)
+	config.save(SETTINGS_PATH)
+
 func _ready():
 	var dir = DirAccess.open("user://")
 	if not dir.dir_exists("saves"):
@@ -220,6 +237,7 @@ func _ready():
 	if config.load(SETTINGS_PATH) == OK:
 		difficulty = clamp(int(config.get_value("Game", "Difficulty", 1)), 0, 3)
 		pilot_name = str(config.get_value("Game", "PilotName", "Unknown Pilot"))
+		batch_render_mode = clamp(int(config.get_value("Rendering", "BatchRenderMode", 0)), 0, 2)
 
 # SAVE FORMAT VERSION LOG (bump on any schema change; loaders are
 # has()-guarded so old saves keep working, this is for humans + future

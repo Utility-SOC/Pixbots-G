@@ -12,6 +12,7 @@ var slider_music: HSlider
 var slider_sfx: HSlider
 var opt_controls: OptionButton
 var edit_pilot_name: LineEdit
+var opt_render_mode: OptionButton
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -67,6 +68,35 @@ func _setup_ui():
 	opt_controls.add_item("Arrow Keys")
 	opt_controls.item_selected.connect(_on_controls_changed)
 	controls_tab.add_child(opt_controls)
+
+	# VISUALS TAB (user request, 2026-08-11: "I would like these things
+	# (including enabling pie charts and stuff) in the main menu under a[n]
+	# ... settings menu" - the experimental batch-pool render mode's one
+	# real home outside the Test Range). Shares its value with
+	# GarageTestRange.gd's own selector via SaveManager.batch_render_mode
+	# (same settings.cfg) - changing it here changes what the Test Range
+	# shows and vice versa, there's only one underlying setting.
+	var visuals_tab = VBoxContainer.new()
+	visuals_tab.name = "Visuals"
+	tab_container.add_child(visuals_tab)
+
+	var render_mode_label = Label.new()
+	render_mode_label.text = "Projectile Render Mode"
+	visuals_tab.add_child(render_mode_label)
+
+	var render_mode_hint = Label.new()
+	render_mode_hint.text = "Only affects the experimental Batch Renderer in the Garage Test Range for now - not live combat."
+	render_mode_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	render_mode_hint.modulate = Color(0.7, 0.7, 0.7)
+	visuals_tab.add_child(render_mode_hint)
+
+	opt_render_mode = OptionButton.new()
+	opt_render_mode.add_item("Flat (Default)")
+	opt_render_mode.add_item("Pie Chart")
+	opt_render_mode.add_item("Shape Blend")
+	opt_render_mode.selected = SaveManager.batch_render_mode
+	opt_render_mode.item_selected.connect(func(index): SaveManager.set_batch_render_mode(index))
+	visuals_tab.add_child(opt_render_mode)
 
 	# PROFILE TAB
 	var profile_tab = VBoxContainer.new()

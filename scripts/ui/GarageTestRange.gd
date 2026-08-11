@@ -69,7 +69,7 @@ var _volleys_fired: int = 0
 # (and every other firing path in the game) is completely untouched.
 var _batch_toggle: CheckButton = null
 var _batch_pool: Node = null
-var _pie_toggle: CheckButton = null
+var _render_mode_option: OptionButton = null
 
 func setup(p_player: Node):
 	player = p_player
@@ -157,23 +157,31 @@ func _ready():
 	_batch_toggle.tooltip_text = "Fire through the experimental no-Node-tree batch pool instead of real Projectiles - full behavioral/visual parity with the real path as of 2026-08-10, still Test Range only, not wired into live combat."
 	controls.add_child(_batch_toggle)
 
-	# Pie Chart mode (user request, 2026-08-11) - independent of the Batch
-	# Renderer toggle above (can be flipped on its own; only has a visible
-	# effect while Batch Renderer is ALSO on, since it's a batch-pool-only
-	# rendering feature - see ProjectileBatchPool.pie_chart_mode's own
-	# comment). Swaps ONLY the "hot core" logo for a pie chart of the
-	# shot's real synergy ratios - the aura, ghost trail, and every other
-	# effect (Vortex helix, secondary echoes) are completely unchanged, per
-	# the user's own framing: "flat graph + any tail + any aura."
-	_pie_toggle = CheckButton.new()
-	_pie_toggle.text = "Pie Chart Mode"
-	_pie_toggle.modulate = Color(0.6, 0.9, 1.0)
-	_pie_toggle.tooltip_text = "Batch Renderer only: replaces each shot's hot-core logo with a pie chart of its real synergy ratios (+/-0.5% accurate), keeping flight, aura, and trail unchanged. Independent of the Batch Renderer toggle - only visible while that's also on."
-	_pie_toggle.toggled.connect(func(pressed):
+	# Render mode selector (user request, 2026-08-11) - independent of the
+	# Batch Renderer toggle above (can be changed on its own; only has a
+	# visible effect while Batch Renderer is ALSO on, since it's a batch-
+	# pool-only rendering feature - see ProjectileBatchPool.RenderMode's own
+	# comment). "Pie Chart" swaps ONLY the "hot core" logo for a pie chart of
+	# the shot's real synergy ratios; "Shape Blend" replaces the whole main-
+	# body silhouette with a weighted-average shape across every synergy
+	# present, by ratio. Either way the aura/ghost trail/every other effect
+	# (Vortex helix, secondary echoes) stay whatever that mode leaves them as -
+	# see ProjectileBatchPool.gd's own per-mode header comments. Shares its
+	# value with SettingsMenu.gd's Visuals tab via SaveManager.batch_render_mode
+	# (same settings.cfg both read/write), so a choice made in either place is
+	# reflected in the other.
+	_render_mode_option = OptionButton.new()
+	_render_mode_option.add_item("Flat (Default)")
+	_render_mode_option.add_item("Pie Chart")
+	_render_mode_option.add_item("Shape Blend")
+	_render_mode_option.selected = SaveManager.batch_render_mode
+	_render_mode_option.tooltip_text = "Batch Renderer only: chooses each shot's main-body treatment. Shared with the main menu's Settings > Visuals tab."
+	_render_mode_option.item_selected.connect(func(index):
+		SaveManager.set_batch_render_mode(index)
 		if _batch_pool:
-			_batch_pool.pie_chart_mode = pressed
+			_batch_pool.render_mode = index
 	)
-	controls.add_child(_pie_toggle)
+	controls.add_child(_render_mode_option)
 
 	var reset_btn = Button.new()
 	reset_btn.text = "Reset dummy"
@@ -255,10 +263,11 @@ func _ready():
 	_batch_pool = ProjectileBatchPoolScript.new()
 	_world_root.add_child(_batch_pool)
 	_batch_pool.register_target(_dummy)
-	# Sync in case the Pie Chart toggle was already flipped before the pool
-	# existed - toggled() only fires on a CHANGE, not this initial state.
-	if _pie_toggle:
-		_batch_pool.pie_chart_mode = _pie_toggle.button_pressed
+	# Sync in case the render-mode selector was already changed before the
+	# pool existed - item_selected() only fires on a CHANGE, not this initial
+	# state (which itself was seeded from SaveManager.batch_render_mode above).
+	if _render_mode_option:
+		_batch_pool.render_mode = _render_mode_option.selected
 
 	# Drones (playtest: "I also want drones in the test area") - real Drone
 	# instances built from the player's real Drone Bay loadout(s), same spawn

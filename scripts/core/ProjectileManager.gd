@@ -34,6 +34,23 @@ extends Node
 var _active: Dictionary = {} # instance_id (int) -> Projectile
 var _results: Dictionary = {} # instance_id (int) -> Dictionary (this frame's result)
 
+# Live-combat batch-pool bridge (2026-08-11 cutover) - this autoload is
+# already the one place HexTile._fire_combined_projectile reaches for
+# cross-cutting real-combat coordination (consolidation_factor() below), so
+# it's the natural, already-plumbed spot for the live ProjectileBatchPool
+# reference too, even though batching real Projectile.gd flight math (this
+# file's actual job) and offering an alternate spawn path are different
+# concerns. Main.gd sets live_batch_pool once at battle setup (null in the
+# Garage/main menu, where there's no real battle world for it to live in).
+var live_batch_pool: Node = null
+
+func should_use_batch_pool() -> bool:
+	# is_instance_valid, not a plain null check - live_batch_pool is a
+	# Node, not RefCounted, so this autoload's reference doesn't auto-clear
+	# when Main.gd's scene tree (and the pool as its child) gets freed on a
+	# scene change; a stale pointer would otherwise pass a `!= null` check.
+	return SaveManager.batch_renderer_in_combat and is_instance_valid(live_batch_pool)
+
 var _flight_checked: bool = false
 var _flight_rasterizer = null
 

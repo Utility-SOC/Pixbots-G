@@ -437,6 +437,75 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 			return
 		# pattern 3 (Beam) falls through - single projectile, tuned below.
 
+	var base_damage = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
+
+	# Guaranteed crit at the (former, still-normal) magnitude ceiling -
+	# tied to NORMAL_MAGNITUDE_CAP rather than MAX_MAGNITUDE so existing
+	# capacitor-bank builds keep the payoff they always had; an all-Mythic
+	# overcharge packet clears this threshold too since it's strictly above it.
+	var is_crit = (packet.magnitude >= EnergyPacket.NORMAL_MAGNITUDE_CAP) or (randf() < 0.05)
+	if is_crit:
+		base_damage *= 2.0
+
+	# Beam pattern flag, hoisted above the proj-only field block below
+	# (2026-08-11 live-combat cutover) so both the real-Projectile path AND
+	# the live batch-pool path can read it before branching - same
+	# condition/meaning as always, just computed earlier.
+	var is_beam = not _pattern_child and not _chopper_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC and int(get("mythic_pattern")) == 3
+
+	# get_muzzle_position() does a get_node_or_null("MechRenderer") string
+	# lookup + dictionary lookups on drawn_parts - real cost, computed once
+	# and reused for both the spawn position and the direction calc below
+	# (was computing the identical value twice for the same shot).
+	var muzzle_pos = get_muzzle_position(mech)
+	var aim_pos = mech.last_aim_position
+
+	var base_direction = (aim_pos - muzzle_pos).normalized()
+	if base_direction == Vector2.ZERO:
+		base_direction = Vector2(0, -1)
+
+	# Determine the "straight forward" direction based on which component we are in
+	var forward_dir = 4 # Default South (Down) for Torso/Legs/Backpack
+	if body_slot == BodySlot.ARM_L:
+		forward_dir = 3 # West
+	elif body_slot == BodySlot.ARM_R:
+		forward_dir = 0 # East
+	elif body_slot == BodySlot.HEAD:
+		forward_dir = 1 # Northeast (Up)
+
+	var angle_offset = 0.0
+
+	# Mythic mounted-anywhere aim (WeaponMountTile.mythic_aim_direction):
+	# a player-chosen offset from the mouse-aim direction that completely
+	# REPLACES the wiring-derived offset below - the whole point being a
+	# Mythic mount fires exactly where configured regardless of which hex
+	# face happens to feed it, so it can be placed/rewired freely without
+	# hunting for the "right" entry direction to get a desired firing angle.
+	var has_mythic_aim = not is_beam and rarity == Rarity.MYTHIC and "mythic_aim_direction" in self
+	if has_mythic_aim and int(get("mythic_aim_direction")) != 0:
+		angle_offset = int(get("mythic_aim_direction")) * (PI / 3.0)
+	elif not is_beam:
+		var entry_dir = packet.direction
+		var diff = (entry_dir - forward_dir + 6) % 6
+		if diff == 1: angle_offset = deg_to_rad(15)
+		elif diff == 5: angle_offset = deg_to_rad(-15)
+		elif diff == 2: angle_offset = deg_to_rad(35)
+		elif diff == 4: angle_offset = deg_to_rad(-35)
+		elif diff == 3: angle_offset = deg_to_rad(180)
+
+	var final_direction = base_direction.rotated(angle_offset + _extra_angle)
+
+	# Live-combat batch-pool cutover (2026-08-11): "switch to batch for main
+	# gameplay, but be able to enable the legacy system." Beam pattern
+	# always uses the real Projectile path below regardless of the toggle -
+	# its damage*1.2/speed*2.5/pierce-floor-of-4 boost has no batch-pool
+	# equivalent yet (a narrower, single-pattern-type gap: Beam is one
+	# Mythic-only special case, not every-shot math like the stat_modifiers/
+	# range_mult threading ProjectileBatchPool.spawn() already does).
+	if not is_beam and ProjectileManager.should_use_batch_pool():
+		_fire_via_live_batch_pool(mech, packet, base_damage, final_direction, angle_offset, muzzle_pos, step)
+		return
+
 	# Task #35: Projectile pooling was built and measured (ProjectilePool.gd,
 	# same-process interleaved A/B, 5 measured rounds each) - pool
 	# acquire()+release() came out a clean, consistent 12% SLOWER than plain
@@ -448,15 +517,6 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# ProjectilePool.gd in the tree unused, matching the packet_tax.rs/
 	# BossBrain precedent from earlier this session.
 	var proj = _ProjectileClass.new()
-	var base_damage = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
-
-	# Guaranteed crit at the (former, still-normal) magnitude ceiling -
-	# tied to NORMAL_MAGNITUDE_CAP rather than MAX_MAGNITUDE so existing
-	# capacitor-bank builds keep the payoff they always had; an all-Mythic
-	# overcharge packet clears this threshold too since it's strictly above it.
-	var is_crit = (packet.magnitude >= EnergyPacket.NORMAL_MAGNITUDE_CAP) or (randf() < 0.05)
-	if is_crit:
-		base_damage *= 2.0
 
 	# Perf (2026-07-27, real-session measurement via ProjectileConstructCostDiagnostic.gd:
 	# this "merge/pattern math" region - not Projectile construction itself -
@@ -502,57 +562,14 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# angles), which could aim it anywhere from 15 to a full 180 degrees off
 	# depending on how the mount happened to be wired into the grid - that
 	# was the actual "unreliable" bug, not RNG.
-	var is_beam = not _pattern_child and not _chopper_child and "mythic_pattern" in self and rarity == Rarity.MYTHIC and int(get("mythic_pattern")) == 3
 	if is_beam:
 		proj.damage *= 1.2
 		proj.base_speed *= 2.5
 		proj.pierce_count = max(proj.pierce_count, 4)
 		proj.is_beam_shot = true
-	# get_muzzle_position() does a get_node_or_null("MechRenderer") string
-	# lookup + dictionary lookups on drawn_parts - real cost, computed once
-	# and reused for both the spawn position and the direction calc below
-	# (was computing the identical value twice for the same shot).
-	var muzzle_pos = get_muzzle_position(mech)
 	proj.global_position = muzzle_pos
-
-	var aim_pos = mech.last_aim_position
-
-	var base_direction = (aim_pos - muzzle_pos).normalized()
-	if base_direction == Vector2.ZERO:
-		base_direction = Vector2(0, -1)
-
 	proj.target_direction = base_direction
-
-	# Determine the "straight forward" direction based on which component we are in
-	var forward_dir = 4 # Default South (Down) for Torso/Legs/Backpack
-	if body_slot == BodySlot.ARM_L:
-		forward_dir = 3 # West
-	elif body_slot == BodySlot.ARM_R:
-		forward_dir = 0 # East
-	elif body_slot == BodySlot.HEAD:
-		forward_dir = 1 # Northeast (Up)
-
-	var angle_offset = 0.0
-
-	# Mythic mounted-anywhere aim (WeaponMountTile.mythic_aim_direction):
-	# a player-chosen offset from the mouse-aim direction that completely
-	# REPLACES the wiring-derived offset below - the whole point being a
-	# Mythic mount fires exactly where configured regardless of which hex
-	# face happens to feed it, so it can be placed/rewired freely without
-	# hunting for the "right" entry direction to get a desired firing angle.
-	var has_mythic_aim = not is_beam and rarity == Rarity.MYTHIC and "mythic_aim_direction" in self
-	if has_mythic_aim and int(get("mythic_aim_direction")) != 0:
-		angle_offset = int(get("mythic_aim_direction")) * (PI / 3.0)
-	elif not is_beam:
-		var entry_dir = packet.direction
-		var diff = (entry_dir - forward_dir + 6) % 6
-		if diff == 1: angle_offset = deg_to_rad(15)
-		elif diff == 5: angle_offset = deg_to_rad(-15)
-		elif diff == 2: angle_offset = deg_to_rad(35)
-		elif diff == 4: angle_offset = deg_to_rad(-35)
-		elif diff == 3: angle_offset = deg_to_rad(180)
-
-	proj.direction = base_direction.rotated(angle_offset + _extra_angle)
+	proj.direction = final_direction
 
 	if step > 0:
 		var delay = (step * 0.05) # 50ms per step
@@ -594,6 +611,68 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 		else:
 			mech.add_child(proj)
 		_perf_projectile_construct_usec += Time.get_ticks_usec() - _t_construct
+
+# Live-combat batch-pool spawn path (2026-08-11 cutover) - mirrors
+# GarageTestRange._fire_via_batch_pool's own translation (dominant-synergy
+# selection via get_dominant_synergy(), dominant-color-boosted-never-
+# blended, the scale_mult formula matching Projectile._build_visuals'
+# p_scale) but reading the SAME real values (base_damage, direction,
+# muzzle_pos) this function already computed for the real Projectile path
+# above, instead of recomputing weaker approximations of them the way the
+# Test Range's own simpler translation does. Handles the step>0 staggered
+# multi-hex-hop case the same way the real path does (Timer, THEN
+# recompute muzzle/direction fresh right before actually firing - see the
+# real step>0 branch's own comment on why: a delayed vented shot spawning
+# from a stale position was a real, previously-fixed bug).
+#
+# base_speed (500.0) is Projectile.gd:26's own field default - not a const,
+# so it can't be referenced without instantiating a throwaway Projectile
+# (which would defeat the entire point of this path). hit radius (10.0)
+# has no single real equivalent to mirror (real hit detection comes from a
+# magnitude-scaled CollisionShape2D built in Projectile._build_visuals(),
+# not one flat constant) - reuses the same approximation GarageTestRange's
+# own translation already uses, tuned there through this session's own
+# playtesting rather than invented fresh here.
+func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, direction: Vector2, angle_offset: float, muzzle_pos: Vector2, step: int):
+	const LIVE_BATCH_SPEED = 500.0
+	const LIVE_BATCH_RADIUS = 10.0
+	var pool = ProjectileManager.live_batch_pool
+	var dominant = packet.get_dominant_synergy() if packet.has_method("get_dominant_synergy") else 0
+	var color = EnergyPacket.get_color_for_synergy(dominant) if dominant != 0 else Color(0.9, 0.9, 1.0)
+	color = color * 1.5
+	color.a = 1.0
+	var ratios = EnergyPacket.compute_ratios(packet.synergies)
+	var scale_mult = min(1.0 + log(1.0 + packet.magnitude / 200.0) * 0.5, 5.0)
+	scale_mult *= (1.0 + 0.5 * packet.aoe_bonus)
+	if packet.is_banked_shot:
+		scale_mult *= 1.35
+	scale_mult = min(scale_mult, 8.0)
+	var stat_modifiers = mech.stat_modifiers.duplicate()
+	var proc_synergies = packet.proc_synergies.duplicate()
+
+	if step > 0:
+		var delay = (step * 0.05) # 50ms per step, matches the real path's own timing
+		var timer = Timer.new()
+		timer.wait_time = delay
+		timer.one_shot = true
+		timer.timeout.connect(func():
+			if is_instance_valid(mech) and is_instance_valid(pool):
+				# Same "recompute muzzle/direction fresh right before firing"
+				# fix as the real step>0 branch (see this function's own header).
+				var new_muzzle_pos = get_muzzle_position(mech)
+				var new_aim_pos = mech.last_aim_position
+				var new_base_dir = (new_aim_pos - new_muzzle_pos).normalized()
+				if new_base_dir == Vector2.ZERO:
+					new_base_dir = Vector2(0, -1)
+				var new_dir = new_base_dir.rotated(angle_offset)
+				pool.spawn(new_muzzle_pos, new_dir, LIVE_BATCH_SPEED, base_damage, LIVE_BATCH_RADIUS, -1.0, color, scale_mult, mech.is_player, mech, dominant, ratios, proc_synergies, packet.aoe_bonus, stat_modifiers, packet.range_mult)
+			timer.queue_free()
+		)
+		mech.add_child(timer)
+		timer.start()
+	else:
+		if is_instance_valid(pool):
+			pool.spawn(muzzle_pos, direction, LIVE_BATCH_SPEED, base_damage, LIVE_BATCH_RADIUS, -1.0, color, scale_mult, mech.is_player, mech, dominant, ratios, proc_synergies, packet.aoe_bonus, stat_modifiers, packet.range_mult)
 
 # Mortar pattern: the payload is delivered AT the aim position (travel
 # time + ground telegraph + elemental AoE) instead of fired along a line.

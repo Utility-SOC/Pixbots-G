@@ -221,6 +221,20 @@ func set_batch_render_mode(mode: int):
 	config.set_value("Rendering", "BatchRenderMode", batch_render_mode)
 	config.save(SETTINGS_PATH)
 
+# Live-combat cutover (2026-08-11) - "switch to batch for main gameplay,
+# but be able to enable the legacy system." Default OFF: the real
+# Projectile.gd path stays the default renderer/simulator for every real
+# fight until you flip this yourself, same [Rendering] settings.cfg
+# section as batch_render_mode above.
+var batch_renderer_in_combat: bool = false
+
+func set_batch_renderer_in_combat(enabled: bool):
+	batch_renderer_in_combat = enabled
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH) # keep existing sections if present
+	config.set_value("Rendering", "BatchInCombat", batch_renderer_in_combat)
+	config.save(SETTINGS_PATH)
+
 func _ready():
 	var dir = DirAccess.open("user://")
 	if not dir.dir_exists("saves"):
@@ -238,6 +252,7 @@ func _ready():
 		difficulty = clamp(int(config.get_value("Game", "Difficulty", 1)), 0, 3)
 		pilot_name = str(config.get_value("Game", "PilotName", "Unknown Pilot"))
 		batch_render_mode = clamp(int(config.get_value("Rendering", "BatchRenderMode", 0)), 0, 4)
+		batch_renderer_in_combat = bool(config.get_value("Rendering", "BatchInCombat", false))
 
 # SAVE FORMAT VERSION LOG (bump on any schema change; loaders are
 # has()-guarded so old saves keep working, this is for humans + future

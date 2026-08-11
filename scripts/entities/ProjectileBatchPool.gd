@@ -543,7 +543,25 @@ func register_target(target: Node):
 func unregister_target(target: Node):
 	_targets.erase(target)
 
-func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}, proc_synergies: Dictionary = {}, aoe_bonus: float = 0.0) -> int:
+# Live-combat target sync (2026-08-11 cutover, vs. the Test Range's own
+# manual register_target/unregister_target calls above) - real combat's
+# targets spawn and die constantly across a whole wave, unlike the Test
+# Range's single fixed dummy, so pulling every real group fresh each tick
+# via EntityCache (already this codebase's established pattern for this -
+# MissileRackTile.gd/ProjectileTargetingBatcher.gd already do the exact
+# same thing) is simpler and more correct than hooking every Mech/Drone's
+# own spawn/death lifecycle into register/unregister calls. "player"
+# only ever contains the one real player Mech (player-owned drones
+# deliberately don't join it - see Drone.gd's own header comment, several
+# other call sites assume "player" names exactly the one real mech), so
+# "drone" is unioned in too to catch them; enemy-owned drones end up
+# counted twice (already in "enemy" AND "drone") but that's harmless -
+# _handled_targets' per-shot dedup makes a same-tick double-entry a no-op
+# on its second pass.
+func sync_targets_from_groups():
+	_targets = EntityCache.get_group("player") + EntityCache.get_group("enemy") + EntityCache.get_group("drone")
+
+func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}, proc_synergies: Dictionary = {}, aoe_bonus: float = 0.0, stat_modifiers: Dictionary = {}, range_mult: float = 1.0) -> int:
 	if _free_indices.is_empty():
 		return -1
 	var i = _free_indices.pop_back()
@@ -551,8 +569,13 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_position[i] = pos
 	_prev_position[i] = pos
 	_direction[i] = dir.normalized() if dir != Vector2.ZERO else Vector2.RIGHT
-	_speed[i] = speed
-	_damage[i] = dmg
+	# stat_modifiers (2026-08-11, live-combat cutover) - equipment/talent
+	# damage and speed bonuses, previously silently dropped by every batch-
+	# pool caller (harmless in the Test Range, a real hidden nerf in live
+	# combat - see _apply_stat_modifiers' own header comment).
+	var modified_stats = _apply_stat_modifiers(dmg, speed, ratios, stat_modifiers)
+	_speed[i] = modified_stats["speed"]
+	_damage[i] = modified_stats["damage"]
 	_radius[i] = radius
 	_elapsed[i] = 0.0
 	# `lifetime` stays an explicit per-call override when the caller passes a
@@ -566,7 +589,7 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	var r_fire_for_life = ratios.get(EnergyPacket.SynergyType.FIRE, 0.0)
 	var r_kin_for_life = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
 	_lifetime[i] = lifetime if lifetime > 0.0 else _compute_lifetime(r_fire_for_life, r_kin_for_life)
-	_max_range[i] = _compute_max_range(r_kin_for_life)
+	_max_range[i] = _compute_max_range(r_kin_for_life) * range_mult
 	_distance_traveled[i] = 0.0
 	_color[i] = color
 	_scale[i] = scale_mult
@@ -611,6 +634,40 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	if i > _highest_active:
 		_highest_active = i
 	return i
+
+# Direct port of Projectile.gd:609-621's stat_modifiers application
+# (dmg_mult/spd_mult flat multipliers, plus per-element mults that lerp
+# toward full effect proportional to that element's ratio in the packet -
+# "kin_mult" only fully applies to a pure-Kinetic shot, partially to a
+# blend, not at all to a shot with none). Previously silently dropped by
+# every batch-pool caller (GarageTestRange.gd's own translation never read
+# stat_modifiers at all) - harmless in the Test Range (nothing there grants
+# stat_modifiers bonuses to check against), but silently dropping them in
+# real combat would mean every equipment/talent bonus a build has
+# invisibly stops applying the moment Batch Renderer is toggled on - a
+# real, hidden nerf, not a cosmetic gap.
+static func _apply_stat_modifiers(base_damage: float, base_speed: float, ratios: Dictionary, stat_modifiers: Dictionary) -> Dictionary:
+	var damage = base_damage
+	var speed = base_speed
+	if stat_modifiers.is_empty():
+		return {"damage": damage, "speed": speed}
+	var r_kin = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
+	var r_ice = ratios.get(EnergyPacket.SynergyType.ICE, 0.0)
+	var r_psn = ratios.get(EnergyPacket.SynergyType.POISON, 0.0)
+	var r_exp = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
+	var r_prc = ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)
+	if stat_modifiers.has("dmg_mult"): damage *= stat_modifiers["dmg_mult"]
+	if stat_modifiers.has("spd_mult"): speed *= stat_modifiers["spd_mult"]
+	if stat_modifiers.has("kin_mult") and r_kin > 0: damage *= lerp(1.0, stat_modifiers["kin_mult"], r_kin)
+	if stat_modifiers.has("fire_mult") and ratios.has(EnergyPacket.SynergyType.FIRE): damage *= lerp(1.0, stat_modifiers["fire_mult"], ratios[EnergyPacket.SynergyType.FIRE])
+	if stat_modifiers.has("ice_mult") and r_ice > 0: damage *= lerp(1.0, stat_modifiers["ice_mult"], r_ice)
+	if stat_modifiers.has("vtx_mult") and ratios.has(EnergyPacket.SynergyType.VORTEX): damage *= lerp(1.0, stat_modifiers["vtx_mult"], ratios[EnergyPacket.SynergyType.VORTEX])
+	if stat_modifiers.has("ltg_mult") and ratios.has(EnergyPacket.SynergyType.LIGHTNING): damage *= lerp(1.0, stat_modifiers["ltg_mult"], ratios[EnergyPacket.SynergyType.LIGHTNING])
+	if stat_modifiers.has("psn_mult") and r_psn > 0: damage *= lerp(1.0, stat_modifiers["psn_mult"], r_psn)
+	if stat_modifiers.has("exp_mult") and r_exp > 0: damage *= lerp(1.0, stat_modifiers["exp_mult"], r_exp)
+	if stat_modifiers.has("prc_mult") and r_prc > 0: damage *= lerp(1.0, stat_modifiers["prc_mult"], r_prc)
+	if stat_modifiers.has("vmp_mult") and ratios.has(EnergyPacket.SynergyType.VAMPIRIC): damage *= lerp(1.0, stat_modifiers["vmp_mult"], ratios[EnergyPacket.SynergyType.VAMPIRIC])
+	return {"damage": damage, "speed": speed}
 
 # Direct port of Projectile._get_lifetime() (Projectile.gd:509-522), taking
 # the two ratios that formula actually branches on rather than a whole
@@ -1001,18 +1058,33 @@ func _step_blink_hops(delta: float):
 		if _distance_traveled[i] >= _max_range[i]:
 			despawn(i)
 
-# Nearest live, not-yet-handled-by-this-shot target within max_dist - mirrors
-# ProjectileTargetingBatcher._resolve_blink's own candidate filter (valid,
-# not dead, excludes _handled_targets) but as a plain synchronous scan over
-# this pool's own tiny _targets array rather than a batched cross-shot
-# query. No friend/foe filtering, matching _step_hit_test's own existing
-# simplification (the Test Range only ever has one dummy target regardless
-# of side).
+# Friend/foe filter (2026-08-11, live-combat cutover) - mirrors Projectile.
+# gd's own collision_mask split (fired_by_player -> Enemy layer only, else
+# -> Player layer only, Projectile.gd:386-389) and the "is_player" reuse
+# Drone.gd's own header comment documents for both sides' drones. Was
+# absent from every _targets loop below until now, safely so ONLY because
+# the Test Range registers a single dummy of a fixed, known side (the
+# rig's own real shots are always by_player=true against an is_player=
+# false dummy) - the moment real combat registers both the "player" and
+# "enemy" groups as targets (sync_targets_from_groups below), this becomes
+# load-bearing: without it, player shots would hit the player and enemies
+# would hit each other.
+static func _is_valid_target_side(t: Node, fired_by_player: bool) -> bool:
+	return (t.get("is_player") == true) != fired_by_player
+
+# Nearest live, not-yet-handled-by-this-shot, correct-side target within
+# max_dist - mirrors ProjectileTargetingBatcher._resolve_blink's own
+# candidate filter (valid, not dead, excludes _handled_targets, friend/foe)
+# but as a plain synchronous scan over this pool's own tiny _targets array
+# rather than a batched cross-shot query.
 func _find_nearest_target(pos: Vector2, max_dist: float, slot_idx: int) -> Node:
+	var fired_by_player = _fired_by_player[slot_idx] == 1
 	var best: Node = null
 	var best_dist = max_dist
 	for t in _targets:
 		if not is_instance_valid(t) or t.get("is_dead") == true:
+			continue
+		if not _is_valid_target_side(t, fired_by_player):
 			continue
 		if _handled_targets[slot_idx].has(t.get_instance_id()):
 			continue
@@ -1066,10 +1138,13 @@ func _step_hit_test():
 		# without either one landing inside it. Real, demonstrated bug (a
 		# Vortex-ratio shot missed a stationary target entirely at a normal
 		# 60fps tick rate before this fix - see this session's own repro).
+		var fired_by_player = _fired_by_player[i] == 1
 		for t in _targets:
 			if not is_instance_valid(t):
 				continue
 			if t.get("is_dead") == true:
+				continue
+			if not _is_valid_target_side(t, fired_by_player):
 				continue
 			var t_radius = t.get("broadphase_radius") if "broadphase_radius" in t else 20.0
 			var nearest_on_path = Geometry2D.get_closest_point_to_segment(t.global_position, _prev_position[i], _position[i])
@@ -1217,8 +1292,11 @@ func _apply_explosion_aoe(i: int, primary_target: Node, hit_decay: float):
 		return
 	var ratios_for_radius = {EnergyPacket.SynergyType.EXPLOSION: _r_exp[i], EnergyPacket.SynergyType.KINETIC: _r_kin[i]}
 	var radius = _ProjectileScript.explosion_radius_for(ratios_for_radius, _aoe_bonus[i]) * hit_decay
+	var fired_by_player = _fired_by_player[i] == 1
 	for t in _targets:
 		if not is_instance_valid(t) or t == primary_target or t.get("is_dead") == true:
+			continue
+		if not _is_valid_target_side(t, fired_by_player):
 			continue
 		if not t.has_method("apply_damage") and not t.has_method("apply_part_damage"):
 			continue
@@ -1264,8 +1342,11 @@ func _trigger_poison_mine_detonation(i: int):
 	# has no element arg at all (RAW default, bypasses resistance).
 	var element = "LIGHTNING" if theme == EnergyPacket.SynergyType.LIGHTNING else "RAW"
 
+	var fired_by_player = _fired_by_player[i] == 1
 	for t in _targets:
 		if not is_instance_valid(t) or t.get("is_dead") == true:
+			continue
+		if not _is_valid_target_side(t, fired_by_player):
 			continue
 		if not t.has_method("apply_damage") and not t.has_method("apply_part_damage"):
 			continue
@@ -1305,8 +1386,11 @@ func _apply_biome_triggers(i: int, _target: Node):
 					slick.ignite()
 
 func _apply_area_burst(i: int, radius: float, dmg: float, status_name: String):
+	var fired_by_player = _fired_by_player[i] == 1
 	for t in _targets:
 		if not is_instance_valid(t) or t.get("is_dead") == true:
+			continue
+		if not _is_valid_target_side(t, fired_by_player):
 			continue
 		if not t.has_method("apply_damage") and not t.has_method("apply_part_damage"):
 			continue

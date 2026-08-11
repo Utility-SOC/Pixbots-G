@@ -186,6 +186,17 @@ var dialogue_timer: float = 0.0
 const PIXEL_SHRINK_FACTOR = 2
 var world: Node2D
 
+# Live-combat batch pool (2026-08-11 cutover) - always created once per
+# battle (cheap: flat PackedArrays, no per-shot Nodes, nothing runs until
+# something actually calls spawn()) and handed to ProjectileManager so
+# HexTile._fire_combined_projectile can reach it without a new Main-
+# specific getter. Whether anything actually FIRES through it is gated
+# entirely by SaveManager.batch_renderer_in_combat (default off) via
+# ProjectileManager.should_use_batch_pool() - this reference existing is
+# not the same as it being in use.
+const ProjectileBatchPoolScript = preload("res://scripts/entities/ProjectileBatchPool.gd")
+var _live_batch_pool: Node = null
+
 # Battle camera zoom lives entirely in CameraShake.gd now (single owner of
 # camera.zoom) - a second wheel-zoom system briefly lived here and fought
 # the camera's own one every frame, causing the "pops back in" rubber-band.
@@ -194,6 +205,7 @@ func _ready():
 	_setup_pixel_viewport()
 	_load_campaign()
 	_setup_environment()
+	_setup_live_batch_pool()
 	_setup_player()
 	# _setup_player() may have just overwritten current_wave from a loaded
 	# save - anchor the map-rotation wave counter to wherever the run
@@ -536,6 +548,15 @@ func _update_hud():
 
 
 func _process(delta: float):
+	# Live-combat batch pool target sync (2026-08-11 cutover) - only when
+	# the setting's actually on, so this costs nothing for the vast
+	# majority of players who never touch the toggle. See
+	# ProjectileBatchPool.sync_targets_from_groups()'s own header for why
+	# this pulls fresh from EntityCache every frame instead of manual
+	# register/unregister bookkeeping.
+	if ProjectileManager.should_use_batch_pool():
+		_live_batch_pool.sync_targets_from_groups()
+
 	if SaveManager.current_game_mode == "campaign":
 		_map_rotation_elapsed += delta
 
@@ -727,6 +748,12 @@ func _water_eligible_map_types() -> Array:
 	if player and player.has_method("_has_jumpjets") and player._has_jumpjets():
 		return MAP_ROTATION_TYPES
 	return MAP_ROTATION_TYPES.filter(func(t): return t != "Water")
+
+func _setup_live_batch_pool():
+	_live_batch_pool = ProjectileBatchPoolScript.new()
+	_live_batch_pool.name = "LiveProjectileBatchPool"
+	world.add_child(_live_batch_pool)
+	ProjectileManager.live_batch_pool = _live_batch_pool
 
 func _setup_player():
 	player = Mech.new()

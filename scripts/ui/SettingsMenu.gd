@@ -13,6 +13,7 @@ var slider_sfx: HSlider
 var opt_controls: OptionButton
 var edit_pilot_name: LineEdit
 var opt_render_mode: OptionButton
+var check_batch_combat: CheckButton
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -99,6 +100,21 @@ func _setup_ui():
 	opt_render_mode.selected = SaveManager.batch_render_mode
 	opt_render_mode.item_selected.connect(func(index): SaveManager.set_batch_render_mode(index))
 	visuals_tab.add_child(opt_render_mode)
+
+	# Live-combat cutover (2026-08-11: "switch to batch for main gameplay,
+	# but be able to enable the legacy system"). Default OFF - real combat
+	# keeps using Projectile.gd until this is explicitly turned on.
+	var batch_combat_hint = Label.new()
+	batch_combat_hint.text = "Experimental: use the Batch Renderer above for real combat instead of just the Test Range. Leave off unless you're specifically trying it out."
+	batch_combat_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	batch_combat_hint.modulate = Color(0.7, 0.7, 0.7)
+	visuals_tab.add_child(batch_combat_hint)
+
+	check_batch_combat = CheckButton.new()
+	check_batch_combat.text = "Use Batch Renderer in Combat (Experimental)"
+	check_batch_combat.button_pressed = SaveManager.batch_renderer_in_combat
+	check_batch_combat.toggled.connect(func(pressed): SaveManager.set_batch_renderer_in_combat(pressed))
+	visuals_tab.add_child(check_batch_combat)
 
 	# PROFILE TAB
 	var profile_tab = VBoxContainer.new()

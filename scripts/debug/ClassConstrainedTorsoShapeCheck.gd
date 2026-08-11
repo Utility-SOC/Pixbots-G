@@ -3,8 +3,9 @@ extends Node
 # Regression check for class-constrained torso shapes (design doc,
 # 2026-08-10 - "torso shape constrained by class, not helter skelter").
 #
-# Confirms, for each of the four newly-shaped roles (scout/sniper/
-# brawler/ambusher) across several rarities:
+# Confirms, for each of the eight newly-shaped roles (scout/sniper/
+# brawler/ambusher/jammer/anti_missile/diver/remediation) across several
+# rarities:
 #  - the full 6-neighbor hub around the core is ALWAYS present (the hard
 #    constraint every shape must build outward from, never instead of -
 #    an earlier "thin the torso per role" attempt got reverted for
@@ -60,7 +61,7 @@ func _real_starter_inventory() -> Array:
 	return inventory
 
 func _ready():
-	var roles = ["scout", "sniper", "brawler", "ambusher"]
+	var roles = ["scout", "sniper", "brawler", "ambusher", "jammer", "anti_missile", "diver", "remediation"]
 	var rarities = [HexTile.Rarity.COMMON, HexTile.Rarity.RARE, HexTile.Rarity.MYTHIC]
 
 	# Reference: the plain default shape (no role) at each rarity, to

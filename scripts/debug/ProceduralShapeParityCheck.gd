@@ -26,6 +26,16 @@ func _init():
 		[HexTile.BodySlot.TORSO, HexTile.Rarity.RARE, "brawler"],
 		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "ambusher"],
 		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "ambusher"],
+		# Jammer/anti_missile/diver/remediation (2026-08-11) - exercise the
+		# jammer-family alias onto Scout's shape, the diver diagonal-band
+		# variant, and remediation's new boxy-fill rectangle.
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "jammer"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "jammer"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.RARE, "anti_missile"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "diver"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "diver"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "remediation"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "remediation"],
 		# Torso for a role with no special-cased shape - must still hit the
 		# unchanged default disc-growth branch identically.
 		[HexTile.BodySlot.TORSO, HexTile.Rarity.RARE, "commander"],

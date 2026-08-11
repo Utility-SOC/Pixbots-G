@@ -369,7 +369,10 @@ func _generate_shape_fallback():
 			valid_hexes.append(HexCoord.new(0, 0)) # Core
 			_valid_hex_set[_hex_key(0, 0)] = true
 			match role_variant:
-				"scout":
+				"scout", "jammer", "anti_missile":
+					# Both jammer variants are electronic-warfare subtypes
+					# of Scout (design ruling, 2026-08-11) - same tall lean
+					# silhouette, no separate identity of their own.
 					_guarantee_torso_hub()
 					# Tall and lean - narrower and taller than default,
 					# but nowhere near Sniper's extreme. Bounds are in
@@ -409,6 +412,30 @@ func _generate_shape_fallback():
 					# (unlike _grow_hex_region above) because that
 					# diagonal IS the natural axial r-direction.
 					_grow_diagonal_band(base_count, 0.6, 2.2, 2.2)
+					_guarantee_torso_hub()
+				"diver":
+					_guarantee_torso_hub()
+					# Diver reads as Sniper's narrowness carried along
+					# Ambusher's diagonal, not a third independent shape
+					# (design ruling, 2026-08-11: "shaped like snipers
+					# and ambushers") - a sleek diagonal torpedo body,
+					# narrower and longer than Ambusher's own blade.
+					_grow_diagonal_band(base_count, 0.4, 2.6, 2.6)
+					_guarantee_torso_hub()
+				"remediation":
+					_guarantee_torso_hub()
+					# Squat and genuinely RECTANGULAR, not another wide
+					# diamond like Brawler - "more a pleco than a
+					# goldfish, more a bulldozer than a mecha" (design
+					# ruling, 2026-08-11). boxy=true fills complete
+					# screen-space ROWS outward from center instead of
+					# nearest-origin-first, so the budget saturates each
+					# row before reaching for the next - a blocky slab
+					# with square corners instead of Brawler's tapered
+					# lens shape. Shorter/thicker than Brawler's paper-
+					# flat 0.6, less extreme width - a chunky block, not
+					# a blade.
+					_grow_hex_region(base_count, 2.0, 2.0, 0.7, 0.7, true)
 					_guarantee_torso_hub()
 				_:
 					_grow_default_disc(base_count)
@@ -521,7 +548,17 @@ func _grow_default_disc(base_count: int):
 # describing the target screen-space aspect ratio - e.g. a tall narrow
 # mast wants small sx_neg/sx_pos and a large sy_neg (py negative = "up"
 # in this projection, matching r negative).
-func _grow_hex_region(base_count: int, sx_neg: float, sx_pos: float, sy_neg: float, sy_pos: float):
+#
+# boxy=true switches the fill order from nearest-origin-first to nearest-
+# CENTER-ROW-first (|py| primary key) - Remediation's own squat rectangle
+# (design ruling, 2026-08-11: "more a pleco than a goldfish, more a
+# bulldozer than a mecha") needs to read as a genuine block with square
+# corners, not Brawler's tapered lens shape. Nearest-origin-first always
+# rounds off the far corners of the bound whenever the budget can't fill
+# the WHOLE rectangle (the common case) - filling complete rows outward
+# from center instead saturates each row before reaching for the next,
+# so the visible silhouette stays rectangular even when budget-limited.
+func _grow_hex_region(base_count: int, sx_neg: float, sx_pos: float, sy_neg: float, sy_pos: float, boxy: bool = false):
 	var scale = 1.0
 	var candidates: Array = []
 	while candidates.size() < base_count and scale < 80.0:
@@ -547,15 +584,37 @@ func _grow_hex_region(base_count: int, sx_neg: float, sx_pos: float, sy_neg: flo
 	# Rust/GDScript parity check: same set size, different tail hexes,
 	# until this secondary key was added). A full deterministic order
 	# means an unstable sort can't diverge from Rust's.
-	candidates.sort_custom(func(a, b):
-		var da = abs(a.q) + abs(a.r) + abs(a.q + a.r)
-		var db = abs(b.q) + abs(b.r) + abs(b.q + b.r)
-		if da != db:
-			return da < db
-		if a.q != b.q:
-			return a.q < b.q
-		return a.r < b.r
-	)
+	if boxy:
+		candidates.sort_custom(func(a, b):
+			var pya = abs(a.r)
+			var pyb = abs(b.r)
+			if pya != pyb:
+				return pya < pyb
+			var pxa = abs(2 * a.q + a.r)
+			var pxb = abs(2 * b.q + b.r)
+			if pxa != pxb:
+				return pxa < pxb
+			if a.q != b.q:
+				return a.q < b.q
+			return a.r < b.r
+		)
+	else:
+		# Tie-break by (q, r) after distance - Array.sort_custom is not
+		# guaranteed stable, and this bound frequently has many same-
+		# distance candidates sitting right at the base_count cutoff
+		# (confirmed by the Rust/GDScript parity check: same set size,
+		# different tail hexes, until this secondary key was added). A
+		# full deterministic order means an unstable sort can't diverge
+		# from Rust's.
+		candidates.sort_custom(func(a, b):
+			var da = abs(a.q) + abs(a.r) + abs(a.q + a.r)
+			var db = abs(b.q) + abs(b.r) + abs(b.q + b.r)
+			if da != db:
+				return da < db
+			if a.q != b.q:
+				return a.q < b.q
+			return a.r < b.r
+		)
 	for h in candidates:
 		if valid_hexes.size() >= base_count:
 			break

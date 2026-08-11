@@ -123,24 +123,48 @@ impl ProceduralShapeGen {
                 // role not listed below keeps the exact original isotropic
                 // disc-growth behavior, hub-guarantee included.
                 match role.as_str() {
-                    "scout" => {
+                    "scout" | "jammer" | "anti_missile" => {
+                        // Both jammer variants are electronic-warfare
+                        // subtypes of Scout (design ruling, 2026-08-11) -
+                        // same tall lean silhouette, no separate identity.
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
-                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 1.0, 1.0, 1.8, 1.8);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 1.0, 1.0, 1.8, 1.8, false);
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
                     "sniper" => {
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
-                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 0.4, 0.4, 2.5, 2.5);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 0.4, 0.4, 2.5, 2.5, false);
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
                     "brawler" => {
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
-                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 2.2, 2.2, 0.6, 0.6);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 2.2, 2.2, 0.6, 0.6, false);
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
                     "ambusher" => {
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                         Self::grow_diagonal_band(&mut valid_hexes, &mut valid_hex_set, base_count, 0.6, 2.2, 2.2);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                    }
+                    "diver" => {
+                        // Sniper's narrowness carried along Ambusher's
+                        // diagonal (design ruling, 2026-08-11: "shaped
+                        // like snipers and ambushers") - a sleek diagonal
+                        // torpedo body, narrower/longer than Ambusher's own.
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                        Self::grow_diagonal_band(&mut valid_hexes, &mut valid_hex_set, base_count, 0.4, 2.6, 2.6);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                    }
+                    "remediation" => {
+                        // Squat and genuinely RECTANGULAR, not another wide
+                        // diamond like Brawler - "more a pleco than a
+                        // goldfish, more a bulldozer than a mecha" (design
+                        // ruling, 2026-08-11). boxy=true fills complete
+                        // screen-space rows outward from center instead of
+                        // nearest-origin-first, giving square corners
+                        // instead of Brawler's tapered lens shape.
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 2.0, 2.0, 0.7, 0.7, true);
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
                     _ => {
@@ -350,7 +374,12 @@ impl ProceduralShapeGen {
     // rationale (bounds are in SCREEN-SPACE, px=2q+r/py=r, not raw
     // axial q/r, since axial coordinates are a skewed/non-orthogonal
     // basis relative to the game's own blueprint projection).
-    fn grow_hex_region(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, base_count: usize, sx_neg: f64, sx_pos: f64, sy_neg: f64, sy_pos: f64) {
+    // boxy=true switches the fill order from nearest-origin-first to
+    // nearest-center-ROW-first (mirrors ComponentEquipment.gd's own
+    // _grow_hex_region boxy parameter exactly - see that function's
+    // comment for why Remediation needs this for a genuinely rectangular,
+    // square-cornered read instead of Brawler's tapered lens shape).
+    fn grow_hex_region(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, base_count: usize, sx_neg: f64, sx_pos: f64, sy_neg: f64, sy_pos: f64, boxy: bool) {
         let mut scale: f64 = 1.0;
         let mut candidates: Vec<HexCoord> = Vec::new();
         while candidates.len() < base_count && scale < 80.0 {
@@ -372,17 +401,27 @@ impl ProceduralShapeGen {
             scale += 1.0;
         }
 
-        // Tie-break by (q, r) after distance - GDScript's Array.sort_custom
-        // is not guaranteed stable, and this bound frequently has many
-        // same-distance candidates right at the base_count cutoff
-        // (confirmed by the parity check: same set size, different tail
-        // hexes, until this secondary key was added). A full deterministic
-        // order means an unstable sort on the GDScript side can't diverge.
-        candidates.sort_by(|a, b| {
-            let da = a.q.abs() + a.r.abs() + (a.q + a.r).abs();
-            let db = b.q.abs() + b.r.abs() + (b.q + b.r).abs();
-            da.cmp(&db).then(a.q.cmp(&b.q)).then(a.r.cmp(&b.r))
-        });
+        if boxy {
+            candidates.sort_by(|a, b| {
+                let pya = a.r.abs();
+                let pyb = b.r.abs();
+                let pxa = (2 * a.q + a.r).abs();
+                let pxb = (2 * b.q + b.r).abs();
+                pya.cmp(&pyb).then(pxa.cmp(&pxb)).then(a.q.cmp(&b.q)).then(a.r.cmp(&b.r))
+            });
+        } else {
+            // Tie-break by (q, r) after distance - GDScript's Array.sort_custom
+            // is not guaranteed stable, and this bound frequently has many
+            // same-distance candidates right at the base_count cutoff
+            // (confirmed by the parity check: same set size, different tail
+            // hexes, until this secondary key was added). A full deterministic
+            // order means an unstable sort on the GDScript side can't diverge.
+            candidates.sort_by(|a, b| {
+                let da = a.q.abs() + a.r.abs() + (a.q + a.r).abs();
+                let db = b.q.abs() + b.r.abs() + (b.q + b.r).abs();
+                da.cmp(&db).then(a.q.cmp(&b.q)).then(a.r.cmp(&b.r))
+            });
+        }
         for h in candidates {
             if valid_hexes.len() >= base_count {
                 break;

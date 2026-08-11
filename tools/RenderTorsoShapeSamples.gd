@@ -12,7 +12,7 @@ extends Node
 const ComponentEquipmentScript = preload("res://scripts/core/ComponentEquipment.gd")
 
 const OUTPUT_DIR = "res://torso_shape_samples/"
-const ROLES = ["", "scout", "sniper", "brawler", "ambusher"]
+const ROLES = ["", "scout", "sniper", "brawler", "ambusher", "jammer", "anti_missile", "diver", "remediation"]
 const CELL_PX = 12
 
 func _ready():

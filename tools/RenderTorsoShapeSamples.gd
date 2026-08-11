@@ -18,13 +18,14 @@ const CELL_PX = 12
 func _ready():
 	DirAccess.make_dir_recursive_absolute(OUTPUT_DIR)
 	for role in ROLES:
-		var comp = ComponentEquipmentScript.new(HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC)
-		comp.role_variant = role
-		comp.generate_shape()
-		var img = _render_footprint(comp)
-		var label = role if role != "" else "default"
-		img.save_png(OUTPUT_DIR + "torso_" + label + ".png")
-		print("Saved torso_" + label + ".png (" + str(comp.valid_hexes.size()) + " hexes)")
+		for rarity_pair in [["mythic", HexTile.Rarity.MYTHIC], ["common", HexTile.Rarity.COMMON]]:
+			var comp = ComponentEquipmentScript.new(HexTile.BodySlot.TORSO, rarity_pair[1])
+			comp.role_variant = role
+			comp.generate_shape()
+			var img = _render_footprint(comp)
+			var label = role if role != "" else "default"
+			img.save_png(OUTPUT_DIR + "torso_" + label + "_" + rarity_pair[0] + ".png")
+			print("Saved torso_" + label + "_" + rarity_pair[0] + ".png (" + str(comp.valid_hexes.size()) + " hexes)")
 	get_tree().quit(0)
 
 func _render_footprint(comp) -> Image:

@@ -105,44 +105,43 @@ impl ProceduralShapeGen {
                 // 6-neighbor hub is a hard, non-negotiable constraint - an
                 // earlier "thin the torso per role" attempt got reverted
                 // because it left a Splitter in the hub with nowhere to fan
-                // power out to. Two iterations before this one, both caught
-                // by actually rendering the result: (1) a role-specific
+                // power out to. Two iterations before this one both got the
+                // WHOLE approach wrong, caught only by actually rendering
+                // the result and (for the second) by the user's own direct
+                // reaction to a rendered comparison: (1) a role-specific
                 // spine/slab/spike grown WITHOUT any size cap - a Mythic
                 // torso stretched into a 50+ hex diagonal staircase,
-                // consuming the ENTIRE budget as it scaled. (2) capped at a
-                // small FIXED size instead - but that sits well inside the
-                // compact disc's OWN natural radius at Mythic (~100 hexes
-                // reaches ~5-6 hexes out on its own), so the disc-fill
-                // silently swallowed it and every role rendered
-                // indistinguishable from the plain default. Fixed by
-                // scaling the flourish's reach with budget_tier (via
-                // seed_*_flourish's own TORSO_FLOURISH_LEN_BY_TIER) so it
-                // always pokes a few hexes past wherever the disc would
-                // reach on its own THIS tier - still bounded (~5-11 hexes
-                // even at Mythic, a small fraction of the 100-hex total).
-                // Every role not listed below keeps the exact original
-                // disc-growth behavior, hub-guarantee included - this only
-                // ADDS new branches, never changes the default.
+                // consuming the ENTIRE budget. (2) capped that spine and let
+                // the plain default disc fill the rest - looked distinct in
+                // isolation but was still "one round blob with a thin stick
+                // coming off it" for every role, since ~90-95% of the shape
+                // was still the same isotropic disc regardless of class.
+                // Fixed by growing the WHOLE region anisotropically instead
+                // via grow_hex_region/grow_diagonal_band (mirrors
+                // ComponentEquipment.gd's own versions exactly - see their
+                // comments for the axial-vs-screen-space rationale). Every
+                // role not listed below keeps the exact original isotropic
+                // disc-growth behavior, hub-guarantee included.
                 match role.as_str() {
                     "scout" => {
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
-                        Self::seed_scout_flourish(&mut valid_hexes, &mut valid_hex_set, budget_tier);
-                        Self::grow_default_disc(&mut valid_hexes, &mut valid_hex_set, base_count);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 1.0, 1.0, 1.8, 1.8);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
                     "sniper" => {
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
-                        Self::seed_sniper_flourish(&mut valid_hexes, &mut valid_hex_set, budget_tier);
-                        Self::grow_default_disc(&mut valid_hexes, &mut valid_hex_set, base_count);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 0.4, 0.4, 2.5, 2.5);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
                     "brawler" => {
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
-                        Self::seed_brawler_flourish(&mut valid_hexes, &mut valid_hex_set, budget_tier);
-                        Self::grow_default_disc(&mut valid_hexes, &mut valid_hex_set, base_count);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 2.2, 2.2, 0.6, 0.6);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
                     "ambusher" => {
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
-                        Self::seed_ambusher_flourish(&mut valid_hexes, &mut valid_hex_set, budget_tier);
-                        Self::grow_default_disc(&mut valid_hexes, &mut valid_hex_set, base_count);
+                        Self::grow_diagonal_band(&mut valid_hexes, &mut valid_hex_set, base_count, 0.6, 2.2, 2.2);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
                     _ => {
                         Self::grow_default_disc(&mut valid_hexes, &mut valid_hex_set, base_count);
@@ -344,81 +343,91 @@ impl ProceduralShapeGen {
         }
     }
 
-    // Reach (in hexes beyond the hub) each flourish grows to, indexed by
-    // budget_tier (0-5, matching hex_budget's own tiers - torso always
-    // uses tier 1-5 since it's base rarity + 1). Tracks the default
-    // disc's OWN growth rate (~sqrt(base_count/3) hex-rings) plus a
-    // constant so the flourish always pokes a few hexes past wherever
-    // the disc would reach on its own THIS tier - a flat constant here
-    // got silently swallowed by the disc at Mythic (confirmed by
-    // actually rendering it), and an unbounded loop consumed the entire
-    // budget as it scaled (confirmed the same way). This stays small
-    // even at the top end (~9-11 hexes on a 100-hex Mythic budget).
-    const TORSO_FLOURISH_LEN_BY_TIER: [usize; 6] = [5, 5, 6, 7, 8, 9];
-
-    // Scout: vertical spine, with a lateral "rung" pair roughly halfway
-    // up - the T-branch the design started from.
-    fn seed_scout_flourish(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, budget_tier: usize) {
-        let length = Self::TORSO_FLOURISH_LEN_BY_TIER[budget_tier.min(5)];
-        let mut tip = HexCoord { q: 0, r: -1 }; // already in the hub - spine's start
-        for i in 0..length {
-            tip = tip.neighbor(4); // NW
-            Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip);
-            if i == length / 2 {
-                Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip.neighbor(3)); // W rung
-                Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip.neighbor(0)); // E rung
+    // Anisotropic hex-region grower for axis-aligned (vertical/
+    // horizontal) silhouettes - Scout/Sniper/Brawler. Mirrors
+    // ComponentEquipment.gd's _grow_hex_region exactly - see that
+    // function's own comment for the full axial-vs-screen-space skew
+    // rationale (bounds are in SCREEN-SPACE, px=2q+r/py=r, not raw
+    // axial q/r, since axial coordinates are a skewed/non-orthogonal
+    // basis relative to the game's own blueprint projection).
+    fn grow_hex_region(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, base_count: usize, sx_neg: f64, sx_pos: f64, sy_neg: f64, sy_pos: f64) {
+        let mut scale: f64 = 1.0;
+        let mut candidates: Vec<HexCoord> = Vec::new();
+        while candidates.len() < base_count && scale < 80.0 {
+            candidates.clear();
+            let half_span = (sx_neg.max(sx_pos).max(sy_neg).max(sy_pos) * scale).ceil() as i32 + 3;
+            for q in -half_span..=half_span {
+                for r in -half_span..=half_span {
+                    let px = 2.0 * q as f64 + r as f64;
+                    let py = r as f64;
+                    if px < -sx_neg * scale - 0.5 || px > sx_pos * scale + 0.5 {
+                        continue;
+                    }
+                    if py < -sy_neg * scale - 0.5 || py > sy_pos * scale + 0.5 {
+                        continue;
+                    }
+                    candidates.push(HexCoord { q, r });
+                }
             }
+            scale += 1.0;
         }
-    }
 
-    // Sniper: straight single-file mast, no branching at all, reaching
-    // further than Scout's - the most extreme "one dominant axis" read
-    // in the roster, echoing the existing extra-long right-arm rifle
-    // identity.
-    fn seed_sniper_flourish(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, budget_tier: usize) {
-        let length = Self::TORSO_FLOURISH_LEN_BY_TIER[budget_tier.min(5)] + 2;
-        let mut tip = HexCoord { q: 0, r: -1 };
-        for _ in 0..length {
-            tip = tip.neighbor(4); // NW
-            Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip);
-        }
-    }
-
-    // Brawler: wide horizontal bump growing left and right from the
-    // hub's own W/E hexes together, with a thickening pair partway out -
-    // reads as broader than the default disc without a whole separate
-    // algorithm. Full (not halved) tier length on EACH side - the disc
-    // itself is already widest along this exact q-axis (a halved length
-    // here sat entirely inside the disc's own natural horizontal reach
-    // and got swallowed, confirmed by actually rendering it), so
-    // matching Scout/Sniper's own per-direction reach is what it takes
-    // to actually poke past it.
-    fn seed_brawler_flourish(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, budget_tier: usize) {
-        let length = Self::TORSO_FLOURISH_LEN_BY_TIER[budget_tier.min(5)];
-        let mut right_tip = HexCoord { q: 1, r: 0 };
-        let mut left_tip = HexCoord { q: -1, r: 0 };
-        for i in 0..length {
-            right_tip = right_tip.neighbor(0); // E
-            left_tip = left_tip.neighbor(3); // W
-            Self::try_add_torso_hex(valid_hexes, valid_hex_set, right_tip);
-            Self::try_add_torso_hex(valid_hexes, valid_hex_set, left_tip);
-            if i == length / 2 {
-                Self::try_add_torso_hex(valid_hexes, valid_hex_set, right_tip.neighbor(5)); // thicken (NE)
-                Self::try_add_torso_hex(valid_hexes, valid_hex_set, left_tip.neighbor(2)); // thicken (SW)
+        // Tie-break by (q, r) after distance - GDScript's Array.sort_custom
+        // is not guaranteed stable, and this bound frequently has many
+        // same-distance candidates right at the base_count cutoff
+        // (confirmed by the parity check: same set size, different tail
+        // hexes, until this secondary key was added). A full deterministic
+        // order means an unstable sort on the GDScript side can't diverge.
+        candidates.sort_by(|a, b| {
+            let da = a.q.abs() + a.r.abs() + (a.q + a.r).abs();
+            let db = b.q.abs() + b.r.abs() + (b.q + b.r).abs();
+            da.cmp(&db).then(a.q.cmp(&b.q)).then(a.r.cmp(&b.r))
+        });
+        for h in candidates {
+            if valid_hexes.len() >= base_count {
+                break;
             }
+            Self::try_add_torso_hex(valid_hexes, valid_hex_set, h);
         }
     }
 
-    // Ambusher: diagonal spike that hooks flat partway through - the
-    // same "hook" primitive already used for Ambusher's procedural loot
-    // shapes, applied to the deterministic starter torso too.
-    fn seed_ambusher_flourish(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, budget_tier: usize) {
-        let length = Self::TORSO_FLOURISH_LEN_BY_TIER[budget_tier.min(5)];
-        let phase_len = std::cmp::max(2, length * 2 / 3);
-        let mut tip = HexCoord { q: 1, r: -1 }; // already in the hub - spike's start
-        for i in 0..length {
-            tip = tip.neighbor(if i < phase_len { 5 } else { 0 }); // NE then E
-            Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip);
+    // Diagonal-band grower for Ambusher's blade silhouette. Mirrors
+    // ComponentEquipment.gd's _grow_diagonal_band exactly - stays in raw
+    // axial terms (unlike grow_hex_region above) because a fixed-q,
+    // varying-r band genuinely IS a 45-degree diagonal line in this same
+    // screen projection (the NW-SE hex direction).
+    fn grow_diagonal_band(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, base_count: usize, q_half: f64, r_neg: f64, r_pos: f64) {
+        let mut scale: f64 = 1.0;
+        let mut candidates: Vec<HexCoord> = Vec::new();
+        while candidates.len() < base_count && scale < 80.0 {
+            candidates.clear();
+            let q_max = (q_half * scale).ceil() as i32;
+            let r_min = (-r_neg * scale).floor() as i32;
+            let r_max = (r_pos * scale).ceil() as i32;
+            for q in -q_max..=q_max {
+                for r in r_min..=r_max {
+                    candidates.push(HexCoord { q, r });
+                }
+            }
+            scale += 1.0;
+        }
+
+        // Tie-break by (q, r) after distance - GDScript's Array.sort_custom
+        // is not guaranteed stable, and this bound frequently has many
+        // same-distance candidates right at the base_count cutoff
+        // (confirmed by the parity check: same set size, different tail
+        // hexes, until this secondary key was added). A full deterministic
+        // order means an unstable sort on the GDScript side can't diverge.
+        candidates.sort_by(|a, b| {
+            let da = a.q.abs() + a.r.abs() + (a.q + a.r).abs();
+            let db = b.q.abs() + b.r.abs() + (b.q + b.r).abs();
+            da.cmp(&db).then(a.q.cmp(&b.q)).then(a.r.cmp(&b.r))
+        });
+        for h in candidates {
+            if valid_hexes.len() >= base_count {
+                break;
+            }
+            Self::try_add_torso_hex(valid_hexes, valid_hex_set, h);
         }
     }
 

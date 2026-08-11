@@ -480,7 +480,6 @@ func _fire_via_batch_pool(source: Node, mount, packet):
 	color = (color * 1.5)
 	color.a = 1.0
 
-	var scale_mult = clamp(1.0 + log(1.0 + packet.magnitude / 200.0) * 0.5, 1.0, 5.0)
 	var ratios = EnergyPacket.compute_ratios(packet.synergies) if packet != null and "synergies" in packet else {}
 	# proc_synergies/aoe_bonus (Phase 5/7 of the batch-pool full-parity
 	# plan, 2026-08-10) - previously dropped entirely here, so Resonator
@@ -488,6 +487,20 @@ func _fire_via_batch_pool(source: Node, mount, packet):
 	# pool at all.
 	var proc_synergies = packet.proc_synergies if packet != null and "proc_synergies" in packet else {}
 	var aoe_bonus = packet.aoe_bonus if packet != null and "aoe_bonus" in packet else 0.0
+
+	# Mirrors Projectile._build_visuals' p_scale exactly (2026-08-11 fix -
+	# a live playtest comparison against the real renderer found batch
+	# shots looking noticeably smaller/sparser even where the underlying
+	# damage/hit behavior matched). This used to clamp at 5.0 and never
+	# factor in aoe_bonus or the banked-shot bonus at all, so a real
+	# Mythic-AoE or banked shot rendered visibly bigger than its batch-pool
+	# equivalent even though both dealt identical damage.
+	var scale_mult = min(1.0 + log(1.0 + packet.magnitude / 200.0) * 0.5, 5.0)
+	scale_mult *= (1.0 + 0.5 * aoe_bonus)
+	if "is_banked_shot" in packet and packet.is_banked_shot:
+		scale_mult *= 1.35
+	scale_mult = min(scale_mult, 8.0)
+
 	_batch_pool.spawn(from_pos, dir, BATCH_SHOT_SPEED, dmg, BATCH_SHOT_RADIUS, BATCH_SHOT_LIFETIME_AUTO, color, scale_mult, source.is_player, source, dominant, ratios, proc_synergies, aoe_bonus)
 
 func _reset_dummy_stats():
@@ -507,25 +520,6 @@ func _update_stats():
 	var dealt = _dummy.max_hp - _dummy.hp
 	var per_volley = dealt / max(1, _volleys_fired)
 	var text = "Volleys: %d   Shots: %d   Total damage on dummy: %.0f   Avg per volley: %.0f" % [_volleys_fired, _shots_fired, dealt, per_volley]
-	# TEMPORARY diagnostic (2026-08-10) - investigating a live playtest report
-	# of the batch renderer dealing zero damage against the dummy with a real
-	# multi-mount loadout, not reproduced yet in an isolated headless repro.
-	# Surfaces the pool's actual internal state for the first live shot so
-	# the next screenshot carries real numbers instead of visual inference.
-	# Remove once the report is resolved/confirmed fixed.
-	if _batch_toggle and _batch_toggle.button_pressed and _batch_pool:
-		var live = _batch_pool.live_count()
-		if live > 0:
-			for i in range(_batch_pool._highest_active + 1):
-				if _batch_pool._alive[i] == 1:
-					var dist = _batch_pool._position[i].distance_to(_dummy.global_position)
-					text += "\n[DEBUG] live=%d slot=%d pos=%s dist_to_dummy=%.1f dir=%s speed=%.1f dom=%s r_vtx=%.2f r_exp_dmg=%.0f elapsed=%.2f/%.2f" % [
-						live, i, _batch_pool._position[i], dist, _batch_pool._direction[i], _batch_pool._speed[i],
-						_batch_pool._dominant_synergy_name[i], _batch_pool._r_vtx[i], _batch_pool._damage[i],
-						_batch_pool._elapsed[i], _batch_pool._lifetime[i]]
-					break
-		else:
-			text += "\n[DEBUG] live=0 (no shots currently alive in the pool)"
 	_stats_label.text = text
 
 func _process(delta):

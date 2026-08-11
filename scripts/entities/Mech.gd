@@ -11,6 +11,10 @@ const JumpjetResidue = preload("res://scripts/attacks/JumpjetResidue.gd")
 # global script class cache hasn't been refreshed since the file was added.
 const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 const BossProfile = preload("res://scripts/ai/BossProfile.gd")
+# Same reason as SolverProfile above - used as a bare type hint on
+# _recalculate_grid_for_stock/_capture_stock_simulation_cache/_restore_
+# stock_simulation_cache's `stock` parameter.
+const StockBuild = preload("res://scripts/ai/StockBuild.gd")
 const PlayerController = preload("res://scripts/entities/PlayerController.gd")
 const BossBrain = preload("res://scripts/entities/BossBrain.gd")
 const StatusEffectRunner = preload("res://scripts/entities/StatusEffectRunner.gd")
@@ -1866,6 +1870,66 @@ func _recalculate_grid():
 	_simulate_energy_flow(torso)
 	_collect_weapon_mounts_and_tile_capabilities()
 	_finalize_grid_state()
+
+# Stock-replay counterpart of _recalculate_grid() - identical except the
+# expensive _simulate_energy_flow() pass (confirmed via live diagnostic to
+# cost 200ms+ per spawn on dense builds, see the 2026-08-10 step-cap/cull
+# fix in this file and rust_ext/src/hexgrid_sim.rs) is replaced with a
+# memoized replay of that pass's own output, cached on the StockBuild
+# itself. Safe because the packet-routing simulation is a pure function of
+# tile layout - no RNG anywhere in the routing path (generate_energy/
+# process_energy); the only RNG on any tile type lives at construction
+# time (JammerModuleTile._init's mode roll) or actual-fire time
+# (MissileRackTile's shell-spread jitter), neither of which this touches -
+# and the cache self-invalidates for free: StockBuildMutator.establish()/
+# promote() always hand back a brand-new StockBuild object with an empty
+# cache, never mutate serialized_components on an existing one in place.
+func _recalculate_grid_for_stock(stock: StockBuild):
+	_reset_grid_state()
+	_compute_mass_and_stat_modifiers()
+
+	if not components.has(HexTile.BodySlot.TORSO):
+		return
+
+	if stock._simulation_cache.is_empty():
+		var torso = components[HexTile.BodySlot.TORSO]
+		_simulate_energy_flow(torso)
+		_capture_stock_simulation_cache(stock)
+	else:
+		_restore_stock_simulation_cache(stock)
+
+	_collect_weapon_mounts_and_tile_capabilities()
+	_finalize_grid_state()
+
+# Snapshots every tile's just-simulated pending_packets (the routing
+# result _collect_weapon_mounts_and_tile_capabilities is about to consume
+# and clear) onto the StockBuild, keyed by slot+grid_position so a later
+# replay can restore them onto the freshly-placed tiles at the same
+# positions without re-running the simulation. Packets are copy()'d going
+# in (and again going out, in _restore_stock_simulation_cache) so the
+# cached entries are never aliased with any live packet a caller might
+# mutate.
+func _capture_stock_simulation_cache(stock: StockBuild):
+	for slot in components:
+		var comp = components[slot]
+		for tile in comp.hex_grid.get_all_tiles():
+			if "pending_packets" in tile and tile.pending_packets.size() > 0 and tile.grid_position:
+				var key = str(slot) + ":" + str(tile.grid_position.q) + "," + str(tile.grid_position.r)
+				var cached_entries = []
+				for entry in tile.pending_packets:
+					cached_entries.append({"packet": entry.packet.copy(), "step": entry.step})
+				stock._simulation_cache[key] = cached_entries
+
+func _restore_stock_simulation_cache(stock: StockBuild):
+	for slot in components:
+		var comp = components[slot]
+		for tile in comp.hex_grid.get_all_tiles():
+			if not ("pending_packets" in tile) or not tile.grid_position:
+				continue
+			var key = str(slot) + ":" + str(tile.grid_position.q) + "," + str(tile.grid_position.r)
+			if stock._simulation_cache.has(key):
+				for entry in stock._simulation_cache[key]:
+					tile.pending_packets.append({"packet": entry.packet.copy(), "step": entry.step})
 
 func _reset_grid_state():
 	precalculated_weapons.clear()
@@ -4077,7 +4141,7 @@ func build_loadout_for_role(role_name: String):
 						real_tile.active_faces = tile.active_faces.duplicate()
 				else:
 					grid.add_tile(h, tile)
-		_recalculate_grid()
+		_recalculate_grid_for_stock(stock)
 		_perf_stock_replay_usec += Time.get_ticks_usec() - _t_stock_replay
 		return
 

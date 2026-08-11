@@ -51,6 +51,19 @@ var fitness_history: Array = []
 # format.
 @export var serialized_components: Dictionary = {}
 
+# Runtime-only memoization of Mech._simulate_energy_flow's expensive
+# packet-routing output (perf fix, 2026-08-10: that pass was costing
+# 200ms+ per spawn on dense builds). Keyed by "<BodySlot>:<q>,<r>" ->
+# Array of {"packet": EnergyPacket, "step": int}, the exact shape
+# WeaponMountTile/MissileRackTile's own pending_packets already uses -
+# see Mech._recalculate_grid_for_stock. Deliberately NOT @export'd: pure
+# in-memory cache, safe to lose across saves/reloads (just repopulates on
+# the next replay), and self-invalidating on promotion since
+# StockBuildMutator.establish()/promote() always construct a brand-new
+# StockBuild object rather than mutating serialized_components in place -
+# a promoted build always starts with an empty cache.
+var _simulation_cache: Dictionary = {}
+
 func _init(_template_name: String = "", _role: String = "", _rarity: int = 0):
 	template_name = _template_name
 	role = _role

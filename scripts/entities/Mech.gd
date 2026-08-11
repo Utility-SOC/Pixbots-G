@@ -752,8 +752,16 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 	return ComponentEquipment.create_starter_backpack(role, p_rarity)
 
 # -1 if no over-reliance is currently flagged, or no director exists yet
-# (e.g. very first spawns before any kills have been logged).
+# (e.g. very first spawns before any kills have been logged) - also -1 if
+# this Mech isn't in the scene tree at all yet (Mech.prewarm_stock_build's
+# throwaway bots deliberately never get add_child()'d, see that function's
+# own header). is_inside_tree() check comes FIRST and unconditionally -
+# get_tree() itself logs an engine-level error when called on a node with
+# no tree (still returns null, but noisily), so it must never be called
+# speculatively.
 func _get_reactive_jam_synergy() -> int:
+	if not is_inside_tree():
+		return -1
 	var main = get_tree().current_scene
 	if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
 		var director = main.world.get_node("SquadDirector")
@@ -1930,6 +1938,90 @@ func _restore_stock_simulation_cache(stock: StockBuild):
 			if stock._simulation_cache.has(key):
 				for entry in stock._simulation_cache[key]:
 					tile.pending_packets.append({"packet": entry.packet.copy(), "step": entry.step})
+
+# Replays a StockBuild's serialized tile placements onto this mech's
+# already-built starter components, then recalculates via the memoized
+# stock-cache path. Extracted out of build_loadout_for_role's use_stock
+# branch so prewarm_stock_build (below) can drive the exact same replay
+# on a throwaway, never-in-tree bot instead of duplicating this logic.
+func _replay_stock_tiles(stock: StockBuild):
+	# Deliberately NOT SaveManager._deserialize_component() here - that
+	# rebuilds a whole fresh ComponentEquipment (generate_shape() +
+	# per-tile deserialize + several legacy-save-compat sweeps: stray-
+	# tile absorption, fixed_sinks re-inference, Energy Intake re-
+	# orientation), real overhead built for an occasional save-file
+	# load, not a per-spawn hot path. The component this mech already
+	# has (built moments ago by create_starter_torso/arm, same code path
+	# a fresh solve() would also build onto) already has the correct
+	# shape/fixed_sinks/rarity - only the individual PLACED tiles need
+	# restoring, via the lightweight per-tile SaveManager._deserialize_
+	# tile(), same as AutoEquipSolver's own cache-replay (_replay_plan)
+	# uses for the same reason.
+	for slot_key in stock.serialized_components:
+		var slot = int(slot_key)
+		if not components.has(slot):
+			continue
+		var comp = components[slot]
+		var grid = comp.hex_grid
+		for tdata in stock.serialized_components[slot_key].get("tiles", []):
+			var tile = SaveManager._deserialize_tile(tdata)
+			if not tile or not tile.grid_position:
+				continue
+			var h = tile.grid_position
+			var is_fixed_or_core = (h.q == 0 and h.r == 0)
+			if not is_fixed_or_core:
+				for s in comp.fixed_sinks:
+					if s.q == h.q and s.r == h.r:
+						is_fixed_or_core = true
+						break
+			if is_fixed_or_core:
+				# Core/fixed-sink tiles already exist (constructed by
+				# create_starter_* moments ago) - reconfigure the REAL
+				# one's active_faces rather than replacing it outright.
+				var real_tile = grid.get_tile(h)
+				if real_tile and "active_faces" in tile and "active_faces" in real_tile:
+					real_tile.active_faces = tile.active_faces.duplicate()
+			else:
+				grid.add_tile(h, tile)
+	_recalculate_grid_for_stock(stock)
+
+# Loading-screen prewarm factory (user's own idea, 2026-08-10: "would it
+# help if we did a loading screen when we return from the garage for it
+# to build out the enemy mechs in advance" - said after the step-cap/cull
+# fix alone still wasn't enough). Builds a throwaway Mech purely to
+# populate `stock`'s simulation cache (_recalculate_grid_for_stock) at
+# Deploy time instead of paying that one-time simulate cost live during
+# the wave that actually needs it - see StockBuildEvolution.
+# prewarm_all_simulation_caches, called from Main._close_garage().
+#
+# Deliberately NEVER add_child()'d into any real scene tree: no
+# MechRenderer, no CollisionShape2D, no "enemy" group membership, no AI
+# state - _replay_stock_tiles/_recalculate_grid_for_stock don't need any
+# of that (verified: no get_tree() call anywhere in that call chain
+# except _create_role_backpack's _get_reactive_jam_synergy(), which is
+# now null-safe specifically for this), and adding a real throwaway bot
+# into the live world even briefly would risk it getting drawn, targeted,
+# or counted toward the wave's enemy total. No-op if this build's cache
+# is already warm (the common case after a build's first-ever prewarm or
+# replay this session - _simulation_cache lives in memory for the rest of
+# the session once populated, see StockBuild._simulation_cache's own
+# comment).
+static func prewarm_stock_build(stock: StockBuild) -> void:
+	if not stock._simulation_cache.is_empty():
+		return
+	var bot = load("res://scripts/entities/Mech.gd").new()
+	bot.is_player = false
+	bot.combat_role = stock.role
+	bot.base_rarity = stock.rarity
+	bot.equip_component(ComponentEquipment.create_starter_torso(stock.role, stock.rarity))
+	bot.equip_component(ComponentEquipment.create_starter_arm(true, stock.role, stock.rarity))
+	bot.equip_component(ComponentEquipment.create_starter_arm(false, stock.role, stock.rarity))
+	bot.equip_component(ComponentEquipment.create_starter_leg(true, stock.role, stock.rarity))
+	bot.equip_component(ComponentEquipment.create_starter_leg(false, stock.role, stock.rarity))
+	bot.equip_component(ComponentEquipment.create_starter_head(stock.role, stock.rarity))
+	bot.equip_component(bot._create_role_backpack(stock.role, stock.rarity))
+	bot._replay_stock_tiles(stock)
+	bot.free()
 
 func _reset_grid_state():
 	precalculated_weapons.clear()
@@ -4103,45 +4195,7 @@ func build_loadout_for_role(role_name: String):
 
 	if use_stock:
 		var _t_stock_replay = Time.get_ticks_usec()
-		# Deliberately NOT SaveManager._deserialize_component() here - that
-		# rebuilds a whole fresh ComponentEquipment (generate_shape() +
-		# per-tile deserialize + several legacy-save-compat sweeps: stray-
-		# tile absorption, fixed_sinks re-inference, Energy Intake re-
-		# orientation), real overhead built for an occasional save-file
-		# load, not a per-spawn hot path. The component this mech already
-		# has (built moments ago by create_starter_torso/arm in _ready(),
-		# same code path a fresh solve() would also build onto) already has
-		# the correct shape/fixed_sinks/rarity - only the individual PLACED
-		# tiles need restoring, via the lightweight per-tile SaveManager.
-		# _deserialize_tile(), same as AutoEquipSolver's own cache-replay
-		# (_replay_plan) uses for the same reason.
-		for slot_key in stock.serialized_components:
-			var slot = int(slot_key)
-			if not components.has(slot):
-				continue
-			var comp = components[slot]
-			var grid = comp.hex_grid
-			for tdata in stock.serialized_components[slot_key].get("tiles", []):
-				var tile = SaveManager._deserialize_tile(tdata)
-				if not tile or not tile.grid_position:
-					continue
-				var h = tile.grid_position
-				var is_fixed_or_core = (h.q == 0 and h.r == 0)
-				if not is_fixed_or_core:
-					for s in comp.fixed_sinks:
-						if s.q == h.q and s.r == h.r:
-							is_fixed_or_core = true
-							break
-				if is_fixed_or_core:
-					# Core/fixed-sink tiles already exist (constructed by
-					# create_starter_* moments ago) - reconfigure the REAL
-					# one's active_faces rather than replacing it outright.
-					var real_tile = grid.get_tile(h)
-					if real_tile and "active_faces" in tile and "active_faces" in real_tile:
-						real_tile.active_faces = tile.active_faces.duplicate()
-				else:
-					grid.add_tile(h, tile)
-		_recalculate_grid_for_stock(stock)
+		_replay_stock_tiles(stock)
 		_perf_stock_replay_usec += Time.get_ticks_usec() - _t_stock_replay
 		return
 

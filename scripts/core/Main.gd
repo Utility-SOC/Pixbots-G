@@ -2299,6 +2299,18 @@ func _close_garage():
 			if is_instance_valid(live_drone) and live_drone.has_method("_recalculate_grid"):
 				live_drone.is_grid_dirty = true
 				live_drone._recalculate_grid()
+		# Prewarm every already-known enemy StockBuild's energy-simulation
+		# cache here too - same "move the cost to the deploy transition
+		# instead of live combat" reasoning as the player/drone recalcs
+		# just above (user, 2026-08-10: "would it help if we did a
+		# loading screen when we return from the garage for it to build
+		# out the enemy mechs in advance"). No-op for builds already
+		# warm this session - see StockBuildEvolution.
+		# prewarm_all_simulation_caches's own comment.
+		if world and world.has_node("SquadDirector"):
+			var director = world.get_node("SquadDirector")
+			if director.stock_build_evolution:
+				director.stock_build_evolution.prewarm_all_simulation_caches()
 		SaveManager.save_game("autosave", player, player_inventory)
 		_spawn_drones_if_needed()
 		# Reactive music: key the soundtrack to the build that just left the

@@ -63,6 +63,20 @@ func get_stock_build(template_name: String, role: String, rarity: int, slot: int
 func should_test_deviation() -> bool:
 	return randf() < DEVIATION_TEST_RATE
 
+# Loading-screen prewarm hook (Deploy-time, called from Main._close_garage)
+# - warms every already-known StockBuild's simulation cache (see Mech.
+# prewarm_stock_build/_recalculate_grid_for_stock) BEFORE the upcoming
+# wave's spawn burst needs it, instead of paying that one-time simulate
+# cost live during combat. Cheap/no-op for any build whose cache is
+# already warm - only a fresh session's first Deploy (nothing loaded from
+# save has ever been simulated this session) or a build that was just
+# promoted (StockBuildMutator.establish/promote always hand back a
+# brand-new object with an empty cache) does real work here.
+func prewarm_all_simulation_caches():
+	var MechScript = load("res://scripts/entities/Mech.gd")
+	for b in director.stock_builds:
+		MechScript.prewarm_stock_build(b)
+
 # Registers a (template, role, rarity, slot)'s very first build - not a
 # "deviation" (there was nothing to deviate from), so it's accepted
 # unconditionally.

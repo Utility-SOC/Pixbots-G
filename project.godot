@@ -18,7 +18,7 @@ config/name="Pixbots-G"
 config/version="1.1.10.1"
 run/main_scene="res://MainMenu.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
-config/icon="res://icon.svg"
+config/icon="res://icon.png"
 
 [autoload]
 

@@ -99,37 +99,62 @@ impl ProceduralShapeGen {
             1 => { // TORSO = 1
                 valid_hexes.push(HexCoord { q: 0, r: 0 });
                 valid_hex_set.insert(HexCoord { q: 0, r: 0 });
-                let mut radius: i32 = 1;
-                while valid_hexes.len() < base_count {
-                    for q in -radius..=radius {
-                        for r in -radius..=radius {
-                            if valid_hexes.len() >= base_count { break; }
-                            if (q + r).abs() <= radius {
-                                let h = HexCoord { q, r };
-                                let h_sym = HexCoord { q: -q - r, r };
 
-                                if !valid_hex_set.contains(&h) {
-                                    valid_hexes.push(h);
-                                    valid_hex_set.insert(h);
-                                }
+                // Class-constrained torso shapes (design doc, 2026-08-10):
+                // silhouette should communicate class, but the core's full
+                // 6-neighbor hub is a hard, non-negotiable constraint - an
+                // earlier "thin the torso per role" attempt got reverted
+                // because it left a Splitter in the hub with nowhere to fan
+                // power out to. Role identity lives entirely in how the
+                // shape grows OUTWARD from that guaranteed hub, gated by
+                // the same base_count budget every rarity tier already
+                // uses. Every role not listed below keeps the exact
+                // original disc-growth behavior, hub-guarantee included -
+                // this only ADDS new branches, never changes the default.
+                match role.as_str() {
+                    "scout" => {
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                        Self::grow_scout_spine(&mut valid_hexes, &mut valid_hex_set, base_count);
+                    }
+                    "sniper" => {
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                        Self::grow_sniper_mast(&mut valid_hexes, &mut valid_hex_set, base_count);
+                    }
+                    "brawler" => {
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                        Self::grow_brawler_slab(&mut valid_hexes, &mut valid_hex_set, base_count);
+                    }
+                    "ambusher" => {
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                        Self::grow_ambusher_hook(&mut valid_hexes, &mut valid_hex_set, base_count);
+                    }
+                    _ => {
+                        let mut radius: i32 = 1;
+                        while valid_hexes.len() < base_count {
+                            for q in -radius..=radius {
+                                for r in -radius..=radius {
+                                    if valid_hexes.len() >= base_count { break; }
+                                    if (q + r).abs() <= radius {
+                                        let h = HexCoord { q, r };
+                                        let h_sym = HexCoord { q: -q - r, r };
 
-                                if valid_hexes.len() < base_count {
-                                    if !valid_hex_set.contains(&h_sym) {
-                                        valid_hexes.push(h_sym);
-                                        valid_hex_set.insert(h_sym);
+                                        if !valid_hex_set.contains(&h) {
+                                            valid_hexes.push(h);
+                                            valid_hex_set.insert(h);
+                                        }
+
+                                        if valid_hexes.len() < base_count {
+                                            if !valid_hex_set.contains(&h_sym) {
+                                                valid_hexes.push(h_sym);
+                                                valid_hex_set.insert(h_sym);
+                                            }
+                                        }
                                     }
                                 }
                             }
+                            radius += 1;
                         }
-                    }
-                    radius += 1;
-                }
-
-                for d in 0..6 {
-                    let n = HexCoord { q: 0, r: 0 }.neighbor(d);
-                    if !valid_hex_set.contains(&n) {
-                        valid_hexes.push(n);
-                        valid_hex_set.insert(n);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
                 }
             }
@@ -273,6 +298,109 @@ impl ProceduralShapeGen {
             }
         }
         "block".to_string()
+    }
+
+    // --- Class-constrained torso shape helpers (design doc, 2026-08-10) ---
+    // See generate_shape()'s TORSO branch for the full rationale. All five
+    // mirror ComponentEquipment.gd's GDScript fallback exactly (same
+    // direction indices, same thresholds) so the Rust/GDScript parity
+    // check (ProceduralShapeParityCheck.gd) stays green.
+
+    fn guarantee_torso_hub(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>) {
+        for d in 0..6 {
+            let n = HexCoord { q: 0, r: 0 }.neighbor(d);
+            if !valid_hex_set.contains(&n) {
+                valid_hexes.push(n);
+                valid_hex_set.insert(n);
+            }
+        }
+    }
+
+    fn try_add_torso_hex(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, h: HexCoord) -> bool {
+        if valid_hex_set.contains(&h) {
+            return false;
+        }
+        valid_hexes.push(h);
+        valid_hex_set.insert(h);
+        true
+    }
+
+    // Scout: vertical spine (NW), with a lateral "rung" pair every 2
+    // segments once budget allows - the T-branch the design started from:
+    // a torso limited to a single line has no branch point to fan power
+    // out past 3 tiles, so rungs are what unlock real capacity as rarity
+    // climbs.
+    fn grow_scout_spine(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, base_count: usize) {
+        let mut tip = HexCoord { q: 0, r: -1 }; // already in the hub - spine's start
+        let mut segment = 0;
+        while valid_hexes.len() < base_count {
+            tip = tip.neighbor(4); // NW
+            if !Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip) {
+                break;
+            }
+            segment += 1;
+            if segment % 2 == 0 && valid_hexes.len() < base_count {
+                Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip.neighbor(3)); // W rung
+                if valid_hexes.len() < base_count {
+                    Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip.neighbor(0)); // E rung
+                }
+            }
+        }
+    }
+
+    // Sniper: straight single-file mast, no branching at all - the most
+    // extreme "one dominant axis" read in the roster, echoing the
+    // existing extra-long right-arm rifle identity.
+    fn grow_sniper_mast(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, base_count: usize) {
+        let mut tip = HexCoord { q: 0, r: -1 };
+        while valid_hexes.len() < base_count {
+            tip = tip.neighbor(4); // NW
+            if !Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip) {
+                break;
+            }
+        }
+    }
+
+    // Brawler: wide horizontal slab - alternates extending left/right
+    // from the hub's own W/E hexes, thickening upward every third
+    // addition so it reads as a broad block, not a thin bar.
+    fn grow_brawler_slab(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, base_count: usize) {
+        let mut right_tip = HexCoord { q: 1, r: 0 };
+        let mut left_tip = HexCoord { q: -1, r: 0 };
+        let mut toggle_right = true;
+        while valid_hexes.len() < base_count {
+            let tip = if toggle_right {
+                right_tip = right_tip.neighbor(0); // E
+                right_tip
+            } else {
+                left_tip = left_tip.neighbor(3); // W
+                left_tip
+            };
+            let added = Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip);
+            toggle_right = !toggle_right;
+            if !added {
+                continue;
+            }
+            if valid_hexes.len() % 3 == 0 && valid_hexes.len() < base_count {
+                Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip.neighbor(5)); // thicken (NE)
+            }
+        }
+    }
+
+    // Ambusher: diagonal spike (NE), then hooks flat (E) partway through -
+    // the same "hook" primitive already used for Ambusher's procedural
+    // loot shapes, applied to the deterministic starter torso too.
+    fn grow_ambusher_hook(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, base_count: usize) {
+        let mut tip = HexCoord { q: 1, r: -1 }; // already in the hub - spike's start
+        let phase_len = std::cmp::max(2, base_count / 6);
+        let mut i = 0;
+        while valid_hexes.len() < base_count {
+            tip = tip.neighbor(if i < phase_len { 5 } else { 0 }); // NE then E
+            if !Self::try_add_torso_hex(valid_hexes, valid_hex_set, tip) {
+                break;
+            }
+            i += 1;
+        }
     }
 
     fn try_add_hex(valid_hexes: &mut Vec<HexCoord>, valid_hex_set: &mut HashSet<HexCoord>, h: HexCoord) -> bool {

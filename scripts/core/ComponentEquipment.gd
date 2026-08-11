@@ -328,49 +328,61 @@ func _generate_shape_fallback():
 					valid_hexes.append(HexCoord.new(q, r))
 			
 		HexTile.BodySlot.TORSO:
-			# Torso is symmetrical. Starts at 0,0 and grows outwards as a
-			# SOLID hex disc. The scout/brawler role thinning that used to
-			# apply here (abs(q)>1 / abs(r)>1) is deliberately gone: it
+			# Torso starts at 0,0 and grows outwards from there. The
+			# scout/brawler role THINNING that used to apply here
+			# (abs(q)>1 / abs(r)>1) is deliberately gone for good: it
 			# produced single-file torso strips where a Common core (fires
 			# only 1 face - see CoreTile.get_max_faces [1,1,2,6,6]) has no
-			# room to fan power out through a Splitter to every limb link,
-			# and opaque links can't be stacked in a line - "geometries that
-			# limit your ability to link to all." A torso must always have
-			# branching room; that's literally the "room to power every
-			# limb" ruling in the hex-budget comment above. Role silhouette
-			# variety lives in the arms/legs, not the torso.
+			# room to fan power out through a Splitter to every limb link -
+			# "geometries that limit your ability to link to all." The
+			# full 6-neighbor hub around the core is a hard, non-negotiable
+			# constraint every branch below guarantees FIRST, always.
+			#
+			# Class-constrained torso shapes (design doc, 2026-08-10):
+			# silhouette identity now DOES live in the torso too, just
+			# built outward from that guaranteed hub rather than replacing
+			# it - see _grow_scout_spine/_grow_sniper_mast/_grow_brawler_
+			# slab/_grow_ambusher_hook's own headers. Every role not
+			# listed keeps the exact original disc-growth behavior
+			# (hub-guarantee included, same position/order as before) -
+			# this only ADDS new branches, never changes the default.
 			valid_hexes.append(HexCoord.new(0, 0)) # Core
-			var radius = 1
-			while valid_hexes.size() < base_count:
-				# Add a ring
-				for q in range(-radius, radius + 1):
-					for r in range(-radius, radius + 1):
-						if valid_hexes.size() >= base_count: break
-						if abs(q + r) <= radius:
-							var h = HexCoord.new(q, r)
-							# In axial, symmetry across vertical axis (x=0) is: q -> -q-r, r -> r
-							var h_sym = HexCoord.new(-q - r, r)
+			_valid_hex_set[_hex_key(0, 0)] = true
+			match role_variant:
+				"scout":
+					_guarantee_torso_hub()
+					_grow_scout_spine(base_count)
+				"sniper":
+					_guarantee_torso_hub()
+					_grow_sniper_mast(base_count)
+				"brawler":
+					_guarantee_torso_hub()
+					_grow_brawler_slab(base_count)
+				"ambusher":
+					_guarantee_torso_hub()
+					_grow_ambusher_hook(base_count)
+				_:
+					var radius = 1
+					while valid_hexes.size() < base_count:
+						# Add a ring
+						for q in range(-radius, radius + 1):
+							for r in range(-radius, radius + 1):
+								if valid_hexes.size() >= base_count: break
+								if abs(q + r) <= radius:
+									var h = HexCoord.new(q, r)
+									# In axial, symmetry across vertical axis (x=0) is: q -> -q-r, r -> r
+									var h_sym = HexCoord.new(-q - r, r)
 
-							if not _valid_hex_set.has(_hex_key(h.q, h.r)):
-								valid_hexes.append(h)
-								_valid_hex_set[_hex_key(h.q, h.r)] = true
+									if not _valid_hex_set.has(_hex_key(h.q, h.r)):
+										valid_hexes.append(h)
+										_valid_hex_set[_hex_key(h.q, h.r)] = true
 
-							if valid_hexes.size() < base_count:
-								if not _valid_hex_set.has(_hex_key(h_sym.q, h_sym.r)):
-									valid_hexes.append(h_sym)
-									_valid_hex_set[_hex_key(h_sym.q, h_sym.r)] = true
-				radius += 1
-
-			# Guarantee the full 6-neighbor hub around the core exists even
-			# at the smallest budget, so a Splitter placed next to the core
-			# can always fan power out in every direction - the routing room
-			# every peripheral link depends on.
-			for d in range(6):
-				var n = HexCoord.new(0, 0).neighbor(d)
-				if not _valid_hex_set.has(_hex_key(n.q, n.r)):
-					valid_hexes.append(n)
-					_valid_hex_set[_hex_key(n.q, n.r)] = true
-				
+									if valid_hexes.size() < base_count:
+										if not _valid_hex_set.has(_hex_key(h_sym.q, h_sym.r)):
+											valid_hexes.append(h_sym)
+											_valid_hex_set[_hex_key(h_sym.q, h_sym.r)] = true
+						radius += 1
+					_guarantee_torso_hub()
 		HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R:
 			# Arms are long and narrow. 
 			var dir_q = -1 if slot_type == HexTile.BodySlot.ARM_L else 1
@@ -417,6 +429,88 @@ func _generate_shape_fallback():
 	# _valid_hex_set - one full rebuild here keeps it correct for everyone
 	# (cheap: runs once per part generation, not a hot path).
 	_rebuild_valid_hex_set()
+
+# --- Class-constrained torso shape helpers (design doc, 2026-08-10) ---
+# See generate_shape()'s TORSO branch for the full rationale. All five
+# mirror rust_ext/src/procedural_shape.rs's Rust versions exactly (same
+# direction indices, same thresholds) so the Rust/GDScript parity check
+# (ProceduralShapeParityCheck.gd) stays green.
+
+func _guarantee_torso_hub():
+	for d in range(6):
+		var n = HexCoord.new(0, 0).neighbor(d)
+		if not _valid_hex_set.has(_hex_key(n.q, n.r)):
+			valid_hexes.append(n)
+			_valid_hex_set[_hex_key(n.q, n.r)] = true
+
+func _try_add_torso_hex(h: HexCoord) -> bool:
+	if _valid_hex_set.has(_hex_key(h.q, h.r)):
+		return false
+	valid_hexes.append(h)
+	_valid_hex_set[_hex_key(h.q, h.r)] = true
+	return true
+
+# Scout: vertical spine (NW), with a lateral "rung" pair every 2 segments
+# once budget allows - the T-branch the design started from: a torso
+# limited to a single line has no branch point to fan power out past 3
+# tiles, so rungs are what unlock real capacity as rarity climbs.
+func _grow_scout_spine(base_count: int):
+	var tip = HexCoord.new(0, -1) # already in the hub - spine's start
+	var segment = 0
+	while valid_hexes.size() < base_count:
+		tip = tip.neighbor(4) # NW
+		if not _try_add_torso_hex(tip):
+			break
+		segment += 1
+		if segment % 2 == 0 and valid_hexes.size() < base_count:
+			_try_add_torso_hex(tip.neighbor(3)) # W rung
+			if valid_hexes.size() < base_count:
+				_try_add_torso_hex(tip.neighbor(0)) # E rung
+
+# Sniper: straight single-file mast, no branching at all - the most
+# extreme "one dominant axis" read in the roster, echoing the existing
+# extra-long right-arm rifle identity.
+func _grow_sniper_mast(base_count: int):
+	var tip = HexCoord.new(0, -1)
+	while valid_hexes.size() < base_count:
+		tip = tip.neighbor(4) # NW
+		if not _try_add_torso_hex(tip):
+			break
+
+# Brawler: wide horizontal slab - alternates extending left/right from
+# the hub's own W/E hexes, thickening upward every third addition so it
+# reads as a broad block, not a thin bar.
+func _grow_brawler_slab(base_count: int):
+	var right_tip = HexCoord.new(1, 0)
+	var left_tip = HexCoord.new(-1, 0)
+	var toggle_right = true
+	while valid_hexes.size() < base_count:
+		var tip: HexCoord
+		if toggle_right:
+			right_tip = right_tip.neighbor(0) # E
+			tip = right_tip
+		else:
+			left_tip = left_tip.neighbor(3) # W
+			tip = left_tip
+		var added = _try_add_torso_hex(tip)
+		toggle_right = not toggle_right
+		if not added:
+			continue
+		if valid_hexes.size() % 3 == 0 and valid_hexes.size() < base_count:
+			_try_add_torso_hex(tip.neighbor(5)) # thicken (NE)
+
+# Ambusher: diagonal spike (NE), then hooks flat (E) partway through - the
+# same "hook" primitive already used for Ambusher's procedural loot
+# shapes, applied to the deterministic starter torso too.
+func _grow_ambusher_hook(base_count: int):
+	var tip = HexCoord.new(1, -1) # already in the hub - spike's start
+	var phase_len = max(2, base_count / 6)
+	var i = 0
+	while valid_hexes.size() < base_count:
+		tip = tip.neighbor(5 if i < phase_len else 0) # NE then E
+		if not _try_add_torso_hex(tip):
+			break
+		i += 1
 
 func generate_procedural_shape():
 	var seed_val = randi()

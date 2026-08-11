@@ -13,15 +13,40 @@ func _init():
 		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "brawler"],
 		[HexTile.BodySlot.HEAD, HexTile.Rarity.COMMON, "sniper"],
 		[HexTile.BodySlot.ARM_L, HexTile.Rarity.RARE, "scout"],
-		[HexTile.BodySlot.LEG_R, HexTile.Rarity.LEGENDARY, "ambusher"]
+		[HexTile.BodySlot.LEG_R, HexTile.Rarity.LEGENDARY, "ambusher"],
+		# Class-constrained torso shapes (2026-08-10) - exercise all four
+		# new role-specific torso branches, plus a couple of rarities each
+		# so the budget-driven while-loop termination stays in parity too.
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "scout"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.RARE, "scout"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "scout"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "sniper"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.LEGENDARY, "sniper"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "brawler"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.RARE, "brawler"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "ambusher"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "ambusher"],
+		# Torso for a role with no special-cased shape - must still hit the
+		# unchanged default disc-growth branch identically.
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.RARE, "commander"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, ""]
 	]
 
 	print("Testing generate_shape()...")
 	for config in test_configs:
+		# comp is reused across every config in this loop - without clearing
+		# here, an earlier config's hexes silently accumulate into the
+		# next one's result (found 2026-08-10: masked until now because
+		# the very first config used to mismatch under the OLD torso
+		# algorithm and the loop exited before ever reaching config 2+).
+		# Mirrors what the real generate_shape() wrapper does before
+		# delegating to Rust.
+		comp.valid_hexes.clear()
+		comp._valid_hex_set.clear()
 		comp.slot_type = config[0]
 		comp.rarity = config[1]
 		comp.role_variant = config[2]
-		
+
 		var result = gen.generate_shape(comp.slot_type, comp.rarity, comp.role_variant, comp.grid_width, comp.grid_height)
 		
 		comp._generate_shape_fallback()

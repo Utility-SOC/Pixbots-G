@@ -174,6 +174,8 @@ func _ready():
 	_render_mode_option.add_item("Flat (Default)")
 	_render_mode_option.add_item("Pie Chart")
 	_render_mode_option.add_item("Shape Blend")
+	_render_mode_option.add_item("Starburst")
+	_render_mode_option.add_item("Rings")
 	_render_mode_option.selected = SaveManager.batch_render_mode
 	_render_mode_option.tooltip_text = "Batch Renderer only: chooses each shot's main-body treatment. Shared with the main menu's Settings > Visuals tab."
 	_render_mode_option.item_selected.connect(func(index):

@@ -94,6 +94,8 @@ func _setup_ui():
 	opt_render_mode.add_item("Flat (Default)")
 	opt_render_mode.add_item("Pie Chart")
 	opt_render_mode.add_item("Shape Blend")
+	opt_render_mode.add_item("Starburst")
+	opt_render_mode.add_item("Rings")
 	opt_render_mode.selected = SaveManager.batch_render_mode
 	opt_render_mode.item_selected.connect(func(index): SaveManager.set_batch_render_mode(index))
 	visuals_tab.add_child(opt_render_mode)

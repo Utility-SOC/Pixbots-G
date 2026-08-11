@@ -215,7 +215,7 @@ func set_difficulty(d: int):
 var batch_render_mode: int = 0
 
 func set_batch_render_mode(mode: int):
-	batch_render_mode = clamp(mode, 0, 2)
+	batch_render_mode = clamp(mode, 0, 4)
 	var config = ConfigFile.new()
 	config.load(SETTINGS_PATH) # keep existing sections if present
 	config.set_value("Rendering", "BatchRenderMode", batch_render_mode)
@@ -237,7 +237,7 @@ func _ready():
 	if config.load(SETTINGS_PATH) == OK:
 		difficulty = clamp(int(config.get_value("Game", "Difficulty", 1)), 0, 3)
 		pilot_name = str(config.get_value("Game", "PilotName", "Unknown Pilot"))
-		batch_render_mode = clamp(int(config.get_value("Rendering", "BatchRenderMode", 0)), 0, 2)
+		batch_render_mode = clamp(int(config.get_value("Rendering", "BatchRenderMode", 0)), 0, 4)
 
 # SAVE FORMAT VERSION LOG (bump on any schema change; loaders are
 # has()-guarded so old saves keep working, this is for humans + future

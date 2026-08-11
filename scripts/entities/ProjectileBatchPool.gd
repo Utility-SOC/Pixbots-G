@@ -196,10 +196,11 @@ var _synergy_polygons_inner: Array[PackedVector2Array] = [] # 0.5x scale "hot co
 
 # Rendering mode selector (user request, 2026-08-11: "I want to be able to
 # choose between these") - the old standalone pie_chart_mode bool became a
-# 3-way choice once Shape Blend joined Pie Chart as a second alternate
-# "logo" treatment; only one applies at a time. GarageTestRange.gd's UI and
-# the main-menu Settings screen's Visuals tab both just assign this int.
-enum RenderMode { FLAT, PIE_CHART, SHAPE_BLEND }
+# multi-way choice once Shape Blend, Starburst, and Rings joined Pie Chart
+# as alternate "logo" treatments; only one applies at a time.
+# GarageTestRange.gd's UI and the main-menu Settings screen's Visuals tab
+# both just assign this int.
+enum RenderMode { FLAT, PIE_CHART, SHAPE_BLEND, STARBURST, RINGS }
 var render_mode: int = RenderMode.FLAT
 
 # Pie Chart mode (user request, 2026-08-11, GarageTestRange.gd's own
@@ -252,6 +253,34 @@ const PIE_SYNERGY_ORDER = [
 # uses, reused here via the same _pie_ratios_for_slot() ratio source.
 const SHAPE_BLEND_SAMPLES = 24
 var _synergy_radial_profiles: Array = [] # PackedFloat32Array per synergy (0..9), length SHAPE_BLEND_SAMPLES
+
+# Starburst mode ("a couple more projectile skins," 2026-08-11 follow-up to
+# Pie Chart/Shape Blend) - same "only swaps the hot-core fill" contract as
+# Pie Chart (aura/trail/echoes untouched). Unlike Pie Chart's cumulative-
+# angle wedges, every one of the 10 synergies gets its OWN fixed spoke
+# angle (index k -> angle k*TAU/10, matching SynergyType's own int values)
+# regardless of which synergies a given shot actually carries - a spoke
+# pointing straight up always means the same synergy on every shot, across
+# every blend, instead of the pie's draw order shifting which wedge lands
+# where based on what's present. Spike LENGTH (not angle) is that
+# synergy's ratio; spikes below a thin-sliver threshold don't draw at all,
+# same "don't render slivers" reasoning _compute_pie_wedges' raw_r check
+# already uses.
+const STARBURST_MAX_RADIUS = 9.0
+const STARBURST_SPIKE_HALF_WIDTH = 1.1
+
+# Rings mode ("a couple more projectile skins," 2026-08-11 follow-up) - same
+# PIE_SYNERGY_ORDER + RAW-remainder ratio source as Pie Chart, but sliced by
+# RADIUS instead of ANGLE: concentric rings from center outward, each
+# ring's thickness proportional to its synergy's ratio. Built as a single
+# non-overlapping "washer" polygon per ring (outer arc, then that same arc
+# traversed in reverse at the inner radius - the standard annulus-as-one-
+# polygon trick) rather than two overlapping filled discs - this pool's
+# whole node uses ADDITIVE blending (see this file's own top-of-class
+# comment), so two overlapping discs would visibly wrong-sum colors in
+# their shared region instead of showing each ring's own color cleanly.
+const RING_MAX_RADIUS = 9.0
+const RING_SEGMENTS = 16
 
 # Ghost-trail layer (B3, visual flourish) - real trails (FireTrail2D/Trail2D/
 # GPUParticles2D/Line2D) are genuine child-Node/particle systems, fundamentally
@@ -714,20 +743,26 @@ func _draw():
 			# fixed shape (see that mode's own header comment above).
 			main_poly = _blended_polygon_for_slot(i)
 		draw_colored_polygon(main_poly, c)
-		if render_mode == RenderMode.PIE_CHART:
-			# Pie Chart mode (user request, 2026-08-11) - replaces ONLY this
-			# flat hot-core fill with a pie chart of the shot's real
-			# synergy ratios. Drawn within the SAME transform as the aura
-			# line above, so it inherits the shot's position/rotation/
-			# scale for free - only PIE_RADIUS controls its footprint.
-			_draw_pie_wedges(_pie_ratios_for_slot(i), c.a)
-		elif render_mode == RenderMode.SHAPE_BLEND:
-			var inner = PackedVector2Array()
-			for pt in main_poly:
-				inner.append(pt * 0.5)
-			draw_colored_polygon(inner, c)
-		else:
-			draw_colored_polygon(_synergy_polygons_inner[syn], c)
+		match render_mode:
+			RenderMode.PIE_CHART:
+				# Pie Chart mode (user request, 2026-08-11) - replaces ONLY
+				# this flat hot-core fill with a pie chart of the shot's
+				# real synergy ratios. Drawn within the SAME transform as
+				# the aura line above, so it inherits the shot's position/
+				# rotation/scale for free - only PIE_RADIUS controls its
+				# footprint.
+				_draw_pie_wedges(_pie_ratios_for_slot(i), c.a)
+			RenderMode.SHAPE_BLEND:
+				var inner = PackedVector2Array()
+				for pt in main_poly:
+					inner.append(pt * 0.5)
+				draw_colored_polygon(inner, c)
+			RenderMode.STARBURST:
+				_draw_starburst(_pie_ratios_for_slot(i), c.a)
+			RenderMode.RINGS:
+				_draw_rings(_pie_ratios_for_slot(i), c.a)
+			_:
+				draw_colored_polygon(_synergy_polygons_inner[syn], c)
 
 		if syn == EnergyPacket.SynergyType.VORTEX:
 			# Vortex-dominant 3-orb helix (Phase 10) instead of the generic
@@ -1409,4 +1444,110 @@ func _draw_pie_wedges(ratios: Dictionary, alpha: float):
 		var wedge_color = EnergyPacket.get_color_for_synergy(wedge["synergy"])
 		wedge_color.a = alpha
 		draw_colored_polygon(points, wedge_color)
+
+# --- Starburst mode (see that mode's own header comment above) ------------
+
+# Maps a ratios Dictionary onto a fixed 10-slot array indexed by SynergyType
+# int (0=RAW..9=VAMPIRIC), RAW filled in as the same "whatever's left over"
+# remainder every other alt-skin uses. Pure/testable, and the one function
+# both _compute_starburst_spikes below and BatchPoolAltSkinsCheck.gd's
+# per-index assertions share.
+static func _compute_starburst_magnitudes(ratios: Dictionary) -> PackedFloat32Array:
+	var mags = PackedFloat32Array()
+	mags.resize(10)
+	var named_total = 0.0
+	for syn in ratios:
+		var r = ratios[syn]
+		if r <= 0.0:
+			continue
+		var idx = int(syn)
+		if idx >= 0 and idx < 10:
+			mags[idx] = r
+		named_total += r
+	mags[EnergyPacket.SynergyType.RAW] = max(0.0, 1.0 - named_total)
+	return mags
+
+# Pure function (no rendering) - one thin triangular "spike" per synergy
+# with a nonzero magnitude, pointing along that synergy's fixed spoke angle
+# (index k -> k*TAU/10). Spikes at or below a thin-sliver threshold are
+# skipped entirely, same "don't render slivers" reasoning _compute_pie_
+# wedges' raw_r check already uses.
+static func _compute_starburst_spikes(ratios: Dictionary) -> Array:
+	var mags = _compute_starburst_magnitudes(ratios)
+	var spikes = []
+	for k in range(10):
+		if mags[k] <= 0.001:
+			continue
+		var angle = k * TAU / 10.0
+		var dir = Vector2(cos(angle), sin(angle))
+		var ortho = Vector2(-dir.y, dir.x)
+		var tip = dir * (STARBURST_MAX_RADIUS * mags[k])
+		var pts = PackedVector2Array([
+			ortho * STARBURST_SPIKE_HALF_WIDTH,
+			tip,
+			-ortho * STARBURST_SPIKE_HALF_WIDTH,
+		])
+		spikes.append({"synergy": k, "points": pts})
+	return spikes
+
+# Draws the spikes built by _compute_starburst_spikes(), one draw_colored_
+# polygon() call per spike, using each synergy's own TRUE color (same
+# reasoning as _draw_pie_wedges - a legible skin needs distinguishable
+# per-element hues, not the dominant/boosted single-color treatment). Same
+# SAME-transform-as-the-aura-it-replaces convention as every other alt skin.
+func _draw_starburst(ratios: Dictionary, alpha: float):
+	for spike in _compute_starburst_spikes(ratios):
+		var col = EnergyPacket.get_color_for_synergy(spike["synergy"])
+		col.a = alpha
+		draw_colored_polygon(spike["points"], col)
+
+# --- Rings mode (see that mode's own header comment above) ----------------
+
+# Builds one non-overlapping annulus ("washer") polygon: the outer arc
+# (0..TAU) followed by the same arc traversed in reverse at the inner
+# radius - a standard technique for filling a ring with a single simple
+# polygon (no holes needed). inner_r == 0.0 degenerates cleanly to a solid
+# wedge-free disc, which is exactly correct for whichever ring starts right
+# at the center.
+static func _build_ring_polygon(inner_r: float, outer_r: float, segments: int) -> PackedVector2Array:
+	var pts = PackedVector2Array()
+	for s in range(segments + 1):
+		var a = s * TAU / float(segments)
+		pts.append(Vector2(cos(a), sin(a)) * outer_r)
+	for s in range(segments, -1, -1):
+		var a = s * TAU / float(segments)
+		pts.append(Vector2(cos(a), sin(a)) * inner_r)
+	return pts
+
+# Pure function (no rendering) - same PIE_SYNERGY_ORDER + RAW-remainder
+# ratio source as _compute_pie_wedges, but accumulating along RADIUS
+# instead of ANGLE: each present synergy gets the next annular band
+# outward, its thickness proportional to its own ratio.
+static func _compute_halo_rings(ratios: Dictionary) -> Array:
+	var rings = []
+	var cum = 0.0
+	var named_total = 0.0
+	for syn in PIE_SYNERGY_ORDER:
+		var r = ratios.get(syn, 0.0)
+		if r <= 0.0:
+			continue
+		named_total += r
+		var inner = cum * RING_MAX_RADIUS
+		cum += r
+		rings.append({"synergy": syn, "inner": inner, "outer": cum * RING_MAX_RADIUS})
+	var raw_r = max(0.0, 1.0 - named_total)
+	if raw_r > 0.001:
+		var inner = cum * RING_MAX_RADIUS
+		cum += raw_r
+		rings.append({"synergy": EnergyPacket.SynergyType.RAW, "inner": inner, "outer": cum * RING_MAX_RADIUS})
+	return rings
+
+# Draws the rings built by _compute_halo_rings(), one draw_colored_polygon()
+# call per ring, using each synergy's own TRUE color (same reasoning as
+# _draw_pie_wedges/_draw_starburst).
+func _draw_rings(ratios: Dictionary, alpha: float):
+	for ring in _compute_halo_rings(ratios):
+		var col = EnergyPacket.get_color_for_synergy(ring["synergy"])
+		col.a = alpha
+		draw_colored_polygon(_build_ring_polygon(ring["inner"], ring["outer"], RING_SEGMENTS), col)
 

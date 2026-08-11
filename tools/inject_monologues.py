@@ -74,7 +74,7 @@ monologues = {
     ]
 }
 
-with open("story_script.md", "r", encoding="utf-8") as f:
+with open("docs/STORY_SCRIPT.md", "r", encoding="utf-8") as f:
     content = f.read()
 
 for key, lines in monologues.items():
@@ -88,5 +88,5 @@ for key, lines in monologues.items():
             new_block = block.rstrip() + "\n" + insertion
             content = content.replace(block, new_block)
 
-with open("story_script.md", "w", encoding="utf-8") as f:
+with open("docs/STORY_SCRIPT.md", "w", encoding="utf-8") as f:
     f.write(content)

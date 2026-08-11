@@ -146,3 +146,95 @@ jobs:
         with:
           files: Pixbots-Installer.exe
           generate_release_notes: true
+
+  export-linux:
+    name: Linux Export
+    needs: [check-changes, export-windows]
+    # Sequenced after export-windows (not parallel) so the two jobs never
+    # race to create the same GitHub Release simultaneously -
+    # softprops/action-gh-release updates an existing release for the same
+    # tag rather than duplicating it, but only if the first one has
+    # already landed. always()/!cancelled() so a Windows-side failure
+    # doesn't block Linux from still attempting its own build.
+    if: always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.check-changes.outputs.should_build == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Setup Godot 4.6.3
+        run: |
+          wget -q "https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip" -O godot.zip
+          unzip -q godot.zip
+          chmod +x Godot_v4.6.3-stable_linux.x86_64
+
+          TemplatesDir="$HOME/.local/share/godot/export_templates/4.6.3.stable"
+          mkdir -p "$TemplatesDir"
+          wget -q "https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_export_templates.tpz" -O templates.zip
+          unzip -q templates.zip
+          mv templates/* "$TemplatesDir"/
+
+      # Same reasoning as the Windows job: rust_ext only depends on the
+      # cross-platform godot-rust crate (no platform-specific deps), so
+      # this is a normal native compile on this runner, not a cross-
+      # compile - both the release AND debug .so are needed (debug for
+      # the script-class-cache warm-up pass below, release for the actual
+      # export), matching rust_ext.gdextension's linux.debug/release.
+      # x86_64 entries.
+      - name: Build Rust Extension (Debug & Release)
+        run: |
+          cd rust_ext
+          cargo build --release
+          cargo build
+          test -f target/release/librust_ext.so
+          test -f target/debug/librust_ext.so
+
+      - name: Compile Dialogues
+        run: |
+          python3 tools/compile_dialogue.py
+          python3 tools/inject_monologues.py
+
+      # Same "fresh checkout has no script-class cache yet" reasoning as
+      # build_installer.ps1's own warm-up pass - --editor is required to
+      # trigger the EditorFileSystem project scan headlessly.
+      - name: Warm up the script-class cache
+        run: ./Godot_v4.6.3-stable_linux.x86_64 --headless --editor --quit || true
+
+      - name: Export Godot Project (Linux)
+        run: |
+          mkdir -p builds/linux
+          ./Godot_v4.6.3-stable_linux.x86_64 --headless --export-release "Linux/X11"
+          test -f builds/linux/Pixbots-G.x86_64
+          chmod +x builds/linux/Pixbots-G.x86_64
+
+      # No Inno-Setup equivalent on Linux - a tarball containing the
+      # binary, the mech-icon PNG, and install.sh (extract-then-run,
+      # installs to ~/.local/share, registers a real app-menu launcher)
+      # is the standard minimal packaging for an indie Linux release.
+      - name: Package release tarball
+        run: |
+          mkdir -p dist/Pixbots-G-linux
+          cp builds/linux/Pixbots-G.x86_64 dist/Pixbots-G-linux/
+          cp icon.png dist/Pixbots-G-linux/
+          cp installer/install.sh dist/Pixbots-G-linux/
+          chmod +x dist/Pixbots-G-linux/install.sh dist/Pixbots-G-linux/Pixbots-G.x86_64
+          tar -czf Pixbots-G-linux.tar.gz -C dist Pixbots-G-linux
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pixbots-Linux
+          path: Pixbots-G-linux.tar.gz
+          if-no-files-found: error
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: Pixbots-G-linux.tar.gz
+          generate_release_notes: true

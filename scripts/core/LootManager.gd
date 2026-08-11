@@ -238,13 +238,29 @@ func _create_procedural_component(rarity: int, mech: Node, name_prefix: String):
 	pack.role_variant = mech.combat_role if "combat_role" in mech else ""
 	pack.generate_procedural_shape()
 
-	# Add intake
-	var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
-	intake.tile_type = "Energy Intake"
-	intake.body_slot = slot
-	pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
-	pack.fixed_sinks.append(HexCoord.new(0, 0))
-	comp_script._orient_intake_to_shape(pack, intake)
+	if slot == HexTile.BodySlot.TORSO:
+		# A Torso generates its own power (Core Reactor) rather than
+		# intaking external power like every other slot - Mech.
+		# equip_component() auto-replaces whatever sits at (0,0) with a
+		# real Core Reactor anyway the moment this drop gets equipped, so
+		# placing an Energy Intake here would just get silently destroyed.
+		var core_tile = load("res://scripts/tiles/CoreTile.gd").new()
+		core_tile.body_slot = HexTile.BodySlot.TORSO
+		core_tile.rarity = rarity
+		pack.hex_grid.add_tile(HexCoord.new(0, 0), core_tile)
+		pack.fixed_sinks.append(HexCoord.new(0, 0))
+	else:
+		var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
+		intake.tile_type = "Energy Intake"
+		intake.body_slot = slot
+		pack.hex_grid.add_tile(HexCoord.new(0, 0), intake)
+		pack.fixed_sinks.append(HexCoord.new(0, 0))
+		comp_script._orient_intake_to_shape(pack, intake)
+
+	# Slot-specific payload sink (Weapon Mount/Actuator/Torso Return/spoke
+	# links) - see _add_procedural_payload_sink's own header for why this
+	# is what actually makes AutoEquipSolver do anything on this shape.
+	comp_script._add_procedural_payload_sink(pack, rarity)
 	return pack
 
 func _spawn_component_drop(mech: Node, pack):

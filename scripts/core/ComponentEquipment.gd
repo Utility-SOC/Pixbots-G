@@ -858,16 +858,24 @@ static func create_starter_head(role: String = "", p_rarity: int = HexTile.Rarit
 	head.fixed_sinks.append(HexCoord.new(0, 0))
 	_orient_intake_to_shape(head, intake)
 
+	# The actual hex object with the smallest r, not a reconstructed
+	# HexCoord(0, min_r) - generate_shape()'s HEAD pattern is always
+	# symmetric around q=0 so that reconstruction happens to land on a
+	# real cell here, but hardened to match _add_procedural_payload_sink's
+	# HEAD case exactly, which can't rely on that symmetry.
 	var min_r = 0
+	var top_h = HexCoord.new(0, 0)
 	for h in head.valid_hexes:
-		if h.r < min_r: min_r = h.r
+		if h.r < min_r:
+			min_r = h.r
+			top_h = h
 
 	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
 	tor_return.tile_type = "Torso Return"
 	tor_return.body_slot = HexTile.BodySlot.HEAD
 	tor_return.rarity = p_rarity
-	head.hex_grid.add_tile(HexCoord.new(0, min_r), tor_return)
-	head.fixed_sinks.append(HexCoord.new(0, min_r))
+	head.hex_grid.add_tile(top_h, tor_return)
+	head.fixed_sinks.append(top_h)
 
 	return head
 
@@ -883,16 +891,21 @@ static func create_starter_backpack(role: String = "", p_rarity: int = HexTile.R
 	core.rarity = p_rarity
 	pack.hex_grid.add_tile(HexCoord.new(0, 0), core)
 
+	# Same hardening as create_starter_head above - the actual hex with the
+	# largest r, not a reconstructed HexCoord(0, max_r).
 	var max_r = 0
+	var bottom_h = HexCoord.new(0, 0)
 	for h in pack.valid_hexes:
-		if h.r > max_r: max_r = h.r
+		if h.r > max_r:
+			max_r = h.r
+			bottom_h = h
 
 	var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
 	tor_return.tile_type = "Torso Return"
 	tor_return.body_slot = HexTile.BodySlot.BACKPACK
 	tor_return.rarity = p_rarity
-	pack.hex_grid.add_tile(HexCoord.new(0, max_r), tor_return)
-	pack.fixed_sinks.append(HexCoord.new(0, max_r))
+	pack.hex_grid.add_tile(bottom_h, tor_return)
+	pack.fixed_sinks.append(bottom_h)
 
 	return pack
 
@@ -1018,6 +1031,87 @@ static func _first_free_off_axis_hex(comp: ComponentEquipment) -> HexCoord:
 		if h.q != 0 and h.r != 0 and (h.q + h.r) != 0:
 			return h
 	return null
+
+# Loot/Black-Market/generated-filler components (generate_procedural_shape
+# - the organic "line"/"hook"/"block" shapes, per the user 2026-08-10:
+# "autoequip doesn't work on stuff with weird/cool shapes") were only ever
+# getting an Energy Intake fixed_sink and nothing else. Every create_
+# starter_* function above ALSO adds a second, slot-specific fixed sink
+# (Weapon Mount for arms, Actuator for legs, Torso Return for heads, the
+# full 6-spoke link set for torsos) - that's what actually gives
+# AutoEquipSolver a real second target to route power toward. With only
+# the trivial (0,0)-to-(0,0) "path" to solve, solve() had nothing to
+# build and left the shape almost entirely unequipped ("Tiles Used: 1"
+# even on a shape with dozens of free hexes). Call this right after
+# placing the (0,0) intake/core on any procedurally-shaped component.
+#
+# Mirrors each create_starter_*'s own placement logic, but safe against
+# ANY shape (organic/asymmetric, not just the deterministic symmetric
+# generate_shape() fallback) - every search below walks the component's
+# own actual valid_hexes/spoke-tip logic rather than assuming a
+# reconstructed coordinate like (0, min_r) is guaranteed to exist.
+static func _add_procedural_payload_sink(comp: ComponentEquipment, p_rarity: int) -> void:
+	match comp.slot_type:
+		HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R:
+			var dir = -1 if comp.slot_type == HexTile.BodySlot.ARM_L else 1
+			var max_q = 0
+			var mount_h = HexCoord.new(0, 0)
+			for h in comp.valid_hexes:
+				if h.q * dir > max_q * dir:
+					max_q = h.q
+					mount_h = h
+			if not comp.hex_grid.has_tile(mount_h):
+				var mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
+				mount.body_slot = comp.slot_type
+				mount.rarity = p_rarity
+				comp.hex_grid.add_tile(mount_h, mount)
+				comp.fixed_sinks.append(mount_h)
+		HexTile.BodySlot.LEG_L, HexTile.BodySlot.LEG_R:
+			var max_r = 0
+			var actuator_h = HexCoord.new(0, 0)
+			for h in comp.valid_hexes:
+				if h.r > max_r:
+					max_r = h.r
+					actuator_h = h
+			if not comp.hex_grid.has_tile(actuator_h):
+				var actuator = load("res://scripts/tiles/ActuatorTile.gd").new()
+				actuator.body_slot = comp.slot_type
+				actuator.rarity = p_rarity
+				comp.hex_grid.add_tile(actuator_h, actuator)
+				comp.fixed_sinks.append(actuator_h)
+		HexTile.BodySlot.HEAD:
+			var min_r = 0
+			var top_h = HexCoord.new(0, 0)
+			for h in comp.valid_hexes:
+				if h.r < min_r:
+					min_r = h.r
+					top_h = h
+			if not comp.hex_grid.has_tile(top_h):
+				var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
+				tor_return.tile_type = "Torso Return"
+				tor_return.body_slot = comp.slot_type
+				tor_return.rarity = p_rarity
+				comp.hex_grid.add_tile(top_h, tor_return)
+				comp.fixed_sinks.append(top_h)
+		HexTile.BodySlot.TORSO:
+			# Same 6-spoke link layout as create_starter_torso - a torso's
+			# whole job is fanning power out to every limb, so it needs all
+			# six, not just one payload sink like arms/legs/heads.
+			var spoke := {
+				HexTile.BodySlot.ARM_R: 0, HexTile.BodySlot.LEG_R: 1, HexTile.BodySlot.LEG_L: 2,
+				HexTile.BodySlot.ARM_L: 3, HexTile.BodySlot.HEAD: 4, HexTile.BodySlot.BACKPACK: 5,
+			}
+			for target_slot in spoke:
+				var tip = _spoke_tip(comp, spoke[target_slot])
+				if tip == null or comp.hex_grid.has_tile(tip):
+					tip = _first_free_hex(comp, comp.fixed_sinks)
+				if tip == null:
+					continue
+				var link = load("res://scripts/tiles/ComponentLinkTile.gd").new(target_slot, true)
+				link.body_slot = HexTile.BodySlot.TORSO
+				link.rarity = p_rarity
+				comp.hex_grid.add_tile(tip, link)
+				comp.fixed_sinks.append(tip)
 
 static func create_shield_backpack():
 	var script = load("res://scripts/core/ComponentEquipment.gd")

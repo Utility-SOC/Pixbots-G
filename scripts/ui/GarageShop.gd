@@ -292,7 +292,11 @@ func _build_generated_component(slot: int, role: String, rarity: int) -> Compone
 	comp.generate_procedural_shape()
 
 	if slot == HexTile.BodySlot.TORSO:
-		comp.hex_grid.add_tile(HexCoord.new(0, 0), load("res://scripts/tiles/CoreTile.gd").new())
+		var core_tile = load("res://scripts/tiles/CoreTile.gd").new()
+		core_tile.body_slot = HexTile.BodySlot.TORSO
+		core_tile.rarity = rarity
+		comp.hex_grid.add_tile(HexCoord.new(0, 0), core_tile)
+		comp.fixed_sinks.append(HexCoord.new(0, 0))
 	elif slot == HexTile.BodySlot.BACKPACK:
 		return ComponentEquipment.create_starter_backpack(role, rarity)
 	else:
@@ -302,6 +306,14 @@ func _build_generated_component(slot: int, role: String, rarity: int) -> Compone
 		comp.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 		comp.fixed_sinks.append(HexCoord.new(0, 0))
 		ComponentEquipment._orient_intake_to_shape(comp, intake)
+
+	# Slot-specific payload sink (Weapon Mount/Actuator/Torso Return/spoke
+	# links) - without this, AutoEquipSolver has nothing but the trivial
+	# (0,0)-to-(0,0) "path" to route (user, 2026-08-10: "autoequip doesn't
+	# work on stuff with weird/cool shapes"). See ComponentEquipment.
+	# _add_procedural_payload_sink's own header. The role-flavored tiles
+	# below still get placed directly (unrelated to solver targets).
+	ComponentEquipment._add_procedural_payload_sink(comp, rarity)
 
 	for spec in _role_tile_specs(role, slot):
 		var free_hex = _first_free_hex(comp)

@@ -141,13 +141,32 @@ func _build_component(offer: Dictionary):
 			added += 1
 
 	# Standard entry point so energy can actually route in
-	if comp.slot_type != HexTile.BodySlot.TORSO and not comp.hex_grid.has_tile(HexCoord.new(0, 0)):
+	if comp.slot_type == HexTile.BodySlot.TORSO:
+		# Same reasoning as LootManager._create_procedural_component: a
+		# Torso generates its own power via Core Reactor, it doesn't
+		# intake external power - Mech.equip_component() would silently
+		# replace anything else placed at (0,0) with one anyway.
+		if not comp.hex_grid.has_tile(HexCoord.new(0, 0)):
+			var core_tile = load("res://scripts/tiles/CoreTile.gd").new()
+			core_tile.body_slot = HexTile.BodySlot.TORSO
+			core_tile.rarity = comp.rarity
+			comp.hex_grid.add_tile(HexCoord.new(0, 0), core_tile)
+			comp.fixed_sinks.append(HexCoord.new(0, 0))
+	elif not comp.hex_grid.has_tile(HexCoord.new(0, 0)):
 		var intake = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.NONE, true)
 		intake.tile_type = "Energy Intake"
 		intake.body_slot = comp.slot_type
 		comp.hex_grid.add_tile(HexCoord.new(0, 0), intake)
 		comp.fixed_sinks.append(HexCoord.new(0, 0))
 		ComponentEquipment._orient_intake_to_shape(comp, intake)
+
+	# Slot-specific payload sink (Weapon Mount/Actuator/Torso Return/spoke
+	# links) - without this, AutoEquipSolver has nothing but the trivial
+	# (0,0)-to-(0,0) "path" to route and leaves the shape almost entirely
+	# unequipped (user, 2026-08-10: "autoequip doesn't work on stuff with
+	# weird/cool shapes"). See ComponentEquipment._add_procedural_payload_
+	# sink's own header for the full explanation.
+	ComponentEquipment._add_procedural_payload_sink(comp, comp.rarity)
 	return comp
 
 func sell_all(max_rarity: int):

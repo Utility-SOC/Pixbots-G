@@ -341,47 +341,47 @@ func _generate_shape_fallback():
 			# Class-constrained torso shapes (design doc, 2026-08-10):
 			# silhouette identity now DOES live in the torso too, just
 			# built outward from that guaranteed hub rather than replacing
-			# it - see _grow_scout_spine/_grow_sniper_mast/_grow_brawler_
-			# slab/_grow_ambusher_hook's own headers. Every role not
-			# listed keeps the exact original disc-growth behavior
-			# (hub-guarantee included, same position/order as before) -
-			# this only ADDS new branches, never changes the default.
+			# it. Two iterations before this one, both caught by actually
+			# rendering the result, not just reasoning about coordinates:
+			# (1) a role-specific spine/slab/spike grown WITHOUT any size
+			# cap - looked fine on paper, but a Mythic torso stretched into
+			# a 50+ hex diagonal staircase, consuming the ENTIRE budget as
+			# it scaled. (2) capped it at a small FIXED size instead - but
+			# a fixed 3-4 hex flourish sits well inside the compact disc's
+			# OWN natural radius at Mythic (~100 hexes reaches ~5-6 hexes
+			# out on its own), so the disc-fill below silently swallowed
+			# it and Scout/Sniper/etc. rendered indistinguishable from the
+			# plain default. Fixed by scaling the flourish's reach with
+			# budget_tier (via TORSO_FLOURISH_LEN_BY_TIER) so it always
+			# pokes a few hexes past whatever the disc would reach on its
+			# own THIS tier - still bounded (~5-11 hexes even at Mythic,
+			# a small fraction of the 100-hex total), just tracking the
+			# disc's own growth rate instead of a single constant. Every
+			# role not listed keeps the exact original disc-growth
+			# behavior (hub-guarantee included, same position/order as
+			# before) - this only ADDS new branches, never changes the
+			# default.
 			valid_hexes.append(HexCoord.new(0, 0)) # Core
 			_valid_hex_set[_hex_key(0, 0)] = true
 			match role_variant:
 				"scout":
 					_guarantee_torso_hub()
-					_grow_scout_spine(base_count)
+					_seed_scout_flourish(budget_tier)
+					_grow_default_disc(base_count)
 				"sniper":
 					_guarantee_torso_hub()
-					_grow_sniper_mast(base_count)
+					_seed_sniper_flourish(budget_tier)
+					_grow_default_disc(base_count)
 				"brawler":
 					_guarantee_torso_hub()
-					_grow_brawler_slab(base_count)
+					_seed_brawler_flourish(budget_tier)
+					_grow_default_disc(base_count)
 				"ambusher":
 					_guarantee_torso_hub()
-					_grow_ambusher_hook(base_count)
+					_seed_ambusher_flourish(budget_tier)
+					_grow_default_disc(base_count)
 				_:
-					var radius = 1
-					while valid_hexes.size() < base_count:
-						# Add a ring
-						for q in range(-radius, radius + 1):
-							for r in range(-radius, radius + 1):
-								if valid_hexes.size() >= base_count: break
-								if abs(q + r) <= radius:
-									var h = HexCoord.new(q, r)
-									# In axial, symmetry across vertical axis (x=0) is: q -> -q-r, r -> r
-									var h_sym = HexCoord.new(-q - r, r)
-
-									if not _valid_hex_set.has(_hex_key(h.q, h.r)):
-										valid_hexes.append(h)
-										_valid_hex_set[_hex_key(h.q, h.r)] = true
-
-									if valid_hexes.size() < base_count:
-										if not _valid_hex_set.has(_hex_key(h_sym.q, h_sym.r)):
-											valid_hexes.append(h_sym)
-											_valid_hex_set[_hex_key(h_sym.q, h_sym.r)] = true
-						radius += 1
+					_grow_default_disc(base_count)
 					_guarantee_torso_hub()
 		HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R:
 			# Arms are long and narrow. 
@@ -450,67 +450,94 @@ func _try_add_torso_hex(h: HexCoord) -> bool:
 	_valid_hex_set[_hex_key(h.q, h.r)] = true
 	return true
 
-# Scout: vertical spine (NW), with a lateral "rung" pair every 2 segments
-# once budget allows - the T-branch the design started from: a torso
-# limited to a single line has no branch point to fan power out past 3
-# tiles, so rungs are what unlock real capacity as rarity climbs.
-func _grow_scout_spine(base_count: int):
+# The exact original disc-growth algorithm, extracted verbatim so it can
+# be reused both as the unlisted-role default AND as the shared "bulk
+# fill" every role-specific flourish below falls through to once its own
+# small fixed-size identity marker is placed. Already-taken cells (the
+# hub, or a flourish's own hexes) are silently skipped via the same
+# _valid_hex_set check the original inline version used, so calling this
+# after a flourish just fills in whatever budget remains around it.
+func _grow_default_disc(base_count: int):
+	var radius = 1
+	while valid_hexes.size() < base_count:
+		for q in range(-radius, radius + 1):
+			for r in range(-radius, radius + 1):
+				if valid_hexes.size() >= base_count: break
+				if abs(q + r) <= radius:
+					var h = HexCoord.new(q, r)
+					# In axial, symmetry across vertical axis (x=0) is: q -> -q-r, r -> r
+					var h_sym = HexCoord.new(-q - r, r)
+					_try_add_torso_hex(h)
+					if valid_hexes.size() < base_count:
+						_try_add_torso_hex(h_sym)
+		radius += 1
+
+# Reach (in hexes beyond the hub) each flourish grows to, indexed by
+# budget_tier (0-5, matching hex_budget's own tiers - torso always uses
+# tier 1-5 since it's base rarity + 1). Tracks the default disc's OWN
+# growth rate (~sqrt(base_count/3) hex-rings) plus a constant so the
+# flourish always pokes a few hexes past wherever the disc would reach on
+# its own THIS tier - a flat constant here got silently swallowed by the
+# disc at Mythic (confirmed by actually rendering it: Scout/Sniper/etc.
+# came out indistinguishable from the plain default), and an unbounded
+# loop consumed the entire budget as it scaled (confirmed the same way:
+# a 50+ hex diagonal staircase). This stays small even at the top end
+# (~9-11 hexes on a 100-hex Mythic budget).
+const TORSO_FLOURISH_LEN_BY_TIER = [5, 5, 6, 7, 8, 9]
+
+# Scout: vertical spine, with a lateral "rung" pair roughly halfway up -
+# the T-branch the design started from.
+func _seed_scout_flourish(budget_tier: int):
+	var length = TORSO_FLOURISH_LEN_BY_TIER[clamp(budget_tier, 0, 5)]
 	var tip = HexCoord.new(0, -1) # already in the hub - spine's start
-	var segment = 0
-	while valid_hexes.size() < base_count:
+	for i in range(length):
 		tip = tip.neighbor(4) # NW
-		if not _try_add_torso_hex(tip):
-			break
-		segment += 1
-		if segment % 2 == 0 and valid_hexes.size() < base_count:
+		_try_add_torso_hex(tip)
+		if i == length / 2:
 			_try_add_torso_hex(tip.neighbor(3)) # W rung
-			if valid_hexes.size() < base_count:
-				_try_add_torso_hex(tip.neighbor(0)) # E rung
+			_try_add_torso_hex(tip.neighbor(0)) # E rung
 
-# Sniper: straight single-file mast, no branching at all - the most
-# extreme "one dominant axis" read in the roster, echoing the existing
-# extra-long right-arm rifle identity.
-func _grow_sniper_mast(base_count: int):
+# Sniper: straight single-file mast, no branching at all, reaching
+# further than Scout's - the most extreme "one dominant axis" read in
+# the roster, echoing the existing extra-long right-arm rifle identity.
+func _seed_sniper_flourish(budget_tier: int):
+	var length = TORSO_FLOURISH_LEN_BY_TIER[clamp(budget_tier, 0, 5)] + 2
 	var tip = HexCoord.new(0, -1)
-	while valid_hexes.size() < base_count:
+	for i in range(length):
 		tip = tip.neighbor(4) # NW
-		if not _try_add_torso_hex(tip):
-			break
+		_try_add_torso_hex(tip)
 
-# Brawler: wide horizontal slab - alternates extending left/right from
-# the hub's own W/E hexes, thickening upward every third addition so it
-# reads as a broad block, not a thin bar.
-func _grow_brawler_slab(base_count: int):
+# Brawler: wide horizontal bump growing left and right from the hub's own
+# W/E hexes together, with a thickening pair partway out - reads as
+# broader than the default disc without a whole separate algorithm. Full
+# (not halved) tier length on EACH side - the disc itself is already
+# widest along this exact q-axis (a halved length here sat entirely
+# inside the disc's own natural horizontal reach and got swallowed,
+# confirmed by actually rendering it), so matching Scout/Sniper's own
+# per-direction reach is what it takes to actually poke past it.
+func _seed_brawler_flourish(budget_tier: int):
+	var length = TORSO_FLOURISH_LEN_BY_TIER[clamp(budget_tier, 0, 5)]
 	var right_tip = HexCoord.new(1, 0)
 	var left_tip = HexCoord.new(-1, 0)
-	var toggle_right = true
-	while valid_hexes.size() < base_count:
-		var tip: HexCoord
-		if toggle_right:
-			right_tip = right_tip.neighbor(0) # E
-			tip = right_tip
-		else:
-			left_tip = left_tip.neighbor(3) # W
-			tip = left_tip
-		var added = _try_add_torso_hex(tip)
-		toggle_right = not toggle_right
-		if not added:
-			continue
-		if valid_hexes.size() % 3 == 0 and valid_hexes.size() < base_count:
-			_try_add_torso_hex(tip.neighbor(5)) # thicken (NE)
+	for i in range(length):
+		right_tip = right_tip.neighbor(0) # E
+		left_tip = left_tip.neighbor(3) # W
+		_try_add_torso_hex(right_tip)
+		_try_add_torso_hex(left_tip)
+		if i == length / 2:
+			_try_add_torso_hex(right_tip.neighbor(5)) # thicken (NE)
+			_try_add_torso_hex(left_tip.neighbor(2)) # thicken (SW)
 
-# Ambusher: diagonal spike (NE), then hooks flat (E) partway through - the
-# same "hook" primitive already used for Ambusher's procedural loot
-# shapes, applied to the deterministic starter torso too.
-func _grow_ambusher_hook(base_count: int):
+# Ambusher: diagonal spike that hooks flat partway through - the same
+# "hook" primitive already used for Ambusher's procedural loot shapes,
+# applied to the deterministic starter torso too.
+func _seed_ambusher_flourish(budget_tier: int):
+	var length = TORSO_FLOURISH_LEN_BY_TIER[clamp(budget_tier, 0, 5)]
+	var phase_len = max(2, length * 2 / 3)
 	var tip = HexCoord.new(1, -1) # already in the hub - spike's start
-	var phase_len = max(2, base_count / 6)
-	var i = 0
-	while valid_hexes.size() < base_count:
+	for i in range(length):
 		tip = tip.neighbor(5 if i < phase_len else 0) # NE then E
-		if not _try_add_torso_hex(tip):
-			break
-		i += 1
+		_try_add_torso_hex(tip)
 
 func generate_procedural_shape():
 	var seed_val = randi()

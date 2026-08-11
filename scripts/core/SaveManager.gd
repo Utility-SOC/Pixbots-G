@@ -723,7 +723,7 @@ func _serialize_tile(tile) -> Dictionary:
 	# is guarded by `prop in tile`/`data.has(prop) and prop in tile`, so an
 	# old save's stale mythic_capacity_dial value is just silently ignored
 	# on load, never an error.
-	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_split_factor"]:
+	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_split_factor", "targeting_mode"]:
 		if prop in tile:
 			data[prop] = tile.get(prop)
 
@@ -802,7 +802,7 @@ func _deserialize_tile(data: Dictionary):
 	# Mythic ability state + tile-config knobs (see _serialize_tile's sweep -
 	# mythic_capacity_dial deliberately removed from this list, see that
 	# comment for why an old save's stale value there is harmless)
-	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_split_factor"]:
+	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_split_factor", "targeting_mode"]:
 		if data.has(prop) and prop in tile:
 			tile.set(prop, data[prop])
 

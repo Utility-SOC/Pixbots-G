@@ -23,6 +23,14 @@ var source_mech: Node = null
 # comment for the full story.
 var source_label: String = ""
 var frame_multiplier: int = 1
+# "Nuke tier" (user ruling, 2026-08-11): 0.0 for a normal missile, ramping
+# 0->1 as MissileRackTile._nuke_scale() computes from frame_multiplier/
+# per-frame energy - see that function's own comment for the exact
+# threshold (>32 frames at 600000+ energy/frame) and ramp (1.0 at the
+# frame-multiplier ladder's own 256 ceiling). Drives _wipe_terrain()'s
+# radius and ElementalPuddle's "bombed out" color fade, not just a bigger
+# explosion number.
+var nuke_scale: float = 0.0
 
 var _elapsed: float = 0.0
 var _landed: bool = false
@@ -97,7 +105,7 @@ var equal_split_all_victims: bool = false
 # See _detonate_equal_split's own comment on the fanout cap this gates.
 const MAX_FULL_PIPELINE_VICTIMS_PER_SHELL = 12
 
-func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_source: Node, p_aoe_bonus: float = 0.0, p_radius_mult: float = 1.0, p_equal_split: bool = false, p_frame_multiplier: int = 1):
+func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: float, p_synergies: Dictionary, p_by_player: bool, p_source: Node, p_aoe_bonus: float = 0.0, p_radius_mult: float = 1.0, p_equal_split: bool = false, p_frame_multiplier: int = 1, p_nuke_scale: float = 0.0):
 	start_pos = p_start
 	target_pos = p_target
 	flight_time = max(0.15, p_flight_time)
@@ -109,6 +117,7 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 	radius_mult = p_radius_mult
 	equal_split_all_victims = p_equal_split
 	frame_multiplier = p_frame_multiplier
+	nuke_scale = p_nuke_scale
 	global_position = p_target # node sits at the impact point; shell is drawn offset
 
 	# Reset flight state - required for pooled reuse (see acquire()/release()
@@ -155,6 +164,7 @@ func _process(delta: float):
 		else:
 			_detonate()
 			_spawn_puddle()
+			_wipe_terrain()
 	queue_redraw()
 
 # Point-defense counter (AntiMissileJammerMech.gd, user request 2026-08-10):
@@ -192,10 +202,34 @@ func _spawn_puddle():
 		var duration = min(60.0, 3.0 + (frame_multiplier - 1) * 0.8)
 		var puddle_radius = effective_radius
 		
-		# A puddle inherits the shell's damage as a DoT.
-		puddle.setup(puddle_radius, duration, damage, synergies, fired_by_player)
+		# A puddle inherits the shell's damage as a DoT. nuke_scale (0.0 for
+		# a normal missile) tells the puddle to fade toward a scorched-ash
+		# "bombed out" look instead of staying the vibrant synergy color for
+		# its whole life - see ElementalPuddle.setup()'s own comment.
+		puddle.setup(puddle_radius, duration, damage, synergies, fired_by_player, nuke_scale)
 		puddle.global_position = target_pos
 		world.add_child(puddle)
+
+# "Wipe out terrain in the blast area" (user ruling, 2026-08-11, missiles
+# past the nuke-tier threshold - see nuke_scale's own field comment). The
+# map's own terrain grid is a static array baked once at generation time
+# (MapGenerator.gd) - not something safe to mutate at runtime without also
+# touching pathfinding/movement, so this reaches for the thing that's
+# ALREADY a real, damageable, runtime-destructible presence on the map
+# instead: every DestructibleObstacle (trees, rocks, ruins - see
+# MapGenerator.gd's own "obstacle" group) inside the blast radius gets
+# destroyed outright. Radius scales past the shell's own effective_radius
+# with nuke_scale so a 256-frame charge visibly clears a wider area than
+# its own blast ring, not just a bigger number on the same ring.
+func _wipe_terrain():
+	if nuke_scale <= 0.0 or not is_inside_tree():
+		return
+	var wipe_radius = effective_radius * (1.0 + 1.5 * nuke_scale)
+	for obs in get_tree().get_nodes_in_group("obstacle"):
+		if not is_instance_valid(obs) or not obs.has_method("apply_damage"):
+			continue
+		if obs.global_position.distance_to(target_pos) <= wipe_radius:
+			obs.apply_damage(999999.0, "RAW", null, false, source_label)
 
 # Design ruling: the payload does exactly what DIRECT FIRE of this packet
 # would do on impact. Implemented literally - a real (movement-neutered)

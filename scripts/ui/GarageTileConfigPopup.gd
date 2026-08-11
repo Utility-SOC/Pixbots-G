@@ -679,6 +679,22 @@ func on_tile_clicked(tile: HexTile):
 				)
 				vbox.add_child(quanta_btn)
 
+			# Missile Rack's second independent Mythic knob (user ruling,
+			# 2026-08-11) - which target it autonomously picks within its
+			# own [min_range, max_range] window, separate from mythic_mode's
+			# Hunter/AOE delivery choice above.
+			if tile.tile_type == "Missile Rack" and "targeting_mode" in tile:
+				var target_labels = ["Furthest", "Most Powerful"]
+				var target_btn = Button.new()
+				target_btn.text = "Targeting: %s (click to cycle)" % target_labels[tile.targeting_mode]
+				target_btn.tooltip_text = "Furthest: reach out and hit something a direct-fire mount can't. Most Powerful: go straight for the toughest valid target in range, regardless of distance."
+				target_btn.pressed.connect(func():
+					tile.cycle_targeting_mode()
+					target_btn.text = "Targeting: %s (click to cycle)" % target_labels[tile.targeting_mode]
+					garage._mark_player_grid_dirty()
+				)
+				vbox.add_child(target_btn)
+
 		_show_popup(popup, Vector2(300, 160))
 
 	elif tile.tile_type == "Jammer Module":

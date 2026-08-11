@@ -21,10 +21,24 @@ var _dominant_element: String = "RAW"
 var _circle_poly: Polygon2D
 var _outer_color: Color
 var _inner_color: Color
+# "Bombed out" fade (user ruling, 2026-08-11): 0.0 for a normal puddle
+# (unchanged - stays the vibrant synergy color for its whole life, same
+# as before this change). A nuke-tier missile's puddle (MortarShell.
+# nuke_scale) instead cools toward scorched ash-grey OVER its lifetime
+# (see _process()'s color lerp below) - "looks like a bombed out area,"
+# not a shrinking colorful puddle. The vibrant colors get computed once
+# below (same as always) and kept here as the lerp's fixed START point -
+# _circle_poly's actual displayed color is overwritten every frame, so
+# lerping off THAT would drift, not fade toward ash consistently.
+var _nuke_scale: float = 0.0
+var _vibrant_inner_color: Color
+var _vibrant_outer_color: Color
+const ASH_COLOR = Color(0.16, 0.15, 0.14, 0.85) # scorched ground, not pure black - reads as burnt earth
 
-func setup(radius: float, duration: float, total_damage: float, synergies: Dictionary, by_player: bool):
+func setup(radius: float, duration: float, total_damage: float, synergies: Dictionary, by_player: bool, nuke_scale: float = 0.0):
 	_radius = min(radius, MAX_RADIUS)
 	_duration = duration
+	_nuke_scale = clamp(nuke_scale, 0.0, 1.0)
 	# total_damage is expected over the entire duration. So damage per tick:
 	var ticks = duration / TICK_RATE
 	_base_damage = (total_damage / max(1.0, ticks)) if ticks > 0 else total_damage
@@ -32,7 +46,7 @@ func setup(radius: float, duration: float, total_damage: float, synergies: Dicti
 	for k in _synergies:
 		_synergies[k] /= max(1.0, ticks)
 	_by_player = by_player
-	
+
 	# Determine colors based on dominant element
 	var dominant = -1
 	var dom_val = -1.0
@@ -40,10 +54,10 @@ func setup(radius: float, duration: float, total_damage: float, synergies: Dicti
 		if synergies[k] > dom_val:
 			dom_val = synergies[k]
 			dominant = k
-			
+
 	_inner_color = Color(1, 1, 1, 0.7)
 	_outer_color = Color(1, 1, 1, 0.3)
-	
+
 	# Try to map element
 	var EnergyPacket = load("res://scripts/core/EnergyPacket.gd")
 	if EnergyPacket:
@@ -81,6 +95,9 @@ func setup(radius: float, duration: float, total_damage: float, synergies: Dicti
 			EnergyPacket.SynergyType.KINETIC:
 				_inner_color = Color(0.7, 0.7, 0.7, 0.7)
 				_outer_color = Color(0.4, 0.4, 0.4, 0.3)
+
+	_vibrant_inner_color = _inner_color
+	_vibrant_outer_color = _outer_color
 
 func _ready():
 	collision_layer = 0
@@ -147,17 +164,36 @@ func remediate():
 func _process(delta):
 	_life_timer += delta
 	_tick_timer += delta
-	
+
 	# Fade out visual - stay fully opaque for the first 60% of lifetime,
 	# then fade over the remaining 40% so puddles are clearly visible.
+	var alpha = 1.0
 	if _duration > 0:
 		var fade_start = _duration * 0.6
-		var alpha = 1.0
 		if _life_timer > fade_start:
 			alpha = 1.0 - ((_life_timer - fade_start) / (_duration - fade_start))
 		if alpha < 0: alpha = 0
+
+	# "Bombed out" cooling (nuke_scale > 0 only - a normal puddle's
+	# modulate stays pure white/no-op here, unchanged from before this
+	# change). modulate MULTIPLIES each vertex's own baked color, so
+	# ramping it from white toward ASH_COLOR over the puddle's lifetime
+	# darkens/desaturates the vibrant synergy color toward a scorched,
+	# burnt version of itself rather than instantly being grey - reads as
+	# "cooling down," not a color swap. Progress caps at _nuke_scale
+	# itself (not always reaching full ash by end of life) so a
+	# just-barely-qualifying missile only cools slightly while a 256-frame
+	# one goes nearly to black.
+	if _duration > 0 and _nuke_scale > 0.0:
+		var cool_t = clamp(_life_timer / _duration, 0.0, 1.0) * _nuke_scale
+		_circle_poly.modulate = Color(
+			lerp(1.0, ASH_COLOR.r, cool_t),
+			lerp(1.0, ASH_COLOR.g, cool_t),
+			lerp(1.0, ASH_COLOR.b, cool_t),
+			alpha)
+	else:
 		_circle_poly.modulate.a = alpha
-	
+
 	if _tick_timer >= TICK_RATE:
 		_tick_timer -= TICK_RATE
 		_apply_tick()

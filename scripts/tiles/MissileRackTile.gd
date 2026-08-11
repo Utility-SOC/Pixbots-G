@@ -63,6 +63,21 @@ var bank_current_charge: float = 0.0
 func cycle_mythic_mode():
 	mythic_mode = (mythic_mode + 1) % 2
 
+# Mythic-only targeting choice (user ruling, 2026-08-11), same double-gate
+# convention as mythic_mode above - non-Mythic racks always use Furthest.
+#   Furthest (0, default) - the original, only-ever targeting behavior:
+#     "reach out and hit something a direct-fire mount can't."
+#   Most Powerful (1) - the single toughest valid target in range (highest
+#     max_hp - no other explicit power/threat stat exists on Mech.gd),
+#     for going straight at the biggest threat on the field regardless of
+#     how far away the furthest target happens to be.
+# Both modes share the same [min_range, max_range] gate - see
+# _find_target_in_range's own comment.
+@export_enum("Furthest", "Most Powerful") var targeting_mode: int = 0
+
+func cycle_targeting_mode():
+	targeting_mode = (targeting_mode + 1) % 2
+
 # Cycle is inherited from HexTile.cycle_mythic_frame_multiplier() (shared
 # with WeaponMountTile - see that file's field comment) - this used to be
 # a hardcoded local 1->2->16->64 cycle; now Accumulator-adjacency-aware
@@ -112,17 +127,64 @@ const SHELL_SPEED_BASE = 420.0
 # --- Targeting (design ruling: "ultra long range ground to ground") -------
 # Unlike every other weapon, a Missile Rack doesn't fire at the mech's
 # current aim point at all - it's an autonomous indirect-fire piece that
-# picks its OWN target: the FURTHEST enemy within [MIN_RANGE, max_range].
-# max_range reuses Projectile.gd's exact kinetic-scales-range formula
-# (BASE_RANGE + KINETIC_RANGE_BONUS * kinetic_ratio - see that file's field
-# comment for "kinetic should be able to make range MUCH longer") so a
-# Missile Rack's own Kinetic investment pays off exactly like it does for
-# every other weapon, just with a higher base via RANGE_MULT on top - same
-# "final multiplier over the whole computed range" slot Projectile.gd
-# already has for range_mult/beam shots, not a parallel range system.
+# picks its OWN target within [min_range, max_range] - see targeting_mode
+# for the Furthest/Most Powerful choice. max_range reuses Projectile.gd's
+# exact kinetic-scales-range formula (BASE_RANGE + KINETIC_RANGE_BONUS *
+# kinetic_ratio - see that file's field comment for "kinetic should be
+# able to make range MUCH longer") so a Missile Rack's own Kinetic
+# investment pays off exactly like it does for every other weapon, just
+# with a higher base via RANGE_MULT on top - same "final multiplier over
+# the whole computed range" slot Projectile.gd already has for range_mult/
+# beam shots, not a parallel range system.
 const ProjectileScript = preload("res://scripts/entities/Projectile.gd")
 const RANGE_MULT = 2.5 # "ultra long range" - well past a direct-fire mount's reach
-const MIN_RANGE = 350.0 # can't hit anything closer than this - not a point-defense gun
+# min_range used to be a flat 350.0 guess ("can't hit anything closer than
+# this - not a point-defense gun"). User ruling, 2026-08-11: the real
+# constraint is THIS shot's own blast radius - firing at something closer
+# than 2x that would put the shooter's own position inside its blast. Now
+# computed per-shot in _estimate_effective_radius() below instead of a
+# flat constant.
+const MIN_RANGE_RADIUS_MULT = 2.0
+
+# "Nuke tier" (user ruling, 2026-08-11): a charge of more than 32 frames
+# at 600000+ energy PER FRAME reads as genuinely different from a normal
+# missile - terrain-wiping, not just a bigger explosion (see MortarShell.
+# nuke_scale/_wipe_terrain, ElementalPuddle's "bombed out" fade). 0.0
+# below the threshold (normal missile, no change to anything); ramps 0->1
+# from NUKE_MIN_FRAME_MULTIPLIER up to the frame-multiplier ladder's own
+# ceiling (256 - HexTile.ACCUMULATOR_CAPACITY_TIERS[MYTHIC][0]) so 256
+# frames is the single most dramatic "feels like a nuke" case, not a hard
+# on/off cutoff right at the threshold.
+const NUKE_MIN_FRAME_MULTIPLIER = 32
+const NUKE_MIN_ENERGY_PER_FRAME = 600000.0
+const NUKE_MAX_FRAME_MULTIPLIER = 256
+
+func _nuke_scale(total_mag: float) -> float:
+	if mythic_frame_multiplier <= NUKE_MIN_FRAME_MULTIPLIER:
+		return 0.0
+	var per_frame_energy = total_mag / float(mythic_frame_multiplier)
+	if per_frame_energy < NUKE_MIN_ENERGY_PER_FRAME:
+		return 0.0
+	return clamp(float(mythic_frame_multiplier - NUKE_MIN_FRAME_MULTIPLIER) / float(NUKE_MAX_FRAME_MULTIPLIER - NUKE_MIN_FRAME_MULTIPLIER), 0.0, 1.0)
+
+# Effective blast radius THIS shot will detonate with, computed the exact
+# same way MortarShell.setup() computes its own effective_radius (kept in
+# sync manually - see that function's own comment). Needed HERE, before
+# any shell exists, so the min-range gate (2x this radius) can use the
+# real per-shot value instead of a flat guess - targeting has to happen
+# before a shell is spawned, but the radius only depends on the packet/
+# frame_multiplier/firing mode, all already known at that point.
+func _estimate_effective_radius(packet: EnergyPacket, total_mag: float) -> float:
+	var ratios = {}
+	if total_mag > 0.0:
+		for k in packet.synergies:
+			ratios[k] = packet.synergies[k] / total_mag
+	var fm_scale = sqrt(max(1.0, float(mythic_frame_multiplier)))
+	var radius_mult = 1.0
+	if rarity == HexTile.Rarity.MYTHIC and mythic_mode == 1:
+		var r_explosion = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
+		radius_mult = AOE_BASE_RADIUS_MULT * exp(AOE_EXPLOSION_EXP_K * r_explosion)
+	return max(40.0, ProjectileScript.explosion_radius_for(ratios, packet.aoe_bonus) * radius_mult) * fm_scale
 
 func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_child: bool = false, _extra_angle: float = 0.0, _chopper_child: bool = false):
 	# Whole-volley consolidation under saturation - identical gate to
@@ -185,10 +247,12 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 		total_mag += packet.synergies[k]
 	var kinetic_ratio = (packet.synergies.get(EnergyPacket.SynergyType.KINETIC, 0.0) / total_mag) if total_mag > 0.0 else 0.0
 	var max_range = (ProjectileScript.BASE_RANGE + ProjectileScript.KINETIC_RANGE_BONUS * kinetic_ratio) * RANGE_MULT
+	var min_range = MIN_RANGE_RADIUS_MULT * _estimate_effective_radius(packet, total_mag)
+	var nuke_scale = _nuke_scale(total_mag)
 
-	var target = _find_furthest_target_in_range(muzzle, by_player, max_range)
+	var target = _find_target_in_range(muzzle, by_player, min_range, max_range)
 	if target == null:
-		return # nothing in [MIN_RANGE, max_range] - dry-fire, same as any weapon with no target
+		return # nothing in [min_range, max_range] - dry-fire, same as any weapon with no target
 
 	# Feed the director's mortar counter-doctrine (cloaks/jammers answer
 	# artillery) exactly like WeaponMountTile's Mythic Mortar pattern does -
@@ -226,16 +290,16 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	var base_damage = packet.magnitude * _get_damage_multiplier() * _get_power_multiplier()
 
 	if rarity == HexTile.Rarity.MYTHIC and mythic_mode == 1:
-		_fire_aoe_burst(mech, world, muzzle, target_pos, packet, total_mag, by_player, base_damage)
+		_fire_aoe_burst(mech, world, muzzle, target_pos, packet, total_mag, by_player, base_damage, nuke_scale)
 	else:
-		_fire_hunter_salvo(mech, world, muzzle, target_pos, packet, by_player, effective_speed, base_damage)
+		_fire_hunter_salvo(mech, world, muzzle, target_pos, packet, by_player, effective_speed, base_damage, nuke_scale)
 
 # Hunter mode (default at every rarity, and Mythic mythic_mode == 0): several
 # shells, all aimed at the one furthest-in-range target - "throws everything
 # at a single target." This is the pre-existing salvo behavior, unchanged,
 # just extracted into its own function so _fire_combined_projectile can
 # branch to AOE mode instead.
-func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2, packet: EnergyPacket, by_player: bool, effective_speed: float, base_damage: float):
+func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2, packet: EnergyPacket, by_player: bool, effective_speed: float, base_damage: float, nuke_scale: float = 0.0):
 	var shell_count = int(TileStatsRegistry.get_stat_by_rarity("MissileRackTile", "shell_count", rarity, SHELL_COUNT_BY_RARITY))
 	var per_shell_damage = (base_damage / float(shell_count)) * PER_SHELL_DAMAGE_FRACTION
 
@@ -254,7 +318,7 @@ func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2,
 		# load(path), not the bare global class name - see HexTile._fire_mortar's
 		# matching comment for why (compile-time circular-dependency failure).
 		var shell = load("res://scripts/attacks/MortarShell.gd").acquire()
-		shell.setup(muzzle, impact_pos, flight_time, per_shell_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus, 1.0, false, mythic_frame_multiplier)
+		shell.setup(muzzle, impact_pos, flight_time, per_shell_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus, 1.0, false, mythic_frame_multiplier, nuke_scale)
 		world.add_child(shell)
 
 # AOE mode (Mythic mythic_mode == 1 only, user-designed): a single big burst
@@ -270,7 +334,7 @@ func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2,
 const AOE_BASE_RADIUS_MULT = 1.8
 const AOE_EXPLOSION_EXP_K = 0.9
 
-func _fire_aoe_burst(mech, world: Node, muzzle: Vector2, target_pos: Vector2, packet: EnergyPacket, total_mag: float, by_player: bool, base_damage: float):
+func _fire_aoe_burst(mech, world: Node, muzzle: Vector2, target_pos: Vector2, packet: EnergyPacket, total_mag: float, by_player: bool, base_damage: float, nuke_scale: float = 0.0):
 	var r_explosion = (packet.synergies.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) / total_mag) if total_mag > 0.0 else 0.0
 	var radius_mult = AOE_BASE_RADIUS_MULT * exp(AOE_EXPLOSION_EXP_K * r_explosion)
 	var flight_time = clamp(muzzle.distance_to(target_pos) / SHELL_SPEED_BASE, 0.12, 2.2)
@@ -278,18 +342,27 @@ func _fire_aoe_burst(mech, world: Node, muzzle: Vector2, target_pos: Vector2, pa
 	# load(path), not the bare global class name - see HexTile._fire_mortar's
 	# matching comment for why (compile-time circular-dependency failure).
 	var shell = load("res://scripts/attacks/MortarShell.gd").acquire()
-	shell.setup(muzzle, target_pos, flight_time, base_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus, radius_mult, true, mythic_frame_multiplier)
+	shell.setup(muzzle, target_pos, flight_time, base_damage, packet.synergies.duplicate(), by_player, mech, packet.aoe_bonus, radius_mult, true, mythic_frame_multiplier, nuke_scale)
 	world.add_child(shell)
 
 
+# Dispatches to whichever pick rule targeting_mode selects (Mythic-only,
+# see that field's own comment - non-Mythic racks always get Furthest).
+# min_range/max_range are shared by both modes; only the pick rule inside
+# that window differs.
+func _find_target_in_range(muzzle: Vector2, by_player: bool, min_range: float, max_range: float):
+	if rarity == HexTile.Rarity.MYTHIC and targeting_mode == 1:
+		return _find_most_powerful_target_in_range(muzzle, by_player, min_range, max_range)
+	return _find_furthest_target_in_range(muzzle, by_player, min_range, max_range)
+
 # Scans the opposing EntityCache group (same convention as MortarShell.
 # _detonate/Projectile.gd's own homing-target scans) for the single FARTHEST
-# valid target inside [MIN_RANGE, max_range] from the muzzle - null if none
+# valid target inside [min_range, max_range] from the muzzle - null if none
 # qualify. Furthest, not nearest: this is meant to reach out and hit
 # something a direct-fire mount can't, not to plink the closest target.
 # Returns the target NODE itself (not just its position) - the call site
 # reads its .velocity for lead prediction.
-func _find_furthest_target_in_range(muzzle: Vector2, by_player: bool, max_range: float):
+func _find_furthest_target_in_range(muzzle: Vector2, by_player: bool, min_range: float, max_range: float):
 	var candidates: Array = EntityCache.get_group("enemy") if by_player else EntityCache.get_group("player")
 	var best = null
 	var best_dist = -1.0
@@ -297,9 +370,30 @@ func _find_furthest_target_in_range(muzzle: Vector2, by_player: bool, max_range:
 		if not is_instance_valid(c) or c.get("is_dead"):
 			continue
 		var d = muzzle.distance_to(c.global_position)
-		if d < MIN_RANGE or d > max_range:
+		if d < min_range or d > max_range:
 			continue
 		if d > best_dist:
 			best_dist = d
+			best = c
+	return best
+
+# Most Powerful (Mythic targeting_mode == 1): the single valid target in
+# [min_range, max_range] with the highest max_hp - a proxy for "biggest
+# threat on the field" in the absence of any other explicit power/threat
+# stat on Mech.gd. Same range gate as Furthest, just a different pick
+# rule once the candidate pool is filtered.
+func _find_most_powerful_target_in_range(muzzle: Vector2, by_player: bool, min_range: float, max_range: float):
+	var candidates: Array = EntityCache.get_group("enemy") if by_player else EntityCache.get_group("player")
+	var best = null
+	var best_power = -1.0
+	for c in candidates:
+		if not is_instance_valid(c) or c.get("is_dead"):
+			continue
+		var d = muzzle.distance_to(c.global_position)
+		if d < min_range or d > max_range:
+			continue
+		var power = c.get("max_hp") if "max_hp" in c else 0.0
+		if power > best_power:
+			best_power = power
 			best = c
 	return best

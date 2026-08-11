@@ -20,6 +20,18 @@ extends Node
 #      synergy color (only alpha changes) when nuke_scale == 0 - unchanged
 #      regression guard for every puddle that isn't nuke-tier.
 #
+# Also covers two real, pre-existing color bugs found while testing this
+# feature live (user report: "missiles are still pretty white"):
+#   6. ElementalPuddle's color match never handled EXPLOSION (missiles'
+#      own dominant synergy), PIERCE, or VAMPIRIC - any missile puddle
+#      silently fell through to the plain white default.
+#   7. MortarShell._draw() used EnergyPacket.get_color_blend(), the same
+#      "washes toward gray/white for a real multi-element packet" bug
+#      already found and fixed in Projectile.gd/ProjectileBatchPool (see
+#      GarageTestRange._fire_via_batch_pool's matching comment) - never
+#      ported here, so every real (multi-synergy) missile shot rendered
+#      washed-out instead of its dominant element's color.
+#
 # SAFETY: mirrors AntiMissileInterceptCheck.gd's established safe pattern -
 # `components = {}` on every Mech before add_child() so Mech._ready() never
 # runs build_loadout_for_role(). No SquadDirector, real or fake, is ever
@@ -181,8 +193,43 @@ func _ready():
 	_check("a nuke-tier puddle starts still close to full vibrant color right after spawning (cools OVER time, not instantly)",
 		ash_puddle_early._circle_poly.modulate.r > 0.9)
 
+	# --- 6: ElementalPuddle's EXPLOSION/PIERCE/VAMPIRIC color gap ----------
+	var explosion_puddle = ElementalPuddleScript.new()
+	explosion_puddle.setup(80.0, 10.0, 100.0, {EnergyPacket.SynergyType.EXPLOSION: 100.0}, true, 0.0)
+	_check("an EXPLOSION-dominant puddle (missiles' own element) is NOT the plain white default anymore",
+		not (explosion_puddle._vibrant_inner_color.r == 1.0 and explosion_puddle._vibrant_inner_color.g == 1.0 and explosion_puddle._vibrant_inner_color.b == 1.0))
+	var pierce_puddle = ElementalPuddleScript.new()
+	pierce_puddle.setup(80.0, 10.0, 100.0, {EnergyPacket.SynergyType.PIERCE: 100.0}, true, 0.0)
+	_check("a PIERCE-dominant puddle is NOT the plain white default anymore",
+		not (pierce_puddle._vibrant_inner_color.r == 1.0 and pierce_puddle._vibrant_inner_color.g == 1.0 and pierce_puddle._vibrant_inner_color.b == 1.0))
+	var vampiric_puddle = ElementalPuddleScript.new()
+	vampiric_puddle.setup(80.0, 10.0, 100.0, {EnergyPacket.SynergyType.VAMPIRIC: 100.0}, true, 0.0)
+	_check("a VAMPIRIC-dominant puddle is NOT the plain white default anymore",
+		not (vampiric_puddle._vibrant_inner_color.r == 1.0 and vampiric_puddle._vibrant_inner_color.g == 1.0 and vampiric_puddle._vibrant_inner_color.b == 1.0))
+
+	# --- 7: MortarShell._dominant_color() doesn't wash toward gray/white ---
+	var blend_shell = MortarShellScript.acquire()
+	# A real, heavily-blended multi-element packet (the normal case for an
+	# actual build, not an edge case) - roughly equal parts across most of
+	# the roster, exactly the shape that washes toward gray/white under
+	# get_color_blend()'s weighted average.
+	blend_shell.setup(Vector2.ZERO, Vector2.ZERO, 5.0, 10.0, {
+		EnergyPacket.SynergyType.RAW: 50.0, EnergyPacket.SynergyType.FIRE: 50.0,
+		EnergyPacket.SynergyType.ICE: 50.0, EnergyPacket.SynergyType.LIGHTNING: 50.0,
+		EnergyPacket.SynergyType.VORTEX: 50.0, EnergyPacket.SynergyType.POISON: 50.0,
+		EnergyPacket.SynergyType.EXPLOSION: 60.0, # the dominant synergy, slightly ahead
+		EnergyPacket.SynergyType.KINETIC: 50.0, EnergyPacket.SynergyType.PIERCE: 50.0,
+		EnergyPacket.SynergyType.VAMPIRIC: 50.0,
+	}, true, null)
+	var dom_color = blend_shell._dominant_color()
+	_check("_dominant_color() on a real multi-element packet matches its dominant synergy's own color (EXPLOSION, boosted), not a washed gray/white blend",
+		dom_color.r > 0.9 and dom_color.g < 0.7 and dom_color.b < 0.7)
+	_check("_dominant_color() genuinely differs from get_color_blend()'s washed result for this same packet",
+		dom_color.r != EnergyPacket.get_color_blend(blend_shell.synergies).r or dom_color.g != EnergyPacket.get_color_blend(blend_shell.synergies).g)
+	blend_shell.release()
+
 	if failures == 0:
-		print("PASS: nuke-tier missile threshold/scaling, dynamic min-range, Furthest/Most Powerful targeting, terrain-wiping detonations, and puddle ash-fade all behave correctly")
+		print("PASS: nuke-tier missile threshold/scaling, dynamic min-range, Furthest/Most Powerful targeting, terrain-wiping detonations, puddle ash-fade, and the EXPLOSION/PIERCE/VAMPIRIC color gap + get_color_blend() wash-out fixes all behave correctly")
 	get_tree().quit(0 if failures == 0 else 1)
 
 # Minimal "obstacle" stand-in - just the surface MortarShell._wipe_terrain()

@@ -95,6 +95,23 @@ func setup(radius: float, duration: float, total_damage: float, synergies: Dicti
 			EnergyPacket.SynergyType.KINETIC:
 				_inner_color = Color(0.7, 0.7, 0.7, 0.7)
 				_outer_color = Color(0.4, 0.4, 0.4, 0.3)
+			EnergyPacket.SynergyType.EXPLOSION:
+				# Real bug, found 2026-08-11 (user report: "missiles are
+				# still pretty white") - EXPLOSION was never in this match
+				# at all, so every missile/mortar puddle (Explosion is
+				# their whole identity - see MortarShell/MissileRackTile's
+				# own AOE-mode comments) silently fell through to the plain
+				# white default set above, regardless of nuke_scale. Fiery
+				# red-orange scorch color, matching EnergyPacket.
+				# get_color_for_synergy's own EXPLOSION palette.
+				_inner_color = Color(1.0, 0.3, 0.1, 0.7)
+				_outer_color = Color(0.8, 0.1, 0.0, 0.3)
+			EnergyPacket.SynergyType.PIERCE:
+				_inner_color = Color(0.85, 0.85, 0.95, 0.7)
+				_outer_color = Color(0.5, 0.5, 0.6, 0.3)
+			EnergyPacket.SynergyType.VAMPIRIC:
+				_inner_color = Color(0.8, 0.0, 0.25, 0.7)
+				_outer_color = Color(0.4, 0.0, 0.15, 0.3)
 
 	_vibrant_inner_color = _inner_color
 	_vibrant_outer_color = _outer_color

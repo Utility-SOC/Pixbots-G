@@ -388,6 +388,21 @@ func _dominant_synergy() -> int:
 			dominant = k
 	return dominant
 
+# Real bug, found 2026-08-11 (user report: "missiles are still pretty
+# white"). Real Projectile.gd/ProjectileBatchPool deliberately never
+# blend a shot's main visual color - see GarageTestRange.
+# _fire_via_batch_pool's own matching comment: "get_color_blend() washes
+# toward gray/white for anything with real RAW content blended in -
+# exactly the 'large grey ox' a 600k-energy multi-element shot rendered
+# as." _draw() below was still calling get_color_blend(synergies)
+# directly, reproducing that exact bug a second time - any real,
+# multi-element missile loadout (the normal case, not an edge case)
+# washed toward white/grey instead of reading as its dominant element.
+func _dominant_color() -> Color:
+	var c = EnergyPacket.get_color_for_synergy(_dominant_synergy()) * 1.5
+	c.a = 1.0
+	return c
+
 func _draw():
 	if _landed:
 		if _crashed_harmlessly:
@@ -400,7 +415,7 @@ func _draw():
 			return
 		# Impact flash: expanding filled ring.
 		var t = _impact_elapsed / IMPACT_FLASH_TIME
-		var color = EnergyPacket.get_color_blend(synergies)
+		var color = _dominant_color()
 		draw_circle(Vector2.ZERO, effective_radius * (0.5 + 0.5 * t), Color(color.r, color.g, color.b, 0.45 * (1.0 - t)))
 		draw_arc(Vector2.ZERO, effective_radius, 0, TAU, 24, Color(color.r, color.g, color.b, 0.9 * (1.0 - t)), 3.0)
 		return
@@ -418,11 +433,11 @@ func _draw():
 	shell_pos -= target_pos
 	
 	if equal_split_all_victims:
-		var color = EnergyPacket.get_color_blend(synergies)
+		var color = _dominant_color()
 		draw_circle(shell_pos, 12.0, color)
 		draw_circle(shell_pos, 6.0, Color(1, 1, 1, 0.9))
 	else:
-		var color = EnergyPacket.get_color_blend(synergies)
+		var color = _dominant_color()
 		draw_circle(shell_pos, 10.0, color)
 		draw_circle(shell_pos, 5.0, Color(1, 1, 1, 0.9))
 	draw_circle(shell_pos + Vector2(-1.5, -1.5), 2.0, Color(0.55, 0.58, 0.64))

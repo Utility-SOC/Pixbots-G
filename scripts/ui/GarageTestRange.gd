@@ -69,6 +69,7 @@ var _volleys_fired: int = 0
 # (and every other firing path in the game) is completely untouched.
 var _batch_toggle: CheckButton = null
 var _batch_pool: Node = null
+var _pie_toggle: CheckButton = null
 
 func setup(p_player: Node):
 	player = p_player
@@ -156,6 +157,24 @@ func _ready():
 	_batch_toggle.tooltip_text = "Fire through the experimental no-Node-tree batch pool instead of real Projectiles - full behavioral/visual parity with the real path as of 2026-08-10, still Test Range only, not wired into live combat."
 	controls.add_child(_batch_toggle)
 
+	# Pie Chart mode (user request, 2026-08-11) - independent of the Batch
+	# Renderer toggle above (can be flipped on its own; only has a visible
+	# effect while Batch Renderer is ALSO on, since it's a batch-pool-only
+	# rendering feature - see ProjectileBatchPool.pie_chart_mode's own
+	# comment). Swaps ONLY the "hot core" logo for a pie chart of the
+	# shot's real synergy ratios - the aura, ghost trail, and every other
+	# effect (Vortex helix, secondary echoes) are completely unchanged, per
+	# the user's own framing: "flat graph + any tail + any aura."
+	_pie_toggle = CheckButton.new()
+	_pie_toggle.text = "Pie Chart Mode"
+	_pie_toggle.modulate = Color(0.6, 0.9, 1.0)
+	_pie_toggle.tooltip_text = "Batch Renderer only: replaces each shot's hot-core logo with a pie chart of its real synergy ratios (+/-0.5% accurate), keeping flight, aura, and trail unchanged. Independent of the Batch Renderer toggle - only visible while that's also on."
+	_pie_toggle.toggled.connect(func(pressed):
+		if _batch_pool:
+			_batch_pool.pie_chart_mode = pressed
+	)
+	controls.add_child(_pie_toggle)
+
 	var reset_btn = Button.new()
 	reset_btn.text = "Reset dummy"
 	reset_btn.pressed.connect(_reset_dummy_stats)
@@ -236,6 +255,10 @@ func _ready():
 	_batch_pool = ProjectileBatchPoolScript.new()
 	_world_root.add_child(_batch_pool)
 	_batch_pool.register_target(_dummy)
+	# Sync in case the Pie Chart toggle was already flipped before the pool
+	# existed - toggled() only fires on a CHANGE, not this initial state.
+	if _pie_toggle:
+		_batch_pool.pie_chart_mode = _pie_toggle.button_pressed
 
 	# Drones (playtest: "I also want drones in the test area") - real Drone
 	# instances built from the player's real Drone Bay loadout(s), same spawn

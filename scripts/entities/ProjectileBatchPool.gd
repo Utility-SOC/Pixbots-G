@@ -194,6 +194,31 @@ var _add_material: CanvasItemMaterial
 var _synergy_polygons: Array[PackedVector2Array] = [] # outer aura, per synergy (0..9)
 var _synergy_polygons_inner: Array[PackedVector2Array] = [] # 0.5x scale "hot core" - same color, additive overdraw brightens the center, matches the old two-surface mesh exactly
 
+# Pie Chart mode (user request, 2026-08-11, GarageTestRange.gd's own
+# independent toggle) - replaces ONLY the flat-color hot-core fill above
+# with a pie chart of the shot's REAL synergy ratios (+/-0.5% accurate -
+# see _compute_pie_wedges' own comment on why that's structural, not a
+# tuned tolerance). The aura (still the same per-synergy polygon), ghost
+# trail, Vortex helix, and secondary echoes are all completely untouched -
+# "flat graph + any tail + any aura," the user's own framing. Off by
+# default (every existing behavior unchanged unless explicitly toggled).
+var pie_chart_mode: bool = false
+const PIE_RADIUS = 6.0 # roughly the same footprint as _synergy_polygons_inner's own extent
+const PIE_SEGMENTS_PER_TAU = 40.0 # ~9 degrees/segment - smooths the arc only, never affects wedge SIZE accuracy
+# Fixed draw order (not re-sorted by magnitude) so a shot's pie doesn't
+# visually reshuffle frame to frame - ratios are set once at spawn and
+# never change, but a magnitude-sorted order would still be a needless
+# extra computation every single frame for no benefit. RAW is deliberately
+# excluded here and handled as the remainder in _compute_pie_wedges - it
+# has no _r_raw array of its own (see that function's own comment).
+const PIE_SYNERGY_ORDER = [
+	EnergyPacket.SynergyType.FIRE, EnergyPacket.SynergyType.ICE,
+	EnergyPacket.SynergyType.LIGHTNING, EnergyPacket.SynergyType.VORTEX,
+	EnergyPacket.SynergyType.POISON, EnergyPacket.SynergyType.EXPLOSION,
+	EnergyPacket.SynergyType.KINETIC, EnergyPacket.SynergyType.PIERCE,
+	EnergyPacket.SynergyType.VAMPIRIC,
+]
+
 # Ghost-trail layer (B3, visual flourish) - real trails (FireTrail2D/Trail2D/
 # GPUParticles2D/Line2D) are genuine child-Node/particle systems, fundamentally
 # incompatible with this Node-less pool. Drawn a fixed offset behind each
@@ -555,7 +580,15 @@ func _draw():
 		# shared the SAME per-instance color; only the overdraw differed).
 		draw_set_transform(render_pos, rot, Vector2(_scale[i], _scale[i]))
 		draw_colored_polygon(_synergy_polygons[syn], c)
-		draw_colored_polygon(_synergy_polygons_inner[syn], c)
+		if pie_chart_mode:
+			# Pie Chart mode (user request, 2026-08-11) - replaces ONLY this
+			# flat hot-core fill with a pie chart of the shot's real
+			# synergy ratios. Drawn within the SAME transform as the aura
+			# line above, so it inherits the shot's position/rotation/
+			# scale for free - only PIE_RADIUS controls its footprint.
+			_draw_pie_wedges(_pie_ratios_for_slot(i), c.a)
+		else:
+			draw_colored_polygon(_synergy_polygons_inner[syn], c)
 
 		if syn == EnergyPacket.SynergyType.VORTEX:
 			# Vortex-dominant 3-orb helix (Phase 10) instead of the generic
@@ -1168,4 +1201,64 @@ static func _compute_vortex_helix_render(render_pos: Vector2, elapsed: float, or
 	var c = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.VORTEX)
 	c.a = alpha
 	return {"position": render_pos + offset, "color": c}
+
+# Pure computation (no rendering involved, testable directly - same "test
+# the math, not a render round-trip" reasoning as every other _compute_*
+# function above) for Pie Chart mode (user request, 2026-08-11). Builds
+# the wedge list for a shot's synergy ratios in PIE_SYNERGY_ORDER (fixed,
+# not magnitude-sorted - stable frame to frame) plus a trailing RAW
+# remainder wedge (RAW has no _r_raw array of its own - every OTHER
+# synergy's ratio is tracked per-slot, so RAW is just "whatever's left
+# over," clamped so float drift can't go slightly negative).
+#
+# Wedge angles are the EXACT cumulative sum of the ratios themselves
+# (TAU * ratio) - not quantized to any coarser grid - so a wedge's SIZE is
+# accurate to floating-point precision regardless of how many arc
+# segments later fill in its curve. The +/-0.5% accuracy requirement is
+# satisfied structurally by this, not by tuning some separate tolerance.
+static func _compute_pie_wedges(ratios: Dictionary) -> Array:
+	var wedges: Array = []
+	var angle = 0.0
+	var named_total = 0.0
+	for syn in PIE_SYNERGY_ORDER:
+		var r = ratios.get(syn, 0.0)
+		if r <= 0.0:
+			continue
+		named_total += r
+		var span = TAU * r
+		wedges.append({"synergy": syn, "start_angle": angle, "end_angle": angle + span})
+		angle += span
+	var raw_r = max(0.0, 1.0 - named_total)
+	if raw_r > 0.001: # skip a sliver too thin to ever be a real remainder, not float dust
+		wedges.append({"synergy": EnergyPacket.SynergyType.RAW, "start_angle": angle, "end_angle": angle + TAU * raw_r})
+	return wedges
+
+func _pie_ratios_for_slot(i: int) -> Dictionary:
+	return {
+		EnergyPacket.SynergyType.FIRE: _r_fire[i], EnergyPacket.SynergyType.ICE: _r_ice[i],
+		EnergyPacket.SynergyType.LIGHTNING: _r_ltg[i], EnergyPacket.SynergyType.VORTEX: _r_vtx[i],
+		EnergyPacket.SynergyType.POISON: _r_psn[i], EnergyPacket.SynergyType.EXPLOSION: _r_exp[i],
+		EnergyPacket.SynergyType.KINETIC: _r_kin[i], EnergyPacket.SynergyType.PIERCE: _r_prc[i],
+		EnergyPacket.SynergyType.VAMPIRIC: _r_vamp[i],
+	}
+
+# Draws the wedges built by _compute_pie_wedges() as filled triangle fans
+# (center + arc points), one draw_colored_polygon() call per wedge, using
+# each synergy's own TRUE color (EnergyPacket.get_color_for_synergy, not
+# blended/boosted - a chart needs true, distinguishable per-element hues,
+# not the "dominant, boosted" treatment the rest of this file uses for a
+# single main-body color). Called from within the SAME draw_set_transform
+# as the aura polygon it replaces, so no extra transform call is needed -
+# PIE_RADIUS alone controls its footprint relative to that aura.
+func _draw_pie_wedges(ratios: Dictionary, alpha: float):
+	for wedge in _compute_pie_wedges(ratios):
+		var span = wedge["end_angle"] - wedge["start_angle"]
+		var seg_count = max(1, int(ceil(span / TAU * PIE_SEGMENTS_PER_TAU)))
+		var points = PackedVector2Array([Vector2.ZERO])
+		for s in range(seg_count + 1):
+			var a = lerp(wedge["start_angle"], wedge["end_angle"], float(s) / float(seg_count))
+			points.append(Vector2(cos(a), sin(a)) * PIE_RADIUS)
+		var wedge_color = EnergyPacket.get_color_for_synergy(wedge["synergy"])
+		wedge_color.a = alpha
+		draw_colored_polygon(points, wedge_color)
 

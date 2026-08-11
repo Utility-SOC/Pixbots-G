@@ -219,8 +219,22 @@ func _populate_component_tabs():
 		if not mech_components.has(slot):
 			continue
 		var comp = mech_components[slot]
-		component_tabs.add_tab(comp.component_name)
-		component_tabs.set_tab_metadata(component_tabs.get_tab_count() - 1, slot)
+		# Canonical slot name (Left Arm/Right Leg/...), not comp.component_
+		# name - a looted/replaced component's own name (e.g. a boss-drop
+		# "Boss 1 Drone" or a Black Market "Salvaged ..." item) used to be
+		# the tab text directly, so which tab was the head vs an arm vs a
+		# leg depended entirely on remembering whatever loot happened to be
+		# equipped there (user: "it is hard to know what is a head, a foot,
+		# or an arm with it labelled like this"). The starter/default names
+		# (ComponentEquipment.create_starter_leg's "L. Leg"/"R. Leg", etc.)
+		# happened to already read like slot names, which is what made the
+		# bug easy to miss - only actually-looted slots showed it. The loot
+		# name is still surfaced as the tab's tooltip rather than dropped
+		# entirely.
+		component_tabs.add_tab(_slot_display_name(slot))
+		var tab_idx = component_tabs.get_tab_count() - 1
+		component_tabs.set_tab_metadata(tab_idx, slot)
+		component_tabs.set_tab_tooltip(tab_idx, comp.component_name)
 
 	# Drone tabs: one per Drone Bay tile actually installed somewhere in the
 	# equipped Backpack's hex grid (see DroneBayTile.gd) - a build can carry

@@ -55,35 +55,30 @@ func _ready():
 	_check("Vortex's own channel (4) is never one of the 3 borrowed ones (it's spending that on its own dominant rendering)",
 		not ProjectileBatchPoolScript.VORTEX_HELIX_CHANNELS.has(EnergyPacket.SynergyType.VORTEX))
 
-	# --- 3: tapered trail mesh - a real triangle with the expected front-
-	# opaque/back-transparent vertex-color gradient baked in ---
-	var taper = ProjectileBatchPoolScript._build_tapered_trail_mesh(20.0, 6.0)
-	_check("the tapered trail mesh is a real, non-null ArrayMesh with one surface",
-		taper != null and taper.get_surface_count() == 1)
-	var arrays = taper.surface_get_arrays(0)
-	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
-	_check("the tapered mesh has exactly 3 vertices (front-left, front-right, back point)",
-		verts.size() == 3)
-	_check("the two front vertices are fully opaque",
-		colors[0].a == 1.0 and colors[1].a == 1.0)
-	_check("the back (tail) vertex fades to fully transparent",
-		colors[2].a == 0.0)
-	_check("the back vertex is genuinely BEHIND the front ones (negative X, matching the trail-offset direction convention)",
-		verts[2].x < verts[0].x and verts[2].x < verts[1].x)
+	# --- 3: tapered trail shape - a real triangle, back point genuinely
+	# behind the front two (the alpha gradient itself is applied inline at
+	# draw time in _draw() now - see ProjectileBatchPool.gd's 2026-08-11
+	# rendering rewrite - so there's no separate mesh/vertex-color
+	# resource left to test here, just the geometry) ---
+	var taper_points = ProjectileBatchPoolScript._build_tapered_trail_points(20.0, 6.0)
+	_check("the tapered trail shape has exactly 3 points (front-left, front-right, back point)",
+		taper_points.size() == 3)
+	_check("the two front points are vertically opposite (the wide end)",
+		taper_points[0].x == taper_points[1].x and taper_points[0].y == -taper_points[1].y)
+	_check("the back point is genuinely BEHIND the front ones (negative X, matching the trail-offset direction convention)",
+		taper_points[2].x < taper_points[0].x and taper_points[2].x < taper_points[1].x)
 
-	# --- 4: Fire and Kinetic's trail channels use their OWN dedicated mesh,
-	# not the same resource as their main body (structural check on static
-	# multimesh configuration - no per-instance state involved, so this
-	# doesn't hit the known --headless get/set staleness issue) ---
+	# --- 4: Fire and Kinetic's trail channels use their OWN dedicated
+	# shape, not their main body's polygon reused (structural check on
+	# static per-synergy setup - no per-instance state involved) ---
 	var pool = ProjectileBatchPoolScript.new(4)
-	add_child(pool) # _ready() runs synchronously here, calling _setup_multimesh() once
-	_check("Fire's trail channel uses a DIFFERENT mesh resource than its main body (bespoke tapered trail, not a reused-shape copy)",
-		pool._trail_multimeshes[EnergyPacket.SynergyType.FIRE].mesh != pool._synergy_multimeshes[EnergyPacket.SynergyType.FIRE].mesh)
-	_check("Kinetic's trail channel uses a DIFFERENT mesh resource than its main body",
-		pool._trail_multimeshes[EnergyPacket.SynergyType.KINETIC].mesh != pool._synergy_multimeshes[EnergyPacket.SynergyType.KINETIC].mesh)
-	_check("a synergy NOT special-cased (e.g. Ice) still reuses its main body's mesh for its trail (unchanged from before this phase - regression guard)",
-		pool._trail_multimeshes[EnergyPacket.SynergyType.ICE].mesh == pool._synergy_multimeshes[EnergyPacket.SynergyType.ICE].mesh)
+	add_child(pool) # _ready() runs synchronously here, calling _setup_render_polygons() once
+	_check("Fire has its own bespoke tapered trail shape registered",
+		pool._tapered_trail_points.has(EnergyPacket.SynergyType.FIRE))
+	_check("Kinetic has its own bespoke tapered trail shape registered",
+		pool._tapered_trail_points.has(EnergyPacket.SynergyType.KINETIC))
+	_check("a synergy NOT special-cased (e.g. Ice) has no bespoke trail shape - it reuses its main body's polygon (unchanged from before this phase - regression guard)",
+		not pool._tapered_trail_points.has(EnergyPacket.SynergyType.ICE))
 
 	if failures == 0:
 		print("PASS: Pierce gets a static glowing core, Vortex gets its own 3-orb helix on 3 guaranteed-idle fixed channels, Fire/Kinetic get bespoke tapered trail meshes, and every other synergy's rendering is unchanged")

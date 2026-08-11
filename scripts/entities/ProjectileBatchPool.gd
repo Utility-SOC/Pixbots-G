@@ -181,22 +181,35 @@ var _highest_active: int = -1
 
 var _targets: Array = []
 
-# MultiMesh rendering setup (1 per synergy family for exact shape + additive core rendering parity)
+# Rendering setup - immediate-mode CanvasItem drawing (_draw() below), NOT
+# MultiMeshInstance2D (2026-08-11 fix - see _draw()'s own header comment
+# for why: MultiMeshInstance2D was confirmed, via an objective per-frame
+# pixel scan of a screen recording rather than eyeballing, to render
+# nothing at all on a real playtest machine under BOTH the D3D12 and
+# Vulkan backends, while plain CanvasItem draw calls worked correctly on
+# that same machine). One additive-blend material on the pool node itself
+# (applies to every draw_* call inside _draw()) replaces the old one-
+# CanvasItemMaterial-per-MultiMeshInstance2D setup.
 var _add_material: CanvasItemMaterial
-var _synergy_multimeshes: Array[MultiMesh] = []
-var _synergy_instances: Array[MultiMeshInstance2D] = []
+var _synergy_polygons: Array[PackedVector2Array] = [] # outer aura, per synergy (0..9)
+var _synergy_polygons_inner: Array[PackedVector2Array] = [] # 0.5x scale "hot core" - same color, additive overdraw brightens the center, matches the old two-surface mesh exactly
 
 # Ghost-trail layer (B3, visual flourish) - real trails (FireTrail2D/Trail2D/
 # GPUParticles2D/Line2D) are genuine child-Node/particle systems, fundamentally
-# incompatible with this Node-less pool. Instead: one extra MultiMeshInstance2D
-# per synergy, same mesh as the main body reused (no second mesh build),
-# drawn a fixed offset behind each live shot along its current direction at
-# reduced scale/alpha - reads as a short streak without any per-shot Node.
+# incompatible with this Node-less pool. Drawn a fixed offset behind each
+# live shot along its current direction at reduced scale/alpha - reads as a
+# short streak without any per-shot Node.
 const TRAIL_OFFSET_PX = 14.0
 const TRAIL_SCALE_MULT = 0.55
 const TRAIL_ALPHA_MULT = 0.35
-var _trail_multimeshes: Array[MultiMesh] = []
-var _trail_instances: Array[MultiMeshInstance2D] = []
+# Fire/Kinetic bespoke tapered trail (Phase 10) - points instead of a Mesh
+# resource, drawn directly via draw_polygon()'s per-vertex color support
+# (front two vertices get each shot's own trail color, back vertex gets
+# the same color with alpha zeroed - computed at draw time in _draw()).
+# Keyed by synergy int; a synergy NOT present here reuses its own main-
+# body polygon for its trail instead (regression-guarded by
+# BatchPoolVisualOrnamentsCheck.gd).
+var _tapered_trail_points: Dictionary = {} # synergy int -> PackedVector2Array
 
 func _init(p_capacity: int = DEFAULT_CAPACITY):
 	capacity = p_capacity
@@ -254,7 +267,7 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 
 func _ready():
 	process_priority = -900
-	_setup_multimesh()
+	_setup_render_polygons()
 	_ensure_flight_rust()
 
 # Same pattern as ProjectileManager._ensure_flight_rust() - real Node
@@ -267,73 +280,37 @@ func _ensure_flight_rust():
 		if ClassDB.class_exists("ProjectileFlight"):
 			_flight_rasterizer = ClassDB.instantiate("ProjectileFlight")
 
-# Build per-synergy meshes matching Projectile.gd's procedural shapes,
-# featuring a bright additive material and white-hot core for full visual parity.
-func _setup_multimesh():
+# Precomputes per-synergy polygons (matching Projectile.gd's procedural
+# shapes) for _draw() to use directly, plus the additive-blend material
+# applied to the whole node (see this file's own top-of-class comment for
+# why this replaced MultiMeshInstance2D).
+func _setup_render_polygons():
 	_add_material = CanvasItemMaterial.new()
 	_add_material.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	material = _add_material
 
-	_synergy_multimeshes.resize(10)
-	_synergy_instances.resize(10)
-	_trail_multimeshes.resize(10)
-	_trail_instances.resize(10)
-
+	_synergy_polygons.resize(10)
+	_synergy_polygons_inner.resize(10)
 	for syn_idx in range(10):
 		var poly = _get_polygon_for_synergy(syn_idx)
-		var mesh = _build_synergy_mesh(poly)
-		if mesh == null:
-			var quad = QuadMesh.new()
-			quad.size = Vector2(10, 10)
-			mesh = quad
+		_synergy_polygons[syn_idx] = poly
+		var inner = PackedVector2Array()
+		for pt in poly:
+			inner.append(pt * 0.5)
+		_synergy_polygons_inner[syn_idx] = inner
 
-		# Trail layer added FIRST so it draws behind the main body (additive
-		# blend makes this mostly moot for color, but keeps the main body's
-		# silhouette on top for the two-surface hot-core trick to still read).
-		# Fire (1) and Kinetic (7) get their OWN bespoke trail mesh instead of
-		# reusing the main body's (Phase 10 of the batch-pool full-parity
-		# plan, 2026-08-10) - real Projectile.gd gives these two genuinely
-		# distinct ornaments (Fire's GPUParticles2D smoke trail, Kinetic's
-		# Trail2D speed-line) instead of the uniform reused-shape trail every
-		# other synergy gets here. A literal GPUParticles2D per shot is
-		# correctly ruled out for a Node-less MultiMesh pool (see this file's
-		# own header) - a tapered, alpha-gradient "comet" mesh is the
-		# MultiMesh-native substitute, closer to a heat/speed streak than the
-		# uniform-scaled main-body copy every other trail still uses.
-		var trail_mesh = mesh
-		if syn_idx == 1: # FIRE
-			trail_mesh = _build_tapered_trail_mesh(22.0, 7.0)
-		elif syn_idx == 7: # KINETIC
-			trail_mesh = _build_tapered_trail_mesh(16.0, 3.0)
-		var trail_mm = MultiMesh.new()
-		trail_mm.transform_format = MultiMesh.TRANSFORM_2D
-		trail_mm.use_colors = true
-		trail_mm.mesh = trail_mesh
-		trail_mm.instance_count = capacity
-		for i in range(capacity):
-			trail_mm.set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
-		var trail_inst = MultiMeshInstance2D.new()
-		trail_inst.multimesh = trail_mm
-		trail_inst.material = _add_material
-		add_child(trail_inst)
-		_trail_multimeshes[syn_idx] = trail_mm
-		_trail_instances[syn_idx] = trail_inst
-
-		var mm = MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_2D
-		mm.use_colors = true
-		mm.mesh = mesh
-		mm.instance_count = capacity
-
-		for i in range(capacity):
-			mm.set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
-
-		var inst = MultiMeshInstance2D.new()
-		inst.multimesh = mm
-		inst.material = _add_material
-		add_child(inst)
-
-		_synergy_multimeshes[syn_idx] = mm
-		_synergy_instances[syn_idx] = inst
+	# Fire (1) and Kinetic (7) get their OWN bespoke trail shape instead of
+	# reusing the main body's (Phase 10 of the batch-pool full-parity plan,
+	# 2026-08-10) - real Projectile.gd gives these two genuinely distinct
+	# ornaments (Fire's GPUParticles2D smoke trail, Kinetic's Trail2D
+	# speed-line) instead of the uniform reused-shape trail every other
+	# synergy gets here. A literal GPUParticles2D per shot is correctly
+	# ruled out for a Node-less pool (see this file's own header) - a
+	# tapered, alpha-gradient "comet" shape is the substitute, closer to a
+	# heat/speed streak than the uniform-scaled main-body copy every other
+	# trail still uses.
+	_tapered_trail_points[EnergyPacket.SynergyType.FIRE] = _build_tapered_trail_points(22.0, 7.0)
+	_tapered_trail_points[EnergyPacket.SynergyType.KINETIC] = _build_tapered_trail_points(16.0, 3.0)
 
 static func _get_polygon_for_synergy(syn: int) -> PackedVector2Array:
 	match syn:
@@ -362,72 +339,18 @@ static func _get_polygon_for_synergy(syn: int) -> PackedVector2Array:
 				pts.append(Vector2(cos(a), sin(a)) * 5.0)
 			return pts
 
-static func _build_synergy_mesh(poly: PackedVector2Array) -> ArrayMesh:
-	var indices_outer = Geometry2D.triangulate_polygon(poly)
-	if indices_outer.is_empty():
-		return null
-	var vertices_outer = PackedVector3Array()
-	var uvs_outer = PackedVector2Array()
-	for pt in poly:
-		vertices_outer.append(Vector3(pt.x, pt.y, 0.0))
-		uvs_outer.append(Vector2(pt.x, pt.y))
-
-	var arr_mesh = ArrayMesh.new()
-
-	# Surface 0: Outer glowing elemental aura
-	var arrays0 = []
-	arrays0.resize(Mesh.ARRAY_MAX)
-	arrays0[Mesh.ARRAY_VERTEX] = vertices_outer
-	arrays0[Mesh.ARRAY_INDEX] = indices_outer
-	arrays0[Mesh.ARRAY_TEX_UV] = uvs_outer
-	arr_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays0)
-
-	# Surface 1: Searing hot core (0.5x scale)
-	var poly_inner = PackedVector2Array()
-	for pt in poly:
-		poly_inner.append(pt * 0.5)
-	var indices_inner = Geometry2D.triangulate_polygon(poly_inner)
-	if not indices_inner.is_empty():
-		var vertices_inner = PackedVector3Array()
-		var uvs_inner = PackedVector2Array()
-		for pt in poly_inner:
-			vertices_inner.append(Vector3(pt.x, pt.y, 0.0))
-			uvs_inner.append(Vector2(pt.x, pt.y))
-		var arrays1 = []
-		arrays1.resize(Mesh.ARRAY_MAX)
-		arrays1[Mesh.ARRAY_VERTEX] = vertices_inner
-		arrays1[Mesh.ARRAY_INDEX] = indices_inner
-		arrays1[Mesh.ARRAY_TEX_UV] = uvs_inner
-		arr_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays1)
-
-	return arr_mesh
-
-# MultiMesh-native substitute for a real GPUParticles2D/Trail2D per-shot
-# trail (Phase 10 of the batch-pool full-parity plan, 2026-08-10) - a
-# tapered "comet" triangle, wide and fully opaque at the front (nearest the
-# shot's own body), narrowing to a transparent point at the back. The alpha
-# fade is baked into the mesh's own per-VERTEX colors (Mesh.ARRAY_COLOR),
-# which MultiMesh's per-INSTANCE color (see trail_mm.use_colors) multiplies
-# against - so this compounds with the existing whole-trail alpha fade
-# (_compute_trail_render's TRAIL_ALPHA_MULT) rather than fighting it.
-static func _build_tapered_trail_mesh(length: float, width: float) -> ArrayMesh:
-	var vertices = PackedVector3Array([
-		Vector3(0.0, width * 0.5, 0.0),
-		Vector3(0.0, -width * 0.5, 0.0),
-		Vector3(-length, 0.0, 0.0),
+# Tapered "comet" triangle for Fire/Kinetic's bespoke trail (Phase 10 of
+# the batch-pool full-parity plan, 2026-08-10) - wide and opaque at the
+# front (nearest the shot's own body), narrowing to a transparent point
+# at the back. Points only; _draw() applies the per-vertex alpha taper
+# (front two vertices opaque, back vertex transparent) directly against
+# each shot's own trail color at draw time.
+static func _build_tapered_trail_points(length: float, width: float) -> PackedVector2Array:
+	return PackedVector2Array([
+		Vector2(0.0, width * 0.5),
+		Vector2(0.0, -width * 0.5),
+		Vector2(-length, 0.0),
 	])
-	var colors = PackedColorArray([
-		Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 0),
-	])
-	var indices = PackedInt32Array([0, 1, 2])
-	var arrays = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = vertices
-	arrays[Mesh.ARRAY_COLOR] = colors
-	arrays[Mesh.ARRAY_INDEX] = indices
-	var arr_mesh = ArrayMesh.new()
-	arr_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return arr_mesh
 
 # --- Public API -------------------------------------------------------------
 
@@ -560,14 +483,10 @@ func despawn(i: int):
 	if i < 0 or i >= capacity or _alive[i] == 0:
 		return
 	_alive[i] = 0
-	# Clear EVERY synergy's main+trail slot for this index, not just the
-	# dominant's - secondary echoes (see the block comment above) may have
-	# borrowed other synergies' otherwise-idle channels at this same index,
-	# and an orphaned echo would linger visibly if only the dominant's
-	# slot got cleared.
-	for syn in range(10):
-		_synergy_multimeshes[syn].set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
-		_trail_multimeshes[syn].set_instance_transform_2d(i, Transform2D(0.0, Vector2.ZERO).scaled(Vector2.ZERO))
+	# Nothing to clear on a synergy-channel MultiMesh anymore (see this
+	# file's own top-of-class comment on the 2026-08-11 rendering rewrite) -
+	# _draw() checks _alive[i] directly, so a despawned slot just stops
+	# being drawn next frame, no explicit "hide it" step needed.
 	_secondary_synergy_1[i] = NO_SYNERGY
 	_secondary_synergy_2[i] = NO_SYNERGY
 	_source_mech[i] = null
@@ -579,7 +498,102 @@ func live_count() -> int:
 func _process(delta):
 	_step_simulate(delta)
 	_step_hit_test()
-	_step_render()
+	queue_redraw()
+
+# Renders every live shot directly via CanvasItem draw calls instead of
+# MultiMeshInstance2D (2026-08-11 fix). Live playtest evidence - an
+# objective per-frame pixel scan of a screen recording, not eyeballing -
+# showed MultiMeshInstance2D producing ZERO visible pixels on the
+# reporting machine under BOTH the D3D12 and Vulkan renderers, while a
+# plain draw_circle() at the identical position/frame rendered correctly
+# on that same machine (confirmed twice, then confirmed again with the
+# renderer forced to Vulkan). MultiMesh 2D instancing itself is the
+# failure point, not the render backend - immediate-mode CanvasItem
+# drawing is the most broadly-compatible rendering technique Godot has,
+# so this trades the (never actually realized - it silently didn't
+# render at all) GPU-instancing win for something that reliably works.
+# The additive blend comes from `material` (set once in
+# _setup_render_polygons(), applied to the whole node), replacing the
+# old one-CanvasItemMaterial-per-MultiMeshInstance2D setup.
+#
+# draw_set_transform() applies to every draw_* call that follows until
+# the next draw_set_transform() call, so each shot/ornament below sets
+# its own transform immediately before drawing - no reset needed between
+# shots since every draw call is preceded by an explicit set. Additive
+# blending is order-independent (pure sum, no alpha-over compositing), so
+# unlike the old MultiMesh setup's careful "trail child added before
+# body child" ordering, draw order here doesn't need to match visual
+# layering intent at all.
+func _draw():
+	for i in range(_highest_active + 1):
+		if _alive[i] == 0:
+			continue
+		var rot = _direction[i].angle()
+		var render_pos = _position[i] + _visual_offset[i]
+		var syn = _dominant_synergy[i]
+		if syn < 0 or syn >= 10:
+			continue
+		var c = _color[i]
+		var life_frac = clamp(_elapsed[i] / _lifetime[i], 0.0, 1.0) if _lifetime[i] > 0.0 else 0.0
+		c.a = 1.0 - life_frac
+
+		# Ghost-trail layer (B3) - ported unmodified from _step_render(),
+		# just as a direct draw instead of a MultiMesh instance write.
+		var trail_render = _compute_trail_render(render_pos, _direction[i], c)
+		draw_set_transform(trail_render["position"], rot, Vector2(_scale[i], _scale[i]) * TRAIL_SCALE_MULT)
+		if _tapered_trail_points.has(syn):
+			var tc = trail_render["color"]
+			var vertex_colors = PackedColorArray([tc, tc, Color(tc.r, tc.g, tc.b, 0.0)])
+			draw_polygon(_tapered_trail_points[syn], vertex_colors)
+		else:
+			draw_colored_polygon(_synergy_polygons[syn], trail_render["color"])
+
+		# Main body - outer aura + inner "hot core" (same polygon at half
+		# scale, same color) drawn on top. The additive overlap of the two
+		# is what reads as a brighter core, not a distinct color - mirrors
+		# the old two-surface MultiMesh mesh exactly (both surfaces there
+		# shared the SAME per-instance color; only the overdraw differed).
+		draw_set_transform(render_pos, rot, Vector2(_scale[i], _scale[i]))
+		draw_colored_polygon(_synergy_polygons[syn], c)
+		draw_colored_polygon(_synergy_polygons_inner[syn], c)
+
+		if syn == EnergyPacket.SynergyType.VORTEX:
+			# Vortex-dominant 3-orb helix (Phase 10) instead of the generic
+			# 2-echo mechanism - see _compute_vortex_helix_render's own
+			# header for why this needs 3 FIXED channels. Each orb gets the
+			# same aura+core double-draw as a real main body (mirrors the
+			# old version writing into _synergy_multimeshes, the MAIN-body
+			# channel, for all 3 orbs).
+			for orb_index in range(3):
+				var orb = _compute_vortex_helix_render(render_pos, _elapsed[i], orb_index, c.a)
+				draw_set_transform(orb["position"], rot, Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
+				var orb_syn = VORTEX_HELIX_CHANNELS[orb_index]
+				draw_colored_polygon(_synergy_polygons[orb_syn], orb["color"])
+				draw_colored_polygon(_synergy_polygons_inner[orb_syn], orb["color"])
+		else:
+			# Secondary-synergy echoes - orbiting shapes for up to 2 non-
+			# dominant ratios, so a blended packet reads as more than just
+			# its single loudest element. Echo 1 uses its synergy's MAIN
+			# body treatment (aura+core double-draw); echo 2 uses its
+			# synergy's TRAIL treatment (single draw, tapered comet for
+			# Fire/Kinetic) - mirrors the old version's echo1/main vs
+			# echo2/trail channel split exactly.
+			var syn2_1 = _secondary_synergy_1[i]
+			if syn2_1 != NO_SYNERGY:
+				var echo1 = _compute_echo_render(render_pos, _elapsed[i], 0.0, c.a, syn2_1)
+				draw_set_transform(echo1["position"], rot, Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
+				draw_colored_polygon(_synergy_polygons[syn2_1], echo1["color"])
+				draw_colored_polygon(_synergy_polygons_inner[syn2_1], echo1["color"])
+			var syn2_2 = _secondary_synergy_2[i]
+			if syn2_2 != NO_SYNERGY:
+				var echo2 = _compute_echo_render(render_pos, _elapsed[i], PI, c.a, syn2_2)
+				draw_set_transform(echo2["position"], rot, Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
+				if _tapered_trail_points.has(syn2_2):
+					var tc2 = echo2["color"]
+					var vertex_colors2 = PackedColorArray([tc2, tc2, Color(tc2.r, tc2.g, tc2.b, 0.0)])
+					draw_polygon(_tapered_trail_points[syn2_2], vertex_colors2)
+				else:
+					draw_colored_polygon(_synergy_polygons[syn2_2], echo2["color"])
 
 const REQUEST_STRIDE = 20 # MUST match rust_ext/src/projectile_flight.rs's compute_batch_flat contract
 const RESPONSE_STRIDE = 12
@@ -1155,55 +1169,3 @@ static func _compute_vortex_helix_render(render_pos: Vector2, elapsed: float, or
 	c.a = alpha
 	return {"position": render_pos + offset, "color": c}
 
-func _step_render():
-	for i in range(_highest_active + 1):
-		if _alive[i] == 0:
-			continue
-		var rot = _direction[i].angle()
-		var render_pos = _position[i] + _visual_offset[i]
-		var xform = Transform2D(rot, render_pos).scaled(Vector2(_scale[i], _scale[i]))
-		var syn = _dominant_synergy[i]
-		if syn >= 0 and syn < 10:
-			var c = _color[i]
-			var life_frac = clamp(_elapsed[i] / _lifetime[i], 0.0, 1.0) if _lifetime[i] > 0.0 else 0.0
-			c.a = 1.0 - life_frac
-			_synergy_multimeshes[syn].set_instance_transform_2d(i, xform)
-			_synergy_multimeshes[syn].set_instance_color(i, c)
-
-			# Ghost-trail layer (B3) - fixed offset behind current heading,
-			# smaller and dimmer than the main body. See TRAIL_* consts.
-			var trail_render = _compute_trail_render(render_pos, _direction[i], c)
-			var trail_xform = Transform2D(rot, trail_render["position"]).scaled(Vector2(_scale[i], _scale[i]) * TRAIL_SCALE_MULT)
-			_trail_multimeshes[syn].set_instance_transform_2d(i, trail_xform)
-			_trail_multimeshes[syn].set_instance_color(i, trail_render["color"])
-
-			if syn == EnergyPacket.SynergyType.VORTEX:
-				# Vortex-dominant 3-orb helix (Phase 10) instead of the
-				# generic 2-echo mechanism - see _compute_vortex_helix_
-				# render's own header for why this needs 3 FIXED channels
-				# and skips secondary echoes entirely rather than trying to
-				# combine both on one slot.
-				for orb_index in range(3):
-					var orb = _compute_vortex_helix_render(render_pos, _elapsed[i], orb_index, c.a)
-					var orb_xform = Transform2D(rot, orb["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
-					_synergy_multimeshes[VORTEX_HELIX_CHANNELS[orb_index]].set_instance_transform_2d(i, orb_xform)
-					_synergy_multimeshes[VORTEX_HELIX_CHANNELS[orb_index]].set_instance_color(i, orb["color"])
-			else:
-				# Secondary-synergy echoes - orbiting instances for up to 2
-				# non-dominant ratios, so a blended packet reads as more than
-				# just its single loudest element. Borrows each secondary's OWN
-				# otherwise-idle main-body (echo 1) / trail (echo 2) multimesh
-				# channel at this same slot index - see the class-level comment
-				# on _secondary_synergy_1/_secondary_synergy_2 for why that's safe.
-				var syn2_1 = _secondary_synergy_1[i]
-				if syn2_1 != NO_SYNERGY:
-					var echo1 = _compute_echo_render(render_pos, _elapsed[i], 0.0, c.a, syn2_1)
-					var echo1_xform = Transform2D(rot, echo1["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
-					_synergy_multimeshes[syn2_1].set_instance_transform_2d(i, echo1_xform)
-					_synergy_multimeshes[syn2_1].set_instance_color(i, echo1["color"])
-				var syn2_2 = _secondary_synergy_2[i]
-				if syn2_2 != NO_SYNERGY:
-					var echo2 = _compute_echo_render(render_pos, _elapsed[i], PI, c.a, syn2_2)
-					var echo2_xform = Transform2D(rot, echo2["position"]).scaled(Vector2(_scale[i], _scale[i]) * ECHO_SCALE_MULT)
-					_trail_multimeshes[syn2_2].set_instance_transform_2d(i, echo2_xform)
-					_trail_multimeshes[syn2_2].set_instance_color(i, echo2["color"])

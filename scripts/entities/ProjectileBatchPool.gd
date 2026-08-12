@@ -9,10 +9,12 @@ extends Node2D
 # one batch loop and rendered in MultiMesh draw calls instead of one
 # Node2D tree per shot.
 #
-# DELIBERATELY NOT WIRED INTO LIVE COMBAT. This is a parallel system,
-# opt-in only via GarageTestRange.gd's toggle (see that file), so it can be
-# played with and compared against the real Projectile.gd path before any
-# behavior is approved. The real path is completely untouched.
+# Opt-in everywhere it fires: GarageTestRange.gd's own toggle for the Test
+# Range, or SaveManager.batch_renderer_in_combat (Settings > Visuals) for
+# real combat (2026-08-11 cutover, gated via ProjectileManager.
+# should_use_batch_pool() - see HexTile._fire_combined_projectile). The
+# real Projectile.gd path remains the default in both places; this is
+# never on unless explicitly turned on.
 
 const DEFAULT_CAPACITY = 2048
 
@@ -110,6 +112,18 @@ var _hops_left: PackedInt32Array
 # kept separately. Mirrors Projectile.gd's own _lightning_hops_max/
 # _pierce_count_max fields exactly.
 var _hops_max: PackedInt32Array
+
+# Beam pattern (2026-08-11, live-combat cutover) - mirrors Projectile.gd's
+# own is_beam_shot flag/boosts exactly (HexTile._fire_combined_projectile's
+# real "concentrated - faster, piercing, modest damage bonus, real extended
+# range" is_beam block): 1.2x damage, 2.5x speed, a pierce-count FLOOR of 4
+# (not the usual ratio-derived count), and 1.6x max_range (Projectile.gd:
+# 549-550) - all applied in spawn() below, see that function's own comment
+# for exactly where. Also swaps the main-body silhouette for an elongated
+# "needle" shape instead of the dominant synergy's normal polygon (user,
+# 2026-08-11: "they don't need to be projectiles, but the shape of the beam
+# can mutate") - see BEAM_POLYGON and _draw()'s own use of it.
+var _is_beam: PackedByteArray
 
 # Poison mine-crawl mode (Phase 3 of the batch-pool full-parity plan,
 # 2026-08-10) - unlike Lightning's hop (an event layered on top of the
@@ -327,6 +341,7 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_r_ltg.resize(capacity)
 	_r_prc.resize(capacity)
 	_r_exp.resize(capacity)
+	_is_beam.resize(capacity)
 	_aoe_bonus.resize(capacity)
 	_visual_offset.resize(capacity)
 	_lightning_segment_index.resize(capacity)
@@ -387,6 +402,12 @@ func _setup_render_polygons():
 			inner.append(pt * 0.5)
 		_synergy_polygons_inner[syn_idx] = inner
 
+	# Beam pattern's own elongated needle shape (see BEAM_POLYGON's own
+	# field comment for why this can't be a const) - built once here, not
+	# per-shot or per-frame, same as every other shape above.
+	BEAM_POLYGON = PackedVector2Array([Vector2(24, 0), Vector2(3, 1.2), Vector2(-24, 0), Vector2(3, -1.2)])
+	BEAM_POLYGON_INNER = PackedVector2Array([Vector2(12, 0), Vector2(1.5, 0.6), Vector2(-12, 0), Vector2(1.5, -0.6)])
+
 	# Fire (1) and Kinetic (7) get their OWN bespoke trail shape instead of
 	# reusing the main body's (Phase 10 of the batch-pool full-parity plan,
 	# 2026-08-10) - real Projectile.gd gives these two genuinely distinct
@@ -434,6 +455,28 @@ static func _get_polygon_for_synergy(syn: int) -> PackedVector2Array:
 				var a = i * PI / 8.0
 				pts.append(Vector2(cos(a), sin(a)) * 5.0)
 			return pts
+
+# Beam pattern's main-body shape (see _is_beam's own field comment) - a
+# long, thin needle instead of any of the 10 dominant-synergy polygons
+# above, so a Beam shot reads as a concentrated line rather than another
+# blob-shaped bolt (user, 2026-08-11: "they don't need to be projectiles,
+# but the shape of the beam can mutate"). Used for BOTH aura and core
+# (same double-draw pattern every other synergy's polygon gets), and
+# stretched further along its own long axis at draw time in proportion to
+# the shot's actual speed (see _draw()'s own beam-stretch comment) - a
+# genuinely faster beam reads as a longer streak, not just a fixed icon.
+# Not const - GDScript rejects PackedVector2Array(...) constructor calls as
+# constant expressions even with all-literal contents (confirmed via a
+# parse error: "Assigned value for constant BEAM_POLYGON isnt a constant
+# expression"). Set once in _setup_render_polygons() below instead, same
+# "instance var built once at setup, never mutated after" pattern
+# _synergy_polygons/_tapered_trail_points already use.
+var BEAM_POLYGON: PackedVector2Array
+# Precomputed half-scale of BEAM_POLYGON (same relationship _synergy_
+# polygons_inner has to _synergy_polygons) - the "hot core" for a Beam
+# shot under render_mode FLAT, drawn on top of the full-size BEAM_POLYGON
+# aura for the same additive-brightening effect every other synergy gets.
+var BEAM_POLYGON_INNER: PackedVector2Array
 
 # Tapered "comet" triangle for Fire/Kinetic's bespoke trail (Phase 10 of
 # the batch-pool full-parity plan, 2026-08-10) - wide and opaque at the
@@ -561,7 +604,7 @@ func unregister_target(target: Node):
 func sync_targets_from_groups():
 	_targets = EntityCache.get_group("player") + EntityCache.get_group("enemy") + EntityCache.get_group("drone")
 
-func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}, proc_synergies: Dictionary = {}, aoe_bonus: float = 0.0, stat_modifiers: Dictionary = {}, range_mult: float = 1.0) -> int:
+func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}, proc_synergies: Dictionary = {}, aoe_bonus: float = 0.0, stat_modifiers: Dictionary = {}, range_mult: float = 1.0, is_beam: bool = false) -> int:
 	if _free_indices.is_empty():
 		return -1
 	var i = _free_indices.pop_back()
@@ -589,7 +632,13 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	var r_fire_for_life = ratios.get(EnergyPacket.SynergyType.FIRE, 0.0)
 	var r_kin_for_life = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
 	_lifetime[i] = lifetime if lifetime > 0.0 else _compute_lifetime(r_fire_for_life, r_kin_for_life)
-	_max_range[i] = _compute_max_range(r_kin_for_life) * range_mult
+	_is_beam[i] = 1 if is_beam else 0
+	# Beam's own 1.6x range multiplier (Projectile.gd:549-550: "max_range *=
+	# 1.6" before the packet's own range_mult is applied) - a narrow, precise
+	# beam should reach further than a normal shot, on top of whatever
+	# range_mult this specific mount/packet already carries, not instead of it.
+	var beam_range_mult = 1.6 if is_beam else 1.0
+	_max_range[i] = _compute_max_range(r_kin_for_life) * beam_range_mult * range_mult
 	_distance_traveled[i] = 0.0
 	_color[i] = color
 	_scale[i] = scale_mult
@@ -613,6 +662,12 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_mine_detonated[i] = 0
 	# Mirrors Projectile.gd:598-601's pierce_count derivation.
 	_pierce_count[i] = 1 + int(4.0 * _r_prc[i]) if _r_prc[i] > 0.0 else 1
+	# Beam's pierce-count FLOOR of 4 (Projectile.gd's own is_beam block:
+	# "proj.pierce_count = max(proj.pierce_count, 4)") - a floor, not an
+	# addition, so a beam that's ALSO got real Pierce ratio keeps whichever
+	# count is higher rather than the two stacking.
+	if is_beam:
+		_pierce_count[i] = max(_pierce_count[i], 4)
 	_pierce_count_max[i] = _pierce_count[i]
 	_handled_targets[i] = {}
 	_proc_synergies[i] = proc_synergies.duplicate()
@@ -687,13 +742,22 @@ static func _compute_lifetime(r_fire: float, r_kin: float) -> float:
 		base_life += 8.0 * r_kin
 	return max(0.1, base_life)
 
-# Direct port of the max_range half of Projectile._calculate_stats()
-# (Projectile.gd:548) - the is_beam_shot/range_mult multipliers that
-# formula also applies don't have a batch-pool equivalent concept (no beam
-# shots, no per-mount range_mult plumbed through spawn() today), so this is
-# the BASE_RANGE + KINETIC_RANGE_BONUS term only.
+# Direct port of the BASE_RANGE + KINETIC_RANGE_BONUS term of Projectile.
+# _calculate_stats() (Projectile.gd:548) - is_beam_shot's 1.6x and the
+# packet's own range_mult are both applied separately in spawn() (see its
+# own comments), not folded in here, since this function is also called
+# directly by BatchPool*Check.gd's own Kinetic-only tests.
 static func _compute_max_range(r_kin: float) -> float:
 	return _ProjectileScript.BASE_RANGE + _ProjectileScript.KINETIC_RANGE_BONUS * r_kin
+
+# Beam pattern's speed-proportional draw-time stretch (see _is_beam's own
+# field comment) - pure function, testable directly without a render
+# round-trip, same reasoning as every other _compute_* function here.
+# Non-beam shots always get an exact 1.0 no-op regardless of their speed.
+static func _compute_beam_stretch(speed: float, is_beam: bool) -> float:
+	if not is_beam:
+		return 1.0
+	return clamp(speed / 500.0, 1.0, 3.0)
 
 # Pure function (no MultiMesh involved, testable directly - same "test the
 # math, not a MultiMesh round-trip" reasoning as _compute_trail_render) -
@@ -792,9 +856,26 @@ func _draw():
 		# is what reads as a brighter core, not a distinct color - mirrors
 		# the old two-surface MultiMesh mesh exactly (both surfaces there
 		# shared the SAME per-instance color; only the overdraw differed).
-		draw_set_transform(render_pos, rot, Vector2(_scale[i], _scale[i]))
+		#
+		# Beam pattern (2026-08-11) stretches along its own long axis in
+		# proportion to actual shot speed (capped at 3x) instead of the
+		# uniform scale every other shot uses - "the shape of the beam can
+		# mutate," the user's own framing: a genuinely faster beam (real
+		# Beam shots run 2.5x normal speed) reads as a visibly longer
+		# streak, not just a fixed icon at a different size. Non-beam
+		# shots get beam_stretch=1.0, an exact no-op (unchanged uniform
+		# scale).
+		var beam_stretch = _compute_beam_stretch(_speed[i], _is_beam[i] == 1)
+		draw_set_transform(render_pos, rot, Vector2(_scale[i] * beam_stretch, _scale[i]))
 		var main_poly = _synergy_polygons[syn]
-		if render_mode == RenderMode.SHAPE_BLEND:
+		if _is_beam[i] == 1:
+			# Beam's own elongated needle shape takes priority over every
+			# render_mode's own aura choice (including Shape Blend's
+			# blended polygon) - a beam's identity is being a
+			# concentrated line, not whatever the current cosmetic skin
+			# would otherwise pick.
+			main_poly = BEAM_POLYGON
+		elif render_mode == RenderMode.SHAPE_BLEND:
 			# Shape Blend mode - both the aura AND the core below use this
 			# shot's own blended polygon instead of its dominant synergy's
 			# fixed shape (see that mode's own header comment above).
@@ -819,7 +900,10 @@ func _draw():
 			RenderMode.RINGS:
 				_draw_rings(_pie_ratios_for_slot(i), c.a)
 			_:
-				draw_colored_polygon(_synergy_polygons_inner[syn], c)
+				if _is_beam[i] == 1:
+					draw_colored_polygon(BEAM_POLYGON_INNER, c)
+				else:
+					draw_colored_polygon(_synergy_polygons_inner[syn], c)
 
 		if syn == EnergyPacket.SynergyType.VORTEX:
 			# Vortex-dominant 3-orb helix (Phase 10) instead of the generic

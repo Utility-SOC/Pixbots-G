@@ -496,14 +496,13 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	var final_direction = base_direction.rotated(angle_offset + _extra_angle)
 
 	# Live-combat batch-pool cutover (2026-08-11): "switch to batch for main
-	# gameplay, but be able to enable the legacy system." Beam pattern
-	# always uses the real Projectile path below regardless of the toggle -
-	# its damage*1.2/speed*2.5/pierce-floor-of-4 boost has no batch-pool
-	# equivalent yet (a narrower, single-pattern-type gap: Beam is one
-	# Mythic-only special case, not every-shot math like the stat_modifiers/
-	# range_mult threading ProjectileBatchPool.spawn() already does).
-	if not is_beam and ProjectileManager.should_use_batch_pool():
-		_fire_via_live_batch_pool(mech, packet, base_damage, final_direction, angle_offset, muzzle_pos, step)
+	# gameplay, but be able to enable the legacy system." Beam pattern now
+	# routes through the batch pool too (2026-08-11 follow-up, user: "could
+	# you approach beams?") - ProjectileBatchPool.spawn()'s own is_beam
+	# param applies the same damage*1.2/speed*2.5/pierce-floor-of-4/
+	# range*1.6 boosts Projectile.gd's own is_beam_shot block does.
+	if ProjectileManager.should_use_batch_pool():
+		_fire_via_live_batch_pool(mech, packet, base_damage, final_direction, angle_offset, muzzle_pos, step, is_beam)
 		return
 
 	# Task #35: Projectile pooling was built and measured (ProjectilePool.gd,
@@ -633,7 +632,7 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 # not one flat constant) - reuses the same approximation GarageTestRange's
 # own translation already uses, tuned there through this session's own
 # playtesting rather than invented fresh here.
-func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, direction: Vector2, angle_offset: float, muzzle_pos: Vector2, step: int):
+func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, direction: Vector2, angle_offset: float, muzzle_pos: Vector2, step: int, is_beam: bool = false):
 	const LIVE_BATCH_SPEED = 500.0
 	const LIVE_BATCH_RADIUS = 10.0
 	var pool = ProjectileManager.live_batch_pool
@@ -650,6 +649,15 @@ func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, d
 	var stat_modifiers = mech.stat_modifiers.duplicate()
 	var proc_synergies = packet.proc_synergies.duplicate()
 
+	# Beam boosts (2026-08-11 follow-up, user: "could you approach beams?")
+	# mirror Projectile.gd's own is_beam_shot block exactly - damage*1.2 and
+	# speed*2.5 applied HERE (same order as the real path: base value
+	# first, then the beam multiplier, then stat_modifiers gets its own
+	# crack at the result inside spawn()); the pierce-floor-of-4 and
+	# range*1.6 are applied inside spawn() itself via the is_beam param.
+	var fire_damage = base_damage * 1.2 if is_beam else base_damage
+	var fire_speed = LIVE_BATCH_SPEED * 2.5 if is_beam else LIVE_BATCH_SPEED
+
 	if step > 0:
 		var delay = (step * 0.05) # 50ms per step, matches the real path's own timing
 		var timer = Timer.new()
@@ -665,14 +673,14 @@ func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, d
 				if new_base_dir == Vector2.ZERO:
 					new_base_dir = Vector2(0, -1)
 				var new_dir = new_base_dir.rotated(angle_offset)
-				pool.spawn(new_muzzle_pos, new_dir, LIVE_BATCH_SPEED, base_damage, LIVE_BATCH_RADIUS, -1.0, color, scale_mult, mech.is_player, mech, dominant, ratios, proc_synergies, packet.aoe_bonus, stat_modifiers, packet.range_mult)
+				pool.spawn(new_muzzle_pos, new_dir, fire_speed, fire_damage, LIVE_BATCH_RADIUS, -1.0, color, scale_mult, mech.is_player, mech, dominant, ratios, proc_synergies, packet.aoe_bonus, stat_modifiers, packet.range_mult, is_beam)
 			timer.queue_free()
 		)
 		mech.add_child(timer)
 		timer.start()
 	else:
 		if is_instance_valid(pool):
-			pool.spawn(muzzle_pos, direction, LIVE_BATCH_SPEED, base_damage, LIVE_BATCH_RADIUS, -1.0, color, scale_mult, mech.is_player, mech, dominant, ratios, proc_synergies, packet.aoe_bonus, stat_modifiers, packet.range_mult)
+			pool.spawn(muzzle_pos, direction, fire_speed, fire_damage, LIVE_BATCH_RADIUS, -1.0, color, scale_mult, mech.is_player, mech, dominant, ratios, proc_synergies, packet.aoe_bonus, stat_modifiers, packet.range_mult, is_beam)
 
 # Mortar pattern: the payload is delivered AT the aim position (travel
 # time + ground telegraph + elemental AoE) instead of fired along a line.

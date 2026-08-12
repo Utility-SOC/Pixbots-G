@@ -437,6 +437,46 @@ func _generate_shape_fallback():
 					# a blade.
 					_grow_hex_region(base_count, 2.0, 2.0, 0.7, 0.7, true)
 					_guarantee_torso_hub()
+				"support":
+					_guarantee_torso_hub()
+					# Rounded shield/dome, not another hard-edged slab -
+					# Support carries defensive/utility payload (Heal
+					# Beacon, Jammer, Cloak), so the body should read as
+					# STURDY and protective rather than aggressive.
+					# Non-boxy (keeps _grow_hex_region's natural tapered-
+					# lens rounding, unlike Remediation's hard corners),
+					# mildly wider than tall (a shield reads wide, not a
+					# blade or a mast) with a small downward bias
+					# (sy_pos > sy_neg) - leaning slightly toward
+					# whoever it's shielding, a subtle asymmetry no
+					# other role uses yet.
+					_grow_hex_region(base_count, 1.6, 1.6, 1.1, 1.3)
+					_guarantee_torso_hub()
+				"commander":
+					_guarantee_torso_hub()
+					# Tall, wide, and genuinely BLOCKY - an imposing
+					# monument/command-tower silhouette, not a lean mast
+					# like Scout or a rounded dome like Support. boxy=true
+					# for the same square-cornered read Remediation uses,
+					# but proportioned tall-and-solid instead of squat -
+					# a Commander projects authority/stature, backed by
+					# the Command Suite's five-module payload rather than
+					# raw offense. Biased taller-toward-the-top (sy_neg >
+					# sy_pos) - a raised banner/spire reads upward.
+					_grow_hex_region(base_count, 1.5, 1.5, 2.2, 1.3, true)
+					_guarantee_torso_hub()
+				"flamethrower":
+					_guarantee_torso_hub()
+					# Forward-lurching aggressive wedge - the first role
+					# whose horizontal bound is genuinely ASYMMETRIC
+					# (sx_pos far exceeds sx_neg), reading as a body
+					# hunched down and jutting forward into melee range,
+					# projecting flame ahead of it rather than standing
+					# upright and symmetric like every other role so far.
+					# Squat vertically (low sy_neg/sy_pos) - close-range
+					# aggression, not height or stealth.
+					_grow_hex_region(base_count, 0.9, 2.1, 1.0, 1.0)
+					_guarantee_torso_hub()
 				_:
 					_grow_default_disc(base_count)
 					_guarantee_torso_hub()

@@ -3,9 +3,9 @@ extends Node
 # Regression check for class-constrained torso shapes (design doc,
 # 2026-08-10 - "torso shape constrained by class, not helter skelter").
 #
-# Confirms, for each of the eight newly-shaped roles (scout/sniper/
-# brawler/ambusher/jammer/anti_missile/diver/remediation) across several
-# rarities:
+# Confirms, for each of the eleven newly-shaped roles (scout/sniper/
+# brawler/ambusher/jammer/anti_missile/diver/remediation/support/
+# commander/flamethrower) across several rarities:
 #  - the full 6-neighbor hub around the core is ALWAYS present (the hard
 #    constraint every shape must build outward from, never instead of -
 #    an earlier "thin the torso per role" attempt got reverted for
@@ -16,8 +16,9 @@ extends Node
 #    spoke links on the new shape, driven through the REAL production
 #    path (create_starter_torso -> generate_shape -> _spoke_tip ->
 #    solver BFS), not a synthetic shortcut.
-# Also confirms an unlisted role (commander) still gets the untouched
-# default disc shape.
+# Also confirms an unlisted role (melee - a real FLEE_THRESHOLDS/combat_role
+# category with no shape of its own yet) still gets the untouched default
+# disc shape.
 
 const ComponentEquipmentScript = preload("res://scripts/core/ComponentEquipment.gd")
 const AutoEquipSolverScript = preload("res://scripts/core/AutoEquipSolver.gd")
@@ -61,7 +62,7 @@ func _real_starter_inventory() -> Array:
 	return inventory
 
 func _ready():
-	var roles = ["scout", "sniper", "brawler", "ambusher", "jammer", "anti_missile", "diver", "remediation"]
+	var roles = ["scout", "sniper", "brawler", "ambusher", "jammer", "anti_missile", "diver", "remediation", "support", "commander", "flamethrower"]
 	var rarities = [HexTile.Rarity.COMMON, HexTile.Rarity.RARE, HexTile.Rarity.MYTHIC]
 
 	# Reference: the plain default shape (no role) at each rarity, to
@@ -102,11 +103,11 @@ func _ready():
 	# Unlisted role stays on the untouched default disc shape.
 	for rarity in rarities:
 		var comp = ComponentEquipmentScript.new(HexTile.BodySlot.TORSO, rarity)
-		comp.role_variant = "commander"
+		comp.role_variant = "melee"
 		comp.generate_shape()
-		_check("an unlisted role (commander, rarity %d) keeps the exact default disc size (%d vs %d)" % [rarity, comp.valid_hexes.size(), default_sizes[rarity]],
+		_check("an unlisted role (melee, rarity %d) keeps the exact default disc size (%d vs %d)" % [rarity, comp.valid_hexes.size(), default_sizes[rarity]],
 			comp.valid_hexes.size() == default_sizes[rarity])
-		_check("commander torso (rarity %d) still has the full hub" % rarity,
+		_check("melee torso (rarity %d) still has the full hub" % rarity,
 			_has_full_hub(comp))
 
 	if failures == 0:

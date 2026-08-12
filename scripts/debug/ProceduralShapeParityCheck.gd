@@ -36,9 +36,18 @@ func _init():
 		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "diver"],
 		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "remediation"],
 		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "remediation"],
+		# Support/commander/flamethrower (2026-08-11) - exercise the rounded
+		# non-boxy shield, the tall boxy monument, and the first genuinely
+		# horizontally-asymmetric shape (flamethrower's forward wedge).
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "support"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "support"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "commander"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "commander"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, "flamethrower"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.MYTHIC, "flamethrower"],
 		# Torso for a role with no special-cased shape - must still hit the
 		# unchanged default disc-growth branch identically.
-		[HexTile.BodySlot.TORSO, HexTile.Rarity.RARE, "commander"],
+		[HexTile.BodySlot.TORSO, HexTile.Rarity.RARE, "melee"],
 		[HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON, ""]
 	]
 

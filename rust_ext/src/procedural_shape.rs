@@ -167,6 +167,37 @@ impl ProceduralShapeGen {
                         Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 2.0, 2.0, 0.7, 0.7, true);
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
                     }
+                    "support" => {
+                        // Rounded shield/dome, not another hard-edged slab -
+                        // mildly wider than tall, non-boxy (keeps the
+                        // natural tapered-lens rounding), small downward
+                        // bias (sy_pos > sy_neg) leaning toward whoever
+                        // it's shielding. Mirrors ComponentEquipment.gd's
+                        // own "support" branch exactly.
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 1.6, 1.6, 1.1, 1.3, false);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                    }
+                    "commander" => {
+                        // Tall, wide, genuinely BLOCKY - an imposing
+                        // monument/command-tower silhouette, boxy=true,
+                        // biased taller-toward-the-top (sy_neg > sy_pos).
+                        // Mirrors ComponentEquipment.gd's own "commander"
+                        // branch exactly.
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 1.5, 1.5, 2.2, 1.3, true);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                    }
+                    "flamethrower" => {
+                        // Forward-lurching aggressive wedge - the first
+                        // role with a genuinely ASYMMETRIC horizontal
+                        // bound (sx_pos far exceeds sx_neg), squat
+                        // vertically. Mirrors ComponentEquipment.gd's own
+                        // "flamethrower" branch exactly.
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                        Self::grow_hex_region(&mut valid_hexes, &mut valid_hex_set, base_count, 0.9, 2.1, 1.0, 1.0, false);
+                        Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);
+                    }
                     _ => {
                         Self::grow_default_disc(&mut valid_hexes, &mut valid_hex_set, base_count);
                         Self::guarantee_torso_hub(&mut valid_hexes, &mut valid_hex_set);

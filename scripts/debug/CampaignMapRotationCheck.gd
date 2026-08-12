@@ -121,6 +121,20 @@ func _ready():
 		main_source.contains("var pool = _water_eligible_map_types()\n\tmap.map_type = pool[randi() % pool.size()]"))
 	_check("rotation repositions the player onto a valid spot on the NEW map",
 		main_source.contains("player.global_position = map.get_valid_spawn_position("))
+	# User report, 2026-08-11: "if the map changes midrun my drone vanishes" -
+	# root cause was the player getting explicitly relocated onto valid
+	# terrain on the new map while drones were left at their stale old-map
+	# coordinates, which the freshly-rerolled layout could put anything at
+	# (a solid Obstacle, open water, off in the void). Fixed by giving
+	# drones the same get_valid_spawn_position treatment the player already
+	# gets, scattered near the player's new spot instead of all landing on
+	# one tile.
+	_check("rotation also repositions every live drone onto a valid spot near the player, not just the player itself",
+		main_source.contains("for bay_id in drone_nodes:") and main_source.contains("drone.global_position = map.get_valid_spawn_position(player.global_position + offset)"))
+	_check("the drone-reposition loop is guarded on a valid player existing (no sane \"near the player\" position without one)",
+		main_source.contains("if player:\n\t\tplayer.global_position = map.get_valid_spawn_position(") and main_source.find("for bay_id in drone_nodes:") > main_source.find("if player:\n\t\tplayer.global_position = map.get_valid_spawn_position("))
+	_check("each drone is only relocated if it's still alive (is_instance_valid guard, not a blind dictionary iteration)",
+		main_source.contains("if is_instance_valid(drone):\n") and main_source.contains("var offset = Vector2(randf_range("))
 	_check("rotation resets both trackers so the next window starts clean",
 		main_source.contains("_map_rotation_wave_start = current_wave") and main_source.contains("_map_rotation_elapsed = 0.0"))
 	_check("_ready() anchors the wave tracker to the actual starting wave (fresh game or loaded save), not always 1",

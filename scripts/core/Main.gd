@@ -2206,13 +2206,24 @@ func _should_rotate_map() -> bool:
 # the whole map, so anything tied to the old layout has to go with it.
 #
 # Live Mechs (player, drones) don't need to be manually repointed at the
-# new map: Mech._get_map_ref() already self-heals onto whatever node is
-# currently in the "map_generator" group the instant its cached reference
-# goes stale, which happens automatically the moment the old map is freed
-# below (see Mech.gd:60-64). Existing enemies and dropped loot have no such
-# self-heal (their AI/pickup state is meaningless on a different layout
-# anyway), so those get cleared instead - same pattern _on_player_died()
-# already uses for its own "clear the field" cleanup.
+# new map REFERENCE: Mech._get_map_ref() already self-heals onto whatever
+# node is currently in the "map_generator" group the instant its cached
+# reference goes stale, which happens automatically the moment the old map
+# is freed below (see Mech.gd:60-64). That's only half the story though -
+# self-healing WHICH map a mech reads terrain from says nothing about
+# whether its current WORLD POSITION is still valid on that new terrain.
+# The player gets explicitly relocated below (map.get_valid_spawn_position)
+# precisely because the freshly-rerolled layout can put anything at those
+# old coordinates - a solid Obstacle, open water, whatever. Drones used to
+# be left at their stale positions with no such correction (user report,
+# 2026-08-11: "if the map changes midrun my drone vanishes" - landing
+# inside newly-placed solid terrain with no path back to the player is
+# exactly what that looks like from the player's side), so they now get
+# the same treatment, scattered near the player's own new spawn point so
+# they don't all stack on one tile. Existing enemies and dropped loot have
+# no such self-heal (their AI/pickup state is meaningless on a different
+# layout anyway), so those get cleared instead - same pattern
+# _on_player_died() already uses for its own "clear the field" cleanup.
 func _rotate_campaign_map():
 	for loot in get_tree().get_nodes_in_group("loot"):
 		if is_instance_valid(loot):
@@ -2238,6 +2249,20 @@ func _rotate_campaign_map():
 
 	if player:
 		player.global_position = map.get_valid_spawn_position(Vector2(map.width * map.tile_size / 2.0, map.height * map.tile_size / 2.0))
+
+		# Relocate every live drone (bay id -> Drone, see drone_nodes' own
+		# field comment) onto valid terrain near the player's own new spawn
+		# point - see this function's header comment for why this is needed
+		# at all. Small per-drone random offset so 2+ drones don't all land
+		# on the exact same tile; get_valid_spawn_position's own spiral
+		# search pulls each one off an obstacle/out-of-bounds target if the
+		# offset happens to land on one. Nested inside `if player:` since
+		# there's no sane "near the player" position without one.
+		for bay_id in drone_nodes:
+			var drone = drone_nodes[bay_id]
+			if is_instance_valid(drone):
+				var offset = Vector2(randf_range(-80.0, 80.0), randf_range(-80.0, 80.0))
+				drone.global_position = map.get_valid_spawn_position(player.global_position + offset)
 
 	_map_rotation_wave_start = current_wave
 	_map_rotation_elapsed = 0.0

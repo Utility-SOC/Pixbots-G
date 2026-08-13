@@ -346,6 +346,38 @@ func _fire_aoe_burst(mech, world: Node, muzzle: Vector2, target_pos: Vector2, pa
 	world.add_child(shell)
 
 
+# Target-spreading (user, 2026-08-13: "it'd be cool if the missiles were a
+# little cleverer - I'd like to avoid 20 missiles hitting one target"). Both
+# pick rules below are otherwise fully deterministic (always the single
+# furthest, or always the single toughest) - a build with several Missile
+# Racks, or several missile-armed mechs on the same side, independently
+# re-runs the exact same rule against the exact same candidate pool and so
+# always converges on the identical target, dumping every rack's salvo onto
+# one enemy while the rest of the field goes untouched. Shared (not per-
+# tile) so racks on the SAME mech spread across each other too, not just
+# across different mechs. Keyed by instance_id (a plain int, not an object
+# reference) so a freed target's entry is harmless dead weight, not a
+# dangling reference - never worth pruning at this scale (at most a few
+# hundred entries across a whole run).
+static var _recent_targets: Dictionary = {} # target instance_id -> Time.get_ticks_msec() of its last pick
+const RECENT_TARGET_WINDOW_MS = 1200
+# Multiplicative, not a flat subtraction - the two pick rules below score on
+# completely different scales (pixel distances vs. max_hp), so a single
+# flat penalty could easily be tuned wrong for one of them. A recently-
+# targeted candidate isn't excluded outright, just demoted - if it's the
+# ONLY valid candidate in range, it still wins (a lone enemy never becomes
+# untargetable just because it was already hit).
+const RECENT_TARGET_SCORE_MULT = 0.15
+
+static func _is_recently_targeted(target) -> bool:
+	var iid = target.get_instance_id()
+	if not _recent_targets.has(iid):
+		return false
+	return Time.get_ticks_msec() - _recent_targets[iid] < RECENT_TARGET_WINDOW_MS
+
+static func _mark_targeted(target) -> void:
+	_recent_targets[target.get_instance_id()] = Time.get_ticks_msec()
+
 # Dispatches to whichever pick rule targeting_mode selects (Mythic-only,
 # see that field's own comment - non-Mythic racks always get Furthest).
 # min_range/max_range are shared by both modes; only the pick rule inside
@@ -365,16 +397,21 @@ func _find_target_in_range(muzzle: Vector2, by_player: bool, min_range: float, m
 func _find_furthest_target_in_range(muzzle: Vector2, by_player: bool, min_range: float, max_range: float):
 	var candidates: Array = EntityCache.get_group("enemy") if by_player else EntityCache.get_group("player")
 	var best = null
-	var best_dist = -1.0
+	var best_score = -1.0
 	for c in candidates:
 		if not is_instance_valid(c) or c.get("is_dead"):
 			continue
 		var d = muzzle.distance_to(c.global_position)
 		if d < min_range or d > max_range:
 			continue
-		if d > best_dist:
-			best_dist = d
+		var score = d
+		if _is_recently_targeted(c):
+			score *= RECENT_TARGET_SCORE_MULT
+		if score > best_score:
+			best_score = score
 			best = c
+	if best != null:
+		_mark_targeted(best)
 	return best
 
 # Most Powerful (Mythic targeting_mode == 1): the single valid target in
@@ -385,7 +422,7 @@ func _find_furthest_target_in_range(muzzle: Vector2, by_player: bool, min_range:
 func _find_most_powerful_target_in_range(muzzle: Vector2, by_player: bool, min_range: float, max_range: float):
 	var candidates: Array = EntityCache.get_group("enemy") if by_player else EntityCache.get_group("player")
 	var best = null
-	var best_power = -1.0
+	var best_score = -1.0
 	for c in candidates:
 		if not is_instance_valid(c) or c.get("is_dead"):
 			continue
@@ -393,7 +430,12 @@ func _find_most_powerful_target_in_range(muzzle: Vector2, by_player: bool, min_r
 		if d < min_range or d > max_range:
 			continue
 		var power = c.get("max_hp") if "max_hp" in c else 0.0
-		if power > best_power:
-			best_power = power
+		var score = power
+		if _is_recently_targeted(c):
+			score *= RECENT_TARGET_SCORE_MULT
+		if score > best_score:
+			best_score = score
 			best = c
+	if best != null:
+		_mark_targeted(best)
 	return best

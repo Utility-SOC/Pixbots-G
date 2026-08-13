@@ -103,6 +103,13 @@ func _ready():
 		MissileRackTileScript.MIN_RANGE_RADIUS_MULT == 2.0)
 
 	# --- 3: targeting mode dispatch -----------------------------------------
+	# Reset the shared target-spreading state (2026-08-13, see
+	# MissileRackTileScript._recent_targets' own comment) before this
+	# section - this block calls _find_furthest_target_in_range/_find_
+	# most_powerful_target_in_range several times in a row on purpose, to
+	# test the PURE pick rules in isolation, not the anti-stacking penalty
+	# (that gets its own dedicated coverage in MissileTargetSpreadCheck.gd).
+	MissileRackTileScript._recent_targets.clear()
 	var near_weak = _make_mech(Vector2(1000, 0), false, 500.0)
 	var far_strong = _make_mech(Vector2(3000, 0), false, 5000.0)
 	var muzzle = Vector2.ZERO

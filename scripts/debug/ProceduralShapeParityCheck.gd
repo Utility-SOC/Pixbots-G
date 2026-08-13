@@ -85,9 +85,23 @@ func _init():
 			comp.slot_type = config[0]
 			comp.rarity = config[1]
 			comp.role_variant = config[2]
-			
+
 			var result = gen.generate_procedural_shape(comp.slot_type, comp.rarity, comp.role_variant, s)
-			
+
+			# Same "clear before calling the low-level fallback directly"
+			# fix the generate_shape() loop above already applies (see its
+			# own comment) - _generate_procedural_shape_fallback appends to
+			# valid_hexes/_valid_hex_set without clearing them itself (its
+			# real caller, _generate_procedural_shape_with_seed, does that).
+			# Without this, the very first iteration here silently inherited
+			# leftover hexes from the LAST generate_shape() config above,
+			# corrupting valid_hexes.size() (used by the RNG attach-point
+			# pick) and every result from the first RNG call onward - a
+			# test-harness bug, not a real Rust/GDScript RNG divergence
+			# (confirmed 2026-08-11: both sides use the same engine
+			# RandomNumberGenerator, no cross-language algorithm mismatch).
+			comp.valid_hexes.clear()
+			comp._valid_hex_set.clear()
 			comp._generate_procedural_shape_fallback(s)
 			var fallback_hexes = comp.valid_hexes
 			

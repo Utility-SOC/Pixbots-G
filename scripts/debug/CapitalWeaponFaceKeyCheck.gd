@@ -1,17 +1,25 @@
 extends Node
 
-# Perf audit (2026-08-01) item 1: MissileRackTile/OrbitingArrayTile used to
-# key their per-face energy accumulator Dictionary with a freshly-allocated
-# String (str(entry_direction), or a concatenated "cell:dir" string) on
-# every single energy packet - real per-packet allocation in a hot
-# simulation path. Switched to a raw int (MissileRackTile) / Vector2i
-# (OrbitingArrayTile) key, both natively hashable, no allocation. This
-# check proves the face-gating logic (accumulate per face, fire once every
-# distinct face crosses threshold) still behaves identically with the new
-# key types - same face stays additive across repeated hits, different
+# Perf audit (2026-08-01) item 1: OrbitingArrayTile used to key its per-face
+# energy accumulator Dictionary with a freshly-allocated String (a
+# concatenated "cell:dir" string) on every single energy packet - real
+# per-packet allocation in a hot simulation path. Switched to a Vector2i
+# key, natively hashable, no allocation. This check proves the face-gating
+# logic (accumulate per face, fire once every distinct face crosses
+# threshold) still behaves identically with the new key type - distinct
 # faces stay distinct, gating fires at the right face count.
+#
+# MissileRackTile's own half of this check was removed (2026-08-11) - the
+# per-face accumulator (_face_magnitudes/ready_to_fire) it originally
+# covered doesn't exist on that tile anymore. MissileRackTile migrated to
+# the same pending_packets/current_charge/bank_current_charge model
+# WeaponMountTile already uses (commit a28a8c9, "Implement full indirect
+# salvo firing for MissileRackTile," 2026-07-26 - well before this check
+# was even written) - firing is now driven by a shared scalar charge
+# threshold via Mech.gd's weapon-mount collection loop, not per-face
+# gating. This check had been silently broken since that migration; there
+# is no per-face-key equivalent left on MissileRackTile to test.
 
-const MissileRackTileScript = preload("res://scripts/tiles/MissileRackTile.gd")
 const OrbitingArrayTileScript = preload("res://scripts/tiles/OrbitingArrayTile.gd")
 const EnergyPacketScript = preload("res://scripts/core/EnergyPacket.gd")
 
@@ -24,26 +32,6 @@ func _make_packet(magnitude: float) -> EnergyPacket:
 
 func _ready():
 	var failures = 0
-
-	# --- MissileRackTile: int face_key, one direction repeated hits accumulate ---
-	var rack = MissileRackTileScript.new()
-	var threshold = TileStatsRegistry.get_stat("MissileRackTile", "feed_threshold", 2000.0)
-	rack.process_energy(_make_packet(threshold * 0.4), 2)
-	rack.process_energy(_make_packet(threshold * 0.4), 2) # same direction, should accumulate under _face_magnitudes[2]
-	if rack._face_magnitudes.get(2, 0.0) < threshold * 0.79:
-		push_error("FAIL: MissileRackTile int face_key isn't accumulating repeated hits on the same direction (got %s)" % [rack._face_magnitudes])
-		failures += 1
-	else:
-		print("PASS: MissileRackTile int face_key accumulates repeated hits on the same direction")
-
-	rack.clear_pending()
-	rack.ready_to_fire = false
-	rack.process_energy(_make_packet(threshold * 1.5), 3)
-	if not rack.ready_to_fire:
-		push_error("FAIL: MissileRackTile didn't gate ready_to_fire on a single over-threshold hit")
-		failures += 1
-	else:
-		print("PASS: MissileRackTile int face_key still gates ready_to_fire correctly")
 
 	# --- OrbitingArrayTile: Vector2i face_key, distinct (cell, dir) pairs stay distinct ---
 	var orbit = OrbitingArrayTileScript.new()
@@ -78,5 +66,5 @@ func _ready():
 		print("PASS: OrbitingArrayTile correctly NOT ready_to_fire with only 3 of %d faces fed" % required_faces)
 
 	if failures == 0:
-		print("PASS: CapitalWeaponFaceKeyCheck - MissileRackTile/OrbitingArrayTile face-gating unchanged after switching off string keys")
+		print("PASS: CapitalWeaponFaceKeyCheck - OrbitingArrayTile face-gating unchanged after switching off string keys")
 	get_tree().quit(0 if failures == 0 else 1)

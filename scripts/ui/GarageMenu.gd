@@ -774,6 +774,140 @@ func _on_auto_equip_pressed():
 		_refresh_inventory_ui()
 		print("Auto-Equip completed!")
 
+# User request, 2026-08-13: "a button in the garage that automatically
+# upgrades any hex tiles with the highest rarity available... starting at
+# the core then clockwise for the torso, or the energy intakes and
+# clockwise... for all other components." Acts on EVERY equipped component
+# at once (not just the currently-displayed active_component - the user's
+# own framing covers "the torso, or... all other components" in one pass),
+# consuming from the SAME shared inventory pool tile-by-tile in traversal
+# order, so a scarce high-rarity spare goes to whichever tile reaches it
+# first in the walk (30 Common Amplifiers with only 15 Mythic + 12
+# Legendary spares available: the first 15 in walk order get Mythic, the
+# next 12 get Legendary, the rest stay Common - matches the user's own
+# worked example exactly).
+#
+# Slot processing order: Torso first (the user's own lead example), then a
+# fixed, deterministic order for the rest - no cross-component priority
+# was specified beyond that, and SOME fixed order is needed since
+# inventory is shared.
+#
+# Within a component, "starting at the core, clockwise" and "starting at
+# the energy intake, clockwise" turn out to be the SAME rule: the Core
+# (Torso) and Energy Intake (every other slot) are BOTH always placed at
+# (0,0) - see ComponentEquipment.gd's create_starter_* functions - so
+# every component's hub tile is that component's own hex-grid origin.
+# Ordering by real on-screen CLOCK ANGLE from that origin (not by the hex
+# grid's own axial direction index, which is skewed vs. screen projection -
+# this bit the class-constrained torso shape work earlier this session
+# too) is what the user actually asked for ("visual screen angle", their
+# own confirmed choice over the cheaper-but-visually-wrong axial-direction
+# alternative).
+const AUTO_UPGRADE_SLOT_ORDER = [
+	HexTile.BodySlot.TORSO, HexTile.BodySlot.HEAD,
+	HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R,
+	HexTile.BodySlot.LEG_L, HexTile.BodySlot.LEG_R,
+	HexTile.BodySlot.BACKPACK,
+]
+
+func _on_auto_upgrade_pressed():
+	if mech_components.is_empty():
+		return
+	var upgraded = 0
+	for slot in AUTO_UPGRADE_SLOT_ORDER:
+		if not mech_components.has(slot):
+			continue
+		var comp = mech_components[slot]
+		if not comp or not comp.hex_grid:
+			continue
+		upgraded += _auto_upgrade_component(comp)
+
+	if upgraded > 0:
+		_mark_player_grid_dirty() # real build edit, same as Auto-Equip/Clear Grid
+		_refresh_inventory_ui()
+		grid_renderer.queue_redraw()
+		print("[Garage] Auto-Upgrade: %d tile(s) upgraded" % upgraded)
+	else:
+		_show_scrap_float("No upgrades available", Color(0.7, 0.7, 0.7))
+
+# Walks one component's tiles in clockwise-from-hub order, swapping each
+# for the best strictly-higher-rarity same-tile_type match still left in
+# inventory (if any). Same add_tile/remove_tile + inventory erase/append
+# bookkeeping GarageInventoryPanel._drop_tile already uses for a manual
+# swap-onto-empty-cell - this is a remove-then-immediately-replace-with-
+# the-same-tile_type operation, so it never breaks grid connectivity even
+# on a fixed_sink cell (Core/Energy Intake/Weapon Mount/Link) - unlike
+# Clear Grid's "remove and leave empty," which is why THAT function has to
+# skip fixed_sinks and this one deliberately doesn't.
+func _auto_upgrade_component(comp: ComponentEquipment) -> int:
+	var tiles = comp.hex_grid.get_all_tiles()
+	tiles.sort_custom(_compare_tiles_by_clock_angle)
+	var upgraded = 0
+	for tile in tiles:
+		var h = tile.grid_position
+		if not h:
+			continue
+		var best_idx = _find_best_upgrade_index(tile)
+		if best_idx < 0:
+			continue
+		var replacement = inventory[best_idx]
+		inventory.remove_at(best_idx)
+		comp.hex_grid.remove_tile(h)
+		replacement.copy_config_from(tile) # preserve routing/direction config (active_faces, ratios, etc.) across the swap, same as fill-line placement already does for matching copies
+		comp.hex_grid.add_tile(h, replacement)
+		inventory.append(tile)
+		upgraded += 1
+	return upgraded
+
+# The single highest-rarity inventory tile of the same tile_type that's
+# STRICTLY better than what's already equipped (same-rarity duplicates
+# aren't upgrades) - a fresh linear scan since no tile_type index exists
+# over the inventory today.
+func _find_best_upgrade_index(reference: HexTile) -> int:
+	var best_idx = -1
+	var best_rarity = reference.rarity
+	for i in range(inventory.size()):
+		var t = inventory[i]
+		if t.tile_type == reference.tile_type and t.rarity > best_rarity:
+			best_rarity = t.rarity
+			best_idx = i
+	return best_idx
+
+func _compare_tiles_by_clock_angle(a: HexTile, b: HexTile) -> bool:
+	return _clock_angle_from_origin(a.grid_position) < _clock_angle_from_origin(b.grid_position)
+
+# Real on-screen clock angle (radians, 0 = 12 o'clock, increasing
+# CLOCKWISE) of a hex position relative to the component's own origin
+# (0,0) - the Core/Energy Intake hub every component is anchored at. The
+# hub itself always sorts first (angle -1.0, before any real angle in
+# [0, TAU)) - "starting AT the core/intake" is the walk's first step, not
+# just its reference point.
+func _clock_angle_from_origin(h: HexCoord) -> float:
+	if h.q == 0 and h.r == 0:
+		return -1.0
+	var pos = _hex_axial_to_screen(h)
+	# atan2(y, x) increases CLOCKWISE in Godot's screen space (y down-
+	# positive flips the winding sense versus standard math convention),
+	# referenced from 3 o'clock (+x) at angle 0. Adding PI/2 rotates that
+	# reference to 12 o'clock (+y-up / -y-godot) while preserving the
+	# clockwise direction - verified against all 4 compass points (up=0,
+	# right=90 deg, down=180 deg, left=270 deg).
+	var angle = atan2(pos.y, pos.x) + PI / 2.0
+	if angle < 0.0:
+		angle += TAU
+	return angle
+
+# Mirrors GarageGridRenderer._hex_to_world's own axial-to-pixel formula
+# (the canonical conversion this project already renders every hex grid
+# with) - only relative angle from the origin matters here, so the literal
+# hex_size scale is irrelevant and not worth threading through from the
+# renderer.
+func _hex_axial_to_screen(h: HexCoord) -> Vector2:
+	const HEX_SIZE = 40.0
+	var x = HEX_SIZE * sqrt(3.0) * (h.q + h.r / 2.0)
+	var y = HEX_SIZE * 3.0 / 2.0 * h.r
+	return Vector2(x, y)
+
 # Sends every removable tile in the active component's grid back to
 # inventory. Uses the exact same protection rule the existing single-tile
 # right-click removal already uses (only the Torso Core at (0,0) is

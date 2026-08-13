@@ -163,6 +163,18 @@ func build():
 	auto_button.pressed.connect(garage._on_auto_equip_pressed)
 	bottom_bar.add_child(auto_button)
 
+	# Auto-Upgrade (user request, 2026-08-13: "a button in the garage that
+	# automatically upgrades any hex tiles with the highest rarity
+	# available... starting at the core then clockwise for the torso, or
+	# the energy intakes... for all other components") - see GarageMenu.
+	# _on_auto_upgrade_pressed's own header comment for the full algorithm.
+	var upgrade_button = Button.new()
+	upgrade_button.text = "Auto-Upgrade"
+	upgrade_button.tooltip_text = "Swaps every equipped tile for the highest-rarity copy of the same type in your inventory, across your whole mech - starting at each part's Core/Energy Intake and working clockwise."
+	upgrade_button.custom_minimum_size = Vector2(120, 50)
+	upgrade_button.pressed.connect(garage._on_auto_upgrade_pressed)
+	bottom_bar.add_child(upgrade_button)
+
 	var clear_button = Button.new()
 	clear_button.text = "Clear Grid"
 	clear_button.custom_minimum_size = Vector2(120, 50)

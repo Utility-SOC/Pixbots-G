@@ -304,6 +304,33 @@ const RING_SEGMENTS = 16
 const TRAIL_OFFSET_PX = 14.0
 const TRAIL_SCALE_MULT = 0.55
 const TRAIL_ALPHA_MULT = 0.35
+
+# Trailing spark scatter + glow halo (2026-08-13, live playtest: "these
+# batches are really small particles / I don't feel like I am decorating my
+# weapons like with the primary/original version") - a cheap, generic
+# stand-in for the real system's per-shot CPUParticles2D richness
+# (Projectile._build_visuals' full_ornament Fire trail etc.), which this
+# Node-less pool can't build without defeating its own purpose. Applies
+# uniformly to every shot's aura+core+trail+echoes above, regardless of
+# synergy - unlike Phase 10's bespoke per-synergy shapes, this isn't about
+# WHAT a shot looks like, it's about giving every shot more visual MASS/
+# presence, which verified sizing-parity work alone didn't fix (the base
+# polygons and magnitude-driven scale already exactly matched Projectile.
+# gd's own p_scale formula - the gap was never sizing, it was density).
+# Skipped for Beam shots (_is_beam) - Beam's own header comment is explicit
+# that its identity is "a concentrated line, not whatever the current
+# cosmetic skin would otherwise pick," and sparks/a soft halo would muddy
+# that clean-line read.
+const SPARK_COUNT = 3
+const SPARK_MIN_TRAIL_DIST = 10.0
+const SPARK_MAX_TRAIL_DIST = 28.0
+const SPARK_JITTER_PERP = 6.0
+const SPARK_BASE_RADIUS = 1.6
+const SPARK_ALPHA_MULT = 0.6
+const SPARK_REFRESH_INTERVAL = 0.06 # discrete flicker step, same "segment_index" trick the lightning zigzag above uses
+const GLOW_BASE_RADIUS = 7.0
+const GLOW_SCALE_MULT = 1.8
+const GLOW_ALPHA_MULT = 0.22
 # Fire/Kinetic bespoke tapered trail (Phase 10) - points instead of a Mesh
 # resource, drawn directly via draw_polygon()'s per-vertex color support
 # (front two vertices get each shot's own trail color, back vertex gets
@@ -858,6 +885,13 @@ func _draw():
 		var life_frac = clamp(_elapsed[i] / _lifetime[i], 0.0, 1.0) if _lifetime[i] > 0.0 else 0.0
 		c.a = 1.0 - life_frac
 
+		# Soft glow halo (see SPARK_COUNT's own header comment) - skipped
+		# for Beam shots, same reasoning as the spark scatter below.
+		if _is_beam[i] != 1:
+			var glow_c = c
+			glow_c.a = c.a * GLOW_ALPHA_MULT
+			draw_circle(render_pos, GLOW_BASE_RADIUS * _scale[i] * GLOW_SCALE_MULT, glow_c)
+
 		# Ghost-trail layer (B3) - ported unmodified from _step_render(),
 		# just as a direct draw instead of a MultiMesh instance write.
 		var trail_render = _compute_trail_render(render_pos, _direction[i], c)
@@ -960,6 +994,14 @@ func _draw():
 					draw_polygon(_tapered_trail_points[syn2_2], vertex_colors2)
 				else:
 					draw_colored_polygon(_synergy_polygons[syn2_2], echo2["color"])
+
+		# Trailing spark scatter (see SPARK_COUNT's own header comment) -
+		# skipped for Beam shots, same "concentrated line" reasoning as the
+		# glow halo above.
+		if _is_beam[i] != 1:
+			for spark_index in range(SPARK_COUNT):
+				var spark = _compute_spark_render(render_pos, _direction[i], _elapsed[i], _spawn_gen[i], spark_index, c.a, c)
+				draw_circle(spark["position"], SPARK_BASE_RADIUS * _scale[i], spark["color"])
 
 const REQUEST_STRIDE = 20 # MUST match rust_ext/src/projectile_flight.rs's compute_batch_flat contract
 const RESPONSE_STRIDE = 12
@@ -1513,6 +1555,27 @@ static func _compute_trail_render(render_pos: Vector2, direction: Vector2, main_
 	var trail_c = main_color
 	trail_c.a = main_color.a * TRAIL_ALPHA_MULT
 	return {"position": render_pos - direction * TRAIL_OFFSET_PX, "color": trail_c}
+
+# Pure computation for one spark in the trailing scatter (see SPARK_COUNT's
+# own header comment) - same "test the math, not a render round-trip"
+# pattern as _compute_trail_render above. spawn_gen substitutes for
+# get_instance_id() as the per-shot jitter seed, same substitution the
+# lightning zigzag pass already makes (_step_simulate's own matching
+# comment). elapsed is bucketed into SPARK_REFRESH_INTERVAL-sized discrete
+# steps (not used continuously) so a spark's position visibly resettles in
+# flickers rather than sliding smoothly - reads as sparking, not orbiting.
+static func _compute_spark_render(render_pos: Vector2, direction: Vector2, elapsed: float, spawn_gen: int, spark_index: int, alpha: float, color: Color) -> Dictionary:
+	var ortho = Vector2(-direction.y, direction.x)
+	var bucket = int(elapsed / SPARK_REFRESH_INTERVAL)
+	var seed = int(hash(spawn_gen)) ^ (spark_index * 7919) ^ bucket
+	var trail_t = float(abs(seed) % 1000) / 1000.0 # 0..1, how far back along the trail
+	var perp_seed = seed ^ 0x5bd1e995
+	var perp_t = (float(abs(perp_seed) % 2000) / 1000.0) - 1.0 # -1..1
+	var dist = SPARK_MIN_TRAIL_DIST + trail_t * (SPARK_MAX_TRAIL_DIST - SPARK_MIN_TRAIL_DIST)
+	var pos = render_pos - direction * dist + ortho * perp_t * SPARK_JITTER_PERP
+	var c = color
+	c.a = alpha * SPARK_ALPHA_MULT * (1.0 - trail_t * 0.5) # sparks further back fade further
+	return {"position": pos, "color": c}
 
 # Pure computation for one secondary-synergy echo (same "test the math, not
 # a MultiMesh round-trip" reasoning as _compute_trail_render) - orbits the

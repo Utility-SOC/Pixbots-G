@@ -1996,6 +1996,17 @@ func _on_player_died():
 	# exactly once, deferred, further down - it used to also fire
 	# synchronously right here, spawning two overlapping report panels.
 	SaveManager.record_death(current_wave, _top_damage_label(player.recent_damage_log))
+	# Persist immediately (user, 2026-08-13: "I've gotten killed a few times
+	# and it doesn't have it in my ai profile") - record_death() above only
+	# mutates SaveManager.death_log in memory. The only save_game() call
+	# anywhere in this whole death handler used to be the rare "3 straight
+	# Rival losses" lockout branch further down (see its own comment) -
+	# every OTHER death (the overwhelming majority) never got written to
+	# disk unless the player happened to deploy again afterward. A death
+	# followed by just quitting - a very ordinary thing to do right after
+	# dying - silently lost that entry forever. Same "autosave" call/args
+	# already used everywhere else in this file for this exact purpose.
+	SaveManager.save_game("autosave", player, player_inventory)
 
 	var explosion = load("res://scripts/visuals/DeathExplosion.gd").new()
 	explosion.global_position = player.global_position
@@ -2029,7 +2040,11 @@ func _on_player_died():
 					# straight Rival loss the game just hung - no dialogue, no
 					# death report, no return to Garage. Matches Main.gd:1136's
 					# existing autosave call for the same "player, player_inventory"
-					# pattern used everywhere else in this file.
+					# pattern used everywhere else in this file. Still needed
+					# even though _on_player_died() now ALSO saves right after
+					# record_death() (2026-08-13 fix) - that earlier save runs
+					# BEFORE tournament_locked_out is set above, so this one is
+					# what actually persists that flag, not a redundant repeat.
 					SaveManager.save_game("autosave", player, player_inventory)
 					show_dialogue("Shopkeeper", DialogueManager.get_game_over_3_loss(), Color(1.0, 0.5, 0.5), 10.0)
 					loss_text_shown = true

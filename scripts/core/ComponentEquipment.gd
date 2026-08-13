@@ -1357,11 +1357,25 @@ static func _add_procedural_payload_sink(comp: ComponentEquipment, p_rarity: int
 		HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R:
 			var dir = -1 if comp.slot_type == HexTile.BodySlot.ARM_L else 1
 			var max_q = 0
+			var found_extremal = false
 			var mount_h = HexCoord.new(0, 0)
 			for h in comp.valid_hexes:
 				if h.q * dir > max_q * dir:
 					max_q = h.q
 					mount_h = h
+					found_extremal = true
+			# Fallback (2026-08-13 fix): a compact procedural shape that never
+			# extends past the origin in this arm's direction left mount_h
+			# stuck at (0,0) - already occupied by the intake, so the
+			# has_tile guard below silently skipped adding a second fixed
+			# sink entirely, reproducing the original "Tiles Used: 1" bug
+			# for this narrower shape distribution (caught via
+			# ProceduralShapeAutoEquipCheck.gd flaking across repeated runs
+			# on unseeded shape RNG). Any free hex still beats none.
+			if not found_extremal:
+				var fallback = _first_free_hex(comp, comp.fixed_sinks)
+				if fallback != null:
+					mount_h = fallback
 			if not comp.hex_grid.has_tile(mount_h):
 				var mount = load("res://scripts/tiles/WeaponMountTile.gd").new()
 				mount.body_slot = comp.slot_type
@@ -1370,11 +1384,20 @@ static func _add_procedural_payload_sink(comp: ComponentEquipment, p_rarity: int
 				comp.fixed_sinks.append(mount_h)
 		HexTile.BodySlot.LEG_L, HexTile.BodySlot.LEG_R:
 			var max_r = 0
+			var found_extremal_r = false
 			var actuator_h = HexCoord.new(0, 0)
 			for h in comp.valid_hexes:
 				if h.r > max_r:
 					max_r = h.r
 					actuator_h = h
+					found_extremal_r = true
+			# Fallback (2026-08-13 fix): see the matching arm-case comment
+			# above - same collapse-to-(0,0) failure mode for a shape that
+			# never extends past the origin toward +r.
+			if not found_extremal_r:
+				var fallback_r = _first_free_hex(comp, comp.fixed_sinks)
+				if fallback_r != null:
+					actuator_h = fallback_r
 			if not comp.hex_grid.has_tile(actuator_h):
 				var actuator = load("res://scripts/tiles/ActuatorTile.gd").new()
 				actuator.body_slot = comp.slot_type
@@ -1383,11 +1406,20 @@ static func _add_procedural_payload_sink(comp: ComponentEquipment, p_rarity: int
 				comp.fixed_sinks.append(actuator_h)
 		HexTile.BodySlot.HEAD:
 			var min_r = 0
+			var found_extremal_head = false
 			var top_h = HexCoord.new(0, 0)
 			for h in comp.valid_hexes:
 				if h.r < min_r:
 					min_r = h.r
 					top_h = h
+					found_extremal_head = true
+			# Fallback (2026-08-13 fix): see the matching arm-case comment
+			# above - same collapse-to-(0,0) failure mode for a shape that
+			# never extends past the origin toward -r.
+			if not found_extremal_head:
+				var fallback_head = _first_free_hex(comp, comp.fixed_sinks)
+				if fallback_head != null:
+					top_h = fallback_head
 			if not comp.hex_grid.has_tile(top_h):
 				var tor_return = load("res://scripts/tiles/ComponentLinkTile.gd").new(HexTile.BodySlot.TORSO, true)
 				tor_return.tile_type = "Torso Return"

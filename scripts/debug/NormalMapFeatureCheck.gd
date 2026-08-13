@@ -16,11 +16,21 @@ extends Node
 #      obstacle type were ever wired to a different layer (e.g. mirroring
 #      Arena's map_type-specific dungeon-border special case), this would
 #      catch it.
-#   2. Normal now uses HALVED noise frequencies (bigger biome/terrain
-#      patches) and a narrower obstacle-tendril band (bigger gaps between
-#      obstacle clusters) than every other map type - verified directly
-#      against the live FastNoiseLite resources after generation, not by
-#      eyeballing map output.
+#   2. Normal now uses QUARTERED terrain/moisture noise frequencies (bigger,
+#      less-ragged biome patches - a second tuning pass on top of the
+#      original halving, see MapGenerator.gd's own "VERY noisy" comment)
+#      and a HALVED obstacle-tendril frequency (bigger gaps between obstacle
+#      clusters, untouched by the second pass) than every other map type -
+#      verified directly against the live FastNoiseLite resources after
+#      generation, not by eyeballing map output.
+#
+# (2026-08-13: this check originally expected a uniform halving across all
+# three noise fields. MapGenerator.gd's own comments make clear the
+# terrain/moisture halving was a first pass later found insufficient - "VERY
+# noisy" even after halving - and quartered on a second pass; obstacle_noise
+# was deliberately left at the original halving since tendril spacing was a
+# separate concern. Not a regression, the check just predated the second
+# pass.)
 
 const MapGeneratorScript = preload("res://scripts/core/MapGenerator.gd")
 const OBSTACLE_LAYER = 32
@@ -44,10 +54,10 @@ func _ready():
 	forest_map.map_type = "Forest"
 	add_child(forest_map)
 
-	_check("Normal's terrain noise frequency is half of a baseline map type (%f vs %f)" % [normal_map.noise.frequency, forest_map.noise.frequency],
-		abs(normal_map.noise.frequency - forest_map.noise.frequency * 0.5) < 0.0001)
-	_check("Normal's moisture noise frequency is half of baseline",
-		abs(normal_map.moisture_noise.frequency - forest_map.moisture_noise.frequency * 0.5) < 0.0001)
+	_check("Normal's terrain noise frequency is a quarter of a baseline map type (%f vs %f)" % [normal_map.noise.frequency, forest_map.noise.frequency],
+		abs(normal_map.noise.frequency - forest_map.noise.frequency * 0.25) < 0.0001)
+	_check("Normal's moisture noise frequency is a quarter of baseline",
+		abs(normal_map.moisture_noise.frequency - forest_map.moisture_noise.frequency * 0.25) < 0.0001)
 	_check("Normal's obstacle-tendril noise frequency is half of baseline",
 		abs(normal_map.obstacle_noise.frequency - forest_map.obstacle_noise.frequency * 0.5) < 0.0001)
 

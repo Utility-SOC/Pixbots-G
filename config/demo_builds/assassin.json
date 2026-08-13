@@ -183,7 +183,7 @@
 					"r": 1,
 					"rarity": 2,
 					"script_path": "res://scripts/tiles/MicrocoreTile.gd",
-					"sync_adjustment": 0,
+					"sync_adjustment": 1,
 					"tile_type": "Microcore"
 				},
 				{
@@ -1244,7 +1244,7 @@
 					"r": 0,
 					"rarity": 2,
 					"script_path": "res://scripts/tiles/MicrocoreTile.gd",
-					"sync_adjustment": -1,
+					"sync_adjustment": 1,
 					"tile_type": "Microcore"
 				}
 			],

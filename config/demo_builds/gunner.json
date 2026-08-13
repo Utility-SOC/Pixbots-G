@@ -183,7 +183,7 @@
 					"r": 1,
 					"rarity": 2,
 					"script_path": "res://scripts/tiles/MicrocoreTile.gd",
-					"sync_adjustment": 1,
+					"sync_adjustment": 0,
 					"tile_type": "Microcore"
 				},
 				{
@@ -1266,15 +1266,11 @@
 		},
 		"7": {
 			"chip_capacity_upgrades": 0,
-			"component_name": "Smoke Launcher",
+			"component_name": "Backpack",
 			"equipped_chips": [],
 			"fixed_sinks": [
 				{
-					"q": 0,
-					"r": 0
-				},
-				{
-					"q": 0,
+					"q": -2,
 					"r": 1
 				}
 			],
@@ -1293,30 +1289,27 @@
 			"slot_type": 7,
 			"tiles": [
 				{
+					"active_faces": [
+						0
+					],
 					"body_slot": 7,
-					"category": 3,
-					"is_fixed": true,
+					"category": 4,
+					"face_outputs": {
+						"0": 7,
+						"1": 7,
+						"2": 7,
+						"3": 7,
+						"4": 7,
+						"5": 7
+					},
 					"level": 1,
 					"power_lost": false,
 					"q": 0,
-					"r": 0,
-					"rarity": 0,
-					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
-					"sync_adjustment": 0,
-					"target_slot": 0,
-					"tile_type": "Energy Intake"
-				},
-				{
-					"body_slot": 7,
-					"category": 5,
-					"level": 1,
-					"power_lost": false,
-					"q": 1,
 					"r": 0,
 					"rarity": 1,
-					"script_path": "res://scripts/tiles/SmokeGrenadeTile.gd",
+					"script_path": "res://scripts/tiles/MicrocoreTile.gd",
 					"sync_adjustment": 0,
-					"tile_type": "Smoke Grenade"
+					"tile_type": "Microcore"
 				},
 				{
 					"body_slot": 7,
@@ -1324,9 +1317,9 @@
 					"is_fixed": true,
 					"level": 1,
 					"power_lost": false,
-					"q": 0,
+					"q": -2,
 					"r": 1,
-					"rarity": 0,
+					"rarity": 1,
 					"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
 					"sync_adjustment": 0,
 					"target_slot": 1,

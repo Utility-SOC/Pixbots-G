@@ -188,7 +188,7 @@
 					"r": 2,
 					"rarity": 2,
 					"script_path": "res://scripts/tiles/MicrocoreTile.gd",
-					"sync_adjustment": 0,
+					"sync_adjustment": 1,
 					"tile_type": "Microcore"
 				},
 				{
@@ -736,7 +736,7 @@
 					"r": 0,
 					"rarity": 1,
 					"script_path": "res://scripts/tiles/InfuserTile.gd",
-					"secondary_synergy": 7,
+					"secondary_synergy": 8,
 					"sync_adjustment": 0,
 					"tile_type": "Elemental Infuser"
 				},
@@ -1106,7 +1106,7 @@
 					"r": 0,
 					"rarity": 2,
 					"script_path": "res://scripts/tiles/MicrocoreTile.gd",
-					"sync_adjustment": 0,
+					"sync_adjustment": 1,
 					"tile_type": "Microcore"
 				}
 			],

@@ -109,13 +109,19 @@ func _ready():
 	_check("throttled call count (%d) is a real cut from TICKS (%d) and still in the right order of magnitude vs. the ideal-continuous-time estimate (%.1f)" % [calls, TICKS, expected_calls_ideal],
 		calls >= expected_calls_ideal * 0.5 and calls <= expected_calls_ideal * 1.1)
 
-	# Expected fire count: charge accumulates delta/fire_rate per tick
-	# (Mech.gd's own _tick_weapon_charges, completely untouched by this fix)
-	# regardless of how often _shoot() gets CALLED - over the whole
-	# simulated window that's TICKS*DELTA/fire_rate total charge, firing
-	# once every CHARGE_REQUIRED banked. This is the steady-state DPS
-	# invariant the throttle must preserve.
-	var expected_fires = floori((TICKS * DELTA / mech.fire_rate) / CHARGE_REQUIRED)
+	# Expected fire count: charge accumulates delta*r_mult/fire_rate per tick
+	# (Mech.gd's own _tick_weapon_charges, completely untouched by this fix -
+	# r_mult is _get_rarity_charge_multiplier(mount), 1.5x for a RARE mount
+	# like this check's own _make_armed_mech uses) regardless of how often
+	# _shoot() gets CALLED - over the whole simulated window that's
+	# TICKS*DELTA*r_mult/fire_rate total charge, firing once every
+	# CHARGE_REQUIRED banked. This is the steady-state DPS invariant the
+	# throttle must preserve. (2026-08-13: this formula originally omitted
+	# r_mult entirely, undercounting by 1.5x and reading as a false "DPS
+	# changed" regression - not a real bug, the check just predated/missed
+	# the rarity-charge-multiplier mechanic.)
+	var r_mult = mech._get_rarity_charge_multiplier(mech.precalculated_weapons[0].mount)
+	var expected_fires = floori((TICKS * DELTA * r_mult / mech.fire_rate) / CHARGE_REQUIRED)
 	_check("throttled fire-event count (%d) matches the analytical steady-state expectation (%d, +/-2 for check-cadence boundary quantization) - DPS not meaningfully changed by the throttle" % [fires, expected_fires],
 		abs(fires - expected_fires) <= 2)
 

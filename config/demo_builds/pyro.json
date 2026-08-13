@@ -409,7 +409,7 @@
 					"r": -1,
 					"rarity": 1,
 					"script_path": "res://scripts/tiles/InfuserTile.gd",
-					"secondary_synergy": 8,
+					"secondary_synergy": 1,
 					"sync_adjustment": 0,
 					"tile_type": "Elemental Infuser"
 				},
@@ -872,7 +872,7 @@
 					"r": 0,
 					"rarity": 1,
 					"script_path": "res://scripts/tiles/InfuserTile.gd",
-					"secondary_synergy": 1,
+					"secondary_synergy": 8,
 					"sync_adjustment": 0,
 					"tile_type": "Elemental Infuser"
 				},

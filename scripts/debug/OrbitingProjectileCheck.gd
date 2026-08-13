@@ -12,6 +12,14 @@ extends Node
 #      EnergyPacket.synergy_name() (real name: element_name()) - contact
 #      damage from an orb touching an enemy has likely never actually
 #      landed in production.
+#
+# (2026-08-13: contact damage assertion updated - a later redesign turned
+# the old one-shot 14px contact mine into a sustained DPS tick over
+# CONTACT_DPS_WINDOW seconds at the widened 45px CONTACT_RADIUS, so a single
+# _check_contact() call now lands damage * (CONTACT_CHECK_INTERVAL /
+# CONTACT_DPS_WINDOW), not the full `damage` value - see
+# OrbitingProjectile.gd's own CONTACT_DPS_WINDOW comment. Not a regression,
+# the check just predated that redesign.)
 # Covers: dominant_synergy resolves correctly from a raw dict, no Area2D/
 # physics-server dependency remains, throttled contact damage lands with a
 # valid element string, throttled lightning lash lands, and the orb is
@@ -29,6 +37,8 @@ extends Node
 
 const OrbitingProjScript = preload("res://scripts/entities/OrbitingProjectile.gd")
 const EnergyPacketScript = preload("res://scripts/core/EnergyPacket.gd")
+const CONTACT_CHECK_INTERVAL = 0.1 # mirrors OrbitingProjectile.gd's own const
+const CONTACT_DPS_WINDOW = 2.0 # mirrors OrbitingProjectile.gd's own const
 
 var failures = 0
 
@@ -75,7 +85,7 @@ func _ready():
 	fake_target.set_script(fake_target_script)
 	world.add_child(fake_target)
 	fake_target.add_to_group("enemy") # after entering the tree - see the file-header note on EntityCache staleness
-	fake_target.global_position = Vector2(5, 0) # within CONTACT_RADIUS (14) of the shooter's origin
+	fake_target.global_position = Vector2(5, 0) # within CONTACT_RADIUS (45) of the shooter's origin
 	fake_target.got_hit.connect(func(amount, element): damage_log.append([amount, element]))
 
 	var contact_orb = OrbitingProjScript.new()
@@ -87,7 +97,8 @@ func _ready():
 	contact_orb._check_contact(0.016)
 	_check("throttled contact check damages an in-range enemy exactly once", damage_log.size(), 1)
 	if damage_log.size() > 0:
-		_check_true("contact damage amount matches the orb's damage", is_equal_approx(float(damage_log[0][0]), 42.0))
+		_check_true("contact damage amount matches the orb's per-tick DPS-windowed share (damage * CHECK_INTERVAL/DPS_WINDOW)",
+			is_equal_approx(float(damage_log[0][0]), 42.0 * (CONTACT_CHECK_INTERVAL / CONTACT_DPS_WINDOW)))
 		_check("contact damage uses a real EnergyPacket.element_name() string, not the nonexistent synergy_name()",
 			str(damage_log[0][1]), "FIRE")
 

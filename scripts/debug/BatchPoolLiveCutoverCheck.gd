@@ -73,6 +73,19 @@ func _ready():
 	# --- spawn(): new stat_modifiers/range_mult params default safely -----
 	var pool = ProjectileBatchPoolScript.new(8)
 	add_child(pool)
+
+	# --- z_index (2026-08-13 fix: "invisible on the water map, visible in
+	# the black void outside it") - the pool is a single long-lived node
+	# created once at game start, but Main._rotate_campaign_map() creates a
+	# brand-new MapGenerator and adds it to `world` on every map rotation,
+	# landing it as a LATER sibling than this already-existing pool. Without
+	# an explicit z_index, same-z_index sibling order took over and the
+	# freshly rotated-in terrain drew on top of every batch shot from that
+	# point on. z_index sidesteps sibling order entirely - must clear
+	# terrain (MapGenerator chunk sprites, MechRenderer parts: 0-2).
+	_check("ProjectileBatchPool sets an explicit z_index high enough to draw above terrain/mechs regardless of map-rotation sibling order",
+		pool.z_index > 2)
+
 	var i_default = pool.spawn(Vector2.ZERO, Vector2.RIGHT, 500.0, 100.0, 10.0, 2.0, Color.WHITE, 1.0, true, self)
 	_check("spawn() omitting stat_modifiers/range_mult behaves exactly as before (existing call sites unaffected)",
 		pool._damage[i_default] == 100.0 and pool._speed[i_default] == 500.0)
@@ -131,5 +144,5 @@ func _ready():
 	fake_enemy.queue_free()
 
 	if failures == 0:
-		print("PASS: friend/foe filtering blocks same-side hits both directions, stat_modifiers/range_mult thread through spawn() correctly (and default to zero-behavior-change when omitted), sync_targets_from_groups() pulls real groups, and should_use_batch_pool() requires both the setting and a live pool reference")
+		print("PASS: friend/foe filtering blocks same-side hits both directions, stat_modifiers/range_mult thread through spawn() correctly (and default to zero-behavior-change when omitted), sync_targets_from_groups() pulls real groups, should_use_batch_pool() requires both the setting and a live pool reference, and the pool draws above terrain via z_index regardless of map-rotation sibling order")
 	get_tree().quit(0 if failures == 0 else 1)

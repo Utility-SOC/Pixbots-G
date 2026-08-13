@@ -370,6 +370,24 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 
 func _ready():
 	process_priority = -900
+	# Explicit z_index (2026-08-13 fix, live playtest: "invisible on the
+	# water map, visible outside of it in the black void") - without this,
+	# draw order fell back to tree/sibling order, and this pool is a single
+	# long-lived node created once in Main._setup_live_batch_pool(). Real
+	# per-shot Projectile.gd nodes never need this because they're spawned
+	# fresh during gameplay, always AFTER whatever map currently exists -
+	# but Main._rotate_campaign_map() creates a brand-new MapGenerator and
+	# adds it to `world` on every map rotation, which lands it as a LATER
+	# sibling than this already-existing pool. Same z_index (default 0) on
+	# both then falls back to sibling order, so the freshly rotated-in
+	# terrain drew on top of every batch-rendered shot from that point on -
+	# fully opaque over real map tiles, which is why shots stayed visible
+	# only off the map edge (nothing drawn on top of the void). z_index
+	# sidesteps sibling order entirely; 50 sits comfortably above terrain
+	# (MapGenerator's chunk sprites, MechRenderer's parts: 0-2) and below
+	# Projectile.gd's own above-everything overlays (bolt effect z_index
+	# 60, floating labels z_index 90/100).
+	z_index = 50
 	_setup_render_polygons()
 	_ensure_flight_rust()
 

@@ -42,6 +42,23 @@ var _redraw_timer: float = 0.0
 
 func _ready():
 	_redraw_timer = randf() * (1.0 / REDRAW_HZ)
+	# Explicit z_index (2026-08-13 fix, live playtest: "drone exists, but
+	# invisible after map change") - same root cause as ProjectileBatchPool's
+	# matching fix this same session: a Drone is a single long-lived node,
+	# added to `world` once when it spawns and never re-added afterward, but
+	# Main._rotate_campaign_map() creates a brand-new MapGenerator and adds
+	# it to `world` on every map rotation - landing it as a LATER sibling
+	# than any drone that already existed. With no z_index set anywhere in
+	# this file, draw order fell back to that tree/sibling order, so a
+	# freshly rotated-in map drew on top of the drone from that point on -
+	# the drone's logical state (position, HP, AI) was completely fine
+	# (matches the "exists" half of the report), just invisible. MechRenderer
+	# already protects real Mechs' parts this way (z_index 0-2 there); this
+	# pool never had an equivalent. z_as_relative defaults true, so this adds
+	# onto the owning Drone's own z_index (0) rather than replacing it -
+	# same 50 used for ProjectileBatchPool, comfortably above terrain (0)
+	# and MechRenderer parts (0-2).
+	z_index = 50
 
 const RARITY_COLORS = [
 	Color(0.55, 0.6, 0.65),  # Common - gunmetal

@@ -44,6 +44,12 @@ func _ready():
 		_check("player-owned drone is in 'drone' group", pd.is_in_group("drone"))
 		_check("player-owned drone is NOT in 'enemy' group", not pd.is_in_group("enemy"))
 		_check("player-owned drone is NOT in 'player' group (that names the real player mech only)", not pd.is_in_group("player"))
+		# 2026-08-13 fix: "drone exists, but invisible after map change" -
+		# DroneRenderer never set z_index, so a freshly rotated-in map (a
+		# later `world` sibling) drew on top of an already-existing drone.
+		# See DroneRenderer._ready()'s own comment for the full root cause.
+		_check("player-owned drone's renderer sets an explicit z_index high enough to draw above terrain regardless of map-rotation sibling order",
+			"_renderer" in pd and pd._renderer != null and pd._renderer.z_index > 2)
 
 	# --- Enemy-owned drone -------------------------------------------------
 	var enemy_owner = MechScript.new()

@@ -2846,25 +2846,13 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscr
 	while active_packets.size() > 0 and steps < SIMULATE_GRID_STEP_CAP:
 		steps += 1
 
-		var total_active_magnitude = 0.0
-		for p in active_packets:
-			if p.is_active:
-				total_active_magnitude += p.magnitude
-		var relative_floor = 0.0
-		if total_active_magnitude > HIGH_TOTAL_ENERGY_THRESHOLD:
-			relative_floor = total_active_magnitude * HIGH_TOTAL_RELATIVE_CULL_FRACTION
-		var cull_floor = max(NEGLIGIBLE_MAGNITUDE_FLOOR, relative_floor)
-		for p in active_packets:
-			if p.is_active and p.magnitude < cull_floor:
-				p.is_active = false
-
 		var next_packets: Array[EnergyPacket] = []
 
 		for p in active_packets:
 			if not p.is_active: continue
 			var dir = p.direction
 			var next_pos = p.position.neighbor(dir)
-			
+
 			if grid.has_tile(next_pos):
 				var tile = grid.get_tile(next_pos)
 				p.traversal_steps += 1
@@ -2937,6 +2925,49 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscr
 				merged_packets[key] = p
 				
 		active_packets.assign(merged_packets.values())
+
+		# Negligible-packet cull (user's own proposal, 2026-08-10). Exempts
+		# any packet whose NEXT hop would land on a real tile (2026-08-11
+		# fix) - simply moving this check to run after movement instead of
+		# before it turned out to be a no-op (a packet's "after this step"
+		# state IS the array the next iteration's "before movement" check
+		# sees - textually different position, same point in the timeline).
+		# The real bug: a packet freshly split off by a Splitter is created
+		# AT the splitter's own hex, not yet moved into whatever real tile
+		# is one hex further along its intended path - it still needs a
+		# genuine SECOND loop iteration to actually reach and register at
+		# that tile (a Link capturing it, another Splitter branching it
+		# further, a Reflector redirecting it). The floor was killing it in
+		# the gap between those two iterations, even though it was already
+		# correctly routed and about to complete real, intended progress -
+		# not "wandering pointlessly," which is what this cull is actually
+		# for (Reflector/edge-bounce loops and empty-hex passes that never
+		# resolve on their own). Real, demonstrated impact: a Common-rarity
+		# starter Torso's single-active-face Core (Core.get_max_faces()==1
+		# by design) forces every one of its 6 limb links through one
+		# serial daisy-chain of splits, each roughly halving the packet's
+		# magnitude - anything past ~2 hops deep got killed one hop short
+		# of its real target every time, even though the solver had
+		# genuinely wired a real, connected path to it (AutoEquipSolver
+		# TorsoCheck.gd's own real-simulation assertions catch exactly
+		# this). Exempting "about to hit a real tile" packets preserves the
+		# original perf intent exactly: a packet that's ACTUALLY just
+		# bouncing/passing through empty space with nothing left to
+		# contribute still gets culled the moment that becomes true, same
+		# as before - only genuinely-still-in-transit packets survive.
+		var total_active_magnitude = 0.0
+		for p in active_packets:
+			if p.is_active:
+				total_active_magnitude += p.magnitude
+		var relative_floor = 0.0
+		if total_active_magnitude > HIGH_TOTAL_ENERGY_THRESHOLD:
+			relative_floor = total_active_magnitude * HIGH_TOTAL_RELATIVE_CULL_FRACTION
+		var cull_floor = max(NEGLIGIBLE_MAGNITUDE_FLOOR, relative_floor)
+		for p in active_packets:
+			if p.is_active and p.magnitude < cull_floor:
+				var about_to_hit_tile = grid.has_tile(p.position.neighbor(p.direction))
+				if not about_to_hit_tile:
+					p.is_active = false
 
 # --- Player Sight/Detection (non-boss only) --------------------------------
 # Previously every enemy just always knew exactly where the player was and

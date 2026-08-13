@@ -923,7 +923,18 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 		torso.fixed_sinks.append(tip)
 
 	if role != "":
-		var microcore_h = _first_free_hex(torso, torso.fixed_sinks)
+		# Off-axis (2026-08-11 fix, same reasoning as Accessory Return/the AI
+		# mount below): plain _first_free_hex can land this ON one of the 6
+		# spoke lines and silently block that limb's own corridor - real,
+		# demonstrated impact on Scout's tall/narrow Common-rarity shape,
+		# where the Microcore landed at (0,1) (directly on the Leg Right
+		# spoke's own line) and made that link permanently unreachable
+		# (TorsoLinkReachabilityCheck.gd's own BFS-through-open-hexes
+		# assertion catches exactly this - not a simulation quirk, a real
+		# structural dead end any solve() attempt would hit too).
+		var microcore_h = _first_free_off_axis_hex(torso)
+		if microcore_h == null:
+			microcore_h = _first_free_hex(torso, torso.fixed_sinks)
 		if microcore_h != null:
 			var micro = load("res://scripts/tiles/MicrocoreTile.gd").new()
 			micro.body_slot = HexTile.BodySlot.TORSO
@@ -969,10 +980,24 @@ static func create_starter_torso(role: String = "", p_rarity: int = HexTile.Rari
 		var ai_core = load("res://scripts/tiles/MicrocoreTile.gd").new()
 		ai_core.rarity = p_rarity
 		var ai_core_pos = null
+		# Off-axis (2026-08-11 fix, same reasoning as ai_mount_pos's own
+		# comment just above) - a neighbor of an off-axis hex isn't
+		# automatically off-axis itself. Real, demonstrated impact: this
+		# search landed on (1,-1) (directly on the Backpack spoke's own
+		# line) for a Scout Common torso, permanently blocking that limb.
+		# Strictly off-axis, no on-axis fallback (an earlier version of this
+		# fix DID fall back to on-axis if that was the only free neighbor -
+		# still observed blocking a spoke on a Brawler Common torso, since
+		# ai_mount_pos's own available neighbors can be scarce on a cramped
+		# low-rarity shape). ai_core is a self-contained bonus power source
+		# for ai_mount, not a shared corridor - simply not placing it when
+		# no safe neighbor exists is a fine degradation; ai_mount itself
+		# still gets power normally through the main solve() routing
+		# (it's already a real fixed_sinks target either way).
 		for d in range(6):
 			var n = ai_mount_pos.neighbor(d)
 			for h in torso.valid_hexes:
-				if h.equals(n) and not torso.hex_grid.has_tile(h):
+				if h.equals(n) and not torso.hex_grid.has_tile(h) and h.q != 0 and h.r != 0 and (h.q + h.r) != 0:
 					ai_core_pos = h
 					ai_core.active_faces.clear()
 					ai_core.active_faces.append((d + 3) % 6)

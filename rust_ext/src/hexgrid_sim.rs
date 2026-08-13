@@ -967,24 +967,6 @@ impl HexGridSim {
         while !active.is_empty() && steps < STEP_CAP {
             steps += 1;
 
-            let mut total_active_magnitude = 0.0f64;
-            for p in active.iter() {
-                if p.active {
-                    total_active_magnitude += p.magnitude;
-                }
-            }
-            let relative_floor = if total_active_magnitude > HIGH_TOTAL_ENERGY_THRESHOLD {
-                total_active_magnitude * HIGH_TOTAL_RELATIVE_CULL_FRACTION
-            } else {
-                0.0
-            };
-            let cull_floor = NEGLIGIBLE_MAGNITUDE_FLOOR.max(relative_floor);
-            for p in active.iter_mut() {
-                if p.active && p.magnitude < cull_floor {
-                    p.active = false;
-                }
-            }
-
             let mut next: Vec<Packet> = Vec::new();
 
             for p0 in active.iter() {
@@ -1052,6 +1034,44 @@ impl HexGridSim {
                 }
             }
             active = order.into_iter().map(|k| merged.remove(&k).unwrap()).collect();
+
+            // Negligible-packet cull, moved to run AFTER this step's
+            // movement. Exempts any packet whose NEXT hop would land on a real tile
+            // (2026-08-11 fix) - mirrors Mech._simulate_grid's own GDScript
+            // fallback loop exactly, see that function's matching comment
+            // for the full root-cause writeup (an earlier attempt that just
+            // moved this check to run after movement instead of before it
+            // turned out to be a no-op - "after this step" and "before next
+            // step's movement" are the same point in the timeline). A
+            // packet freshly split off by a Splitter is created AT the
+            // splitter's own hex, not yet moved into whatever real tile is
+            // one hex further along its path - it needs a genuine SECOND
+            // loop iteration to actually reach and register there. The
+            // floor was killing it in that gap even though it was already
+            // correctly routed - not "wandering pointlessly," which is
+            // what this cull is actually for (Reflector/edge-bounce loops
+            // and empty-hex passes that never resolve on their own).
+            let mut total_active_magnitude = 0.0f64;
+            for p in active.iter() {
+                if p.active {
+                    total_active_magnitude += p.magnitude;
+                }
+            }
+            let relative_floor = if total_active_magnitude > HIGH_TOTAL_ENERGY_THRESHOLD {
+                total_active_magnitude * HIGH_TOTAL_RELATIVE_CULL_FRACTION
+            } else {
+                0.0
+            };
+            let cull_floor = NEGLIGIBLE_MAGNITUDE_FLOOR.max(relative_floor);
+            for p in active.iter_mut() {
+                if p.active && p.magnitude < cull_floor {
+                    let npos = neighbor(p.q, p.r, p.dir);
+                    let about_to_hit_tile = grid.contains_key(&npos);
+                    if !about_to_hit_tile {
+                        p.active = false;
+                    }
+                }
+            }
         }
 
         let mut out_captures = Array::<Variant>::new();

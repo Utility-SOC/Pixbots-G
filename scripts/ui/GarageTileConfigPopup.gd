@@ -277,7 +277,7 @@ func on_tile_clicked(tile: HexTile):
 
 		_show_popup(popup, Vector2(250, 100))
 
-	elif tile.tile_type == "Elemental Infuser" or tile.tile_type == "Catalyst" or tile.tile_type == "Structural Strut":
+	elif tile.tile_type == "Elemental Infuser" or tile.tile_type == "Catalyst" or tile.tile_type == "Structural Strut" or tile.tile_type == "Prime Circuit":
 		var popup = PopupPanel.new()
 		var vbox = VBoxContainer.new()
 		popup.add_child(vbox)

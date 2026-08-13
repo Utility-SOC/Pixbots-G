@@ -1411,6 +1411,25 @@ func _pick_spawn_anchor() -> Vector2:
 			best = c
 	return best
 
+# Boss Rush replays a FIXED 1-15-Regulars-then-Endless-Mega-Bosses gauntlet
+# (see the "boss_rush" dispatch block above), using current_wave purely as
+# its OWN sequence position - completely unrelated to how far the chosen
+# save actually progressed. _spawn_boss's rarity/HP-relevant scaling read
+# current_wave directly, so a Boss Rush run against a save deep into the
+# campaign (Wave 300, say) still spawned bosses scaled as if it were the
+# gauntlet's own wave 17-20-ish, nowhere near "the level the save file is
+# in" (user, 2026-08-13: "the bosses hp at least will be level
+# appropriate"). Returns the wave number that should drive difficulty-
+# relevant scaling: the chosen save's own peak progression (SaveManager.
+# max_wave_reached, already loaded correctly for every mode in
+# _setup_player - see that function's own SaveManager.load_game() call) in
+# Boss Rush specifically; current_wave everywhere else (regular campaign
+# and Tournament scaling are both unaffected).
+func _difficulty_scaling_wave() -> int:
+	if SaveManager.current_game_mode == "boss_rush":
+		return SaveManager.max_wave_reached
+	return current_wave
+
 # Bosses used to be a scaled-up Brawler, no exceptions, then a flat const
 # array of 6 hand-picked archetypes. Now they're spawned from a BossProfile
 # pulled off SquadDirector's evolving, fitness-weighted pool (see
@@ -1433,7 +1452,7 @@ func _spawn_boss(director, is_mega: bool):
 	# Nemesis Bounties/forced-Mythic rivals already use, so difficulty-
 	# scaling/gear-parity inside _spawn_bot_for_role can only push it UP
 	# from Mythic (a no-op, already at the ceiling), never override it down.
-	var boss_rarity_floor = HexTile.Rarity.MYTHIC if current_wave >= MYTHIC_MILESTONE_START_WAVE else 0
+	var boss_rarity_floor = HexTile.Rarity.MYTHIC if _difficulty_scaling_wave() >= MYTHIC_MILESTONE_START_WAVE else 0
 	var boss = director._spawn_bot_for_role(profile.base_role, false, boss_rarity_floor)
 	boss.boss_profile = profile
 	var hp_mult = profile.hp_mult

@@ -13,11 +13,15 @@ var flow: Dictionary = {}
 var flow_loops: Dictionary = {}
 # True when packets were still alive at the sim step cap.
 var sim_saturated: bool = false
+# Set once a full pass has completed since the last reset (distinguishes "nothing
+# powered" from "never simulated").
+var flow_ready: bool = false
 
 func reset_flow() -> void:
 	flow.clear()
 	flow_loops.clear()
 	sim_saturated = false
+	flow_ready = false
 
 func record_flow(key: Vector2i, visits: float, energy: float, dom: int, looped: bool) -> void:
 	var f = flow.get(key)

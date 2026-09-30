@@ -40,6 +40,16 @@ var stats_label: Label
 const REDRAW_HZ = 30.0
 var _redraw_timer: float = 0.0
 
+# Power overlay: tiles the last full energy pass never reached are dimmed and
+# hatched, powered tiles get an energy bar tinted by their dominant element,
+# and tiles where energy recirculates pulse red. Only drawn once the mech's
+# grid is clean (recalculated after the last edit) so it never shows stale data.
+var show_power_overlay: bool = true
+const POWER_RECALC_IDLE_MS = 450
+var _dirty_since_ms: int = 0
+var loop_tile_count: int = 0
+var saturated: bool = false
+
 # Colors
 const COLOR_BG = Color(0.1, 0.1, 0.15)
 const COLOR_GRID = Color(0.2, 0.2, 0.25)
@@ -150,10 +160,43 @@ func _process(delta):
 			if progress < 1.0:
 				progress += 2.0 * delta # _simulate_step takes 0.5s, so 2.0x makes it finish right on time
 				pkt.set_meta("anim_progress", min(progress, 1.0))
+	_maybe_refresh_power()
 	_redraw_timer -= delta
 	if _redraw_timer <= 0.0:
 		_redraw_timer = 1.0 / REDRAW_HZ
 		queue_redraw()
+
+func _power_player():
+	var main = menu_parent.get_parent() if menu_parent else null
+	if main and main.get("player") != null and is_instance_valid(main.player):
+		return main.player
+	return null
+
+# After an edit, wait for a short idle window then rerun the energy pass once
+# so the overlay reflects the new wiring (edits only mark the grid dirty).
+func _maybe_refresh_power() -> void:
+	if not show_power_overlay or not is_visible_in_tree():
+		return
+	var p = _power_player()
+	if p == null or not ("is_grid_dirty" in p):
+		return
+	if not p.is_grid_dirty:
+		_dirty_since_ms = 0
+		return
+	var now = Time.get_ticks_msec()
+	if _dirty_since_ms == 0:
+		_dirty_since_ms = now
+	elif now - _dirty_since_ms >= POWER_RECALC_IDLE_MS:
+		_dirty_since_ms = 0
+		p._recalculate_grid()
+
+func _power_ready() -> bool:
+	if not show_power_overlay or hex_grid == null or not ("flow" in hex_grid):
+		return false
+	var p = _power_player()
+	if p == null or p.is_grid_dirty:
+		return false
+	return hex_grid.flow_ready
 
 func _gui_input(event: InputEvent):
 	if event is InputEventMouseMotion:
@@ -314,8 +357,17 @@ func _draw():
 		
 	# 2. Draw actual tiles
 	var tiles = hex_grid.get_all_tiles()
+	var power_on = _power_ready()
+	var max_energy = 0.0
+	if power_on:
+		for k in hex_grid.flow:
+			max_energy = max(max_energy, float(hex_grid.flow[k]["energy"]))
+	loop_tile_count = hex_grid.flow_loops.size() if power_on else 0
+	saturated = power_on and hex_grid.sim_saturated
 	for tile in tiles:
 		_draw_tile(tile)
+		if power_on:
+			_draw_power_overlay(tile, max_energy)
 		
 	# 2.5 Manual-hex upgrade: highlight where new hexes may be placed
 	_draw_expansion_candidates()
@@ -332,6 +384,12 @@ func _draw():
 	# 4. Draw Simulation Packets
 	for pkt in active_packets:
 		_draw_packet(pkt)
+
+	# 5. Loop / saturation warning
+	if loop_tile_count > 0 or saturated:
+		var msg = "WARNING: energy loops back on itself (%d tile(s) outlined red) - an Infuser/Amplifier in a ring keeps re-adding to the same packets and can saturate the whole part. Move it off the loop." % loop_tile_count if loop_tile_count > 0 else "WARNING: energy never settles - the sim hit its step limit."
+		var font = ThemeDB.fallback_font
+		draw_string(font, Vector2(12, 22), msg, HORIZONTAL_ALIGNMENT_LEFT, size.x - 24, 14, Color(1.0, 0.45, 0.4))
 
 func _draw_tile(tile: HexTile):
 	if not tile.grid_position: return
@@ -376,6 +434,40 @@ func _draw_tile(tile: HexTile):
 		for off in tile.footprint_offsets:
 			var dim_cell = HexCoord.new(tile.grid_position.q + off.x, tile.grid_position.r + off.y)
 			_draw_hex_filled(dim_cell, Color(0.0, 0.0, 0.0, 0.6))
+
+func _tile_cells(tile: HexTile) -> Array:
+	var cells = [tile.grid_position]
+	for off in tile.footprint_offsets:
+		cells.append(HexCoord.new(tile.grid_position.q + off.x, tile.grid_position.r + off.y))
+	return cells
+
+func _draw_power_overlay(tile: HexTile, max_energy: float) -> void:
+	if not tile.grid_position:
+		return
+	# Sources/pure-state tiles that never take input still get marked unpowered
+	# only if nothing flowed through; generators (the Core) always count.
+	var key = Vector2i(tile.grid_position.q, tile.grid_position.r)
+	var flow = hex_grid.flow.get(key)
+	var center = _hex_to_pixel(tile.grid_position)
+	if flow == null and not tile.has_method("generate_energy"):
+		for c in _tile_cells(tile):
+			_draw_hex_filled(c, Color(0.02, 0.02, 0.05, 0.62))
+			_draw_hex_hatched(c, Color(0.0, 0.0, 0.0, 0.7))
+		var r = hex_size * zoom * 0.22
+		draw_line(center + Vector2(-r, -r), center + Vector2(r, r), Color(0.7, 0.7, 0.75, 0.55), max(1.0, 2.0 * zoom))
+		draw_line(center + Vector2(-r, r), center + Vector2(r, -r), Color(0.7, 0.7, 0.75, 0.55), max(1.0, 2.0 * zoom))
+		return
+	if flow != null and max_energy > 0.0:
+		# log scale so a 10x difference is visible but a 1000x one doesn't flatten the rest
+		var frac = clamp(log(1.0 + float(flow["energy"])) / log(1.0 + max_energy), 0.05, 1.0)
+		var w = hex_size * zoom * 1.3 * frac
+		var y = center.y + hex_size * zoom * 0.72
+		var col = _get_synergy_color(int(flow["dom"])) if int(flow["dom"]) > 0 else Color(0.85, 0.85, 0.9)
+		draw_line(Vector2(center.x - w / 2.0, y), Vector2(center.x + w / 2.0, y), Color(col.r, col.g, col.b, 0.9), max(2.0, 4.0 * zoom))
+	if hex_grid.flow_loops.has(key):
+		var pulse = 0.5 + 0.5 * sin(time_elapsed * 6.0)
+		for c in _tile_cells(tile):
+			_draw_hex_outline(c, Color(1.0, 0.15, 0.15, 0.5 + 0.5 * pulse), 4.0)
 
 # True when an inventory search is active AND this tile's type doesn't
 # match it - split out from _draw_tile so the filter logic itself

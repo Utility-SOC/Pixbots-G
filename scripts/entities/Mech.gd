@@ -2304,6 +2304,10 @@ func _simulate_energy_flow(torso):
 
 		_simulate_grid(comp.hex_grid, pkts)
 
+	for c in components.values():
+		if c and c.get("hex_grid"):
+			c.hex_grid.flow_ready = true
+
 # Single pass over every equipped tile: builds precalculated_weapons (with
 # the accumulator normal/bank split-fire model) AND detects every
 # per-tile capability (Lance Mount, speed/magnetic bonuses, loot rarity

@@ -26,6 +26,17 @@ var map_type: String = "Normal" # Can be "Arena"
 # global RNG is seeded for the generation window only, then re-randomized.
 var map_seed: int = 0
 
+# Macro layout laid over the biome/obstacle scatter (map variety): "auto"
+# rolls one (30% none); any LAYOUTS name forces it. layout_name is what was
+# actually applied. Only land-ish types take layouts - Arena/Tabletop/
+# FightShovel/Water have hand-built identities.
+const LAYOUTS = ["none", "river", "ridges", "pillars", "rings", "canyon", "crossroads"]
+const LAYOUT_ROLL = ["none", "none", "none", "river", "river", "ridges", "ridges", "pillars", "rings", "canyon", "crossroads"]
+const LAYOUT_TYPES = ["Normal", "Open Field", "Desert", "Forest", "Tundra", "Volcano", "Dungeon"]
+const LAYOUT_KEEPOUT_TILES = 14.0 # player spawns at the centre
+var map_layout: String = "auto"
+var layout_name: String = "none"
+
 # Fraction of tiles that came out BiomeType.WATER on this generation -
 # "Water" map_type floods the whole map with this, but "Normal" maps can
 # also roll a big lake from the elevation noise (_get_biome), so this is
@@ -418,6 +429,14 @@ func _generate_map():
 						obstacles[Vector2i(x, y)] = _get_obstacle_name(biome)
 			terrain.append(row)
 			
+		if map_type in LAYOUT_TYPES:
+			layout_name = map_layout if map_layout != "auto" else LAYOUT_ROLL[randi() % LAYOUT_ROLL.size()]
+			if not LAYOUTS.has(layout_name):
+				layout_name = "none"
+			water_tile_count += _apply_layout(layout_name)
+		else:
+			layout_name = "none"
+
 		# Tabletop terrain kits: gothic-ruin buildings scattered like a
 		# real game-shop table setup (see the reference photo in design
 		# notes - grey plastic ruins on a flocked mat). Also available on
@@ -438,6 +457,166 @@ func _generate_map():
 		if map_type != "Normal" or main_continent_tiles.size() >= required_size:
 			map_valid = true
 			water_fraction = float(water_tile_count) / float(width * height)
+
+# ---------------------------------------------------------------------------
+# Macro layouts (see LAYOUTS). Each writes into `obstacles` / `terrain` only,
+# keeps the centre spawn area clear, and leaves the usual connectivity carver
+# to guarantee everything stays reachable. Returns water tiles added.
+# ---------------------------------------------------------------------------
+func _layout_keepout(x: int, y: int) -> bool:
+	return Vector2(x - width / 2.0, y - height / 2.0).length() < LAYOUT_KEEPOUT_TILES
+
+func _layout_in_bounds(x: int, y: int) -> bool:
+	return x >= 3 and y >= 3 and x < width - 3 and y < height - 3
+
+func _layout_block(x: int, y: int, name: String = "") -> void:
+	if not _layout_in_bounds(x, y) or _layout_keepout(x, y):
+		return
+	if terrain[y][x] == BiomeType.WATER:
+		return
+	obstacles[Vector2i(x, y)] = name if name != "" else _get_obstacle_name(terrain[y][x])
+
+func _layout_clear(x: int, y: int) -> void:
+	if x >= 0 and y >= 0 and x < width and y < height:
+		obstacles.erase(Vector2i(x, y))
+
+# Wall of `thickness` between two tile points with periodic gaps.
+func _layout_wall(a: Vector2, b: Vector2, thickness: int, gap_every: float, gap_len: float) -> void:
+	var length = a.distance_to(b)
+	var dir = (b - a) / max(length, 1.0)
+	var steps = int(length)
+	var next_gap = gap_every * randf_range(0.5, 1.0)
+	var gap_left = 0.0
+	for i in range(steps):
+		if i >= next_gap:
+			gap_left = gap_len
+			next_gap += gap_every * randf_range(0.8, 1.2)
+		if gap_left > 0.0:
+			gap_left -= 1.0
+			continue
+		var p = a + dir * float(i)
+		for t in range(thickness):
+			var off = Vector2(-dir.y, dir.x) * (t - thickness / 2.0)
+			_layout_block(int(p.x + off.x), int(p.y + off.y))
+
+func _apply_layout(name: String) -> int:
+	match name:
+		"river":
+			return _layout_river()
+		"ridges":
+			_layout_ridges()
+		"pillars":
+			_layout_pillars()
+		"rings":
+			_layout_rings()
+		"canyon":
+			_layout_canyon()
+		"crossroads":
+			_layout_crossroads()
+	return 0
+
+# A meandering water band across the map with a few land bridges.
+func _layout_river() -> int:
+	var vertical = randf() < 0.5
+	var along = height if vertical else width
+	var across = width if vertical else height
+	var base = across * randf_range(0.3, 0.7)
+	var amp1 = randf_range(8.0, 22.0)
+	var amp2 = randf_range(3.0, 8.0)
+	var f1 = randf_range(0.02, 0.04)
+	var f2 = randf_range(0.07, 0.12)
+	var ph1 = randf() * TAU
+	var ph2 = randf() * TAU
+	var half_w = randi_range(2, 3)
+	var bridges: Array = []
+	for i in range(3):
+		bridges.append(int(along * (0.15 + 0.3 * i + randf_range(-0.05, 0.05))))
+	var added = 0
+	for i in range(3, along - 3):
+		var bridge = false
+		for b in bridges:
+			if abs(i - b) <= 3:
+				bridge = true
+		if bridge:
+			continue
+		var centre = int(base + amp1 * sin(i * f1 + ph1) + amp2 * sin(i * f2 + ph2))
+		for w in range(-half_w, half_w + 1):
+			var c = centre + w
+			var x = c if vertical else i
+			var y = i if vertical else c
+			if not _layout_in_bounds(x, y) or _layout_keepout(x, y):
+				continue
+			if terrain[y][x] != BiomeType.WATER:
+				terrain[y][x] = BiomeType.WATER
+				added += 1
+			_layout_clear(x, y)
+	return added
+
+# Long broken ridge walls: choke points and cover without sealing anything.
+func _layout_ridges() -> void:
+	for i in range(randi_range(3, 5)):
+		var start = Vector2(randf_range(20, width - 20), randf_range(20, height - 20))
+		var ang = randf() * PI
+		var length = randf_range(45.0, 95.0)
+		var end = start + Vector2.RIGHT.rotated(ang) * length
+		_layout_wall(start, end, 2, randf_range(12.0, 20.0), randf_range(4.0, 6.0))
+
+# A lattice of 2x2 pillars: lots of cover in open ground.
+func _layout_pillars() -> void:
+	var spacing = randi_range(11, 15)
+	for gy in range(spacing, height - spacing, spacing):
+		for gx in range(spacing, width - spacing, spacing):
+			var x = gx + randi_range(-2, 2)
+			var y = gy + randi_range(-2, 2)
+			for dy in range(2):
+				for dx in range(2):
+					_layout_block(x + dx, y + dy)
+
+# Concentric broken rings around the spawn: fight out through the gaps.
+func _layout_rings() -> void:
+	var cx = width / 2.0
+	var cy = height / 2.0
+	for radius in [32.0, 58.0, 84.0]:
+		var gap_centers: Array = []
+		for k in range(4):
+			gap_centers.append(randf() * TAU)
+		var circ = int(TAU * radius * 1.5)
+		for i in range(circ):
+			var ang = TAU * float(i) / float(circ)
+			var in_gap = false
+			for g in gap_centers:
+				if abs(angle_difference(ang, g)) * radius < 4.0:
+					in_gap = true
+			if in_gap:
+				continue
+			var x = int(cx + cos(ang) * radius)
+			var y = int(cy + sin(ang) * radius * 0.75)
+			for t in range(2):
+				_layout_block(x + t, y)
+
+# Two parallel long walls: a central lane with side flanks.
+func _layout_canyon() -> void:
+	var horizontal = randf() < 0.7
+	var gap = randf_range(16.0, 24.0)
+	for sgn in [-1.0, 1.0]:
+		if horizontal:
+			var y = height / 2.0 + sgn * gap
+			_layout_wall(Vector2(3, y), Vector2(width - 3, y), 3, randf_range(45.0, 70.0), randf_range(6.0, 9.0))
+		else:
+			var x = width / 2.0 + sgn * gap * 1.6
+			_layout_wall(Vector2(x, 3), Vector2(x, height - 3), 3, randf_range(35.0, 55.0), randf_range(6.0, 9.0))
+
+# Four wide lanes from the spawn; the quadrants between get denser cover.
+func _layout_crossroads() -> void:
+	var cx = int(width / 2.0)
+	var cy = int(height / 2.0)
+	for y in range(3, height - 3):
+		for x in range(3, width - 3):
+			var in_lane = abs(x - cx) <= 6 or abs(y - cy) <= 6
+			if in_lane:
+				_layout_clear(x, y)
+			elif not obstacles.has(Vector2i(x, y)) and obstacle_noise and obstacle_noise.get_noise_2d(x, y) > 0.05 and randf() < 0.35:
+				_layout_block(x, y)
 
 # A walkable pocket this size or bigger MUST be reachable from the main
 # continent without crossing obstacles. Smaller slivers aren't worth a

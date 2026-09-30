@@ -130,6 +130,7 @@ func _setup_ui():
 	# Tools & Options
 	# Tools & Options
 	var btn_war_room = _create_button("War Room", _on_war_room_pressed)
+	var btn_perks = _create_button("Corp Perks", _on_perks_pressed)
 	var btn_import_ai = _create_button("Import AI Templates", _on_import_ai)
 	var btn_import_mods = _create_button("Import Mods", _on_import_mods)
 	var btn_settings = _create_button("Settings", _on_settings_pressed)
@@ -137,6 +138,7 @@ func _setup_ui():
 	var btn_quit = _create_button("Quit", _on_quit_pressed)
 
 	vbox.add_child(btn_war_room)
+	vbox.add_child(btn_perks)
 	vbox.add_child(btn_import_ai)
 	vbox.add_child(btn_import_mods)
 	vbox.add_child(btn_settings)
@@ -196,6 +198,13 @@ func _on_war_room_pressed():
 	wr.name = "WarRoomInstance"
 	add_child(wr)
 	wr._toggle() # starts closed by default - open it immediately
+
+func _on_perks_pressed():
+	if get_node_or_null("MetaPanelInstance"):
+		return
+	var panel = load("res://scripts/ui/MetaPanel.gd").new()
+	panel.name = "MetaPanelInstance"
+	add_child(panel)
 
 func _on_import_ai():
 	print("Opening AI Import Menu... (Mock)")

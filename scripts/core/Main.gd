@@ -125,6 +125,7 @@ const PLAYER_PAINT_PALETTE: Array[Color] = [
 ]
 
 
+const MetaProgressScript = preload("res://scripts/core/MetaProgress.gd")
 var hud_canvas: CanvasLayer
 var orders_panel: VBoxContainer
 var wave_label: Label
@@ -1557,6 +1558,7 @@ func _equip_enemy_chips(mech: Node):
 	mech._recalculate_grid()
 
 func _on_boss_died(boss):
+	MetaProgressScript.note_boss_kill()
 	# Feed the fight's outcome back into the boss profile's fitness (same
 	# reinforcement loop as squad templates/solver profiles) BEFORE the
 	# fixed loot-drop handling below, since that part is unrelated and
@@ -2010,6 +2012,9 @@ func _on_player_died():
 		return
 
 	print("!!! GAME OVER - MAGNIFICENT EXPLOSION !!!")
+	var rp_gain = MetaProgressScript.note_run_end(current_wave)
+	if rp_gain > 0:
+		print("[META] +%d Research Points (new best wave %d)" % [rp_gain, current_wave])
 	# Dying with a Traveling Champion still on the field counts as losing
 	# the challenge - the ghost takes the rank points home.
 	for enemy in get_tree().get_nodes_in_group("enemy"):

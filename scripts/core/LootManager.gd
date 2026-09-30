@@ -6,6 +6,7 @@ extends Node
 # time the very first autoload is parsed - preload() sidesteps that entirely,
 # same pattern already used elsewhere in this codebase for cross-script refs.
 const BrandTileFactoryScript = preload("res://scripts/core/BrandTileFactory.gd")
+const MetaProgress = preload("res://scripts/core/MetaProgress.gd")
 
 # Probability map based on rarity. Raised across the board per
 # FEATURE_ROADMAP.md (feature 5 / group 2): the upgrade + infusion +
@@ -84,9 +85,57 @@ const CHIP_DROP_CHANCE = 0.20
 
 var current_wave: int = 1
 
+# --- drop tuning ---------------------------------------------------------------
+# Anti-flood: each tile type that drops gets its next drops scaled down for a
+# while (decays by half at every new wave), so one common type can't flood the
+# inventory. Discovery bias: types the player has never owned are favoured.
+# Pity: long droughts of kills with no tile drop slowly raise the odds.
+const FLOOD_FACTOR = 0.8
+const FLOOD_MIN = 0.35
+const DISCOVERY_BONUS = 1.5
+const PITY_PER_KILL = 0.004
+const PITY_MAX_BONUS = 0.12
+const BOSS_TILE_DROP_CHANCE = 0.50
+var _recent_drops: Dictionary = {} # tile_type -> decayed drop count
+var _drought_kills: int = 0
+var _last_wave_seen: int = 1
+
+func _note_wave() -> void:
+	if current_wave != _last_wave_seen:
+		_last_wave_seen = current_wave
+		for k in _recent_drops.keys():
+			_recent_drops[k] = float(_recent_drops[k]) * 0.5
+			if float(_recent_drops[k]) < 0.05:
+				_recent_drops.erase(k)
+
+func is_structural(tile_type: String) -> bool:
+	return tile_type in STRUCTURAL_TILE_TYPES or tile_type == "Microcore"
+
+# Final per-tile drop chance for a kill. `discovered` = player has owned this type.
+func drop_chance(tile_type: String, rarity: int, is_boss: bool, discovered: bool = true) -> float:
+	var base = BOSS_TILE_DROP_CHANCE if is_boss else (_get_mythic_drop_rate() if rarity == HexTile.Rarity.MYTHIC else DROP_RATES.get(rarity, 0.0))
+	if rarity == HexTile.Rarity.MYTHIC and is_boss:
+		base = BOSS_TILE_DROP_CHANCE
+	var chance = base * _tile_type_drop_multiplier(tile_type, rarity)
+	if not is_structural(tile_type):
+		chance *= MetaProgress.drop_multiplier("salvage_contract")
+		if not discovered:
+			chance *= DISCOVERY_BONUS
+	if rarity == HexTile.Rarity.MYTHIC:
+		chance *= MetaProgress.drop_multiplier("mythic_scouting")
+	chance *= max(FLOOD_MIN, pow(FLOOD_FACTOR, float(_recent_drops.get(tile_type, 0.0))))
+	if not is_boss and not is_structural(tile_type) and _drought_kills > MetaProgress.pity_threshold():
+		chance += min(PITY_MAX_BONUS, PITY_PER_KILL * float(_drought_kills - MetaProgress.pity_threshold()))
+	return clamp(chance, 0.0, 1.0)
+
+func _note_dropped(tile_type: String) -> void:
+	_recent_drops[tile_type] = float(_recent_drops.get(tile_type, 0.0)) + 1.0
+
 func generate_loot_for_mech(mech: Node):
 	if not "components" in mech:
 		return
+	_note_wave()
+	var dropped_any_tile = false
 
 	for comp in mech.components.values():
 		if comp == null:
@@ -156,23 +205,29 @@ func generate_loot_for_mech(mech: Node):
 
 	for tile in equipped_tiles:
 		if is_25th_wave_boss:
-			# Guaranteed drop of rare or better
+			# Guaranteed drop of rare or better - never the structural plumbing
+			# (Core/Links/Returns), which used to win just by being equipped first.
+			if is_structural(tile.tile_type):
+				continue
 			var roll = randf()
 			if roll <= 0.10:
 				tile.rarity = HexTile.Rarity.LEGENDARY
 			else:
 				tile.rarity = HexTile.Rarity.RARE
 			_spawn_loot_drop(mech, tile)
-			break 
-			
-		elif is_boss:
-			if randf() <= 0.50:
-				_spawn_loot_drop(mech, tile)
-		else:
-			var chance = _get_mythic_drop_rate() if tile.rarity == HexTile.Rarity.MYTHIC else DROP_RATES.get(tile.rarity, 0.0)
-			chance *= _tile_type_drop_multiplier(tile.tile_type, tile.rarity)
-			if randf() <= chance:
-				_spawn_loot_drop(mech, tile)
+			_note_dropped(tile.tile_type)
+			break
+
+		var sm = get_node_or_null("/root/SaveManager")
+		var discovered = sm.discovered_tile_types.has(tile.tile_type) if sm else true
+		var chance = drop_chance(tile.tile_type, tile.rarity, is_boss, discovered)
+		if randf() <= chance:
+			_spawn_loot_drop(mech, tile)
+			_note_dropped(tile.tile_type)
+			dropped_any_tile = true
+
+	if not is_boss:
+		_drought_kills = 0 if dropped_any_tile else _drought_kills + 1
 
 # PvP ghost (Traveling Champion) loot - design ruling: a defeated ghost
 # ALWAYS drops one component and some tiles, with the ghost's own
@@ -215,6 +270,10 @@ func generate_ghost_loot(mech: Node):
 	# A tile instance can only be handed to ONE pickup - re-picks are skipped.
 	var dropped = {}
 	var first_tile = pick_weighted.call()
+	for _attempt in range(8):
+		if not is_structural(first_tile.tile_type):
+			break
+		first_tile = pick_weighted.call()
 	dropped[first_tile] = true
 	_spawn_loot_drop(mech, first_tile)
 	for _i in range(3):

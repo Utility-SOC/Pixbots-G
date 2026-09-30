@@ -8,6 +8,7 @@ const WarRoomNames = preload("res://scripts/ai/WarRoomNames.gd")
 const TemplateEvolution = preload("res://scripts/ai/TemplateEvolution.gd")
 const ProfileEvolution = preload("res://scripts/ai/ProfileEvolution.gd")
 const BossEvolution = preload("res://scripts/ai/BossEvolution.gd")
+const OrdersLog = preload("res://scripts/ai/OrdersLog.gd")
 const StockBuild = preload("res://scripts/ai/StockBuild.gd")
 const StockBuildEvolution = preload("res://scripts/ai/StockBuildEvolution.gd")
 const DroneBayTileScript = preload("res://scripts/tiles/DroneBayTile.gd")
@@ -37,6 +38,7 @@ var player_model = PlayerModel.new()
 const SquadTactics = preload("res://scripts/ai/SquadTactics.gd")
 const TacticGenome = preload("res://scripts/ai/TacticGenome.gd")
 var tactic_recent: Array = []
+var orders = OrdersLog.new() # enemy radio chatter (HUD feed)
 var tactic_pool: Dictionary = TacticGenome.seed_pool() # genome id -> genome (see TacticGenome.gd)
 var tactic_serial: int = 1
 
@@ -268,6 +270,7 @@ func request_save_learned_state():
 	_save_flush_timer = SAVE_FLUSH_INTERVAL
 
 func _process(delta: float):
+	orders.pump(delta)
 	if _learned_state_dirty:
 		_save_flush_timer -= delta
 		if _save_flush_timer <= 0.0:
@@ -659,6 +662,7 @@ func assign_tactics(squad: Squad) -> void:
 	else:
 		squad.tactics.set_genome(g)
 	print("[TACTICS] Squad '%s' plan: %s" % [squad.template.template_name if squad.template else "?", squad.tactics.genome_id])
+	orders.post("plan", squad.template.template_name if squad.template else "", squad.get_instance_id(), squad.tactics.plan_name)
 
 # Credits the squad's (par-normalized) fitness to every genome it ran, then
 # lets the pool cull proven losers and breed from proven winners.
@@ -1543,6 +1547,7 @@ func credit_bot_death(mech: Node):
 
 func _on_squad_defeated(squad: Squad, fitness_score: float):
 	active_squads.erase(squad)
+	orders.post("wipe", squad.template.template_name if squad.template else "", squad.get_instance_id())
 
 	var t = squad.template
 	# Squad fitness sums over members, so a 5-bot squad outscores a 2-bot one

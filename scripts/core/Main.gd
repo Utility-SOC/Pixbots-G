@@ -126,6 +126,7 @@ const PLAYER_PAINT_PALETTE: Array[Color] = [
 
 
 var hud_canvas: CanvasLayer
+var orders_panel: VBoxContainer
 var wave_label: Label
 var timer_label: Label
 var extraction_marker: Node2D = null
@@ -465,6 +466,10 @@ func _setup_hud():
 	dialogue_label.add_theme_font_size_override("normal_font_size", 20)
 	dialogue_label.add_theme_font_size_override("bold_font_size", 22)
 	dialogue_box.add_child(dialogue_label)
+
+	orders_panel = load("res://scripts/ui/OrdersPanel.gd").new()
+	orders_panel.position = Vector2(20, 520)
+	hud_canvas.add_child(orders_panel)
 
 	add_child(hud_canvas)
 	_update_hud()
@@ -961,6 +966,7 @@ func _clear_stale_wave_enemies():
 func _ensure_squad_director():
 	# Spawn Squad Director if it doesn't exist
 	var director = world.get_node_or_null("SquadDirector")
+
 	if not director:
 		director = load("res://scripts/ai/SquadDirector.gd").new()
 		director.name = "SquadDirector"
@@ -1047,6 +1053,8 @@ func _ensure_squad_director():
 		# sessions. Must run AFTER the defaults exist so the merge-by-name
 		# updates them in place instead of duplicating them.
 		director.load_learned_state()
+	if orders_panel:
+		orders_panel.bind(director.orders)
 	return director
 
 func _start_wave():

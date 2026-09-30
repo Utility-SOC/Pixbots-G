@@ -193,6 +193,7 @@ func _tick(squad: Node, player: Node2D) -> void:
 		if engaged or _phase_time > float(cfg.get("timeout", 6.0)) or (_stage_goal_ticks > 0 and _stage_ready(members, P, cfg)):
 			_phase = "commit"
 			_phase_time = 0.0
+			_say(squad, director, "commit", plan_name)
 
 	var ids = []
 	for m in members:
@@ -210,6 +211,10 @@ func _tick(squad: Node, player: Node2D) -> void:
 		_set_member_goal(m, _assign[m.get_instance_id()], P, cfg, map, ring_n)
 	if _phase == "stage":
 		_stage_goal_ticks += 1
+
+func _say(squad: Node, director: Node, kind: String, plan: String) -> void:
+	if director and "orders" in director:
+		director.orders.post(kind, squad.template.template_name if "template" in squad and squad.template else "", squad.get_instance_id(), plan)
 
 func _stage_ready(members: Array, P: Vector2, cfg: Dictionary) -> bool:
 	var arrived = 0
@@ -356,5 +361,6 @@ func _maybe_replan(squad: Node, members: Array, director: Node) -> void:
 		return
 	print("[TACTICS] '%s' failing -> switching to '%s'" % [genome_id, next["id"]])
 	set_genome(next)
+	_say(squad, director, "replan", plan_name)
 	_plan_hits_at_start = squad.hits_landed
 	_replan_cooldown = REPLAN_COOLDOWN

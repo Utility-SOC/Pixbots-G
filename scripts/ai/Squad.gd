@@ -154,6 +154,9 @@ func _on_member_died():
 	if active_members <= 0:
 		_on_squad_wiped()
 	else:
+		var d = get_parent()
+		if d and "orders" in d:
+			d.orders.post("casualty", template.template_name if template else "", get_instance_id())
 		# Evaluate link up when losing a member
 		request_linkup.emit(self)
 

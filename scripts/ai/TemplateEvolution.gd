@@ -109,6 +109,7 @@ func maybe_introduce_experimental_template():
 
 	if new_template:
 		director.register_template(new_template)
+		director.inherit_parent_builds(new_template)
 		print("[DIRECTOR] New experimental template on trial: '", new_template.template_name, "' roles=", new_template.required_roles)
 
 # Below this water fraction the bias is a no-op - most maps have a pond
@@ -183,6 +184,7 @@ func evaluate_experimental_template(t: SquadTemplate):
 	var avg = t.get_average_fitness()
 	if avg < CULL_FITNESS_THRESHOLD:
 		director.templates.erase(t)
+		director.drop_stock_builds_for(t.template_name)
 		print("[DIRECTOR] Experimental template '", t.template_name, "' culled (avg fitness %.1f < %.1f)" % [avg, CULL_FITNESS_THRESHOLD])
 	elif avg >= GRADUATE_FITNESS_THRESHOLD:
 		t.is_experimental = false

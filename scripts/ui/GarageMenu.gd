@@ -512,7 +512,22 @@ static func tile_scrap_value(tile: HexTile) -> int:
 static func tile_upgrade_cost(tile: HexTile) -> int:
 	return tile_scrap_value(tile) * 2 * tile.level
 
+var _deploying := false
+
+func deploy():
+	if _deploying:
+		return
+	var main = get_parent()
+	if main and main.has_method("_close_garage"):
+		_deploying = true
+		main._close_garage()
+
 func _input(event):
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F5 or (event.keycode in [KEY_ENTER, KEY_KP_ENTER] and event.ctrl_pressed):
+			get_viewport().set_input_as_handled()
+			deploy()
+			return
 	if not garage_inventory_panel:
 		garage_inventory_panel = GarageInventoryPanel.new(self)
 	garage_inventory_panel.handle_input(event)

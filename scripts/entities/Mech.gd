@@ -366,6 +366,7 @@ var _cached_separation: Vector2 = Vector2.ZERO
 
 var separate_arm_firing: bool = false
 var base_rarity: int = 0 # HexTile.Rarity.COMMON
+var _stock_evo_override = null # set only by presolve_stock_build's off-tree throwaway
 # Set by SquadDirector before add_child() (same pattern as combat_role/
 # base_rarity below) so build_loadout_for_role() can hand it to
 # AutoEquipSolver. Null means "use the solver's old fixed-priority
@@ -389,13 +390,25 @@ var sub_archetype_slot: int = 0
 # against an existing StockBuild - SquadDirector.credit_bot_death() reads
 # these to report the deviation's fitness back to StockBuildEvolution.
 var _is_deviation_test: bool = false
+var _force_deviation: bool = false
 var _deviation_components: Dictionary = {}
+# Which evolving pool entry actually shaped this bot's loadout (see build_loadout_for_role).
+var _champion_build = null # StockBuild replayed as-is (gets fitness credit at death)
+var _build_profile_name: String = "" # SolverProfile that produced the loadout, even when replayed from cache
 # Back-reference to the Squad.gd instance this mech was recruited into (set
 # by Squad.add_member()) - null for bosses and anything spawned outside the
 # normal squad-assembly path. Used by the sight-sharing system below: a
 # mech that spots the player broadcasts to squad.members ONLY, never
 # globally, so different squads never leak sight info to each other.
 var squad: Node = null
+# Written by SquadTactics each planning tick: where this member should go to
+# play its part in the squad plan (flank point, staging ring...), whether the
+# straight line there is walkable, and a short label for the state tag.
+var tactic_goal: Vector2 = Vector2.ZERO
+var tactic_goal_active: bool = false
+var tactic_path_clear: bool = false
+var tactic_hold: bool = false
+var tactic_label: String = ""
 var is_boss: bool = false
 # Set by Main._spawn_boss right after director._spawn_bot_for_role (same
 # pattern as spawn_profile above). Drives which enrage style/ability
@@ -1867,17 +1880,36 @@ var _heat_arc_timer: float = 0.0
 ## refactor instead - same class, zero field-access changes, phases split
 ## into named private helpers below with NO behavior change. Diff this
 ## against git history if you ever need to confirm nothing moved wrong.
+static var _perf_recalc_usec: int = 0
+static var _perf_recalc_calls: int = 0
+static var _perf_phase_usec: Array = [0, 0, 0, 0, 0]
+static var _perf_sim_rust_calls: int = 0
+static var _perf_sim_gd_calls: int = 0
+
 func _recalculate_grid():
+	var _t_recalc = Time.get_ticks_usec()
 	_reset_grid_state()
+	var _tp1 = Time.get_ticks_usec()
 	_compute_mass_and_stat_modifiers()
+	var _tp2 = Time.get_ticks_usec()
 
 	if not components.has(HexTile.BodySlot.TORSO):
 		return
 
 	var torso = components[HexTile.BodySlot.TORSO]
 	_simulate_energy_flow(torso)
+	var _tp3 = Time.get_ticks_usec()
 	_collect_weapon_mounts_and_tile_capabilities()
+	var _tp4 = Time.get_ticks_usec()
 	_finalize_grid_state()
+	var _tp5 = Time.get_ticks_usec()
+	_perf_phase_usec[0] += _tp1 - _t_recalc
+	_perf_phase_usec[1] += _tp2 - _tp1
+	_perf_phase_usec[2] += _tp3 - _tp2
+	_perf_phase_usec[3] += _tp4 - _tp3
+	_perf_phase_usec[4] += _tp5 - _tp4
+	_perf_recalc_usec += Time.get_ticks_usec() - _t_recalc
+	_perf_recalc_calls += 1
 
 # Stock-replay counterpart of _recalculate_grid() - identical except the
 # expensive _simulate_energy_flow() pass (confirmed via live diagnostic to
@@ -2022,6 +2054,67 @@ static func prewarm_stock_build(stock: StockBuild) -> void:
 	bot.equip_component(bot._create_role_backpack(stock.role, stock.rarity))
 	bot._replay_stock_tiles(stock)
 	bot.free()
+
+# Solves and registers a (template, role, rarity, slot) StockBuild that
+# doesn't exist yet, off-tree, so the first live spawn of it is a cache
+# replay instead of a fresh AutoEquipSolver run mid-wave. Mirrors what a
+# real spawn's fresh-solve branch does (same inventory, same spawn_profile
+# plumbing) via build_loadout_for_role itself, then warms the new build's
+# simulation cache. No-op if the build already exists.
+static func presolve_stock_build(evo, template_name: String, role: String, rarity: int, slot: int, profile) -> void:
+	if evo.get_stock_build(template_name, role, rarity, slot) != null:
+		return
+	var bot = load("res://scripts/entities/Mech.gd").new()
+	bot.is_player = false
+	bot.combat_role = role
+	bot.base_rarity = rarity
+	bot.spawn_template_name = template_name
+	bot.sub_archetype_slot = slot
+	bot.spawn_profile = profile
+	bot._stock_evo_override = evo
+	bot.equip_component(ComponentEquipment.create_starter_torso(role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_arm(true, role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_arm(false, role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_leg(true, role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_leg(false, role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_head(role, rarity))
+	bot.equip_component(bot._create_role_backpack(role, rarity))
+	bot.build_loadout_for_role(role)
+	bot.free()
+	var stock = evo.get_stock_build(template_name, role, rarity, slot)
+	if stock != null:
+		prewarm_stock_build(stock)
+
+# Off-tree solve of one extra (unregistered) candidate build for a key that
+# already has a champion; its simulation cache is warmed so a live spawn that
+# rolls a deviation test replays it instantly and reports its fitness back
+# through the normal record_deviation_result path.
+static func generate_deviation_candidate(evo, template_name: String, role: String, rarity: int, slot: int, profile) -> StockBuild:
+	var bot = load("res://scripts/entities/Mech.gd").new()
+	bot.is_player = false
+	bot.combat_role = role
+	bot.base_rarity = rarity
+	bot.spawn_template_name = template_name
+	bot.sub_archetype_slot = slot
+	bot.spawn_profile = profile
+	bot._stock_evo_override = evo
+	bot._force_deviation = true
+	bot.equip_component(ComponentEquipment.create_starter_torso(role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_arm(true, role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_arm(false, role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_leg(true, role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_leg(false, role, rarity))
+	bot.equip_component(ComponentEquipment.create_starter_head(role, rarity))
+	bot.equip_component(bot._create_role_backpack(role, rarity))
+	bot.build_loadout_for_role(role)
+	var ok: bool = bot._is_deviation_test
+	var serialized: Dictionary = bot._deviation_components
+	bot.free()
+	if not ok:
+		return null
+	var candidate = StockBuildMutator.establish(template_name, role, rarity, serialized, slot, profile.profile_name if profile else "")
+	prewarm_stock_build(candidate)
+	return candidate
 
 func _reset_grid_state():
 	precalculated_weapons.clear()
@@ -2786,7 +2879,9 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscr
 	# unsupported (stateful/conditional) tile falls through to the original
 	# GDScript path automatically.
 	if not force_gdscript and RustGridSimBridge.try_simulate(grid, starting_packets):
+		_perf_sim_rust_calls += 1
 		return
+	_perf_sim_gd_calls += 1
 
 	var active_packets: Array[EnergyPacket] = []
 	for pkt in starting_packets:
@@ -3222,6 +3317,15 @@ func rejoin_from_wild():
 static var _perf_flee_check_usec: int = 0
 static var _perf_execute_search_usec: int = 0
 
+const TACTIC_ARRIVE_RADIUS = 70.0
+
+# Squad plans lead the player's motion (skill scales with director pressure);
+# without a squad/tactics it aims at the raw position as before.
+func _ai_aim_point(target_pos: Vector2, dist: float) -> Vector2:
+	if squad and is_instance_valid(squad) and squad.get("tactics"):
+		return squad.tactics.lead_point(target_pos, dist)
+	return target_pos
+
 func _execute_ai_tactics(delta):
 	# Flee/wild states override everything below for regular wave enemies -
 	# checked BEFORE target re-acquisition, or a wild bot would immediately
@@ -3272,8 +3376,8 @@ func _execute_ai_tactics(delta):
 		# throttle for its own test), it's just no longer called from here.
 		if not is_boss:
 			if _ai_state_label:
-				_ai_state_label.text = "CHASE" if has_sight_of_player else "SEARCH"
-				_ai_state_label.modulate = Color(0.3, 1.0, 0.3) if has_sight_of_player else Color(1.0, 0.6, 0.2)
+				_ai_state_label.text = ("CHASE" if tactic_label == "" else tactic_label) if has_sight_of_player else "SEARCH"
+				_ai_state_label.modulate = (Color(0.3, 1.0, 0.3) if tactic_label == "" else Color(0.3, 0.9, 1.0)) if has_sight_of_player else Color(1.0, 0.6, 0.2)
 			if not has_sight_of_player:
 				if not sight_and_search:
 					sight_and_search = SightAndSearch.new(self)
@@ -3330,7 +3434,20 @@ func _execute_ai_tactics(delta):
 				path_dir = map.get_flow_direction(global_position, target.global_position)
 			_perf_flow_field_usec += Time.get_ticks_usec() - _t_flow
 
-		if dist > engagement_distance:
+		var tactic_moving = false
+		if not is_boss and tactic_goal_active:
+			var to_goal = tactic_goal - global_position
+			if to_goal.length() > TACTIC_ARRIVE_RADIUS:
+				tactic_moving = true
+				var steer = to_goal.normalized() if tactic_path_clear else path_dir
+				velocity = steer * current_move_speed * speed_modifier
+			elif tactic_hold:
+				tactic_moving = true
+				velocity = Vector2.ZERO
+
+		if tactic_moving:
+			pass # squad tactic is steering this member
+		elif dist > engagement_distance:
 			# Approach full speed
 			velocity = path_dir * current_move_speed * speed_modifier
 		else:
@@ -3369,7 +3486,7 @@ func _execute_ai_tactics(delta):
 				_ai_shoot_timer -= delta
 				if _ai_shoot_timer <= 0.0:
 					_ai_shoot_timer = 1.0 / AI_SHOOT_CHECK_HZ
-					_shoot(target.global_position, true, true, delta)
+					_shoot(_ai_aim_point(target.global_position, dist), true, true, delta)
 			_perf_diag_shoot_usec += Time.get_ticks_usec() - _t_shoot_diag
 
 
@@ -4221,13 +4338,29 @@ func build_loadout_for_role(role_name: String):
 	if stock_evo and spawn_template_name != "":
 		var _t_stock_lookup = Time.get_ticks_usec()
 		stock = stock_evo.get_stock_build(spawn_template_name, role_name, base_rarity, sub_archetype_slot)
-		use_stock = stock != null and not stock_evo.should_test_deviation()
+		use_stock = stock != null
+		if use_stock and not _force_deviation and stock_evo.should_test_deviation():
+			# Deviation rolled: consume a candidate generated off-wave
+			# (StockBuildEvolution.pregenerate) so no fresh solve lands
+			# mid-wave. Pool empty -> just replay the champion this once.
+			var candidate = stock_evo.take_deviation_candidate(spawn_template_name, role_name, base_rarity, sub_archetype_slot) if stock_evo.has_method("take_deviation_candidate") else null
+			if candidate != null:
+				_perf_stock_lookup_usec += Time.get_ticks_usec() - _t_stock_lookup
+				_replay_stock_tiles(candidate)
+				_is_deviation_test = true
+				_deviation_components = candidate.serialized_components
+				_build_profile_name = candidate.solver_profile_name
+				return
+		elif use_stock and _force_deviation:
+			use_stock = false
 		_perf_stock_lookup_usec += Time.get_ticks_usec() - _t_stock_lookup
 
 	if use_stock:
 		var _t_stock_replay = Time.get_ticks_usec()
 		_replay_stock_tiles(stock)
 		_perf_stock_replay_usec += Time.get_ticks_usec() - _t_stock_replay
+		_champion_build = stock
+		_build_profile_name = stock.solver_profile_name
 		return
 
 	var _t_fresh_inventory = Time.get_ticks_usec()
@@ -4346,13 +4479,14 @@ func build_loadout_for_role(role_name: String):
 	_recalculate_grid()
 
 	var _t_post_solve_serialize = Time.get_ticks_usec()
+	_build_profile_name = spawn_profile.profile_name if spawn_profile != null else ""
 	if stock_evo and spawn_template_name != "":
 		var serialized := {}
 		for slot in [HexTile.BodySlot.TORSO, HexTile.BodySlot.ARM_R, HexTile.BodySlot.ARM_L]:
 			if components.has(slot):
 				serialized[slot] = SaveManager._serialize_component(components[slot])
 		if stock == null:
-			stock_evo.establish_stock_build(spawn_template_name, role_name, base_rarity, serialized, sub_archetype_slot)
+			stock_evo.establish_stock_build(spawn_template_name, role_name, base_rarity, serialized, sub_archetype_slot, _build_profile_name)
 		else:
 			# This spawn rolled a deviation test against an existing build -
 			# don't apply the result yet, just remember it. credit_bot_death()
@@ -4367,6 +4501,8 @@ func build_loadout_for_role(role_name: String):
 # log_mortar_shot() lookup) - null for the player and anything spawned
 # outside a live SquadDirector's world (Test Range, debug spawns).
 func _get_stock_build_evolution():
+	if _stock_evo_override != null:
+		return _stock_evo_override
 	var main = get_tree().current_scene if is_inside_tree() else null
 	if main and "world" in main and main.world and main.world.has_node("SquadDirector"):
 		var director = main.world.get_node("SquadDirector")

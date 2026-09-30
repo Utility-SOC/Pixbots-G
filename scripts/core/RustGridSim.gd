@@ -361,6 +361,30 @@ static func _packet_to_dict(p) -> Dictionary:
 		"trigger": _trigger_to_int(p.trigger_key),
 	}
 
+const CAPTURE_STRIDE = 52
+
+# Layout mirrors the cap_flat build in hexgrid_sim.rs (after tile, step).
+static func _decode_capture_packet(cf: PackedFloat64Array, o: int) -> EnergyPacket:
+	var p = EnergyPacket.new(0.0, null)
+	p.synergies.clear()
+	for i in range(10):
+		if cf[o + 11 + i] != 0.0:
+			p.synergies[i] = cf[o + 1 + i]
+		if cf[o + 31 + i] != 0.0:
+			p.proc_synergies[i] = cf[o + 21 + i]
+	p.magnitude = cf[o]
+	p.traversal_steps = int(cf[o + 41])
+	p.charge_required = cf[o + 42]
+	p.accumulator_quality = cf[o + 43]
+	p.aoe_bonus = cf[o + 44]
+	p.acc_charge_mult = cf[o + 45]
+	p.acc_damage_mult = cf[o + 46]
+	p.range_mult = cf[o + 47]
+	p.auto_dump_threshold = cf[o + 48]
+	p.trigger_key = _int_to_trigger(int(cf[o + 49]))
+	p.is_active = false
+	return p
+
 static func _packet_from_dict(d: Dictionary) -> EnergyPacket:
 	var p = EnergyPacket.new(0.0, null)
 	p.synergies.clear()
@@ -391,7 +415,11 @@ static func _packet_from_dict(d: Dictionary) -> EnergyPacket:
 # The whole show. Returns true when the grid was fully simulated in Rust
 # (results already applied to the real tiles); false = unsupported tile or
 # no Rust available - caller runs the original GDScript sim instead.
+static var _perf_us: Array = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+static var _perf_tiles: int = 0
+
 static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = false) -> bool:
+	var _q0 = Time.get_ticks_usec()
 	if not ENABLED and not bypass_gate:
 		return false
 	var sim = _ensure_sim()
@@ -419,18 +447,28 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 	for p in starting_packets:
 		packet_dicts.append(_packet_to_dict(p))
 
+	var _q1 = Time.get_ticks_usec()
 	var result: Dictionary = sim.simulate_grid(descs, valid_cells, packet_dicts)
+	var _q2 = Time.get_ticks_usec()
+	_perf_tiles += tiles.size()
+	_perf_us[3] += int(result.get("t_parse_us", 0))
+	_perf_us[4] += int(result.get("t_sim_us", 0))
+	_perf_us[5] += int(result.get("t_out_us", 0))
+	_perf_us[6] += int(result.get("steps", 0))
+	_perf_us[7] += result.get("capture_flat", PackedFloat64Array()).size() / CAPTURE_STRIDE
+	_perf_us[8] += 1
 
 	# tile_objs is get_all_tiles() order, but Rust indexed tiles by their
 	# (q,r) insertion into its grid map - which came from the SAME array
 	# order, so indices line up 1:1.
-	for cap in result.get("captures", []):
-		var tile = tile_objs[int(cap["tile"])]
-		var pkt = _packet_from_dict(cap["packet"])
+	var cf: PackedFloat64Array = result.get("capture_flat", PackedFloat64Array())
+	for base in range(0, cf.size(), CAPTURE_STRIDE):
+		var tile = tile_objs[int(cf[base])]
+		var pkt = _decode_capture_packet(cf, base + 2)
 		if "pending_transfer_packets" in tile and tile.get("target_slot") != null and tile.target_slot != HexTile.BodySlot.NONE:
 			tile.pending_transfer_packets.append(pkt)
 		elif "pending_packets" in tile:
-			tile.pending_packets.append({"packet": pkt, "step": int(cap["step"])})
+			tile.pending_packets.append({"packet": pkt, "step": int(cf[base + 1])})
 	for st in result.get("stores", []):
 		var tile = tile_objs[int(st["tile"])]
 		if "stored_energy" in tile:
@@ -518,6 +556,10 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 			tile._remnant_magnitudes = _packed_to_syn_dict_from_present(st["remnant"], st["remnant_present"])
 		elif t == "Catalyst" and "_gate_counter" in tile:
 			tile._gate_counter = int(st.get("gate_counter", 0))
+	var _q3 = Time.get_ticks_usec()
+	_perf_us[0] += _q1 - _q0
+	_perf_us[1] += _q2 - _q1
+	_perf_us[2] += _q3 - _q2
 	return true
 
 # Mirrors JumpjetTile/ActuatorTile.process_energy's own mech lookup exactly:

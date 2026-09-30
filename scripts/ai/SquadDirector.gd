@@ -29,6 +29,13 @@ var template_evolution: TemplateEvolution
 var profile_evolution: ProfileEvolution
 var boss_evolution: BossEvolution
 var stock_build_evolution: StockBuildEvolution
+const FitnessPar = preload("res://scripts/ai/FitnessPar.gd")
+var fitness_par = FitnessPar.new()
+const PlayerModel = preload("res://scripts/ai/PlayerModel.gd")
+var player_model = PlayerModel.new()
+const SquadTactics = preload("res://scripts/ai/SquadTactics.gd")
+var tactic_recent: Array = []
+var tactic_stats: Dictionary = {} # plan name -> {"n": int, "mean": float (normalized squad fitness)}
 
 var solver_profiles: Array[SolverProfile] = []
 var boss_profiles: Array[BossProfile] = []
@@ -212,6 +219,15 @@ func load_learned_state():
 		if telemetry.get("player_kill_methods") is Dictionary:
 			player_kill_methods = telemetry["player_kill_methods"]
 		total_player_kills = int(telemetry.get("total_player_kills", 0))
+		if telemetry.get("fitness_par") is Dictionary:
+			fitness_par.from_dict(telemetry["fitness_par"])
+		if telemetry.get("player_model") is Dictionary:
+			player_model.from_dict(telemetry["player_model"])
+		if telemetry.get("tactic_stats") is Dictionary:
+			for k in telemetry["tactic_stats"]:
+				var e = telemetry["tactic_stats"][k]
+				if e is Dictionary:
+					tactic_stats[str(k)] = {"n": int(e.get("n", 0)), "mean": float(e.get("mean", 100.0))}
 		_apply_kill_method_counter_pressure()
 		
 	var round_state = profile_manager.load_telemetry(LEARNED_STATE_NAME + "_rounds")
@@ -270,6 +286,9 @@ func save_learned_state():
 			"total_bot_damage_dealt": total_bot_damage_dealt,
 			"player_kill_methods": player_kill_methods,
 			"total_player_kills": total_player_kills,
+			"fitness_par": fitness_par.to_dict(),
+			"player_model": player_model.to_dict(),
+			"tactic_stats": tactic_stats,
 		})
 		profile_manager.save_telemetry(LEARNED_STATE_NAME + "_rounds", {
 			"current_round": current_round,
@@ -375,6 +394,41 @@ func _squad_has_open_role(squad: Squad) -> bool:
 
 func register_template(template: SquadTemplate):
 	templates.append(template)
+
+# A freshly derived (mutated/crossed/fused) template starts with copies of its
+# parent's proven builds for every role they share, instead of re-solving from
+# scratch and throwing away what the lineage learned. Deviation testing keeps
+# exploring from there. Only for new derivations - loading saved state must not
+# call this (the saved builds already exist).
+func inherit_parent_builds(child: SquadTemplate) -> int:
+	if child.parent_name == "":
+		return 0
+	var copies: Array = []
+	for sb in stock_builds:
+		if sb.template_name != child.parent_name:
+			continue
+		var wanted = int(child.required_roles.get(sb.role, 1 if sb.role == "scout" else 0))
+		if sb.sub_archetype_slot >= wanted:
+			continue
+		if stock_build_evolution and stock_build_evolution.get_stock_build(child.template_name, sb.role, sb.rarity, sb.sub_archetype_slot) != null:
+			continue
+		var c = StockBuild.new(child.template_name, sb.role, sb.rarity)
+		c.sub_archetype_slot = sb.sub_archetype_slot
+		c.serialized_components = sb.serialized_components.duplicate(true)
+		c.solver_profile_name = sb.solver_profile_name
+		c.parent_name = sb.template_name + ":" + sb.role
+		c.base_spawn_weight = sb.spawn_weight
+		c.spawn_weight = sb.spawn_weight
+		copies.append(c)
+	stock_builds.append_array(copies)
+	return copies.size()
+
+# Stock builds are keyed by template - once a template is culled its builds are
+# unreachable dead weight in memory and in the save file.
+func drop_stock_builds_for(template_name: String) -> void:
+	for i in range(stock_builds.size() - 1, -1, -1):
+		if stock_builds[i].template_name == template_name:
+			stock_builds.remove_at(i)
 
 # Thin wrapper - external callers (Main.gd) keep calling director.
 # maybe_introduce_experimental_template() unchanged; the actual mutate/
@@ -541,10 +595,43 @@ func _assemble_squad(selected_template: SquadTemplate) -> Squad:
 			squad.add_member(scout)
 
 	add_child(squad)
+	assign_tactics(squad)
 	active_squads.append(squad)
 	squad.squad_defeated.connect(_on_squad_defeated)
 	squad.request_linkup.connect(_on_squad_request_linkup)
 	return squad
+
+func _current_wave() -> int:
+	var main = get_tree().current_scene if get_tree() else null
+	return int(main.current_wave) if main and "current_wave" in main else 0
+
+func choose_tactic_plan(exclude: String = "") -> String:
+	var plan = SquadTactics.choose_plan(_current_wave(), player_model.pressure, tactic_recent, tactic_stats, exclude)
+	tactic_recent.append(plan)
+	while tactic_recent.size() > SquadTactics.RECENT_PLAN_MEMORY:
+		tactic_recent.pop_front()
+	return plan
+
+func assign_tactics(squad: Squad) -> void:
+	squad.tactics = SquadTactics.new()
+	squad.tactics.set_plan(choose_tactic_plan())
+	print("[TACTICS] Squad '%s' plan: %s" % [squad.template.template_name if squad.template else "?", squad.tactics.plan_name])
+
+# Credits the squad's (par-normalized) fitness to every plan it ran, so plan
+# selection drifts toward what actually works against this player.
+func record_tactic_results(squad: Squad, normalized: float) -> void:
+	if not squad.tactics:
+		return
+	var seen = {}
+	for name in squad.tactics.plans_used:
+		if seen.has(name):
+			continue
+		seen[name] = true
+		var e = tactic_stats.get(name, {"n": 0, "mean": normalized})
+		var n = int(e.n) + 1
+		e.mean = lerp(float(e.mean), normalized, max(1.0 / n, 0.1))
+		e.n = n
+		tactic_stats[name] = e
 
 func _on_squad_request_linkup(squad: Squad):
 	# Find another squad that is also broken and nearby
@@ -602,6 +689,7 @@ func _merge_squads(squad_a: Squad, squad_b: Squad):
 			var derived = SquadTemplateMutator.from_squad_composition(squad_a, "Fused")
 			if derived:
 				register_template(derived)
+				inherit_parent_builds(derived)
 				print("[DIRECTOR] Merged composition registered as new experimental template: '", derived.template_name, "' roles=", derived.required_roles)
 
 var player_element_usage: Dictionary = {}
@@ -655,6 +743,7 @@ func log_player_damage(amount: float, element: String):
 		player_element_usage[element] = 0.0
 	player_element_usage[element] += amount
 	total_damage_taken += amount
+	player_model.log_damage(element, amount)
 
 func log_bot_damage(amount: float, element: String):
 	if not bot_element_usage.has(element):
@@ -702,18 +791,24 @@ var _counter_announced_element: String = ""
 func log_player_kill(element: String):
 	player_kill_methods[element] = player_kill_methods.get(element, 0) + 1
 	total_player_kills += 1
+	player_model.log_kill(element)
 	_apply_kill_method_counter_pressure()
 
 func _apply_kill_method_counter_pressure():
-	if total_player_kills < KILL_OVERUSE_MIN_KILLS:
+	# Recency-weighted (see PlayerModel): a player who switches away from
+	# their old finisher stops being countered for it within a few waves.
+	var recent_kills = player_model.recent_kill_total()
+	if recent_kills < KILL_OVERUSE_MIN_KILLS:
+		counter_jam_synergy = -1
+		_counter_announced_element = ""
 		return
 
 	var top_element := ""
 	var top_share := 0.0
-	for element in player_kill_methods:
+	for element in player_model.recent_kills:
 		if element == "RAW":
 			continue
-		var share = float(player_kill_methods[element]) / float(total_player_kills)
+		var share = player_model.recent_kill_share(element)
 		if share > top_share:
 			top_share = share
 			top_element = element
@@ -769,8 +864,37 @@ func log_mortar_shot():
 		if t.required_roles.has("ambusher") or t.required_roles.has("jammer"):
 			t.spawn_weight = min(250.0, t.spawn_weight * 1.03)
 
+var _wave_start_damage_taken: float = 0.0
+
 func note_wave_started():
 	_wave_start_kill_counts = player_kill_methods.duplicate()
+	_wave_start_damage_taken = total_damage_taken
+
+# Levers driven by PlayerModel.pressure. They sharpen enemy behaviour/loadout
+# selection (how often new builds are trialled, how reliably enemies commit to
+# the counter-build) - not stats and not component tier.
+func exploration_multiplier() -> float:
+	return 1.0 + 0.6 * player_model.pressure
+
+func counter_build_chance() -> float:
+	return min(0.95, COUNTER_BUILD_CHANCE + 0.06 * player_model.pressure)
+
+# Called once per cleared wave (Main._on_wave_cleared): decays the recency
+# memories, detects a playstyle shift, and steps the difficulty pressure.
+func end_of_wave_update() -> Dictionary:
+	var ehp = 100.0
+	var players = get_tree().get_nodes_in_group("player") if is_inside_tree() else []
+	if players.size() > 0:
+		var p = players[0]
+		ehp = float(p.max_hp) if "max_hp" in p else 100.0
+		if "max_shield_hp" in p:
+			ehp += float(p.max_shield_hp)
+	var result = player_model.end_wave(total_damage_taken - _wave_start_damage_taken, ehp)
+	_wave_start_damage_taken = total_damage_taken
+	if result["shifted"]:
+		print("[DIRECTOR] Player playstyle shift detected - old counters retired, pressure eased to %.2f." % player_model.pressure)
+	request_save_learned_state()
+	return result
 
 func get_intel_line(wave: int) -> String:
 	if wave < 3:
@@ -873,7 +997,12 @@ func maybe_introduce_experimental_boss_profile():
 # Called from Main._on_boss_died once the boss's own fitness is computed
 # (see Mech.get_boss_fitness) - same trigger shape as _on_squad_defeated.
 func _on_boss_defeated(profile: BossProfile, fitness_score: float):
-	boss_evolution.on_boss_defeated(profile, fitness_score)
+	# Raw boss fitness scales with wave HP/damage, so bucket par by 10-wave band:
+	# later bosses are judged against later bosses, not against wave-5 ones.
+	var main = get_tree().current_scene if get_tree() else null
+	var wave = int(main.current_wave) if main and "current_wave" in main else 0
+	var normalized = fitness_par.normalize_and_update("boss:%d" % (wave / 10), fitness_score)
+	boss_evolution.on_boss_defeated(profile, normalized)
 
 func _all_roles_filled(roles: Dictionary) -> bool:
 	for count in roles.values():
@@ -970,9 +1099,9 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	
 	# Reactive AI: Apply Resistance Traits based on player history
 	var player_favored_element = -1
-	if total_damage_taken > 500.0:
-		for element in player_element_usage.keys():
-			var ratio = player_element_usage[element] / total_damage_taken
+	if player_model.recent_damage_total() > 500.0:
+		for element in player_model.recent_damage.keys():
+			var ratio = player_model.recent_damage_share(element)
 			if ratio > 0.4:
 				# Player relies heavily on this element, spawn resistant mechs
 				bot.elemental_resistances[element] = 0.5 # Take 50% damage
@@ -993,12 +1122,14 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	# wobble entirely - a Nemesis is built specifically to counter the
 	# player's own damage log, so it should never coin-flip into NOT doing
 	# the one thing it exists for.
-	var commit_weapon_counter = force_full_counter or randf() < COUNTER_BUILD_CHANCE
-	var commit_shield_counter = force_full_counter or randf() < COUNTER_BUILD_CHANCE
+	var counter_chance = counter_build_chance()
+	var commit_weapon_counter = force_full_counter or randf() < counter_chance
+	var commit_shield_counter = force_full_counter or randf() < counter_chance
 
 	# Apply generated synergies to bot's components
 	bot.ready.connect(func():
 		var counter_fitted = false
+		var tiles_changed = false
 		for comp in bot.components.values():
 			for coord in comp.hex_grid.grid.keys():
 				var tile = comp.hex_grid.grid[coord]
@@ -1008,9 +1139,11 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 				if counter_jam_synergy >= 0 and tile.tile_type == "Jammer Module":
 					if "jam_mode" in tile:
 						tile.jam_mode = 1
+						tiles_changed = true
 					if "target_synergy" in tile:
 						tile.target_synergy = counter_jam_synergy
 						counter_fitted = true
+						tiles_changed = true
 				if tile.tile_type == "Microcore":
 					# If this core feeds a weapon, set it to the counter_element
 					# If it feeds a shield, set it to the player_favored_element
@@ -1026,11 +1159,18 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 					for d in tile.active_faces:
 						if is_weapon_feeder and counter_element != -1 and commit_weapon_counter:
 							tile.set_face_output(d, counter_element)
+							tiles_changed = true
 							if counter_element == EnergyPacket.SynergyType.KINETIC:
 								bot.kinetic_sight_bonus = KINETIC_COUNTER_SIGHT_BONUS
 						if is_shield_feeder and player_favored_element != -1 and commit_shield_counter:
 							tile.set_face_output(d, player_favored_element)
-		bot.is_grid_dirty = true
+							tiles_changed = true
+		# Only invalidate the grid the bot's own _ready() already computed
+		# (stock-replay cached) when a counter tweak above changed a tile -
+		# an unconditional dirty here forced a full ~35ms energy simulation
+		# on every bot's first shot.
+		if tiles_changed:
+			bot.is_grid_dirty = true
 		# Director tell: a bot that was specifically kitted against the
 		# player's kill pattern announces it - the counter-doctrine should
 		# be visible on the battlefield, not just in the War Room.
@@ -1060,10 +1200,7 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 
 	# Gear parity: on Hard the bots' component rarity creeps up with waves;
 	# on near-peer they simply build from the player's dominant tier.
-	if difficulty == 2 and main and "current_wave" in main:
-		bot.base_rarity = max(bot.base_rarity, min(HexTile.Rarity.RARE, int(main.current_wave / 8)))
-	elif difficulty >= 3:
-		bot.base_rarity = max(bot.base_rarity, _player_dominant_rarity())
+	bot.base_rarity = expected_base_rarity(bot.base_rarity, role)
 
 	# Mythic seeding, independent of the difficulty-gated gear-parity above
 	# (which on its own never reaches past RARE, or only mirrors the
@@ -1239,6 +1376,46 @@ func _estimate_mech_power(mech) -> float:
 
 # The player's median equipped tile rarity - what tier they're "really"
 # playing at, robust against one lucky Mythic in a sea of Commons.
+# Difficulty-driven component rarity a template spawn resolves to (the
+# Mythic milestone bot aside) - shared by _spawn_bot_for_role and the
+# stock-build pre-solve so both agree on which cache keys will be hit.
+func expected_base_rarity(p_rarity: int = 0, role: String = "") -> int:
+	var difficulty = SaveManager.difficulty
+	var main = get_tree().current_scene
+	var wave = int(main.current_wave) if main and "current_wave" in main else 0
+	var gate = rarity_ceiling_for_wave(wave, role)
+	if difficulty == 1:
+		return max(p_rarity, max(0, gate - 1))
+	elif difficulty == 2:
+		# Mythic arrives only through the wave-75 milestone rule, not here.
+		return max(p_rarity, min(gate, HexTile.Rarity.LEGENDARY))
+	elif difficulty >= 3:
+		return max(p_rarity, min(gate, _player_dominant_rarity()))
+	return p_rarity
+
+# Rarer components unlock for enemies by wave, per tier - never a free ride:
+# fitness is normalized per (role, tier) (see FitnessPar.gd), so a higher tier
+# raises the bar rather than the score. Rank-and-file roles unlock each tier
+# ROLE_UNLOCK_DELAY waves after elites do.
+const RARITY_UNLOCK_WAVES = [0, 8, 16, 40, 75] # COMMON..MYTHIC
+const ROLE_UNLOCK_DELAY = {"brawler": 12, "scout": 8, "diver": 8}
+
+func rarity_ceiling_for_wave(wave: int, role: String = "") -> int:
+	var w = wave - int(ROLE_UNLOCK_DELAY.get(role, 0))
+	var tier = 0
+	for i in range(RARITY_UNLOCK_WAVES.size()):
+		if w >= RARITY_UNLOCK_WAVES[i]:
+			tier = i
+	return tier
+
+# Fire-and-forget: solve every missing stock build for the upcoming wave's
+# rarity a frame at a time (see StockBuildEvolution.presolve_missing_builds).
+func presolve_upcoming_stock_builds() -> void:
+	if stock_build_evolution == null:
+		return
+	var main = get_tree().current_scene
+	stock_build_evolution.pregenerate(-1, func(): return main != null and "_spawning_wave" in main and main._spawning_wave)
+
 func _player_dominant_rarity() -> int:
 	var players = get_tree().get_nodes_in_group("player")
 	if players.is_empty():
@@ -1268,34 +1445,60 @@ func spawn_squad(allowed_templates: Array = []) -> Squad:
 # nothing was ever credited at all unless the WHOLE squad wiped - a squad
 # that won a fight with survivors taught the director nothing.
 func credit_bot_death(mech: Node):
-	var fitness = mech.get_individual_fitness() if mech.has_method("get_individual_fitness") else 0.0
-	# Loadout capture is deliberately NOT gated behind the spawn_profile
-	# checks below - every enemy is eligible, not just ones with an
-	# evolving profile (see _maybe_capture_loadout's own comment).
-	_maybe_capture_loadout(mech, fitness)
+	var raw_fitness = mech.get_individual_fitness() if mech.has_method("get_individual_fitness") else 0.0
+	# Judge against what's typical for this role at this component tier, so
+	# higher-rarity gear or later waves never score higher just for existing
+	# (see FitnessPar.gd). 100 = par. Everything below credits the normalized value.
+	var role = mech.combat_role if "combat_role" in mech else ""
+	var rarity = int(mech.base_rarity) if "base_rarity" in mech else 0
+	var fitness = fitness_par.normalize_and_update(role + ":" + str(rarity), raw_fitness)
+	# Loadout capture stays on RAW fitness (a war-room "best enemy ever seen"
+	# showcase, not a selection signal) and is deliberately NOT gated behind
+	# the spawn_profile checks below - every enemy is eligible.
+	_maybe_capture_loadout(mech, raw_fitness)
 
-	# StockBuild deviation credit - independent of (not gated behind) the
-	# solver_profile crediting below, since it tracks a completely different
-	# evolving pool (see StockBuildEvolution). Only bots that actually rolled
-	# a deviation test this spawn (Mech.build_loadout_for_role) carry these.
+	# StockBuild credit - independent of the solver-profile crediting below,
+	# since it tracks a completely different evolving pool (see
+	# StockBuildEvolution). A bot either replayed the champion (credit its
+	# running baseline) or rolled a deviation (report it for promotion).
+	var profile_name: String = mech.get("_build_profile_name") if "_build_profile_name" in mech else ""
 	if mech.get("_is_deviation_test") == true and stock_build_evolution:
-		stock_build_evolution.record_deviation_result(mech.spawn_template_name, mech.combat_role, mech.base_rarity, mech._deviation_components, fitness, mech.get("sub_archetype_slot") if "sub_archetype_slot" in mech else 0)
+		stock_build_evolution.record_deviation_result(mech.spawn_template_name, mech.combat_role, mech.base_rarity, mech._deviation_components, fitness, mech.get("sub_archetype_slot") if "sub_archetype_slot" in mech else 0, profile_name)
+	else:
+		var champ = mech.get("_champion_build") if "_champion_build" in mech else null
+		# Only credit a champion still in the pool (it may have been
+		# superseded by a promotion while this bot was alive).
+		if champ != null and stock_builds.has(champ):
+			champ.update_fitness(fitness)
 
-	if not ("spawn_profile" in mech) or not mech.spawn_profile:
+	# Credit the profile that actually shaped the loadout. For a cached
+	# build that's the profile that produced it, not the one this bot rolled
+	# (which the replayed layout ignored entirely).
+	var credited: SolverProfile = null
+	if profile_name != "":
+		for sp in solver_profiles:
+			if sp.profile_name == profile_name and sp.role == role:
+				credited = sp
+				break
+	elif "spawn_profile" in mech and mech.spawn_profile and solver_profiles.has(mech.spawn_profile):
+		credited = mech.spawn_profile
+	# Reactive baseline / per-bot jittered clones are throwaway instances
+	# never added to solver_profiles - nothing to credit.
+	if credited == null:
 		return
-	# Only credit profiles actually tracked in the evolving pool - the
-	# always-fresh reactive baseline and per-bot jittered clones (see
-	# _spawn_bot_for_role) are throwaway instances never added to
-	# solver_profiles, so crediting them would just vanish with the bot.
-	if not solver_profiles.has(mech.spawn_profile):
-		return
-	mech.spawn_profile.update_fitness(fitness)
-	profile_evolution.evaluate_experimental_profile(mech.spawn_profile)
+	credited.update_fitness(fitness)
+	profile_evolution.evaluate_experimental_profile(credited)
 
 func _on_squad_defeated(squad: Squad, fitness_score: float):
 	active_squads.erase(squad)
 
 	var t = squad.template
+	# Squad fitness sums over members, so a 5-bot squad outscores a 2-bot one
+	# just by headcount, and raw scale drifts with wave HP. Judge per member
+	# against par for this wave band (100 = typical).
+	var wave_now = int(get_tree().current_scene.current_wave) if get_tree().current_scene and "current_wave" in get_tree().current_scene else 0
+	fitness_score = fitness_par.normalize_and_update("squad:w" + str(wave_now / 6), fitness_score / float(max(1, squad.initial_members)))
+	record_tactic_results(squad, fitness_score)
 	if t:
 		t.update_fitness(fitness_score)
 		# Using Godot's print for headless testing feedback

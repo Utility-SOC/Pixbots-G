@@ -14,6 +14,7 @@ var next_beat_time: float = 0.0
 var beat_counter: int = 0
 
 var notes_playing: Array = []
+static var _perf_fill_usec: int = 0
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -46,8 +47,10 @@ func _process(delta):
 		_trigger_beat()
 		next_beat_time += beat_interval
 		beat_counter += 1
-		
+
+	var t0 = Time.get_ticks_usec()
 	_fill_buffer()
+	_perf_fill_usec += Time.get_ticks_usec() - t0
 
 func _trigger_beat():
 	# Generate notes based on biome
@@ -91,47 +94,46 @@ func _midi_to_freq(midi: int) -> float:
 
 func _fill_buffer():
 	if not playback: return
-	
+
 	var frames_available = playback.get_frames_available()
 	if frames_available <= 0: return
-	
+
+	var mono = PackedFloat32Array()
+	mono.resize(frames_available)
+	var dt = 1.0 / sample_hz
+	var survivors: Array = []
+	for n in notes_playing:
+		var life: float = n.life
+		var duration: float = n.duration
+		if life >= duration:
+			continue
+		var freq: float = n.freq
+		var waveform: String = n.waveform
+		for i in range(frames_available):
+			if life >= duration:
+				break
+			var amp = 1.0
+			if life < 0.05:
+				amp = life / 0.05
+			elif duration - life < 0.1:
+				amp = (duration - life) / 0.1
+			var val = 0.0
+			if waveform == "sine":
+				val = sin(TAU * freq * life)
+			elif waveform == "square":
+				val = sign(sin(TAU * freq * life)) * 0.5
+			elif waveform == "saw":
+				val = (fmod(life * freq, 1.0) * 2.0 - 1.0) * 0.5
+			elif waveform == "pluck":
+				val = sin(TAU * freq * life) * exp(-10.0 * life)
+			mono[i] += val * amp * 0.1
+			life += dt
+		n.life = life
+		survivors.append(n)
+	notes_playing = survivors
+
 	var buffer = PackedVector2Array()
 	buffer.resize(frames_available)
-	
 	for i in range(frames_available):
-		var sample = 0.0
-		var delta = 1.0 / sample_hz
-		
-		var active_notes = []
-		for n in notes_playing:
-			if n.life < n.duration:
-				var amp = 1.0
-				
-				# ADSR Envelope (simplified)
-				if n.life < 0.05: # Attack
-					amp = n.life / 0.05
-				elif n.duration - n.life < 0.1: # Release
-					amp = (n.duration - n.life) / 0.1
-				
-				var t = n.life
-				var val = 0.0
-				if n.waveform == "sine":
-					val = sin(TAU * n.freq * t)
-				elif n.waveform == "square":
-					val = sign(sin(TAU * n.freq * t)) * 0.5
-				elif n.waveform == "saw":
-					val = fmod(t * n.freq, 1.0) * 2.0 - 1.0
-					val *= 0.5
-				elif n.waveform == "pluck":
-					# Exponential decay simulating a pluck
-					var decay = exp(-10.0 * t)
-					val = sin(TAU * n.freq * t) * decay
-				
-				sample += val * amp * 0.1 # Volume attenuation
-				n.life += delta
-				active_notes.append(n)
-				
-		notes_playing = active_notes
-		buffer[i] = Vector2(sample, sample)
-		
+		buffer[i] = Vector2(mono[i], mono[i])
 	playback.push_buffer(buffer)

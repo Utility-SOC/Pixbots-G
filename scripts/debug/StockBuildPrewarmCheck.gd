@@ -23,6 +23,7 @@ const StockBuildEvolutionScript = preload("res://scripts/ai/StockBuildEvolution.
 
 class FakeDirector:
 	var stock_builds: Array = []
+	var templates: Array = []
 	func request_save_learned_state():
 		pass # no-op - never touches user:// (see this file's own header)
 
@@ -103,6 +104,57 @@ func _ready():
 	_check("a real spawn can replay a prewarmed build and gets real weapons out of it",
 		replayed.size() > 0)
 	bot_b.queue_free()
+
+	# --- 5: presolve registers a missing build off-tree, warms its cache,
+	# leaks no nodes, and matches what a live spawn would then replay.
+	const P_TEMPLATE = "PresolveCheckSquad"
+	var nodes_before = get_tree().get_node_count()
+	MechScript.presolve_stock_build(stock_evo, P_TEMPLATE, "brawler", RARITY, 0, null)
+	var presolved = stock_evo.get_stock_build(P_TEMPLATE, "brawler", RARITY, 0)
+	_check("presolve registers a missing stock build", presolved != null)
+	_check("presolve warms the new build's simulation cache",
+		presolved != null and not presolved._simulation_cache.is_empty())
+	_check("presolve leaves no nodes behind",
+		get_tree().get_node_count() == nodes_before)
+	var builds_before = stock_evo.director.stock_builds.size()
+	MechScript.presolve_stock_build(stock_evo, P_TEMPLATE, "brawler", RARITY, 0, null)
+	_check("presolving an existing build is a no-op",
+		stock_evo.director.stock_builds.size() == builds_before)
+	var bot_c = _spawn_bot(P_TEMPLATE, "brawler", RARITY, 0)
+	_check("a live spawn replays the presolved build (no new build registered)",
+		stock_evo.director.stock_builds.size() == builds_before and bot_c.precalculated_weapons.size() > 0)
+	bot_c.queue_free()
+
+	# --- 6: missing_build_keys enumerates template x role x slot (+ scout).
+	var t = SquadTemplate.new("KeyCheck", {"brawler": 2, "sniper": 1})
+	stock_evo.director.templates = [t]
+	var keys = stock_evo.missing_build_keys(RARITY)
+	# brawler slots 0,1 + sniper slot 0 + implicit scout slot 0
+	_check("missing_build_keys lists every role slot plus the implicit scout (%d)" % keys.size(), keys.size() == 4)
+	MechScript.presolve_stock_build(stock_evo, "KeyCheck", "sniper", RARITY, 0, null)
+	_check("keys shrink once a build is presolved", stock_evo.missing_build_keys(RARITY).size() == 3)
+
+	# --- 7: deviation candidates are generated off-wave and consumed by spawns.
+	stock_evo.director.templates = [SquadTemplate.new(P_TEMPLATE, {"brawler": 1})]
+	var cand_missing = stock_evo.missing_candidate_keys(RARITY)
+	_check("candidate keys list the champion-holding brawler slot", cand_missing.size() >= 1)
+	var cand = MechScript.generate_deviation_candidate(stock_evo, P_TEMPLATE, "brawler", RARITY, 0, null)
+	_check("generate_deviation_candidate returns a warm, unregistered build",
+		cand != null and not cand._simulation_cache.is_empty() and not stock_evo.director.stock_builds.has(cand))
+	stock_evo._candidate_pool[StockBuildEvolutionScript._key(P_TEMPLATE, "brawler", RARITY, 0)] = [cand]
+	var builds_n = stock_evo.director.stock_builds.size()
+	var consumed_dev = false
+	for i in range(80):
+		var b = _spawn_bot(P_TEMPLATE, "brawler", RARITY, 0)
+		if b._is_deviation_test:
+			consumed_dev = b.precalculated_weapons.size() > 0 and b._deviation_components == cand.serialized_components
+		b.queue_free()
+		if stock_evo.take_deviation_candidate(P_TEMPLATE, "brawler", RARITY, 0) == null:
+			break
+		# still there - put it back and keep rolling
+		stock_evo._candidate_pool[StockBuildEvolutionScript._key(P_TEMPLATE, "brawler", RARITY, 0)] = [cand]
+	_check("a deviation-rolled spawn consumes the pooled candidate with working weapons", consumed_dev)
+	_check("pool drained and no fresh build registered by deviation spawns", stock_evo.director.stock_builds.size() == builds_n)
 
 	if failures == 0:
 		print("PASS: prewarm_stock_build populates the simulation cache off-tree with no leaks, is a no-op once warm, and a real spawn replaying a prewarmed build works exactly like any other replay")

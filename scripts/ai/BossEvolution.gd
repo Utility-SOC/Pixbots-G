@@ -77,9 +77,9 @@ func get_active_boss_profile() -> BossProfile:
 func build_nemesis_profile() -> BossProfile:
 	var favored_element = "RAW"
 	var best_ratio = 0.0
-	if director.total_damage_taken > 0.0:
-		for element in director.player_element_usage.keys():
-			var ratio = director.player_element_usage[element] / director.total_damage_taken
+	if director.player_model.recent_damage_total() > 0.0:
+		for element in director.player_model.recent_damage.keys():
+			var ratio = director.player_model.recent_damage_share(element)
 			if ratio > best_ratio:
 				best_ratio = ratio
 				favored_element = element

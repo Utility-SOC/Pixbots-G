@@ -955,50 +955,10 @@ func _clear_stale_wave_enemies():
 		enemy.queue_free()
 	active_enemies = 0
 
-func _start_wave():
-	# Re-entrancy guard (user report 2026-08-05: stuck on wave 65, killing
-	# everything spawned after a Garage visit never advanced it). Extraction
-	# is player-voluntary and NOT gated on the current wave having cleared -
-	# garage_timer counts down independent of active_enemies (_process
-	# above), so walking into the ExtractionMarker and redeploying can
-	# re-trigger this function while a PREVIOUS call's _spawn_wave_async is
-	# still mid-flight (staggered one squad per 0.12s beat - real wall-clock
-	# time this function is not done spawning for). A second concurrent
-	# call would reset active_enemies to 0, re-run the boss/rival dispatch,
-	# and race the first call's still-running loop over the same
-	# active_enemies/_spawning_wave state with no mutual exclusion at all.
-	#
-	# WATCHDOG (added same day, after the plain guard above shipped as
-	# v1.1.7.5 and the user was STILL stuck - F3 overlay then showed
-	# active_enemies 0, spawning true, permanently): _spawning_wave is
-	# supposed to always clear on its own once _spawn_wave_async reaches its
-	# own end, but if that coroutine hits a runtime script error partway
-	# through its awaited chain (director.spawn_squad -> _assemble_squad),
-	# GDScript has no unwind/finally - execution just halts there and the
-	# flag never clears, wedging the plain guard above shut forever. Rather
-	# than trust that _spawn_wave_async always reaches its reset line, treat
-	# a flag that's been true too long as proof it didn't: recover instead
-	# of trusting it. 10s is generous headroom over the ~2-3s a legitimate
-	# 50-squad-max, 0.12s-per-beat spawn should ever take.
-	if _spawning_wave:
-		# Watchdog threshold raised alongside the spawn-pacing change below
-		# (see _spawn_wave_async's own comment) - spawning a full wave now
-		# legitimately takes up to ~garage_timer's own duration (spread
-		# across it, not a 2-3s burst), so the old 10s "must be stuck"
-		# assumption would false-positive on every normal wave. Generous
-		# headroom over WAVE_SPAWN_SPREAD_SECONDS + the safety margin.
-		if Time.get_ticks_msec() - _spawning_wave_started_at < int((WAVE_SPAWN_SPREAD_SECONDS + 20.0) * 1000.0):
-			return
-		push_warning("[Main] _spawning_wave was stuck true for %ds+ (wave %d) - forcing recovery" % [int(WAVE_SPAWN_SPREAD_SECONDS + 20.0), current_wave])
-		_spawning_wave = false
-		_clear_stale_wave_enemies()
-	_update_hud()
-	print("--- WAVE ", current_wave, " COMMENCING ---")
-	LootManager.current_wave = current_wave
-	_wave_guaranteed_mythic_used = false
-	# Reactive music: combat loop (faster arps + drums) for the wave.
-	AudioManager.set_combat_state(true)
-
+# Creates the SquadDirector and its default templates on first use, so
+# callers other than _start_wave (Deploy-time stock-build presolve) can reach
+# it before the first wave spawns.
+func _ensure_squad_director():
 	# Spawn Squad Director if it doesn't exist
 	var director = world.get_node_or_null("SquadDirector")
 	if not director:
@@ -1087,6 +1047,53 @@ func _start_wave():
 		# sessions. Must run AFTER the defaults exist so the merge-by-name
 		# updates them in place instead of duplicating them.
 		director.load_learned_state()
+	return director
+
+func _start_wave():
+	# Re-entrancy guard (user report 2026-08-05: stuck on wave 65, killing
+	# everything spawned after a Garage visit never advanced it). Extraction
+	# is player-voluntary and NOT gated on the current wave having cleared -
+	# garage_timer counts down independent of active_enemies (_process
+	# above), so walking into the ExtractionMarker and redeploying can
+	# re-trigger this function while a PREVIOUS call's _spawn_wave_async is
+	# still mid-flight (staggered one squad per 0.12s beat - real wall-clock
+	# time this function is not done spawning for). A second concurrent
+	# call would reset active_enemies to 0, re-run the boss/rival dispatch,
+	# and race the first call's still-running loop over the same
+	# active_enemies/_spawning_wave state with no mutual exclusion at all.
+	#
+	# WATCHDOG (added same day, after the plain guard above shipped as
+	# v1.1.7.5 and the user was STILL stuck - F3 overlay then showed
+	# active_enemies 0, spawning true, permanently): _spawning_wave is
+	# supposed to always clear on its own once _spawn_wave_async reaches its
+	# own end, but if that coroutine hits a runtime script error partway
+	# through its awaited chain (director.spawn_squad -> _assemble_squad),
+	# GDScript has no unwind/finally - execution just halts there and the
+	# flag never clears, wedging the plain guard above shut forever. Rather
+	# than trust that _spawn_wave_async always reaches its reset line, treat
+	# a flag that's been true too long as proof it didn't: recover instead
+	# of trusting it. 10s is generous headroom over the ~2-3s a legitimate
+	# 50-squad-max, 0.12s-per-beat spawn should ever take.
+	if _spawning_wave:
+		# Watchdog threshold raised alongside the spawn-pacing change below
+		# (see _spawn_wave_async's own comment) - spawning a full wave now
+		# legitimately takes up to ~garage_timer's own duration (spread
+		# across it, not a 2-3s burst), so the old 10s "must be stuck"
+		# assumption would false-positive on every normal wave. Generous
+		# headroom over WAVE_SPAWN_SPREAD_SECONDS + the safety margin.
+		if Time.get_ticks_msec() - _spawning_wave_started_at < int((WAVE_SPAWN_SPREAD_SECONDS + 20.0) * 1000.0):
+			return
+		push_warning("[Main] _spawning_wave was stuck true for %ds+ (wave %d) - forcing recovery" % [int(WAVE_SPAWN_SPREAD_SECONDS + 20.0), current_wave])
+		_spawning_wave = false
+		_clear_stale_wave_enemies()
+	_update_hud()
+	print("--- WAVE ", current_wave, " COMMENCING ---")
+	LootManager.current_wave = current_wave
+	_wave_guaranteed_mythic_used = false
+	# Reactive music: combat loop (faster arps + drums) for the wave.
+	AudioManager.set_combat_state(true)
+
+	var director = _ensure_squad_director()
 
 	# Director tells (see SquadDirector.get_intel_line): Frank tips the player
 	# off when the learning loop is genuinely reacting to them. Skipped in
@@ -2204,6 +2211,8 @@ func _on_wave_cleared():
 		var debrief = tell_director.get_debrief_line()
 		if debrief != "":
 			show_dialogue("Frank", debrief, Color(0.7, 0.9, 1.0), 5.0)
+	if tell_director:
+		tell_director.end_of_wave_update()
 	current_wave += 1
 	if current_wave > SaveManager.max_wave_reached:
 		SaveManager.max_wave_reached = current_wave
@@ -2226,6 +2235,8 @@ func _on_wave_cleared():
 		add_child(cutscene)
 	else:
 		_start_intermission()
+	if tell_director:
+		tell_director.presolve_upcoming_stock_builds()
 
 func _should_rotate_map() -> bool:
 	if SaveManager.current_game_mode != "campaign":
@@ -2393,8 +2404,8 @@ func _close_garage():
 		# out the enemy mechs in advance"). No-op for builds already
 		# warm this session - see StockBuildEvolution.
 		# prewarm_all_simulation_caches's own comment.
-		if world and world.has_node("SquadDirector"):
-			var director = world.get_node("SquadDirector")
+		if world:
+			var director = _ensure_squad_director()
 			if director.stock_build_evolution:
 				director.stock_build_evolution.prewarm_all_simulation_caches()
 		SaveManager.save_game("autosave", player, player_inventory)
@@ -2417,5 +2428,45 @@ func _close_garage():
 		garage_ui.queue_free()
 		garage_ui = null
 		
+	_prepare_enemies_then_countdown()
+
+# Loading screen on Deploy: generates every missing champion build plus a
+# spare deviation candidate per key for the wave's expected rarity, so no
+# solver run lands mid-wave. Skipped (no flash) when nothing is missing.
+func _prepare_enemies_then_countdown():
+	var director = _ensure_squad_director() if world else null
+	var evo = director.stock_build_evolution if director else null
+	if evo:
+		while evo.is_busy():
+			await get_tree().process_frame
+		var rarity = -1 # per-role wave-gated tier, see StockBuildEvolution._rarity_for
+		var total = evo.missing_build_keys(rarity).size() + evo.missing_candidate_keys(rarity).size()
+		if total > 0:
+			var layer = CanvasLayer.new()
+			layer.layer = 60
+			var dim = ColorRect.new()
+			dim.color = Color(0, 0, 0, 0.75)
+			dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+			layer.add_child(dim)
+			var box = VBoxContainer.new()
+			box.set_anchors_preset(Control.PRESET_CENTER)
+			box.custom_minimum_size = Vector2(360, 0)
+			box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+			box.grow_vertical = Control.GROW_DIRECTION_BOTH
+			var label = Label.new()
+			label.text = "Preparing enemy forces..."
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			var bar = ProgressBar.new()
+			bar.max_value = total
+			bar.custom_minimum_size = Vector2(360, 24)
+			box.add_child(label)
+			box.add_child(bar)
+			layer.add_child(box)
+			add_child(layer)
+			await evo.pregenerate(rarity, Callable(), func(done, tot):
+				bar.max_value = tot
+				bar.value = done
+				label.text = "Preparing enemy forces...  %d / %d" % [done, tot])
+			layer.queue_free()
 	if active_enemies <= 0:
 		_show_countdown()

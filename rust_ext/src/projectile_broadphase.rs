@@ -39,12 +39,23 @@ type VDict = Dictionary<Variant, Variant>;
 #[class(base=RefCounted)]
 pub struct ProjectileBroadphaseRs {
     base: Base<RefCounted>,
+    // Obstacles never move, so they are bucketed once (set_static_targets)
+    // and reused by every query_hits_packed call instead of being
+    // re-marshalled and re-bucketed every physics tick.
+    static_targets: Vec<Target>,
+    static_buckets: HashMap<(i64, i64), Vec<usize>>,
+    static_max_radius: f64,
 }
 
 #[godot_api]
 impl IRefCounted for ProjectileBroadphaseRs {
     fn init(base: Base<RefCounted>) -> Self {
-        Self { base }
+        Self {
+            base,
+            static_targets: Vec::new(),
+            static_buckets: HashMap::new(),
+            static_max_radius: 0.0,
+        }
     }
 }
 
@@ -203,5 +214,95 @@ impl ProjectileBroadphaseRs {
             }
         }
         results
+    }
+
+    #[func]
+    fn set_static_targets(
+        &mut self,
+        ids: PackedInt64Array,
+        pos: PackedVector2Array,
+        radii: PackedFloat64Array,
+        layers: PackedInt64Array,
+    ) {
+        let (ids, pos, radii, layers) = (ids.as_slice(), pos.as_slice(), radii.as_slice(), layers.as_slice());
+        let n = ids.len().min(pos.len()).min(radii.len()).min(layers.len());
+        self.static_targets.clear();
+        self.static_buckets.clear();
+        self.static_max_radius = 0.0;
+        for i in 0..n {
+            let t = Target { id: ids[i], pos: pos[i], radius: radii[i], layer: layers[i] };
+            self.static_buckets.entry(cell_of(t.pos)).or_default().push(i);
+            if t.radius > self.static_max_radius {
+                self.static_max_radius = t.radius;
+            }
+            self.static_targets.push(t);
+        }
+    }
+
+    // Same hit test as query_hits, but dynamic targets and projectiles come
+    // in as parallel packed arrays and the retained static targets are
+    // included automatically. Returns flat [projectile_id, target_id, ...].
+    #[func]
+    fn query_hits_packed(
+        &self,
+        t_ids: PackedInt64Array,
+        t_pos: PackedVector2Array,
+        t_radii: PackedFloat64Array,
+        t_layers: PackedInt64Array,
+        p_ids: PackedInt64Array,
+        p_prev: PackedVector2Array,
+        p_curr: PackedVector2Array,
+        p_radii: PackedFloat64Array,
+        p_masks: PackedInt64Array,
+    ) -> PackedInt64Array {
+        let (t_ids, t_pos, t_radii, t_layers) = (t_ids.as_slice(), t_pos.as_slice(), t_radii.as_slice(), t_layers.as_slice());
+        let tn = t_ids.len().min(t_pos.len()).min(t_radii.len()).min(t_layers.len());
+        let mut dyn_targets: Vec<Target> = Vec::with_capacity(tn);
+        let mut dyn_buckets: HashMap<(i64, i64), Vec<usize>> = HashMap::with_capacity(tn);
+        let mut max_r = self.static_max_radius;
+        for i in 0..tn {
+            let t = Target { id: t_ids[i], pos: t_pos[i], radius: t_radii[i], layer: t_layers[i] };
+            dyn_buckets.entry(cell_of(t.pos)).or_default().push(i);
+            if t.radius > max_r {
+                max_r = t.radius;
+            }
+            dyn_targets.push(t);
+        }
+
+        let (p_ids, p_prev, p_curr, p_radii, p_masks) =
+            (p_ids.as_slice(), p_prev.as_slice(), p_curr.as_slice(), p_radii.as_slice(), p_masks.as_slice());
+        let pn = p_ids.len().min(p_prev.len()).min(p_curr.len()).min(p_radii.len()).min(p_masks.len());
+        let mut out: Vec<i64> = Vec::new();
+        if dyn_targets.is_empty() && self.static_targets.is_empty() {
+            return PackedInt64Array::new();
+        }
+        for j in 0..pn {
+            let (prev, curr, radius, mask) = (p_prev[j], p_curr[j], p_radii[j], p_masks[j]);
+            let margin = radius + max_r;
+            let min_x = (prev.x.min(curr.x) as f64) - margin;
+            let max_x = (prev.x.max(curr.x) as f64) + margin;
+            let min_y = (prev.y.min(curr.y) as f64) - margin;
+            let max_y = (prev.y.max(curr.y) as f64) + margin;
+            let (min_cx, min_cy) = cell_of_f64(min_x, min_y);
+            let (max_cx, max_cy) = cell_of_f64(max_x, max_y);
+            for cx in min_cx..=max_cx {
+                for cy in min_cy..=max_cy {
+                    for (buckets, targets) in [(&dyn_buckets, &dyn_targets), (&self.static_buckets, &self.static_targets)] {
+                        let Some(indices) = buckets.get(&(cx, cy)) else { continue };
+                        for &ti in indices {
+                            let t = &targets[ti];
+                            if (t.layer & mask) == 0 {
+                                continue;
+                            }
+                            if point_segment_distance(t.pos, prev, curr) <= t.radius + radius {
+                                out.push(p_ids[j]);
+                                out.push(t.id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        PackedInt64Array::from(out.as_slice())
     }
 }

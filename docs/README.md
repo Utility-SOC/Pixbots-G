@@ -5,10 +5,12 @@ Design/roadmap/handoff documents, split back out of a scratch monolith
 entry below is a pointer, not a summary — open the linked doc for the
 real content.
 
-- **[CLAUDE_CODE_HANDOFF.md](CLAUDE_CODE_HANDOFF.md)** — state-of-the-world
-  handoff notes for picking up this project cold in a new session. Read
-  first if you're orienting after a gap; treat it as a starting map, not
-  ground truth (verify against actual code, it says so itself).
+- **[../Status.md](../Status.md)** — master status doc: active queue,
+  backlog, and a short "Recently Shipped" section for orientation. Read
+  first if you're picking up the project after a gap; verify against the
+  actual code.
+- **[ENEMY_AI_DESIGN.md](ENEMY_AI_DESIGN.md)** — how enemy builds, squads and
+  tactics evolve and escalate (fitness par, pressure, wave-gated tiers, squad plans).
 - **[AAA_VISION_AND_PERFORMANCE_ROADMAP.md](AAA_VISION_AND_PERFORMANCE_ROADMAP.md)**
   — the "5 Pillars of Feels AAA" aesthetic pillars (audio tactility,
   lighting/diorama, camera juice, diegetic UI, metagame loop), a

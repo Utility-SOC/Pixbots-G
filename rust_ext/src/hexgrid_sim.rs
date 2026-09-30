@@ -514,6 +514,8 @@ fn packet_to_dict(p: &Packet) -> VDict {
     d
 }
 
+const CAPTURE_STRIDE: usize = 52;
+
 struct SimOutputs {
     captures: Vec<(usize, Packet, i64)>,
     stores: Vec<(usize, f64)>,
@@ -924,6 +926,7 @@ impl HexGridSim {
         valid_cells: PackedInt32Array,
         packets: Array<Variant>,
     ) -> VDict {
+        let t_start = std::time::Instant::now();
         let mut descs: Vec<TileDesc> = Vec::new();
         let mut states: Vec<TileState> = Vec::new();
         let mut anchors: Vec<(i64, i64)> = Vec::new();
@@ -963,6 +966,7 @@ impl HexGridSim {
             conduit_dominant: HashMap::new(),
         };
 
+        let t_parsed = t_start.elapsed().as_micros() as i64;
         let mut steps = 0i64;
         while !active.is_empty() && steps < STEP_CAP {
             steps += 1;
@@ -1074,15 +1078,38 @@ impl HexGridSim {
             }
         }
 
-        let mut out_captures = Array::<Variant>::new();
+        let t_simmed = t_start.elapsed().as_micros() as i64;
+        // Captures are the bulk of the result (~100 per sim), so they are
+        // returned as one flat array (stride CAPTURE_STRIDE) instead of a
+        // Dictionary + 4 packed arrays each. Layout: tile, step, then
+        // magnitude, syn[10], syn_present[10], proc[10], proc_present[10],
+        // steps, charge_required, accumulator_quality, aoe_bonus,
+        // acc_charge_mult, acc_damage_mult, range_mult, auto_dump_threshold,
+        // trigger. Mirrored by RustGridSim._decode_captures.
+        let mut cap_flat: Vec<f64> = Vec::with_capacity(outs.captures.len() * CAPTURE_STRIDE);
         for (tidx, p, step) in &outs.captures {
-            let mut d: VDict = Dictionary::new();
-            let _ = d.insert("tile", *tidx as i64);
-            let _ = d.insert("step", *step);
-            let packet_dict = packet_to_dict(p);
-            let _ = d.insert("packet", &packet_dict);
-            out_captures.push(&d.to_variant());
+            cap_flat.push(*tidx as f64);
+            cap_flat.push(*step as f64);
+            cap_flat.push(p.magnitude);
+            cap_flat.extend_from_slice(&p.syn);
+            for b in &p.syn_present {
+                cap_flat.push(if *b { 1.0 } else { 0.0 });
+            }
+            cap_flat.extend_from_slice(&p.proc_syn);
+            for b in &p.proc_present {
+                cap_flat.push(if *b { 1.0 } else { 0.0 });
+            }
+            cap_flat.push(p.steps as f64);
+            cap_flat.push(p.charge_required);
+            cap_flat.push(p.accumulator_quality);
+            cap_flat.push(p.aoe_bonus);
+            cap_flat.push(p.acc_charge_mult);
+            cap_flat.push(p.acc_damage_mult);
+            cap_flat.push(p.range_mult);
+            cap_flat.push(p.auto_dump_threshold);
+            cap_flat.push(p.trigger as f64);
         }
+        let out_captures = PackedFloat64Array::from(cap_flat.as_slice());
         let mut out_stores = Array::<Variant>::new();
         for (tidx, amount) in &outs.stores {
             let mut d: VDict = Dictionary::new();
@@ -1138,12 +1165,16 @@ impl HexGridSim {
         }
 
         let mut result: VDict = Dictionary::new();
-        let _ = result.insert("captures", &out_captures);
+        let _ = result.insert("capture_flat", &out_captures);
         let _ = result.insert("stores", &out_stores);
         let _ = result.insert("mech_merges", &out_merges);
         let _ = result.insert("lance_hits", &out_lance);
         let _ = result.insert("conduit_dominant", &out_dominant);
         let _ = result.insert("tile_states", &out_states);
+        let _ = result.insert("t_parse_us", t_parsed);
+        let _ = result.insert("t_sim_us", t_simmed - t_parsed);
+        let _ = result.insert("t_out_us", t_start.elapsed().as_micros() as i64 - t_simmed);
+        let _ = result.insert("steps", steps);
         result
     }
 }

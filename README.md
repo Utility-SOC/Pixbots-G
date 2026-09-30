@@ -13,8 +13,14 @@ Welcome to Pixbots-G, an engineering-focused Mech combat sandbox. This comprehen
    ```bash
    git clone https://github.com/Utility-SOC/Pixbots-G.git
    ```
-2. **Open the Project in Godot**: Launch Godot, click **Import**, select `project.godot` inside the `Pixbots-G/godot` directory, and click **Import & Edit**.
-3. **Run the Game**: Click the **Play** button (or press `F5`). 
+2. **Build the Rust extension** (once per fresh clone; needs the [Rust toolchain](https://rustup.rs)). The built libraries are gitignored, so the extension won't load until you do this. The game falls back to slower pure-GDScript paths where it can, but a build is recommended:
+   ```bash
+   cd Pixbots-G/rust_ext
+   cargo build --release   # and `cargo build` if you'll run from the editor's debug config
+   ```
+   See `rust_ext/README.md` for troubleshooting.
+3. **Open the Project in Godot**: Launch Godot, click **Import**, select `project.godot` in the repository root (`Pixbots-G/project.godot`), and click **Import & Edit**.
+4. **Run the Game**: Click the **Play** button (or press `F5`). 
 
 ---
 

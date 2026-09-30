@@ -46,8 +46,8 @@ func _ready():
 	# A majority-win batch for slot 0 only should promote slot 0's build and
 	# leave slot 1's completely untouched.
 	var slot0_champion = evo.get_stock_build("Escort", "brawler", HexTile.Rarity.COMMON, 0)
-	slot0_champion.times_used = 1
-	slot0_champion.total_fitness = 100.0
+	for i in range(StockBuildEvolutionScript.MIN_CHAMPION_SAMPLES + 2):
+		slot0_champion.update_fitness(100.0)
 	for f in [110.0, 120.0, 130.0, 140.0, 90.0, 80.0, 70.0, 60.0]: # 4 of 8 beat 100 - meets the 50% win-rate gate
 		evo.record_deviation_result("Escort", "brawler", HexTile.Rarity.COMMON, {"tag": "slot0_dev_%d" % int(f)}, f, 0)
 	var slot0_after = evo.get_stock_build("Escort", "brawler", HexTile.Rarity.COMMON, 0)

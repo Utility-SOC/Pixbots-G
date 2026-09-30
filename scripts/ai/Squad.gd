@@ -5,6 +5,8 @@ signal squad_defeated(squad, fitness_score)
 signal request_linkup(squad)
 
 var template: SquadTemplate
+# Set by SquadDirector when the squad is assembled (see SquadTactics.gd).
+var tactics = null
 var members: Array[Node] = []
 var active_members: int = 0
 var initial_members: int = 0
@@ -81,6 +83,8 @@ func setup(_template: SquadTemplate):
 func _physics_process(delta: float):
 	if active_members > 0:
 		time_alive += delta
+		if tactics:
+			tactics.update(self, delta)
 
 		if first_engagement_time >= 0:
 			time_since_last_hit_dealt += delta

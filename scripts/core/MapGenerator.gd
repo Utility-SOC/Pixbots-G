@@ -1100,6 +1100,18 @@ func _create_wall_collision(pos: Vector2, size: Vector2):
 	body.add_child(shape)
 	add_child(body)
 
+var _tree_layer: TreeRenderLayer
+
+func register_tree_visual(pos: Vector2) -> void:
+	if _tree_layer == null or not is_instance_valid(_tree_layer) or _tree_layer.is_queued_for_deletion():
+		_tree_layer = TreeRenderLayer.new()
+		add_child(_tree_layer)
+	_tree_layer.add_tree(pos)
+
+func unregister_tree_visual(pos: Vector2) -> void:
+	if _tree_layer != null and is_instance_valid(_tree_layer):
+		_tree_layer.remove_tree(pos)
+
 func _spawn_tree(pos: Vector2):
 	var body = load("res://scripts/core/TreeObstacle.gd").new()
 	body.global_position = pos + Vector2(tile_size/2, tile_size/2)
@@ -1295,6 +1307,25 @@ func get_valid_spawn_position(target_pos: Vector2) -> Vector2:
 # overlap it. Require the full 3x3 neighborhood to be clear too. This is
 # what get_valid_spawn_position uses for BOTH the player's spawn and every
 # enemy squad's spawn, so it fixes overlap for both directions at once.
+# Cheap walkability probes for squad tactics (flank/stage goals): terrain +
+# obstacle lookups only, no physics queries. Amphibious movers ignore water.
+func is_world_walkable(world_pos: Vector2, amphibious: bool = false) -> bool:
+	var x = int(floor(world_pos.x / tile_size))
+	var y = int(floor(world_pos.y / tile_size))
+	if x < 0 or y < 0 or x >= width or y >= height:
+		return false
+	if obstacles.has(Vector2i(x, y)):
+		return false
+	return amphibious or terrain[y][x] != BiomeType.WATER
+
+func segment_walkable(a: Vector2, b: Vector2, amphibious: bool = false) -> bool:
+	var d = a.distance_to(b)
+	var steps = int(ceil(d / (tile_size * 0.75)))
+	for i in range(1, steps + 1):
+		if not is_world_walkable(a.lerp(b, float(i) / steps), amphibious):
+			return false
+	return true
+
 func _has_spawn_clearance(tile_pos: Vector2i) -> bool:
 	if not main_continent_tiles.has(tile_pos):
 		return false

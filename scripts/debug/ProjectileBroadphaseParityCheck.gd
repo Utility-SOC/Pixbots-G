@@ -43,6 +43,31 @@ func _run_case(label: String, targets: Array, projectiles: Array, expected_pair_
 	_check("%s: rust pair count == %d" % [label, expected_pair_count], rust_pairs.size() == expected_pair_count)
 	_check("%s: fallback pair count == %d" % [label, expected_pair_count], fallback_pairs.size() == expected_pair_count)
 	_check("%s: rust matches fallback exactly" % label, _sets_equal(_pair_set(rust_pairs), _pair_set(fallback_pairs)))
+	_check("%s: packed path (static+dynamic split) matches fallback" % label, _sets_equal(_pair_set(_packed_pairs(targets, projectiles, rasterizer)), _pair_set(fallback_pairs)))
+
+# Exercises query_hits_packed + set_static_targets: even-indexed targets go
+# through the retained static set, odd-indexed through the per-call arrays.
+# Ids are offset above 2^53 (real Godot instance ids can be that large) to
+# prove they survive the packed int64 path exactly.
+func _packed_pairs(targets: Array, projectiles: Array, rasterizer) -> Array:
+	var big = 1 << 60
+	var s_ids = PackedInt64Array(); var s_pos = PackedVector2Array(); var s_r = PackedFloat64Array(); var s_l = PackedInt64Array()
+	var d_ids = PackedInt64Array(); var d_pos = PackedVector2Array(); var d_r = PackedFloat64Array(); var d_l = PackedInt64Array()
+	for i in range(targets.size()):
+		var t = targets[i]
+		if i % 2 == 0:
+			s_ids.append(big + int(t["id"])); s_pos.append(t["pos"]); s_r.append(t["radius"]); s_l.append(int(t["layer"]))
+		else:
+			d_ids.append(big + int(t["id"])); d_pos.append(t["pos"]); d_r.append(t["radius"]); d_l.append(int(t["layer"]))
+	rasterizer.set_static_targets(s_ids, s_pos, s_r, s_l)
+	var p_ids = PackedInt64Array(); var p_prev = PackedVector2Array(); var p_curr = PackedVector2Array(); var p_r = PackedFloat64Array(); var p_m = PackedInt64Array()
+	for p in projectiles:
+		p_ids.append(big + int(p["id"])); p_prev.append(p["prev"]); p_curr.append(p["curr"]); p_r.append(p["radius"]); p_m.append(int(p["mask"]))
+	var flat: PackedInt64Array = rasterizer.query_hits_packed(d_ids, d_pos, d_r, d_l, p_ids, p_prev, p_curr, p_r, p_m)
+	var out: Array = []
+	for i in range(0, flat.size(), 2):
+		out.append({"projectile_id": flat[i] - big, "target_id": flat[i + 1] - big})
+	return out
 
 func _ready():
 	if not ClassDB.class_exists("ProjectileBroadphaseRs"):

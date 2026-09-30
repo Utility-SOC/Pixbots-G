@@ -76,9 +76,21 @@ func build():
 	# top-left corner in its own CanvasLayer underneath (user report: the
 	# two overlapped, unreadable, on a wide/maximized window) - the Garage
 	# itself has no reason to start flush at y=0.
-	var top_spacer = Control.new()
+	var top_spacer = HBoxContainer.new()
 	top_spacer.custom_minimum_size = Vector2(0, 44)
 	left_vbox.add_child(top_spacer)
+	var top_fill = Control.new()
+	top_fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_spacer.add_child(top_fill)
+
+	# Always-visible Deploy (was the last button of a 13-wide bottom row that
+	# ran off-screen on ~1280px-wide windows). F5 / Ctrl+Enter do the same -
+	# see GarageMenu._input.
+	var deploy_button = Button.new()
+	deploy_button.text = "Deploy to Battlefield  [F5]"
+	deploy_button.custom_minimum_size = Vector2(240, 40)
+	deploy_button.pressed.connect(garage.deploy)
+	top_spacer.add_child(deploy_button)
 
 	var top_bar = VBoxContainer.new()
 	left_vbox.add_child(top_bar)
@@ -145,8 +157,26 @@ func build():
 	top_bar.add_child(garage.warning_label)
 
 	# Bottom Bar
-	var bottom_bar = HBoxContainer.new()
-	left_vbox.add_child(bottom_bar)
+	# Every action row below the grid lives in one vertically-scrolling box
+	# whose height tracks its content up to a share of the window, so a small
+	# screen gets a scrollbar instead of buttons off the bottom edge, and the
+	# grid always keeps the rest. Rows are HFlowContainers so they wrap.
+	var tools_scroll = ScrollContainer.new()
+	tools_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	left_vbox.add_child(tools_scroll)
+	var tools_vbox = VBoxContainer.new()
+	tools_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tools_scroll.add_child(tools_vbox)
+	var refit_tools = func():
+		var vp_h = garage.get_viewport().get_visible_rect().size.y if garage.is_inside_tree() else 720.0
+		tools_scroll.custom_minimum_size.y = clampf(tools_vbox.get_combined_minimum_size().y, 60.0, vp_h * 0.4)
+	tools_vbox.minimum_size_changed.connect(refit_tools)
+	garage.tree_entered.connect(func():
+		garage.get_viewport().size_changed.connect(refit_tools)
+		refit_tools.call())
+
+	var bottom_bar = HFlowContainer.new()
+	tools_vbox.add_child(bottom_bar)
 
 	garage.sim_button = Button.new()
 	garage.sim_button.name = "SimButton"
@@ -243,32 +273,6 @@ func build():
 	)
 	bottom_bar.add_child(paths_toggle)
 
-	var deploy_button = Button.new()
-	deploy_button.text = "Deploy to Battlefield ->"
-	deploy_button.custom_minimum_size = Vector2(200, 50)
-	# Was SIZE_EXPAND_FILL - the only child in bottom_bar flagged to expand,
-	# so on a window wider than the ~1280px design canvas it absorbed 100%
-	# of the leftover width and rendered as one giant button with its
-	# centered text stranded far from its siblings (user report: "gets cut
-	# off... on a 1440 monitor"). Sized like every other button in this row
-	# instead.
-	deploy_button.pressed.connect(func():
-		var main = garage.get_parent()
-		# Perf fix (live playtest: ~20s Deploy-to-gameplay stall) - this used
-		# to also call SaveManager.save_game() right here, then
-		# Main._close_garage() (called right below) did the EXACT SAME
-		# save_game("autosave", player, player_inventory) call again a
-		# moment later - garage.inventory IS main.player_inventory (set by
-		# reference in GarageMenu._ready()), so both calls always
-		# serialized identical data. On a save with a large inventory that
-		# duplicate synchronous JSON write was a real, pure-waste cost paid
-		# twice on every single Deploy. _close_garage() also recalculates
-		# the player/drone grids before its own save, so keeping THAT one
-		# (not this earlier one) saves the more up-to-date state anyway.
-		if main and main.has_method("_close_garage"):
-			main._close_garage()
-	)
-	bottom_bar.add_child(deploy_button)
 
 	# Simulation Timeline Scrubber (Status.md queue) - deterministic re-run
 	# to any step, hidden until a simulation has actually run for this grid
@@ -277,7 +281,7 @@ func build():
 	# While visible, clicking a tile opens the Packet Inspector instead of
 	# the normal edit popup - see GarageMenu._on_tile_clicked.
 	var scrubber_bar = HBoxContainer.new()
-	left_vbox.add_child(scrubber_bar)
+	tools_vbox.add_child(scrubber_bar)
 
 	var scrubber_lbl = Label.new()
 	scrubber_lbl.text = "Timeline:"
@@ -310,8 +314,8 @@ func build():
 	# buttons open a popup manager in GarageMenu with save-as / load /
 	# delete rows; legacy numbered quick-slots still show up in the Builds
 	# list as "Quick Slot N".
-	var loadout_bar = HBoxContainer.new()
-	left_vbox.add_child(loadout_bar)
+	var loadout_bar = HFlowContainer.new()
+	tools_vbox.add_child(loadout_bar)
 
 	var builds_btn = Button.new()
 	builds_btn.text = "Builds..."
@@ -329,8 +333,8 @@ func build():
 
 	# Scrap sinks (FEATURE_ROADMAP.md group 2): repair and infusion give
 	# scrap something to buy beyond the tile-upgrade middle-click.
-	var scrap_sink_bar = HBoxContainer.new()
-	left_vbox.add_child(scrap_sink_bar)
+	var scrap_sink_bar = HFlowContainer.new()
+	tools_vbox.add_child(scrap_sink_bar)
 
 	var repair_btn = Button.new()
 	repair_btn.text = "Repair All"
@@ -350,8 +354,8 @@ func build():
 	scrap_sink_bar.add_child(infuse_xp_btn)
 
 	# --- Feature 5 row: upgrades, modifier chips, Black Market ---------------
-	var feature5_bar = HBoxContainer.new()
-	left_vbox.add_child(feature5_bar)
+	var feature5_bar = HFlowContainer.new()
+	tools_vbox.add_child(feature5_bar)
 
 	var upgrade_part_btn = Button.new()
 	upgrade_part_btn.text = "Upgrade Part"
@@ -397,6 +401,7 @@ func build():
 	# that caused), so clip_text is only ever a backstop.
 	garage.chip_count_label.mouse_filter = Control.MOUSE_FILTER_STOP
 	garage.chip_count_label.clip_text = true
+	garage.chip_count_label.custom_minimum_size = Vector2(110, 0)
 	feature5_bar.add_child(garage.chip_count_label)
 
 	var market_btn = Button.new()
@@ -411,7 +416,7 @@ func build():
 	# below can reduce that capacity, so this row is the player's main
 	# feedback for "how much room do I have left."
 	var equipped_chips_row = HBoxContainer.new()
-	left_vbox.add_child(equipped_chips_row)
+	tools_vbox.add_child(equipped_chips_row)
 	garage.chip_capacity_label = Label.new()
 	garage.chip_capacity_label.text = "Capacity: 0/0"
 	equipped_chips_row.add_child(garage.chip_capacity_label)
@@ -419,8 +424,8 @@ func build():
 	equipped_chips_row.add_child(garage.equipped_chips_box)
 
 	# --- Overclocking (prestige) row: unlocks once a component is Mythic. ---
-	var prestige_bar = HBoxContainer.new()
-	left_vbox.add_child(prestige_bar)
+	var prestige_bar = HFlowContainer.new()
+	tools_vbox.add_child(prestige_bar)
 
 	var overclock_btn = Button.new()
 	overclock_btn.text = "Overclock"

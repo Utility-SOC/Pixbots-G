@@ -35,11 +35,11 @@ func build_reactive_profile(role: String = "") -> SolverProfile:
 	var profile = SolverProfile.new("Reactive")
 	profile.role = role
 
-	if director.total_damage_taken > 200.0:
+	if director.player_model.recent_damage_total() > 200.0:
 		var top_element = ""
 		var top_ratio = 0.0
-		for element in director.player_element_usage.keys():
-			var ratio = director.player_element_usage[element] / director.total_damage_taken
+		for element in director.player_model.recent_damage.keys():
+			var ratio = director.player_model.recent_damage_share(element)
 			if ratio > top_ratio:
 				top_ratio = ratio
 				top_element = element

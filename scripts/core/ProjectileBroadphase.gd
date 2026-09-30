@@ -84,6 +84,7 @@ var _cached_obstacle_count: int = -1
 # session - a headless check can assert this stays flat across many calls
 # with no membership change, and increments the moment it actually does.
 var _obstacle_rebuild_count: int = 0
+var _static_pushed_count: int = -1
 
 func _get_obstacle_targets() -> Array:
 	var obstacles = EntityCache.get_group("obstacle")
@@ -115,6 +116,10 @@ func _physics_process_body(_delta):
 	if _reports.is_empty():
 		return
 
+	if _rasterizer and _rasterizer.has_method("query_hits_packed"):
+		_physics_process_packed()
+		return
+
 	var targets: Array = []
 	for h in EntityCache.get_group("part_hitbox"):
 		if not is_instance_valid(h):
@@ -138,13 +143,67 @@ func _physics_process_body(_delta):
 		pairs = _query_hits_fallback(targets, projectiles)
 
 	for pair in pairs:
-		var proj = instance_from_id(int(pair["projectile_id"]))
-		if proj == null or not is_instance_valid(proj) or proj.is_queued_for_deletion():
+		_dispatch_hit(int(pair["projectile_id"]), int(pair["target_id"]))
+
+# Obstacles live in the Rust object between ticks (re-pushed only when the
+# obstacle group's size changes); each tick only the moving part hitboxes and
+# this tick's projectile reports cross the boundary, as packed arrays.
+func _physics_process_packed():
+	var obstacles = EntityCache.get_group("obstacle")
+	if obstacles.size() != _static_pushed_count:
+		var ids = PackedInt64Array()
+		var pos = PackedVector2Array()
+		var radii = PackedFloat64Array()
+		var layers = PackedInt64Array()
+		for o in obstacles:
+			if not is_instance_valid(o):
+				continue
+			ids.append(o.get_instance_id())
+			pos.append(o.global_position)
+			radii.append(o.broadphase_radius)
+			layers.append(o.collision_layer)
+		_rasterizer.set_static_targets(ids, pos, radii, layers)
+		_static_pushed_count = obstacles.size()
+		_obstacle_rebuild_count += 1
+
+	var t_ids = PackedInt64Array()
+	var t_pos = PackedVector2Array()
+	var t_radii = PackedFloat64Array()
+	var t_layers = PackedInt64Array()
+	for h in EntityCache.get_group("part_hitbox"):
+		if not is_instance_valid(h):
 			continue
-		var target = instance_from_id(int(pair["target_id"]))
-		if target == null or not is_instance_valid(target):
-			continue
-		proj._handle_hit(target)
+		t_ids.append(h.get_instance_id())
+		t_pos.append(h.global_position)
+		t_radii.append(h.broadphase_radius)
+		t_layers.append(h.collision_layer)
+
+	var p_ids = PackedInt64Array()
+	var p_prev = PackedVector2Array()
+	var p_curr = PackedVector2Array()
+	var p_radii = PackedFloat64Array()
+	var p_masks = PackedInt64Array()
+	for id in _reports:
+		var r = _reports[id]
+		p_ids.append(id)
+		p_prev.append(r["prev"])
+		p_curr.append(r["curr"])
+		p_radii.append(r["radius"])
+		p_masks.append(r["mask"])
+	_reports.clear()
+
+	var pairs: PackedInt64Array = _rasterizer.query_hits_packed(t_ids, t_pos, t_radii, t_layers, p_ids, p_prev, p_curr, p_radii, p_masks)
+	for i in range(0, pairs.size(), 2):
+		_dispatch_hit(pairs[i], pairs[i + 1])
+
+func _dispatch_hit(projectile_id: int, target_id: int):
+	var proj = instance_from_id(projectile_id)
+	if proj == null or not is_instance_valid(proj) or proj.is_queued_for_deletion():
+		return
+	var target = instance_from_id(target_id)
+	if target == null or not is_instance_valid(target):
+		return
+	proj._handle_hit(target)
 
 # Pure-GDScript reference implementation - the fallback contract every
 # Rust-ported system in this codebase keeps (see ProjectileFlight/

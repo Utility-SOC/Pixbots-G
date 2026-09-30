@@ -37,8 +37,10 @@ func _check(label: String, cond: bool):
 
 func _make_champion(fitness: float, template_name: String = "T1", role: String = "brawler", rarity: int = HexTile.Rarity.COMMON):
 	var b = StockBuildScript.new(template_name, role, rarity)
-	b.times_used = 1
-	b.total_fitness = fitness
+	# Champion baseline is its RECENT credited fitness (see StockBuildEvolution.
+	# champion_recent_fitness), gated on MIN_CHAMPION_SAMPLES.
+	for i in range(StockBuildEvolutionScript.MIN_CHAMPION_SAMPLES + 2):
+		b.update_fitness(fitness)
 	b.serialized_components = {"tag": "champion"}
 	return b
 
@@ -64,7 +66,7 @@ func _ready():
 	var champion2 = _make_champion(100.0)
 	fake2.stock_builds = [champion2]
 	var evo2 = StockBuildEvolutionScript.new(fake2)
-	var fitnesses_majority = [110.0, 150.0, 130.0, 120.0, 105.0, 90.0, 80.0, 70.0] # 5 of 8 beat 100, best=150
+	var fitnesses_majority = [110.0, 150.0, 130.0, 120.0, 106.0, 90.0, 80.0, 70.0] # 5 of 8 beat 100, best=150
 	for f in fitnesses_majority:
 		evo2.record_deviation_result("T1", "brawler", HexTile.Rarity.COMMON, {"tag": "dev_%d" % int(f)}, f)
 	var after2 = evo2.get_stock_build("T1", "brawler", HexTile.Rarity.COMMON)

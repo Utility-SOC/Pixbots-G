@@ -14,6 +14,7 @@ var broadphase_radius: float = 0.0
 
 func _ready():
 	add_to_group("part_hitbox")
+	monitoring = false
 	for c in get_children():
 		if c is CollisionPolygon2D and c.polygon.size() > 0:
 			var centroid = Vector2.ZERO
@@ -33,7 +34,7 @@ func _ready():
 			break
 
 func _physics_process(_delta: float):
-	if is_instance_valid(mech) and "collision_layer" in mech:
+	if is_instance_valid(mech) and "collision_layer" in mech and collision_layer != mech.collision_layer:
 		collision_layer = mech.collision_layer
 
 # `source`/`was_reflected`/`source_label_override` accepted (and ignored -

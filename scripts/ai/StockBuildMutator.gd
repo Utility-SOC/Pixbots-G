@@ -19,9 +19,10 @@ const StockBuild = preload("res://scripts/ai/StockBuild.gd")
 
 # The very first build for a (template, role, sub_archetype_slot) - nothing
 # to compare against yet, so it's permanent from the start (not experimental).
-static func establish(template_name: String, role: String, rarity: int, serialized_components: Dictionary, sub_archetype_slot: int = 0) -> StockBuild:
+static func establish(template_name: String, role: String, rarity: int, serialized_components: Dictionary, sub_archetype_slot: int = 0, solver_profile_name: String = "") -> StockBuild:
 	var build = StockBuild.new(template_name, role, rarity)
 	build.sub_archetype_slot = sub_archetype_slot
+	build.solver_profile_name = solver_profile_name
 	build.serialized_components = serialized_components
 	build.is_experimental = false
 	build.base_spawn_weight = 100.0
@@ -33,8 +34,9 @@ static func establish(template_name: String, role: String, rarity: int, serializ
 # comparison against its parent before StockBuildEvolution promotes it (see
 # that file's _flush), unlike SquadTemplate/SolverProfile mutants which
 # start experimental and have to prove themselves after the fact.
-static func promote(parent: StockBuild, serialized_components: Dictionary) -> StockBuild:
+static func promote(parent: StockBuild, serialized_components: Dictionary, solver_profile_name: String = "") -> StockBuild:
 	var build = StockBuild.new(parent.template_name, parent.role, parent.rarity)
+	build.solver_profile_name = solver_profile_name
 	build.sub_archetype_slot = parent.sub_archetype_slot
 	build.serialized_components = serialized_components
 	build.is_experimental = false

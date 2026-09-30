@@ -458,6 +458,18 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 	_perf_us[7] += result.get("capture_flat", PackedFloat64Array()).size() / CAPTURE_STRIDE
 	_perf_us[8] += 1
 
+	var tf: PackedFloat64Array = result.get("tile_flow", PackedFloat64Array())
+	if grid.has_method("record_flow"):
+		for i in range(mini(tile_objs.size(), tf.size() / 4)):
+			if tf[i * 4] <= 0.0:
+				continue
+			var gp = tile_objs[i].grid_position
+			if gp == null:
+				continue
+			grid.record_flow(Vector2i(gp.q, gp.r), tf[i * 4], tf[i * 4 + 1], int(tf[i * 4 + 2]), tf[i * 4 + 3] > 0.5)
+		if result.get("hit_step_cap", false):
+			grid.sim_saturated = true
+
 	# tile_objs is get_all_tiles() order, but Rust indexed tiles by their
 	# (q,r) insertion into its grid map - which came from the SAME array
 	# order, so indices line up 1:1.

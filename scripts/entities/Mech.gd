@@ -2206,6 +2206,9 @@ func _compute_mass_and_stat_modifiers():
 # `torso` is the already-resolved TORSO component (caller already guarded
 # on it existing).
 func _simulate_energy_flow(torso):
+	for c in components.values():
+		if c and c.get("hex_grid"):
+			c.hex_grid.reset_flow()
 	# Collect energy from ALL generators in the Torso
 	var initial_packets: Array[EnergyPacket] = []
 	for coord in torso.hex_grid.grid.keys():
@@ -2968,6 +2971,7 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscr
 					p.direction = (dir + 3) % 6
 					next_packets.append(p)
 
+				grid.record_flow(Vector2i(tile.grid_position.q, tile.grid_position.r) if tile.grid_position else Vector2i(next_pos.q, next_pos.r), 1.0, entering.magnitude, -1, false)
 				var out_pkts = tile.process_energy(entering, (dir + 3) % 6, grid, next_pos)
 				for out in out_pkts:
 					out.position = next_pos
@@ -3065,6 +3069,8 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscr
 				var about_to_hit_tile = grid.has_tile(p.position.neighbor(p.direction))
 				if not about_to_hit_tile:
 					p.is_active = false
+	if active_packets.size() > 0 and steps >= SIMULATE_GRID_STEP_CAP:
+		grid.sim_saturated = true
 
 # --- Player Sight/Detection (non-boss only) --------------------------------
 # Previously every enemy just always knew exactly where the player was and

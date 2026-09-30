@@ -91,6 +91,10 @@ const STEP_CAP: i64 = 200;
 const NEGLIGIBLE_MAGNITUDE_FLOOR: f64 = 2.0;
 const HIGH_TOTAL_ENERGY_THRESHOLD: f64 = 1200000.0;
 const HIGH_TOTAL_RELATIVE_CULL_FRACTION: f64 = 0.0005;
+// Loop detection: a tile entered through the same face on this many DIFFERENT
+// steps is being recirculated (an Infuser/Amplifier in a ring keeps re-adding
+// to the same packet stream). Reported to the garage as a warning.
+const LOOP_ENTRY_STEPS: i64 = 5;
 const SYN_RAW: usize = 0;
 const SYN_LIGHTNING: usize = 3;
 const SYN_KINETIC: usize = 7;
@@ -966,6 +970,14 @@ impl HexGridSim {
             conduit_dominant: HashMap::new(),
         };
 
+        // Per-tile flow stats for the garage: packets entering, energy entering,
+        // synergy-weighted energy, and (for loop detection) the number of
+        // distinct steps each entry face was used.
+        let mut flow_visits: Vec<f64> = vec![0.0; descs.len()];
+        let mut flow_energy: Vec<f64> = vec![0.0; descs.len()];
+        let mut flow_syn: Vec<[f64; SYN_COUNT]> = vec![[0.0; SYN_COUNT]; descs.len()];
+        let mut entry_steps: Vec<[i64; 6]> = vec![[0; 6]; descs.len()];
+
         let t_parsed = t_start.elapsed().as_micros() as i64;
         let mut steps = 0i64;
         while !active.is_empty() && steps < STEP_CAP {
@@ -995,6 +1007,12 @@ impl HexGridSim {
                     }
 
                     let entry = (dir + 3).rem_euclid(6);
+                    flow_visits[tidx] += 1.0;
+                    flow_energy[tidx] += entering.magnitude;
+                    for k in 0..SYN_COUNT {
+                        flow_syn[tidx][k] += entering.syn[k];
+                    }
+                    entry_steps[tidx][entry as usize] += 1;
                     let (desc_ref, state_ref) = (&descs[tidx], &mut states[tidx]);
                     let processed = process_energy(
                         tidx, desc_ref, state_ref, entering, entry, npos, anchor, &grid, &mut outs,
@@ -1078,6 +1096,7 @@ impl HexGridSim {
             }
         }
 
+        let hit_step_cap = !active.is_empty();
         let t_simmed = t_start.elapsed().as_micros() as i64;
         // Captures are the bulk of the result (~100 per sim), so they are
         // returned as one flat array (stride CAPTURE_STRIDE) instead of a
@@ -1164,7 +1183,29 @@ impl HexGridSim {
             out_states.push(&d.to_variant());
         }
 
+        // tile_flow: stride 4 per tile = visits, energy, dominant synergy (-1
+        // if none), loop flag (1 if some entry face was used on
+        // LOOP_ENTRY_STEPS+ steps).
+        let mut flow_flat: Vec<f64> = Vec::with_capacity(descs.len() * 4);
+        for i in 0..descs.len() {
+            let mut dom: i64 = -1;
+            let mut best = 0.0f64;
+            for k in 0..SYN_COUNT {
+                if flow_syn[i][k] > best {
+                    best = flow_syn[i][k];
+                    dom = k as i64;
+                }
+            }
+            let looped = entry_steps[i].iter().any(|&n| n >= LOOP_ENTRY_STEPS);
+            flow_flat.push(flow_visits[i]);
+            flow_flat.push(flow_energy[i]);
+            flow_flat.push(dom as f64);
+            flow_flat.push(if looped { 1.0 } else { 0.0 });
+        }
+
         let mut result: VDict = Dictionary::new();
+        let _ = result.insert("tile_flow", &PackedFloat64Array::from(flow_flat.as_slice()));
+        let _ = result.insert("hit_step_cap", hit_step_cap);
         let _ = result.insert("capture_flat", &out_captures);
         let _ = result.insert("stores", &out_stores);
         let _ = result.insert("mech_merges", &out_merges);

@@ -4,6 +4,36 @@ extends Node
 # Maps Vector2i(q, r) -> HexTile
 var grid: Dictionary = {}
 
+# Per-tile energy flow from the last full energy-routing pass (Mech.
+# _simulate_energy_flow): Vector2i(anchor q, r) -> {"visits", "energy", "dom"}.
+# Tiles missing from it never received any energy ("unpowered").
+var flow: Dictionary = {}
+# Anchors of tiles where energy recirculates (same face entered on many
+# different steps) - e.g. an Infuser in a ring that re-adds to its own stream.
+var flow_loops: Dictionary = {}
+# True when packets were still alive at the sim step cap.
+var sim_saturated: bool = false
+
+func reset_flow() -> void:
+	flow.clear()
+	flow_loops.clear()
+	sim_saturated = false
+
+func record_flow(key: Vector2i, visits: float, energy: float, dom: int, looped: bool) -> void:
+	var f = flow.get(key)
+	if f == null:
+		flow[key] = {"visits": visits, "energy": energy, "dom": dom}
+	else:
+		f["visits"] += visits
+		f["energy"] += energy
+		if dom >= 0:
+			f["dom"] = dom
+	if looped:
+		flow_loops[key] = true
+
+func is_powered(key: Vector2i) -> bool:
+	return flow.has(key)
+
 # NOTE: process_durability() is defined on the HexTile base class itself
 # (scripts/core/HexTile.gd), so every tile in `grid` has it - the old code
 # called tile.has_method("process_durability") here on every tile, every

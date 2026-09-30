@@ -116,11 +116,14 @@ static func _crc32(data: PackedByteArray) -> int:
 static func _be32(value: int) -> PackedByteArray:
 	return PackedByteArray([(value >> 24) & 0xFF, (value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF])
 
-# Inserts our iTXt chunk immediately before IEND. iTXt (not tEXt) because
-# its text field is defined as UTF-8, matching JSON.stringify output.
-static func embed_payload(png_bytes: PackedByteArray, payload: Dictionary) -> PackedByteArray:
+# Hard ceiling on any embedded payload we will parse (untrusted input).
+const MAX_CHUNK_BYTES = 4 * 1024 * 1024
+
+# Inserts an iTXt chunk (keyword -> JSON) immediately before IEND. iTXt (not
+# tEXt) because its text field is defined as UTF-8, matching JSON.stringify.
+static func embed_chunk(png_bytes: PackedByteArray, keyword: String, payload: Dictionary) -> PackedByteArray:
 	var text = JSON.stringify(payload)
-	var chunk_data = CHUNK_KEYWORD.to_utf8_buffer()
+	var chunk_data = keyword.to_utf8_buffer()
 	chunk_data.append(0)      # keyword terminator
 	chunk_data.append(0)      # compression flag: uncompressed
 	chunk_data.append(0)      # compression method
@@ -142,18 +145,26 @@ static func embed_payload(png_bytes: PackedByteArray, payload: Dictionary) -> Pa
 	out.append_array(png_bytes.slice(iend_start))
 	return out
 
-# Walks the chunk list looking for our iTXt; returns {} if absent/invalid.
-static func extract_payload(png_bytes: PackedByteArray) -> Dictionary:
+static func embed_payload(png_bytes: PackedByteArray, payload: Dictionary) -> PackedByteArray:
+	return embed_chunk(png_bytes, CHUNK_KEYWORD, payload)
+
+# Walks the chunk list looking for the iTXt with `keyword`; returns the parsed
+# JSON Dictionary if its "format" matches, else {}. Purely data: JSON only, with
+# length/size checks so a hostile PNG can't walk off the buffer or force a
+# giant parse.
+static func extract_chunk(png_bytes: PackedByteArray, keyword: String, format: String) -> Dictionary:
 	if png_bytes.size() < 8 + 12:
 		return {}
 	var pos = 8 # skip signature
 	while pos + 12 <= png_bytes.size():
 		var length = (png_bytes[pos] << 24) | (png_bytes[pos + 1] << 16) | (png_bytes[pos + 2] << 8) | png_bytes[pos + 3]
+		if length < 0 or length > MAX_CHUNK_BYTES or pos + 12 + length > png_bytes.size():
+			return {}
 		var type = png_bytes.slice(pos + 4, pos + 8).get_string_from_ascii()
 		if type == "iTXt":
 			var data = png_bytes.slice(pos + 8, pos + 8 + length)
 			var keyword_end = data.find(0)
-			if keyword_end > 0 and data.slice(0, keyword_end).get_string_from_utf8() == CHUNK_KEYWORD:
+			if keyword_end > 0 and data.slice(0, keyword_end).get_string_from_utf8() == keyword:
 				# keyword \0 flag \0(method) then two \0-terminated strings
 				var p = keyword_end + 3
 				for _i in range(2):
@@ -162,13 +173,29 @@ static func extract_payload(png_bytes: PackedByteArray) -> Dictionary:
 						return {}
 					p += z + 1
 				var parsed = JSON.parse_string(data.slice(p).get_string_from_utf8())
-				if parsed is Dictionary and parsed.get("format", "") == PAYLOAD_FORMAT:
+				if parsed is Dictionary and parsed.get("format", "") == format:
 					return parsed
 			# fall through: not our chunk, keep walking
 		if type == "IEND":
 			break
 		pos += 12 + length
 	return {}
+
+static func extract_payload(png_bytes: PackedByteArray) -> Dictionary:
+	return extract_chunk(png_bytes, CHUNK_KEYWORD, PAYLOAD_FORMAT)
+
+# Style-card gene payload (see GenePool.build_export). A card may carry the
+# champion chunk, the gene chunk, or both.
+const GENES_KEYWORD = "pixbots.aigenes"
+const GENES_FORMAT = "pixbots-aigenes-v1"
+
+static func embed_genes(png_bytes: PackedByteArray, genes: Dictionary) -> PackedByteArray:
+	var wrapped = genes.duplicate()
+	wrapped["format"] = GENES_FORMAT
+	return embed_chunk(png_bytes, GENES_KEYWORD, wrapped)
+
+static func extract_genes(png_bytes: PackedByteArray) -> Dictionary:
+	return extract_chunk(png_bytes, GENES_KEYWORD, GENES_FORMAT)
 
 # -------------------------------------------------------------- card image --
 
@@ -322,16 +349,18 @@ static func render_card_image(mech: Node) -> Image:
 # ------------------------------------------------------------ export/import --
 
 # Renders + embeds + writes; returns the absolute user:// path or "" on error.
-static func export_card(mech: Node, pilot_name: String) -> String:
+static func export_card(mech: Node, pilot_name: String, genes: Dictionary = {}) -> String:
 	DirAccess.make_dir_recursive_absolute(CARDS_DIR)
 	var payload = build_payload(mech, pilot_name)
 	var img = await render_card_image(mech)
 	var png = img.save_png_to_buffer()
 	png = embed_payload(png, payload)
+	if not genes.is_empty():
+		png = embed_genes(png, genes)
 	var safe_name = pilot_name.validate_filename().replace(" ", "_")
 	if safe_name == "":
 		safe_name = "pilot"
-	var path = CARDS_DIR + safe_name + "_champion.png"
+	var path = CARDS_DIR + safe_name + ("_style.png" if not genes.is_empty() else "_champion.png")
 	var f = FileAccess.open(path, FileAccess.WRITE)
 	if not f:
 		return ""
@@ -377,6 +406,51 @@ static func import_cards_from_dir(dir_path: String = CARDS_DIR) -> Array:
 			pass # import_card just (re)wrote it; treat rewrite as idempotent
 		imported.append(ghost)
 	return imported
+
+const STYLE_SEEN_FILE = "user://style_cards_seen.json"
+
+# Gene payloads in card PNGs under `dir_path` that haven't been imported before
+# (deduped by content hash, so re-dropping a card never re-imports it). Returns
+# [{"file", "hash", "genes"}]; the caller feeds each through the director's
+# sanitizing import and then calls mark_style_seen().
+static func find_new_style_cards(dir_path: String = CARDS_DIR) -> Array:
+	var out: Array = []
+	var dir = DirAccess.open(dir_path)
+	if not dir:
+		return out
+	var seen = _load_style_seen()
+	for file in dir.get_files():
+		if not file.to_lower().ends_with(".png"):
+			continue
+		var f = FileAccess.open(dir_path.path_join(file), FileAccess.READ)
+		if not f or f.get_length() > 16 * 1024 * 1024:
+			continue
+		var bytes = f.get_buffer(f.get_length())
+		f.close()
+		var genes = extract_genes(bytes)
+		if genes.is_empty():
+			continue
+		var h = JSON.stringify(genes).sha256_text()
+		if seen.has(h):
+			continue
+		out.append({"file": file, "hash": h, "genes": genes})
+	return out
+
+static func mark_style_seen(hash: String) -> void:
+	var seen = _load_style_seen()
+	seen[hash] = true
+	var f = FileAccess.open(STYLE_SEEN_FILE, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(seen))
+		f.close()
+
+static func _load_style_seen() -> Dictionary:
+	if not FileAccess.file_exists(STYLE_SEEN_FILE):
+		return {}
+	var f = FileAccess.open(STYLE_SEEN_FILE, FileAccess.READ)
+	var parsed = JSON.parse_string(f.get_as_text())
+	f.close()
+	return parsed if parsed is Dictionary else {}
 
 static func list_ghosts() -> Array:
 	var ghosts: Array = []

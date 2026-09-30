@@ -11,6 +11,7 @@ extends Node
 const BossProfile = preload("res://scripts/ai/BossProfile.gd")
 const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 const StockBuild = preload("res://scripts/ai/StockBuild.gd")
+const GenePool = preload("res://scripts/ai/GenePool.gd")
 
 const DEFAULT_PROFILE_PATH = "user://ai_profiles/"
 
@@ -131,6 +132,8 @@ func _templates_from_data(data: Dictionary) -> Array[SquadTemplate]:
 	var templates: Array[SquadTemplate] = []
 	if data.has("templates"):
 		for t_data in data["templates"]:
+			if not (t_data is Dictionary):
+				continue
 			var template = SquadTemplate.new()
 			template.from_dict(t_data)
 			templates.append(template)
@@ -140,6 +143,8 @@ func _solver_profiles_from_data(data: Dictionary) -> Array:
 	var profiles: Array = []
 	if data.has("solver_profiles"):
 		for p_data in data["solver_profiles"]:
+			if not (p_data is Dictionary):
+				continue
 			var p = SolverProfile.new()
 			p.from_dict(p_data)
 			profiles.append(p)
@@ -149,6 +154,8 @@ func _boss_profiles_from_data(data: Dictionary) -> Array:
 	var profiles: Array = []
 	if data.has("boss_profiles"):
 		for p_data in data["boss_profiles"]:
+			if not (p_data is Dictionary):
+				continue
 			var p = BossProfile.new()
 			p.from_dict(p_data)
 			profiles.append(p)
@@ -158,38 +165,24 @@ func _stock_builds_from_data(data: Dictionary) -> Array:
 	var builds: Array = []
 	if data.has("stock_builds"):
 		for b_data in data["stock_builds"]:
+			if not (b_data is Dictionary):
+				continue
 			var b = StockBuild.new()
 			b.from_dict(b_data)
 			builds.append(b)
 	return builds
 
-# Stamps an exported item's origin_pilot with the exporter's identity ONLY
-# if it doesn't already carry one - a template bred locally becomes "from
-# me" the moment it leaves this install, but a template that was ALREADY
-# imported from someone else keeps crediting its real originator through a
-# chain of hand-offs instead of every re-share overwriting it with whoever
-# most recently passed it along.
-func _stamp_origin(d: Dictionary) -> Dictionary:
-	if str(d.get("origin_pilot", "")) == "":
-		d["origin_pilot"] = SaveManager.pilot_name
-	return d
-
-func export_to_clipboard(templates: Array[SquadTemplate], solver_profiles: Array = [], boss_profiles: Array = [], stock_builds: Array = []):
-	var profile_data = {"templates": [], "solver_profiles": [], "boss_profiles": [], "stock_builds": []}
-	for t in templates:
-		profile_data["templates"].append(_stamp_origin(t.to_dict()))
-	for p in solver_profiles:
-		profile_data["solver_profiles"].append(_stamp_origin(p.to_dict()))
-	for bp in boss_profiles:
-		profile_data["boss_profiles"].append(_stamp_origin(bp.to_dict()))
-	for sb in stock_builds:
-		profile_data["stock_builds"].append(_stamp_origin(sb.to_dict()))
-	DisplayServer.clipboard_set(JSON.stringify(profile_data))
+func export_to_clipboard(templates: Array[SquadTemplate], solver_profiles: Array = [], boss_profiles: Array = [], stock_builds: Array = [], tactic_pool: Dictionary = {}):
+	DisplayServer.clipboard_set(JSON.stringify(build_export_payload(templates, solver_profiles, boss_profiles, stock_builds, tactic_pool)))
 	print("Profile exported to clipboard! Ready to share.")
 
+# The shareable gene payload (clipboard JSON and style-card PNG chunk alike).
+# Genes only - never the PlayerModel or combat telemetry.
+func build_export_payload(templates: Array, solver_profiles: Array = [], boss_profiles: Array = [], stock_builds: Array = [], tactic_pool: Dictionary = {}, compact: bool = false) -> Dictionary:
+	return GenePool.build_export(templates, solver_profiles, boss_profiles, stock_builds, tactic_pool, SaveManager.pilot_name, compact)
+
 # Counterpart to export_to_clipboard - parse a shared profile back out of
-# the clipboard. Returns {"templates": [...], "solver_profiles": [...],
-# "boss_profiles": [...], "stock_builds": [...]} (any may be empty), or {}
+# the clipboard. Returns the typed lists plus "tactic_pool" and "pilot" (see parse_payload), or {}
 # if the clipboard isn't a valid profile.
 func import_from_clipboard() -> Dictionary:
 	var text = DisplayServer.clipboard_get()
@@ -199,9 +192,23 @@ func import_from_clipboard() -> Dictionary:
 	if json.parse(text) != OK or not (json.data is Dictionary):
 		push_error("Clipboard does not contain a valid AI profile.")
 		return {}
+	return parse_payload(json.data)
+
+# Untrusted payload dict -> typed gene lists. {} when it isn't a profile this
+# build understands (too-new schema, oversized lists).
+func parse_payload(data: Dictionary) -> Dictionary:
+	if int(data.get("schema", 1)) > GenePool.SCHEMA:
+		push_error("AI profile is from a newer game version (schema %d)." % int(data.get("schema", 1)))
+		return {}
+	for k in ["templates", "solver_profiles", "boss_profiles", "stock_builds"]:
+		if data.has(k) and not GenePool.list_ok(data[k]):
+			push_error("AI profile rejected: '%s' is malformed or oversized." % k)
+			return {}
 	return {
-		"templates": _templates_from_data(json.data),
-		"solver_profiles": _solver_profiles_from_data(json.data),
-		"boss_profiles": _boss_profiles_from_data(json.data),
-		"stock_builds": _stock_builds_from_data(json.data),
+		"templates": _templates_from_data(data),
+		"solver_profiles": _solver_profiles_from_data(data),
+		"boss_profiles": _boss_profiles_from_data(data),
+		"stock_builds": _stock_builds_from_data(data),
+		"tactic_pool": data.get("tactic_pool", {}) if data.get("tactic_pool") is Dictionary else {},
+		"pilot": str(data.get("pilot", "")).substr(0, 40),
 	}

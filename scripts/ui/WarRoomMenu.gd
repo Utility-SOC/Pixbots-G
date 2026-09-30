@@ -455,9 +455,11 @@ func _build_doctrines(director):
 			var syn = "none"
 			if p.favored_synergy >= 0 and p.favored_synergy < SYNERGY_NAMES.size():
 				syn = SYNERGY_NAMES[p.favored_synergy]
+			if p.secondary_synergy >= 0 and p.secondary_synergy < SYNERGY_NAMES.size() and p.secondary_mix > 0.0:
+				syn += " + %s %.0f%%" % [SYNERGY_NAMES[p.secondary_synergy], p.secondary_mix * 100.0]
 			var fit_str = ("%.0f" % avg) if p.times_used > 0 else "-"
 			_lbl(doctrine_vbox, "  %s  [%s]" % [p.profile_name, "TRIAL" if p.is_experimental else "CORE"], COL_TRIAL if p.is_experimental else COL_CORE, 14)
-			_lbl(doctrine_vbox, "     element %s | pierce %.2f / amp %.2f | weight %.0f | used %d | avg %s" % [syn, p.pierce_priority, p.amplify_priority, p.spawn_weight, p.times_used, fit_str], _fitness_color(avg, p.times_used), 12)
+			_lbl(doctrine_vbox, "     element %s | pierce %.2f / amp %.2f | range x%.2f | weight %.0f | used %d | avg %s" % [syn, p.pierce_priority, p.amplify_priority, p.engage_scale, p.spawn_weight, p.times_used, fit_str], _fitness_color(avg, p.times_used), 12)
 
 	var share_bar = HBoxContainer.new()
 	doctrine_vbox.add_child(share_bar)
@@ -485,7 +487,7 @@ func _build_doctrines(director):
 				status_label.text = "Couldn't access AI profile data."
 		elif d.import_learned_state_from_clipboard():
 			_refresh()
-			status_label.text = "Imported and merged."
+			status_label.text = _import_report_text(d)
 		elif status_label:
 			status_label.text = "Clipboard doesn't contain a valid profile."
 	)
@@ -525,7 +527,69 @@ func _build_doctrines(director):
 			status_label.text = "Imported: %s. %d challenger(s) may now appear in waves!" % [", ".join(names), total]
 	)
 	champ_bar.add_child(btn_card_import)
+
+	# Style Card: the champion card PNG plus this AI's best genes. Friends drop
+	# these in the same folder; everything in them arrives on probation.
+	var style_bar = HBoxContainer.new()
+	doctrine_vbox.add_child(style_bar)
+	var btn_style = Button.new()
+	btn_style.text = "Export Style Card (bot + AI genes)"
+	btn_style.pressed.connect(func():
+		var players = get_tree().get_nodes_in_group("player")
+		var d = _get_director()
+		if players.is_empty() or not (d and d.has_method("build_gene_export")):
+			status_label.text = "Start a game to export a style card."
+			return
+		var path = await ChampionCard.export_card(players[0], SaveManager.pilot_name, d.build_gene_export(true))
+		if path != "":
+			status_label.text = "Style Card saved: %s (share the PNG!)" % ProjectSettings.globalize_path(path)
+		else:
+			status_label.text = "Card export failed - see log."
+	)
+	style_bar.add_child(btn_style)
+	var btn_style_import = Button.new()
+	btn_style_import.text = "Import Style Cards"
+	btn_style_import.pressed.connect(func():
+		var d = _get_director()
+		if not (d and d.has_method("import_raw_payload")):
+			status_label.text = "Couldn't access AI profile data."
+			return
+		var cards = ChampionCard.find_new_style_cards()
+		var n = 0
+		for c in cards:
+			if d.import_raw_payload(c["genes"]):
+				n += 1
+			ChampionCard.mark_style_seen(c["hash"])
+		if n > 0:
+			_refresh()
+			status_label.text = "%d style card(s): %s" % [n, _import_report_text(d)]
+		else:
+			status_label.text = "No new style cards in %s." % ProjectSettings.globalize_path(ChampionCard.CARDS_DIR)
+	)
+	style_bar.add_child(btn_style_import)
+
+	var dv = d_diversity_line()
+	if dv != "":
+		_lbl(doctrine_vbox, dv, COL_DIM, 11)
 	status_label = _lbl(doctrine_vbox, "", COL_DIM, 11)
+
+func _import_report_text(d) -> String:
+	var r: Dictionary = d.get("last_import_report") if "last_import_report" in d else {}
+	if r.is_empty():
+		return "Imported and merged."
+	return "Imported on probation: %d template(s), %d profile(s), %d boss(es), %d tactic(s), %d hybrid(s), %d donor build(s); %d skipped." % [
+		int(r.get("templates", 0)), int(r.get("profiles", 0)), int(r.get("bosses", 0)), int(r.get("tactics", 0)),
+		int(r.get("hybrids", 0)), int(r.get("donors", 0)), int(r.get("skipped", 0))]
+
+func d_diversity_line() -> String:
+	var d = _get_director()
+	if not (d and d.has_method("gene_diversity")):
+		return ""
+	var v: Dictionary = d.gene_diversity()
+	return "AI variety: roles %.0f%% | doctrines %.0f%% | elements %.0f%% | %d tactic variant(s) | %d pilot-sourced entr%s | %d spliced build(s)" % [
+		v["role_entropy"] * 100.0, v["doctrine_entropy"] * 100.0, v["synergy_entropy"] * 100.0, v["tactic_variants"],
+		v["foreign_templates"] + v["foreign_profiles"] + v["foreign_tactics"],
+		"y" if (v["foreign_templates"] + v["foreign_profiles"] + v["foreign_tactics"]) == 1 else "ies", v["spliced_builds"]]
 
 # --- Captured Loadouts -------------------------------------------------------
 # Utility-SOC: "save the actual tile inventory/layout of the most effective

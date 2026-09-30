@@ -1,6 +1,10 @@
 class_name WarRoomSnapshot
 extends RefCounted
 
+const TacticGenome = preload("res://scripts/ai/TacticGenome.gd")
+const GenePool = preload("res://scripts/ai/GenePool.gd")
+const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
+
 # Read-only stand-in for a live SquadDirector, built straight from the saved
 # learned_state.json - lets the War Room be opened from the Main Menu (no
 # game running yet, no director in the scene tree) and still show real
@@ -28,6 +32,12 @@ var captured_loadouts: Dictionary = {}
 # the exact same profile-manager instance/settings instead of re-resolving
 # the moddable-baseline-pack path a second time.
 var _mgr = null
+var last_import_report: Dictionary = {}
+
+static func _new_rng() -> RandomNumberGenerator:
+	var r = RandomNumberGenerator.new()
+	r.randomize()
+	return r
 
 const LEARNED_STATE_NAME = "learned_state"
 
@@ -80,7 +90,7 @@ static func load_from_disk():
 # live SquadDirector does is the entire fix - no UI changes needed.
 func export_learned_state_to_clipboard():
 	if _mgr:
-		_mgr.export_to_clipboard(templates, solver_profiles, boss_profiles, stock_builds)
+		_mgr.export_to_clipboard(templates, solver_profiles, boss_profiles, stock_builds, _saved_tactic_pool())
 
 # Mirrors SquadDirector.import_learned_state_from_clipboard(), but since
 # there's no live director to hold the merged result in memory (and no
@@ -91,10 +101,40 @@ func export_learned_state_to_clipboard():
 func import_learned_state_from_clipboard() -> bool:
 	if not _mgr:
 		return false
-	var data = _mgr.import_from_clipboard()
-	if data.is_empty():
+	return import_gene_payload(_mgr.import_from_clipboard())
+
+func import_raw_payload(raw: Dictionary) -> bool:
+	if not _mgr:
 		return false
-	merge_imported(templates, solver_profiles, boss_profiles, data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []), stock_builds, data.get("stock_builds", []))
+	return import_gene_payload(_mgr.parse_payload(raw))
+
+func build_gene_export(compact: bool = true) -> Dictionary:
+	if not _mgr:
+		return {}
+	return _mgr.build_export_payload(templates, solver_profiles, boss_profiles, stock_builds, _saved_tactic_pool(), compact)
+
+func gene_diversity() -> Dictionary:
+	return GenePool.diversity(templates, solver_profiles, _saved_tactic_pool(), stock_builds)
+
+func _saved_tactic_pool() -> Dictionary:
+	if _mgr == null or not _mgr.has_profile(LEARNED_STATE_NAME):
+		return {}
+	var tel = _mgr.load_telemetry(LEARNED_STATE_NAME)
+	return TacticGenome.sanitize(tel.get("tactic_pool")) if tel.get("tactic_pool") is Dictionary else {}
+
+# Shared by the clipboard path above and style-card imports. Persists straight
+# to the learned-state file; the existing telemetry (PlayerModel, tactic pool,
+# ...) is read back and rewritten so an import can never wipe it.
+func import_gene_payload(data: Dictionary) -> bool:
+	if data.is_empty() or _mgr == null:
+		return false
+	var telemetry: Dictionary = _mgr.load_telemetry(LEARNED_STATE_NAME) if _mgr.has_profile(LEARNED_STATE_NAME) else {}
+	var pool = TacticGenome.sanitize(telemetry.get("tactic_pool")) if telemetry.get("tactic_pool") is Dictionary else TacticGenome.seed_pool()
+	TacticGenome.ensure_archetypes(pool)
+	var res = TacticGenome.immigrate(pool, data.get("tactic_pool", {}), int(telemetry.get("tactic_serial", 1)), str(data.get("pilot", "")), _new_rng())
+	telemetry["tactic_pool"] = pool
+	telemetry["tactic_serial"] = res["serial"]
+	last_import_report = merge_imported(templates, solver_profiles, boss_profiles, data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []), stock_builds, data.get("stock_builds", []))
 
 	# _ready() never ran on this manually instantiated, never-added-to-tree
 	# manager (see load_from_disk()'s own comment on that), so the
@@ -104,72 +144,176 @@ func import_learned_state_from_clipboard() -> bool:
 	if dir and not dir.dir_exists("ai_profiles"):
 		dir.make_dir("ai_profiles")
 
-	_mgr.save_profile(LEARNED_STATE_NAME, templates, solver_profiles, boss_profiles, stock_builds)
+	last_import_report["tactics"] = res["added"].size() + res["hybrids"].size()
+	_mgr.save_profile(LEARNED_STATE_NAME, templates, solver_profiles, boss_profiles, stock_builds, telemetry)
 	print("[WAR ROOM] Imported AI profile from clipboard (no live game).")
 	return true
 
-# Merge path for a CROSS-PILOT clipboard import - shared by SquadDirector.
-# _merge_imported() (the same-session live-game path) and this class's own
-# import above, so the two never drift apart. On a name collision the
-# incoming item is renamed with its origin_pilot attribution and registered
-# as a SEPARATE new entry instead of clobbering local progress (the user:
-# "if they have the same name can they be appended with the name of the
-# user you originally got it from"). Imports always land at full weight/
-# standing (is_experimental = false) rather than the trial gate a locally-
-# bred mutant has to earn its way through - a battle-tested import from
-# someone else's game has already proven itself.
+# Merge path for a CROSS-PILOT import (clipboard or style card) - shared by
+# SquadDirector._merge_imported() (live game) and this class's own no-live-game
+# import above. Everything arriving here is untrusted and lands on PROBATION
+# (see GenePool): sanitized, capped per import, flagged experimental with the
+# exporter's record cleared, so it has to beat THIS player's habits before it
+# counts as core. On a name collision the incoming item is renamed with its
+# origin_pilot and registered as a separate entry instead of clobbering local
+# progress; re-importing the same export is a no-op (exact duplicates skipped).
+# Imported templates are also crossbred with the best local template right
+# away (capped hybrids), so their traits mix in rather than merely co-exist.
+# Returns a report {"templates", "profiles", "bosses", "builds", "donors",
+# "hybrids", "skipped"} for the UI.
 static func merge_imported(target_templates: Array, target_solver_profiles: Array, target_boss_profiles: Array,
 		loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = [],
-		target_stock_builds: Array = [], loaded_stock_builds: Array = []) -> void:
-	for lt in loaded_templates:
+		target_stock_builds: Array = [], loaded_stock_builds: Array = []) -> Dictionary:
+	var report = {"templates": 0, "profiles": 0, "bosses": 0, "builds": 0, "donors": 0, "hybrids": 0, "skipped": 0}
+	var renamed: Dictionary = {} # incoming template name -> accepted local name
+	var accepted_templates: Array = []
+
+	var considered = 0
+	for lt in GenePool.top_by_fitness(loaded_templates, GenePool.MAX_LIST):
+		# Duplicates count against the cap too, so re-importing one export
+		# keeps looking at the same top entries and changes nothing.
+		considered += 1
+		if considered > GenePool.TEMPLATE_CAP:
+			report["skipped"] += 1
+			continue
+		var original_name = lt.template_name
+		if not GenePool.sanitize_template(lt):
+			report["skipped"] += 1
+			continue
+		var dup = false
 		var collision = false
 		for t in target_templates:
 			if t.template_name == lt.template_name:
 				collision = true
-				break
-		if collision:
+				# Same name AND same roles from the same pilot = an earlier
+				# import of this very template.
+				if t.required_roles == lt.required_roles and t.origin_pilot == lt.origin_pilot:
+					dup = true
+		if collision and not dup:
 			var tag = lt.origin_pilot if lt.origin_pilot != "" else "Unknown Pilot"
 			lt.template_name = "%s (%s)" % [lt.template_name, tag]
-		lt.is_experimental = false
+		for t in target_templates:
+			if t.template_name == lt.template_name and t.required_roles == lt.required_roles:
+				dup = true
+		if dup:
+			report["skipped"] += 1
+			continue
+		GenePool.put_on_probation(lt)
 		target_templates.append(lt)
+		accepted_templates.append(lt)
+		renamed[original_name] = lt.template_name
+		report["templates"] += 1
 
-	for lp in loaded_profiles:
+	# Breed the incoming doctrine with the best local one.
+	var locals: Array = []
+	for t in target_templates:
+		if not t.is_experimental and t.origin_pilot == "":
+			locals.append(t)
+	if not locals.is_empty():
+		locals = GenePool.top_by_fitness(locals, 1)
+		for lt in accepted_templates.slice(0, 2):
+			var hybrid = SquadTemplateMutator.crossover(locals[0], lt)
+			if hybrid != null:
+				hybrid.is_experimental = true
+				target_templates.append(hybrid)
+				report["hybrids"] += 1
+
+	considered = 0
+	for lp in GenePool.top_by_fitness(loaded_profiles, GenePool.MAX_LIST):
+		considered += 1
+		if considered > GenePool.PROFILE_CAP:
+			report["skipped"] += 1
+			continue
 		var collision_p = false
+		var skip_dup = false
 		for p in target_solver_profiles:
 			if p.profile_name == lp.profile_name:
 				collision_p = true
+				if p.origin_pilot != "" and p.origin_pilot == lp.origin_pilot:
+					collision_p = false
+					skip_dup = true
 				break
+		if skip_dup:
+			report["skipped"] += 1
+			continue
 		if collision_p:
 			var tag = lp.origin_pilot if lp.origin_pilot != "" else "Unknown Pilot"
 			lp.profile_name = "%s (%s)" % [lp.profile_name, tag]
-		lp.is_experimental = false
+			var again = false
+			for p in target_solver_profiles:
+				if p.profile_name == lp.profile_name:
+					again = true
+			if again:
+				report["skipped"] += 1
+				continue
+		GenePool.put_on_probation(lp)
 		target_solver_profiles.append(lp)
+		report["profiles"] += 1
 
-	for lbp in loaded_boss_profiles:
+	considered = 0
+	for lbp in GenePool.top_by_fitness(loaded_boss_profiles, GenePool.MAX_LIST):
+		considered += 1
+		if considered > GenePool.BOSS_CAP:
+			report["skipped"] += 1
+			continue
 		var collision_b = false
+		var skip_dup = false
 		for bp in target_boss_profiles:
 			if bp.profile_name == lbp.profile_name:
 				collision_b = true
+				if bp.origin_pilot != "" and bp.origin_pilot == lbp.origin_pilot:
+					collision_b = false
+					skip_dup = true
 				break
+		if skip_dup:
+			report["skipped"] += 1
+			continue
 		if collision_b:
 			var tag = lbp.origin_pilot if lbp.origin_pilot != "" else "Unknown Pilot"
 			lbp.profile_name = "%s (%s)" % [lbp.profile_name, tag]
-		lbp.is_experimental = false
+			var again_b = false
+			for bp in target_boss_profiles:
+				if bp.profile_name == lbp.profile_name:
+					again_b = true
+			if again_b:
+				report["skipped"] += 1
+				continue
+		GenePool.put_on_probation(lbp)
 		target_boss_profiles.append(lbp)
+		report["bosses"] += 1
 
-	# StockBuild identity is (template_name, role), not a single name field -
-	# a collision renames just the template_name half (matching the
-	# templates-array rename above) so the build still reads as "whichever
-	# template it came from, from so-and-so" rather than needing a third
-	# naming scheme.
+	# Stock builds: a build for an accepted template rides along under the
+	# template's (possibly renamed) name. Everything else good enough becomes a
+	# DONOR - kept under a name no template uses, so it can never replace a
+	# local champion, only lend one body slot at a time to a deviation candidate
+	# (StockBuildEvolution._make_candidate).
+	var donors: Array = []
 	for lsb in loaded_stock_builds:
-		var collision_s = false
-		for sb in target_stock_builds:
-			if sb.template_name == lsb.template_name and sb.role == lsb.role and sb.rarity == lsb.rarity and sb.sub_archetype_slot == lsb.sub_archetype_slot:
-				collision_s = true
-				break
-		if collision_s:
-			var tag = lsb.origin_pilot if lsb.origin_pilot != "" else "Unknown Pilot"
-			lsb.template_name = "%s (%s)" % [lsb.template_name, tag]
-		lsb.is_experimental = false
+		if not GenePool.sanitize_build(lsb):
+			report["skipped"] += 1
+			continue
+		if lsb.origin_pilot == "":
+			lsb.origin_pilot = "Unknown Pilot"
+		if renamed.has(lsb.template_name):
+			lsb.template_name = renamed[lsb.template_name]
+			lsb.is_experimental = true
+			target_stock_builds.append(lsb)
+			report["builds"] += 1
+		elif GenePool.donor_quality(lsb) >= GenePool.DONOR_MIN_MEAN:
+			donors.append(lsb)
+	for lsb in GenePool.top_by_fitness(donors, GenePool.DONOR_CAP):
+		lsb.template_name = GenePool.DONOR_PREFIX + lsb.origin_pilot
+		lsb.is_experimental = true
 		target_stock_builds.append(lsb)
+		report["donors"] += 1
+	# Bounded store: evict the oldest donors first.
+	var donor_idx: Array = []
+	for i in range(target_stock_builds.size()):
+		if GenePool.is_donor(target_stock_builds[i]):
+			donor_idx.append(i)
+	while donor_idx.size() > GenePool.DONOR_STORE_CAP:
+		target_stock_builds.remove_at(donor_idx[0])
+		donor_idx.pop_front()
+		for j in range(donor_idx.size()):
+			donor_idx[j] -= 1
+	return report

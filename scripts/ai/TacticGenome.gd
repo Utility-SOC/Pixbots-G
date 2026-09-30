@@ -82,7 +82,10 @@ static func available(pool: Dictionary, wave: int) -> Array:
 # Two-stage pick: archetype first (anti-repeat, outcome, pressure), then a
 # genome within it (outcome-weighted, untested mutants get a fair trial).
 # Returns a genome id. `recent` holds archetype names.
-static func choose(wave: int, pressure: float, recent: Array, pool: Dictionary, exclude_base: String = "", rng: RandomNumberGenerator = null) -> String:
+# Weight multiplier for the squad template's preferred archetype.
+const BIAS_WEIGHT = 2.5
+
+static func choose(wave: int, pressure: float, recent: Array, pool: Dictionary, exclude_base: String = "", rng: RandomNumberGenerator = null, bias: String = "") -> String:
 	if rng == null:
 		rng = RandomNumberGenerator.new()
 		rng.randomize()
@@ -114,6 +117,8 @@ static func choose(wave: int, pressure: float, recent: Array, pool: Dictionary, 
 				if r == b:
 					seen += 1
 			w *= pow(0.5, seen)
+			if bias != "" and b == bias:
+				w *= BIAS_WEIGHT
 			var n_sum = 0
 			var m_sum = 0.0
 			for id in by_base[b]:
@@ -288,6 +293,7 @@ static func sanitize(raw: Variant) -> Dictionary:
 			"id": str(id), "base": str(g["base"]), "params": params,
 			"n": int(g.get("n", 0)), "mean": float(g.get("mean", 100.0)),
 			"gen": int(g.get("gen", 0)), "parent": str(g.get("parent", "")),
+			"origin": str(g.get("origin", "")).substr(0, 40),
 		}
 	return pool
 
@@ -301,3 +307,121 @@ static func ensure_archetypes(pool: Dictionary) -> void:
 				break
 		if not has_one:
 			pool[base] = seed_genome(base)
+
+# --- sharing ---------------------------------------------------------------------
+
+const IMMIGRANT_SLACK = 2 # a family may exceed MAX_PER_BASE by this much while immigrants are on trial
+const IMMIGRANT_MAX = 4 # accepted per import
+const IMMIGRANT_POOL_SHARE = 0.34
+
+# Genomes worth sharing: anything that has proven itself locally, never the
+# bare founding archetypes (those everyone already has).
+static func exportable(pool: Dictionary, limit: int = 12) -> Dictionary:
+	var ids = []
+	for id in pool:
+		var g = pool[id]
+		if not g.get("params", {}).is_empty() and int(g.get("n", 0)) >= PARENT_MIN_N and float(g.get("mean", 0.0)) >= PARENT_MIN_MEAN:
+			ids.append(id)
+	ids.sort_custom(func(a, b): return float(pool[a]["mean"]) > float(pool[b]["mean"]))
+	var out = {}
+	for id in ids.slice(0, limit):
+		out[id] = pool[id]
+	return out
+
+# Uniform crossover of two same-archetype genomes: each gene/flag comes from
+# one parent (or their midpoint for numeric genes).
+static func cross(a: Dictionary, b: Dictionary, serial: int, rng: RandomNumberGenerator, origin: String = "") -> Dictionary:
+	var params = {}
+	var keys = {}
+	for k in a.get("params", {}):
+		keys[k] = true
+	for k in b.get("params", {}):
+		keys[k] = true
+	var ks = keys.keys()
+	ks.sort()
+	for k in ks:
+		var va = a.get("params", {}).get(k)
+		var vb = b.get("params", {}).get(k)
+		if va == null or vb == null:
+			params[k] = va if va != null else vb
+		elif va is bool or vb is bool:
+			params[k] = va if rng.randf() < 0.5 else vb
+		else:
+			params[k] = snappedf((float(va) + float(vb)) / 2.0 if rng.randf() < 0.4 else (float(va) if rng.randf() < 0.5 else float(vb)), 0.01)
+	return {
+		"id": "%s.h%d" % [a["base"], serial], "base": a["base"], "params": params, "n": 0, "mean": 100.0,
+		"gen": max(int(a.get("gen", 0)), int(b.get("gen", 0))) + 1, "parent": "%s+%s" % [a["id"], b["id"]], "origin": "",
+	}
+
+static func _family(pool: Dictionary, base: String) -> Array:
+	var out = []
+	for k in pool:
+		if pool[k]["base"] == base:
+			out.append(k)
+	out.sort()
+	return out
+
+# Folds another pilot's proven genomes into the pool as untested immigrants
+# (n=0, neutral mean, tagged with their origin), and breeds one hybrid of each
+# with a local genome of the same archetype so the trait can mix in. Capped per
+# import, one live immigrant per archetype, and a share of the pool.
+# Returns {"added": [ids], "hybrids": [ids], "serial": next serial}.
+static func immigrate(pool: Dictionary, incoming_raw: Variant, serial: int, pilot: String, rng: RandomNumberGenerator) -> Dictionary:
+	var out = {"added": [], "hybrids": [], "serial": serial}
+	var incoming = sanitize(incoming_raw)
+	var ids = incoming.keys()
+	ids.sort_custom(func(a, b): return float(incoming[a]["mean"]) > float(incoming[b]["mean"]))
+	for id in ids:
+		if out["added"].size() >= IMMIGRANT_MAX:
+			break
+		var g = incoming[id]
+		if g["params"].is_empty():
+			continue
+		if int(g["n"]) < PARENT_MIN_N or float(g["mean"]) < PARENT_MIN_MEAN:
+			continue
+		var base = str(g["base"])
+		var fam = _family(pool, base)
+		if fam.size() >= MAX_PER_BASE + IMMIGRANT_SLACK:
+			continue
+		var has_immigrant = false
+		var dup = false
+		for k in fam:
+			if _on_trial(pool[k]):
+				has_immigrant = true
+			if pool[k]["params"] == g["params"]:
+				dup = true
+		if has_immigrant or dup:
+			continue
+		if float(_immigrant_count(pool) + 1) / float(pool.size() + 1) > IMMIGRANT_POOL_SHARE:
+			break
+		var imm = {
+			"id": "%s.i%d" % [base, out["serial"]], "base": base, "params": g["params"].duplicate(), "n": 0, "mean": 100.0,
+			"gen": int(g["gen"]), "parent": "", "origin": pilot.substr(0, 40) if pilot != "" else "Unknown Pilot",
+		}
+		out["serial"] += 1
+		pool[imm["id"]] = imm
+		out["added"].append(imm["id"])
+		var locals = []
+		for k in fam:
+			if str(pool[k].get("origin", "")) == "":
+				locals.append(k)
+		if not locals.is_empty() and _family(pool, base).size() < MAX_PER_BASE + IMMIGRANT_SLACK:
+			locals.sort_custom(func(a, b): return float(pool[a]["mean"]) > float(pool[b]["mean"]))
+			var partner = pool[locals[0]]
+			var hyb = cross(imm, partner, out["serial"], rng)
+			out["serial"] += 1
+			if hyb["params"] != imm["params"] and hyb["params"] != partner["params"]:
+				pool[hyb["id"]] = hyb
+				out["hybrids"].append(hyb["id"])
+	return out
+
+static func _immigrant_count(pool: Dictionary) -> int:
+	var n = 0
+	for k in pool:
+		if _on_trial(pool[k]):
+			n += 1
+	return n
+
+# An immigrant stays "on trial" until it has REPLACE_MIN_N credited squads.
+static func _on_trial(g: Dictionary) -> bool:
+	return str(g.get("origin", "")) != "" and int(g.get("n", 0)) < REPLACE_MIN_N

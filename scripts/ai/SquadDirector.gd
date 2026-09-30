@@ -25,6 +25,7 @@ static var _perf_bot_spawn_usec: int = 0
 # rather than three flat sets of functions interleaved in this file - see
 # each helper's own header comment. Tuning constants live on their
 # respective helper now (TemplateEvolution.MAX_EXPERIMENTAL_TEMPLATES etc.)
+const GenePool = preload("res://scripts/ai/GenePool.gd")
 var template_evolution: TemplateEvolution
 var profile_evolution: ProfileEvolution
 var boss_evolution: BossEvolution
@@ -178,8 +179,8 @@ func _merge_learned(loaded_templates: Array, loaded_profiles: Array, loaded_boss
 # shared with the no-live-game War Room import path (see that class's own
 # header on why export/import shouldn't need a live game at all) - this is
 # a thin wrapper so the two can never drift apart.
-func _merge_imported(loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = [], loaded_stock_builds: Array = []):
-	WarRoomSnapshotScript.merge_imported(templates, solver_profiles, boss_profiles, loaded_templates, loaded_profiles, loaded_boss_profiles, stock_builds, loaded_stock_builds)
+func _merge_imported(loaded_templates: Array, loaded_profiles: Array, loaded_boss_profiles: Array = [], loaded_stock_builds: Array = []) -> Dictionary:
+	return WarRoomSnapshotScript.merge_imported(templates, solver_profiles, boss_profiles, loaded_templates, loaded_profiles, loaded_boss_profiles, stock_builds, loaded_stock_builds)
 
 func load_learned_state():
 	if not profile_manager:
@@ -304,17 +305,44 @@ func save_learned_state():
 
 func export_learned_state_to_clipboard():
 	if profile_manager:
-		profile_manager.export_to_clipboard(templates, solver_profiles, boss_profiles, stock_builds)
+		profile_manager.export_to_clipboard(templates, solver_profiles, boss_profiles, stock_builds, tactic_pool)
 
 func import_learned_state_from_clipboard() -> bool:
 	if not profile_manager:
 		return false
-	var data = profile_manager.import_from_clipboard()
+	return import_gene_payload(profile_manager.import_from_clipboard())
+
+# Raw (untrusted) dict from a style card; goes through the same schema/size
+# gate as a clipboard payload.
+func import_raw_payload(raw: Dictionary) -> bool:
+	if not profile_manager:
+		return false
+	return import_gene_payload(profile_manager.parse_payload(raw))
+
+func build_gene_export(compact: bool = true) -> Dictionary:
+	if not profile_manager:
+		return {}
+	return profile_manager.build_export_payload(templates, solver_profiles, boss_profiles, stock_builds, tactic_pool, compact)
+
+func gene_diversity() -> Dictionary:
+	return GenePool.diversity(templates, solver_profiles, tactic_pool, stock_builds)
+
+# Clipboard and style-card imports both land here: everything arrives on
+# probation (see GenePool / WarRoomSnapshot.merge_imported), tactic genomes as
+# capped untested immigrants plus hybrids with local genomes.
+var last_import_report: Dictionary = {}
+
+func import_gene_payload(data: Dictionary) -> bool:
 	if data.is_empty():
 		return false
-	_merge_imported(data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []), data.get("stock_builds", []))
+	last_import_report = _merge_imported(data.get("templates", []), data.get("solver_profiles", []), data.get("boss_profiles", []), data.get("stock_builds", []))
+	var import_rng = RandomNumberGenerator.new()
+	import_rng.randomize()
+	var res = TacticGenome.immigrate(tactic_pool, data.get("tactic_pool", {}), tactic_serial, str(data.get("pilot", "")), import_rng)
+	tactic_serial = res["serial"]
+	last_import_report["tactics"] = res["added"].size() + res["hybrids"].size()
 	save_learned_state()
-	print("[DIRECTOR] Imported AI profile from clipboard.")
+	print("[DIRECTOR] Imported AI profile on probation: ", last_import_report)
 	return true
 
 func register_wild_bot(bot: Node):
@@ -611,8 +639,8 @@ func _current_wave() -> int:
 
 # Picks a genome (a plan archetype plus evolved params) for a squad. Returns {}
 # only if the pool is somehow empty.
-func choose_tactic_genome(exclude_base: String = "") -> Dictionary:
-	var id = TacticGenome.choose(_current_wave(), player_model.pressure, tactic_recent, tactic_pool, exclude_base)
+func choose_tactic_genome(exclude_base: String = "", bias: String = "") -> Dictionary:
+	var id = TacticGenome.choose(_current_wave(), player_model.pressure, tactic_recent, tactic_pool, exclude_base, null, bias)
 	var g = tactic_pool.get(id, {})
 	if not g.is_empty():
 		tactic_recent.append(g["base"])
@@ -622,7 +650,10 @@ func choose_tactic_genome(exclude_base: String = "") -> Dictionary:
 
 func assign_tactics(squad: Squad) -> void:
 	squad.tactics = SquadTactics.new()
-	var g = choose_tactic_genome()
+	if squad.template:
+		squad.tactics.bias = squad.template.tactic_bias
+		squad.tactics.spread = squad.template.formation_spread
+	var g = choose_tactic_genome("", squad.tactics.bias)
 	if g.is_empty():
 		squad.tactics.set_plan("swarm")
 	else:
@@ -1073,8 +1104,8 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 		if randf() < 0.35:
 			var jittered = SolverProfile.new(bot.spawn_profile.profile_name + "*", randi() % EnergyPacket.SynergyType.size())
 			jittered.role = role
-			jittered.pierce_priority = bot.spawn_profile.pierce_priority
-			jittered.amplify_priority = bot.spawn_profile.amplify_priority
+			bot.spawn_profile.copy_genes_to(jittered)
+			jittered.favored_synergy = randi() % EnergyPacket.SynergyType.size()
 			bot.spawn_profile = jittered
 	if role == "diver":
 		bot.is_amphibious = true
@@ -1309,6 +1340,9 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			base_hp = 220.0
 			bot.base_speed = 90.0
 			bot.engagement_distance = 400.0
+
+	if "spawn_profile" in bot and bot.spawn_profile != null:
+		bot.engagement_distance *= bot.spawn_profile.engage_scale
 
 	bot.max_hp = base_hp * wave_multiplier
 	bot.hp = bot.max_hp

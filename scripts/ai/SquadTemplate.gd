@@ -11,6 +11,16 @@ extends Resource
 @export var base_spawn_weight: float = 100.0
 @export var has_shields: bool = false
 
+# Formation-level genes. tactic_bias names a SquadTactics archetype this
+# composition tends to run well ("" = no preference); it only reweights the
+# tactic draw (TacticGenome.choose), so a bad bias is diluted, not forced.
+# formation_spread scales how far flankers/ring members stand off the player.
+@export var tactic_bias: String = ""
+@export var formation_spread: float = 1.0
+const SPREAD_MIN = 0.75
+const SPREAD_MAX = 1.35
+const MAX_TOTAL_SIZE = 10
+
 # Templates produced by mutation, random generation, or from a successful
 # merged-squad composition start out "experimental": SquadDirector tracks
 # them separately, caps how many can be on trial at once, and culls them if
@@ -95,6 +105,8 @@ func to_dict() -> Dictionary:
 		"fitness_history": fitness_history,
 		"origin_pilot": origin_pilot,
 		"recent_fitness_ema": recent_fitness_ema,
+		"tactic_bias": tactic_bias,
+		"formation_spread": formation_spread,
 	}
 
 func from_dict(data: Dictionary):
@@ -109,4 +121,6 @@ func from_dict(data: Dictionary):
 	if data.has("fitness_history"): fitness_history = data["fitness_history"].duplicate() if data["fitness_history"] is Array else []
 	if data.has("origin_pilot"): origin_pilot = str(data["origin_pilot"])
 	if data.has("recent_fitness_ema"): recent_fitness_ema = float(data["recent_fitness_ema"])
+	if data.has("tactic_bias"): tactic_bias = str(data["tactic_bias"])
+	if data.has("formation_spread"): formation_spread = clamp(float(data["formation_spread"]), SPREAD_MIN, SPREAD_MAX)
 

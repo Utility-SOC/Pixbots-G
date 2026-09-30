@@ -40,6 +40,9 @@ extends Resource
 @export var spawn_weight: float = 100.0
 @export var parent_name: String = ""
 @export var origin_pilot: String = ""
+# Pilot whose body part was spliced into this build by cross-import breeding
+# ("" = not a hybrid).
+@export var splice_from: String = ""
 # SolverProfile that produced this layout - fitness credit for a bot replaying
 # this build belongs to THAT profile, not to whatever profile the bot rolled.
 @export var solver_profile_name: String = ""
@@ -108,6 +111,7 @@ func to_dict() -> Dictionary:
 		"spawn_weight": spawn_weight,
 		"parent_name": parent_name,
 		"origin_pilot": origin_pilot,
+		"splice_from": splice_from,
 		"solver_profile_name": solver_profile_name,
 		"times_used": times_used,
 		"total_fitness": total_fitness,
@@ -125,6 +129,7 @@ func from_dict(data: Dictionary):
 	if data.has("spawn_weight"): spawn_weight = float(data["spawn_weight"])
 	if data.has("parent_name"): parent_name = str(data["parent_name"])
 	if data.has("origin_pilot"): origin_pilot = str(data["origin_pilot"])
+	if data.has("splice_from"): splice_from = str(data["splice_from"])
 	if data.has("solver_profile_name"): solver_profile_name = str(data["solver_profile_name"])
 	if data.has("times_used"): times_used = int(data["times_used"])
 	if data.has("total_fitness"): total_fitness = float(data["total_fitness"])

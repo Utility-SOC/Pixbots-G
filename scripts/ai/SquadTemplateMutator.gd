@@ -24,7 +24,41 @@ extends RefCounted
 # preload.
 const WarRoomNames = preload("res://scripts/ai/WarRoomNames.gd")
 
+const SquadTacticsScript = preload("res://scripts/ai/SquadTactics.gd")
+
 const ALL_ROLES = ["sniper", "brawler", "flamethrower", "ambusher", "scout", "jammer", "support", "commander"]
+
+# Trims the largest role counts until the squad fits MAX_TOTAL_SIZE, so size
+# drift (bump ops, crossover unions) can't breed 20-bot templates.
+static func clamp_size(roles: Dictionary) -> Dictionary:
+	var total = 0
+	for k in roles:
+		total += int(roles[k])
+	while total > SquadTemplate.MAX_TOTAL_SIZE:
+		var big = ""
+		for k in roles:
+			if big == "" or int(roles[k]) > int(roles[big]):
+				big = k
+		roles[big] = int(roles[big]) - 1
+		total -= 1
+		if int(roles[big]) <= 0:
+			roles.erase(big)
+	return roles
+
+# Formation genes: inherit from the parent, then drift. `other` (crossover's
+# second parent) contributes the spread half the time.
+static func _evolve_formation(child: SquadTemplate, parent: SquadTemplate, other: SquadTemplate = null) -> void:
+	child.tactic_bias = parent.tactic_bias
+	child.formation_spread = parent.formation_spread
+	if other != null:
+		if randf() < 0.5:
+			child.tactic_bias = other.tactic_bias
+		child.formation_spread = (parent.formation_spread + other.formation_spread) / 2.0
+	if randf() < 0.25:
+		var choices = [""] + SquadTacticsScript.PLANS.keys()
+		child.tactic_bias = choices[randi() % choices.size()]
+	if randf() < 0.5:
+		child.formation_spread = clamp(child.formation_spread + randf_range(-0.15, 0.15), SquadTemplate.SPREAD_MIN, SquadTemplate.SPREAD_MAX)
 
 static func mutate(parent: SquadTemplate) -> SquadTemplate:
 	var roles: Dictionary = parent.required_roles.duplicate()
@@ -55,7 +89,8 @@ static func mutate(parent: SquadTemplate) -> SquadTemplate:
 			var new_role = ALL_ROLES[randi() % ALL_ROLES.size()]
 			roles[new_role] = roles.get(new_role, 0) + 1
 
-	var mutant = SquadTemplate.new(WarRoomNames.designation(), roles)
+	var mutant = SquadTemplate.new(WarRoomNames.designation(), clamp_size(roles))
+	_evolve_formation(mutant, parent)
 	mutant.parent_name = parent.template_name # lineage for the War Room family tree
 	mutant.has_shields = parent.has_shields if randf() < 0.7 else not parent.has_shields
 	mutant.base_spawn_weight = 60.0 # experimental templates start modest, not at the 100 baseline
@@ -84,7 +119,8 @@ static func crossover(a: SquadTemplate, b: SquadTemplate) -> SquadTemplate:
 	if roles.is_empty():
 		roles[ALL_ROLES[randi() % ALL_ROLES.size()]] = 1
 
-	var child = SquadTemplate.new(WarRoomNames.designation(), roles)
+	var child = SquadTemplate.new(WarRoomNames.designation(), clamp_size(roles))
+	_evolve_formation(child, a, b)
 	child.parent_name = a.template_name if a.get_average_fitness() >= b.get_average_fitness() else b.template_name
 	child.has_shields = a.has_shields if randf() < 0.5 else b.has_shields
 	child.base_spawn_weight = 65.0 # slightly above mutants - both parents earned their spot
@@ -99,7 +135,7 @@ static func random_template() -> SquadTemplate:
 		var r = ALL_ROLES[randi() % ALL_ROLES.size()]
 		roles[r] = roles.get(r, 0) + 1 + (randi() % 2)
 
-	var template = SquadTemplate.new(WarRoomNames.designation(), roles)
+	var template = SquadTemplate.new(WarRoomNames.designation(), clamp_size(roles))
 	template.has_shields = randf() < 0.3
 	template.base_spawn_weight = 60.0
 	template.spawn_weight = 60.0
@@ -120,9 +156,11 @@ static func from_squad_composition(squad: Squad, name_hint: String = "Fused") ->
 	if roles.is_empty():
 		return null
 
-	var template = SquadTemplate.new(name_hint + " " + WarRoomNames.designation(), roles)
+	var template = SquadTemplate.new(name_hint + " " + WarRoomNames.designation(), clamp_size(roles))
 	if squad.template:
 		template.parent_name = squad.template.template_name # surviving squad's template is the fused lineage parent
+		template.tactic_bias = squad.template.tactic_bias
+		template.formation_spread = squad.template.formation_spread
 	template.has_shields = squad.template.has_shields if squad.template else false
 	template.base_spawn_weight = 70.0 # already proved something in combat, start a bit above baseline experimental
 	template.spawn_weight = 70.0

@@ -70,9 +70,9 @@ func _test_merge_imported_no_collision():
 	WarRoomSnapshotScript.merge_imported(target_templates, target_profiles, target_bosses, loaded_templates, [], [])
 
 	_check("a non-colliding imported template is added as-is (name unchanged)",
-		target_templates.size() == 2 and target_templates[1].template_name == "Friend's Squad")
-	_check("an imported template always lands at full weight (is_experimental cleared)",
-		not target_templates[1].is_experimental)
+		target_templates.size() >= 2 and target_templates[1].template_name == "Friend's Squad")
+	_check("an imported template lands on probation (experimental, reduced weight)",
+		target_templates[1].is_experimental and target_templates[1].spawn_weight < 100.0)
 
 func _test_merge_imported_with_collision():
 	var target_templates: Array = [SquadTemplate.new("Pierce Escort", {"support": 1})]
@@ -86,7 +86,7 @@ func _test_merge_imported_with_collision():
 	WarRoomSnapshotScript.merge_imported(target_templates, target_profiles, [], [incoming_template], [incoming_profile], [])
 
 	_check("a colliding template name gets tagged with the origin pilot instead of clobbering the local one",
-		target_templates.size() == 2 and target_templates[1].template_name == "Pierce Escort (Ozzy)")
+		target_templates.size() >= 2 and target_templates[1].template_name == "Pierce Escort (Ozzy)")
 	_check("the ORIGINAL local template is untouched by the collision",
 		target_templates[0].template_name == "Pierce Escort")
 	_check("a colliding solver profile is also tagged and appended, not overwritten",

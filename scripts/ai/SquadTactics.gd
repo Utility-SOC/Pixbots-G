@@ -38,6 +38,9 @@ var plan_name: String = "swarm" # archetype
 var genome_id: String = "swarm"
 var plans_used: Array = [] # genome ids, for credit
 var cfg: Dictionary = {}
+# Set from the squad template (formation genes); kept outside cfg so a replan keeps them.
+var bias: String = ""
+var spread: float = 1.0
 var lead_skill: float = 0.65
 
 var _phase: String = "commit" # "stage" | "commit"
@@ -275,11 +278,11 @@ func _set_member_goal(m: Node, info: Dictionary, P: Vector2, cfg: Dictionary, ma
 				var ang = _approach_angle + float(info.side) * float(cfg.get("arc", 1.5708)) + _jitter(m) * 0.5
 				if not cfg.get("split", false) and float(cfg.get("arc", 0.0)) >= 3.0:
 					ang = _approach_angle + 3.14159 + _jitter(m)
-				goal = P + Vector2.from_angle(ang) * max(eng, 220.0) * float(cfg.get("standoff", 1.0))
+				goal = P + Vector2.from_angle(ang) * max(eng, 220.0) * float(cfg.get("standoff", 1.0)) * spread
 				label = "FLANK"
 			"ring":
 				var n = max(ring_n, 1)
-				goal = P + Vector2.from_angle(_approach_angle + TAU * float(info.slot) / float(n)) * max(eng, 220.0) * float(cfg.get("standoff", 1.0))
+				goal = P + Vector2.from_angle(_approach_angle + TAU * float(info.slot) / float(n)) * max(eng, 220.0) * float(cfg.get("standoff", 1.0)) * spread
 				label = "RING"
 			"bait":
 				label = "BAIT"
@@ -348,7 +351,7 @@ func _maybe_replan(squad: Node, members: Array, director: Node) -> void:
 	var ground_down = squad.initial_members >= 3 and squad.active_members * 2 <= squad.initial_members and squad.total_damage_taken > squad.total_damage_dealt
 	if not (no_hits or ground_down):
 		return
-	var next: Dictionary = director.choose_tactic_genome(plan_name)
+	var next: Dictionary = director.choose_tactic_genome(plan_name, bias)
 	if next.is_empty() or str(next.get("base", "")) == plan_name:
 		return
 	print("[TACTICS] '%s' failing -> switching to '%s'" % [genome_id, next["id"]])

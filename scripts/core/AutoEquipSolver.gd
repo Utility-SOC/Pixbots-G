@@ -659,6 +659,8 @@ func _straight_tile_priority(profile: SolverProfile) -> Array:
 # by amplify_priority vs pierce_priority. A profile with no favored_synergy
 # set (pure -1) just leans on Pierce/Kinetic as a safe default.
 func _pick_profile_synergy(profile: SolverProfile) -> int:
+	if profile.secondary_synergy >= 0 and profile.secondary_mix > 0.0 and randf() < profile.secondary_mix:
+		return profile.secondary_synergy
 	if profile.favored_synergy < 0:
 		return EnergyPacket.SynergyType.PIERCE if randf() < profile.pierce_priority else EnergyPacket.SynergyType.KINETIC
 

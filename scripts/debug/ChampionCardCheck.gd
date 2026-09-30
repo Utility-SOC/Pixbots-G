@@ -58,6 +58,18 @@ func _ready():
 	else:
 		print("1-2) card exported (%d bytes) and still loads as a PNG" % png_bytes.size())
 
+	# --- 2b: style card = champion card + gene chunk ---
+	var style_path = await ChampionCard.export_card(player, "Harness Pilot", {"schema": 2, "pilot": "Harness Pilot", "templates": []})
+	var sf = FileAccess.open(style_path, FileAccess.READ)
+	var style_bytes = sf.get_buffer(sf.get_length())
+	sf.close()
+	if style_path.ends_with("_style.png") and ChampionCard.extract_genes(style_bytes).get("pilot", "") == "Harness Pilot" and not ChampionCard.extract_payload(style_bytes).is_empty():
+		print("2b) style card carries both champion and gene chunks")
+	else:
+		push_error("FAIL: style card missing a chunk")
+		failures += 1
+	DirAccess.remove_absolute(style_path)
+
 	# --- 3: payload round trip ---
 	var payload = ChampionCard.extract_payload(png_bytes)
 	if payload.get("pilot_name", "") != "Harness Pilot" or payload.get("components", {}).is_empty():

@@ -34,6 +34,18 @@ extends Resource
 @export var pierce_priority: float = 0.2
 @export var amplify_priority: float = 1.0
 
+# Config-only genes: they change per-tile config / spawn stats, never the
+# tile topology, so AutoEquipSolver's topology cache key stays valid.
+# A second element the infuser may pick instead of favored_synergy (-1 = none),
+# and how often it does (0 = never).
+@export var secondary_synergy: int = -1
+@export var secondary_mix: float = 0.0
+# Scales the role's base engagement_distance (0.7 = presses closer, 1.4 = kites).
+@export var engage_scale: float = 1.0
+
+const ENGAGE_MIN = 0.7
+const ENGAGE_MAX = 1.4
+
 @export var is_experimental: bool = false
 @export var base_spawn_weight: float = 100.0
 @export var spawn_weight: float = 100.0
@@ -48,6 +60,15 @@ var total_fitness: float = 0.0
 func _init(_name: String = "Default", _favored_synergy: int = -1):
 	profile_name = _name
 	favored_synergy = _favored_synergy
+
+# Copies the genes (not the lineage/fitness state) onto another profile.
+func copy_genes_to(other: SolverProfile) -> void:
+	other.favored_synergy = favored_synergy
+	other.pierce_priority = pierce_priority
+	other.amplify_priority = amplify_priority
+	other.secondary_synergy = secondary_synergy
+	other.secondary_mix = secondary_mix
+	other.engage_scale = engage_scale
 
 func get_average_fitness() -> float:
 	if times_used == 0:
@@ -73,6 +94,9 @@ func to_dict() -> Dictionary:
 		"favored_synergy": favored_synergy,
 		"pierce_priority": pierce_priority,
 		"amplify_priority": amplify_priority,
+		"secondary_synergy": secondary_synergy,
+		"secondary_mix": secondary_mix,
+		"engage_scale": engage_scale,
 		"is_experimental": is_experimental,
 		"spawn_weight": spawn_weight,
 		"base_spawn_weight": base_spawn_weight,
@@ -87,6 +111,9 @@ func from_dict(data: Dictionary):
 	if data.has("favored_synergy"): favored_synergy = int(data["favored_synergy"])
 	if data.has("pierce_priority"): pierce_priority = float(data["pierce_priority"])
 	if data.has("amplify_priority"): amplify_priority = float(data["amplify_priority"])
+	if data.has("secondary_synergy"): secondary_synergy = int(data["secondary_synergy"])
+	if data.has("secondary_mix"): secondary_mix = clamp(float(data["secondary_mix"]), 0.0, 1.0)
+	if data.has("engage_scale"): engage_scale = clamp(float(data["engage_scale"]), ENGAGE_MIN, ENGAGE_MAX)
 	if data.has("is_experimental"): is_experimental = bool(data["is_experimental"])
 	if data.has("spawn_weight"): spawn_weight = float(data["spawn_weight"])
 	if data.has("base_spawn_weight"): base_spawn_weight = float(data["base_spawn_weight"])

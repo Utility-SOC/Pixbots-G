@@ -8,6 +8,10 @@ extends Node
 const Tactics = preload("res://scripts/ai/SquadTactics.gd")
 const Genome = preload("res://scripts/ai/TacticGenome.gd")
 const DirectorScript = preload("res://scripts/ai/SquadDirector.gd")
+const SolverProfileScript = preload("res://scripts/ai/SolverProfile.gd")
+const ProfileEvo = preload("res://scripts/ai/ProfileEvolution.gd")
+const TemplateScript = preload("res://scripts/ai/SquadTemplate.gd")
+const Mutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
 
 class FakeMech extends Node2D:
 	var target: Node2D = null
@@ -264,6 +268,88 @@ func _ready():
 	var ft = Tactics.new()
 	ft.set_genome(mut)
 	_check("squad runs the genome's config", ft.genome_id == mut["id"] and ft.plan_name == "pincer" and ft.cfg["arc"] == Genome.cfg_of(mut)["arc"])
+
+	# --- richer solver-profile genes
+	var pr = SolverProfileScript.new("T", 2)
+	pr.secondary_synergy = 4
+	pr.secondary_mix = 0.6
+	pr.engage_scale = 1.3
+	var pr2 = SolverProfileScript.new("T2")
+	pr2.from_dict(JSON.parse_string(JSON.stringify(pr.to_dict())))
+	_check("profile genes survive JSON", pr2.secondary_synergy == 4 and is_equal_approx(pr2.secondary_mix, 0.6) and is_equal_approx(pr2.engage_scale, 1.3))
+	var legacy = SolverProfileScript.new("L")
+	legacy.from_dict({"profile_name": "L", "favored_synergy": 1})
+	_check("legacy profile keeps neutral genes", legacy.secondary_synergy == -1 and legacy.secondary_mix == 0.0 and legacy.engage_scale == 1.0)
+	legacy.from_dict({"engage_scale": 99, "secondary_mix": -5})
+	_check("hostile profile data clamped", legacy.engage_scale == SolverProfileScript.ENGAGE_MAX and legacy.secondary_mix == 0.0)
+	var pev = ProfileEvo.new(DirectorScript.new())
+	var ok_bounds = true
+	var changed_engage = 0
+	var cur = pr
+	for i in range(200):
+		var m = pev._mutate_profile(cur)
+		if m.engage_scale < SolverProfileScript.ENGAGE_MIN or m.engage_scale > SolverProfileScript.ENGAGE_MAX or m.secondary_mix < 0.0 or m.secondary_mix > 1.0:
+			ok_bounds = false
+		if not is_equal_approx(m.engage_scale, cur.engage_scale): changed_engage += 1
+		var c = pev._crossover_profiles(cur, m)
+		if c.engage_scale < SolverProfileScript.ENGAGE_MIN or c.engage_scale > SolverProfileScript.ENGAGE_MAX:
+			ok_bounds = false
+		cur = m
+	_check("profile mutation/crossover stay in bounds", ok_bounds)
+	_check("engage_scale actually mutates (%d/200)" % changed_engage, changed_engage > 40)
+	var jit = SolverProfileScript.new("J")
+	pr.copy_genes_to(jit)
+	_check("copy_genes_to carries new genes", jit.secondary_synergy == 4 and jit.engage_scale == pr.engage_scale)
+
+	# --- squad-level formation genes
+	var big = TemplateScript.new("Big", {"sniper": 4, "brawler": 4, "scout": 4, "jammer": 3})
+	var tot = 0
+	for k in Mutator.clamp_size(big.required_roles.duplicate()).values(): tot += int(k)
+	_check("clamp_size caps total (%d)" % tot, tot == TemplateScript.MAX_TOTAL_SIZE)
+	var size_ok = true
+	var spread_ok = true
+	var bias_seen = {}
+	var tcur = TemplateScript.new("Seed", {"brawler": 3, "sniper": 2})
+	for i in range(300):
+		var mt = Mutator.mutate(tcur)
+		var cx = Mutator.crossover(tcur, mt)
+		for tm in [mt, cx, Mutator.random_template()]:
+			var n = 0
+			for v in tm.required_roles.values(): n += int(v)
+			if n > TemplateScript.MAX_TOTAL_SIZE: size_ok = false
+			if tm.formation_spread < TemplateScript.SPREAD_MIN or tm.formation_spread > TemplateScript.SPREAD_MAX: spread_ok = false
+			bias_seen[mt.tactic_bias] = true
+		tcur = mt
+	_check("templates never exceed size cap", size_ok)
+	_check("formation_spread stays in bounds", spread_ok)
+	_check("tactic_bias explores (%d values)" % bias_seen.size(), bias_seen.size() >= 3)
+	var tt = TemplateScript.new("TT")
+	tt.tactic_bias = "pincer"
+	tt.formation_spread = 1.2
+	var tt2 = TemplateScript.new("TT2")
+	tt2.from_dict(JSON.parse_string(JSON.stringify(tt.to_dict())))
+	_check("template formation genes survive JSON", tt2.tactic_bias == "pincer" and is_equal_approx(tt2.formation_spread, 1.2))
+	var pool_b = Genome.seed_pool()
+	var wins_b = 0
+	var wins_n = 0
+	for i in range(400):
+		if Genome.choose(20, 0.0, [], pool_b, "", rng, "pincer") == "pincer": wins_b += 1
+		if Genome.choose(20, 0.0, [], pool_b, "", rng) == "pincer": wins_n += 1
+	_check("bias lifts the preferred archetype (%d vs %d)" % [wins_b, wins_n], wins_b > wins_n * 1.3)
+	var dist_by_spread = []
+	for sp in [1.0, 1.5]:
+		var bs = Tactics.new()
+		bs.spread = sp
+		bs.set_plan("pincer")
+		var sq4 = FakeSquad.new()
+		add_child(sq4)
+		var f1 = _mk(sq4, player, "scout", 200.0, Vector2(900, 0))
+		var f2 = _mk(sq4, player, "scout", 200.0, Vector2(900, 40))
+		_mk(sq4, player, "brawler", 130.0, Vector2(950, 0))
+		sq4.first_engagement_time = 1.0
+		_run(bs, sq4, 0.6)
+		dist_by_spread.append(f1.tactic_goal.length() if f1.tactic_goal_active else -1.0)
+	_check("spread widens the flank standoff (%.0f -> %.0f)" % [dist_by_spread[0], dist_by_spread[1]], dist_by_spread[0] > 0.0 and dist_by_spread[1] > dist_by_spread[0] * 1.3)
 
 	print("tactics check done, failures=%d" % failures)
 	get_tree().quit(failures)

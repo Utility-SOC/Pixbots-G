@@ -22,6 +22,7 @@ extends RefCounted
 
 const StockBuild = preload("res://scripts/ai/StockBuild.gd")
 const StockBuildMutator = preload("res://scripts/ai/StockBuildMutator.gd")
+const GenePool = preload("res://scripts/ai/GenePool.gd")
 
 const MAX_TRACKED_DEVIATIONS = 8
 # ~15-20% of spawns for a (template, role, rarity) that already has a stock
@@ -109,6 +110,34 @@ func _rarity_for(role: String, rarity: int) -> int:
 const CANDIDATE_POOL_TARGET = 1
 var _candidate_pool: Dictionary = {}
 
+# Chance a candidate is an imported-donor splice rather than a fresh solve,
+# when a same-role/same-rarity donor from another pilot exists.
+const SPLICE_CHANCE = 0.5
+# Splice candidates awaiting their result: [{components, tag}], matched by
+# identity so the tag survives record_deviation_result -> _flush -> promote.
+var _splice_tags: Array = []
+
+func pick_donor(role: String, rarity: int):
+	var pool = []
+	for b in director.stock_builds:
+		if b.origin_pilot != "" and b.role == role and b.rarity == rarity and GenePool.donor_quality(b) >= GenePool.DONOR_MIN_MEAN:
+			pool.append(b)
+	if pool.is_empty():
+		return null
+	return pool[randi() % pool.size()]
+
+func _make_candidate(MechScript, template_name: String, role: String, rarity: int, slot: int, profile):
+	var champ = get_stock_build(template_name, role, rarity, slot)
+	if champ != null and randf() < SPLICE_CHANCE:
+		var donor = pick_donor(role, rarity)
+		if donor != null and donor != champ:
+			var spliced = StockBuildMutator.splice(champ, donor)
+			if spliced != null:
+				MechScript.prewarm_stock_build(spliced)
+				_splice_tags.append({"components": spliced.serialized_components, "tag": spliced.splice_from})
+				return spliced
+	return MechScript.generate_deviation_candidate(self, template_name, role, rarity, slot, profile)
+
 func take_deviation_candidate(template_name: String, role: String, rarity: int, slot: int = 0):
 	var key = _key(template_name, role, rarity, slot)
 	var pool: Array = _candidate_pool.get(key, [])
@@ -174,7 +203,7 @@ func pregenerate(rarity: int, should_abort: Callable = Callable(), on_progress: 
 		var pool: Array = _candidate_pool.get(key, [])
 		if pool.size() >= CANDIDATE_POOL_TARGET:
 			continue
-		var cand = MechScript.generate_deviation_candidate(self, k[0], k[1], _rarity_for(k[1], rarity), k[2], director.get_active_solver_profile(k[1]))
+		var cand = _make_candidate(MechScript, k[0], k[1], _rarity_for(k[1], rarity), k[2], director.get_active_solver_profile(k[1]))
 		if cand != null:
 			pool.append(cand)
 			_candidate_pool[key] = pool
@@ -288,7 +317,15 @@ func _flush(key: String):
 		if wins < required_wins:
 			return
 
-	var new_build = StockBuildMutator.promote(current, best["components"], best.get("profile", "")) if current else StockBuildMutator.establish(template_name, role, rarity, best["components"], slot, best.get("profile", ""))
+	var splice_tag = ""
+	for i in range(_splice_tags.size()):
+		if is_same(_splice_tags[i]["components"], best["components"]):
+			splice_tag = _splice_tags[i]["tag"]
+			_splice_tags.remove_at(i)
+			break
+	while _splice_tags.size() > 32:
+		_splice_tags.pop_front()
+	var new_build = StockBuildMutator.promote(current, best["components"], best.get("profile", ""), splice_tag) if current else StockBuildMutator.establish(template_name, role, rarity, best["components"], slot, best.get("profile", ""))
 	new_build.fitness_history = [float(best["fitness"])]
 	new_build.times_used = 1
 	new_build.total_fitness = float(best["fitness"])

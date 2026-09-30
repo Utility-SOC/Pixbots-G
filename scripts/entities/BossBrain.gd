@@ -26,6 +26,7 @@ var enrage_stage: int = 0
 const ENRAGE_THRESHOLDS: Array = [0.5, 0.2] # HP fraction that triggers each stage
 
 const BOSS_ABILITY_COOLDOWN = 6.0
+var cooldown_scale: float = 1.0 # shrunk by the "relentless" enrage style
 var boss_ability_cooldown: float = 3.0 # first use isn't instant - gives the player a beat to size the boss up first
 var boss_ability_state: String = "" # "" = idle/ready; otherwise the ability currently winding up ("shockwave"/"railgun")
 var boss_ability_windup: float = 0.0
@@ -45,6 +46,7 @@ const ROLE_DEFAULT_ABILITY = {
 # extra use per original trigger, however deep enrage_stage gets).
 var _boss_chaining: bool = false
 
+var _teleport_timer: float = 3.0
 var _hitrun_phase: String = "advance"
 var _hitrun_timer: float = 0.0
 const HITRUN_STRIKE_DURATION = 0.4
@@ -84,6 +86,37 @@ func try_reposition(delta: float, dist: float, dir: Vector2) -> bool:
 		if dist < mech.engagement_distance + 150.0:
 			mech._shoot(mech.target.global_position, true, true, delta)
 		return true
+
+	if style == "teleporter":
+		# Circles like a circler but periodically blinks to a fresh spot on its
+		# engagement ring, so there is no stable orbit to pre-aim at.
+		_teleport_timer -= delta
+		if _teleport_timer <= 0.0 and mech.target and is_instance_valid(mech.target):
+			_teleport_timer = randf_range(4.0, 6.5)
+			var dest = mech.target.global_position + Vector2.RIGHT.rotated(randf() * TAU) * mech.engagement_distance
+			var map = mech._get_map_ref()
+			if map:
+				dest = map.get_valid_spawn_position(dest)
+			mech.global_position = dest
+			mech._show_floating_text("BLINK", Color(0.7, 0.6, 1.0))
+		style = "circler"
+
+	if style == "lurker":
+		# Hangs back at long range while the player is healthy, then closes
+		# to normal range once they are hurt.
+		var hp_frac = 1.0
+		if "hp" in mech.target and "max_hp" in mech.target and mech.target.max_hp > 0.0:
+			hp_frac = mech.target.hp / mech.target.max_hp
+		if hp_frac >= 0.6:
+			var want = mech.engagement_distance * 1.7
+			var tangent_l = Vector2(-dir.y, dir.x) * mech.rotational_direction
+			var radial_l = dir * clamp((dist - want) / 120.0, -1.0, 1.0)
+			var mv = tangent_l * 0.6 + radial_l
+			mech.velocity = (mv.normalized() if mv.length() > 0.01 else tangent_l) * mech.current_move_speed * mech.speed_modifier * 0.8
+			if dist < want + 250.0:
+				mech._shoot(mech.target.global_position, true, true, delta)
+			return true
+		return false
 
 	if style == "circler":
 		# Continuously strafes around the target while smoothly correcting
@@ -243,6 +276,19 @@ func _apply_enrage_style(style: String):
 			mech.hp = min(mech.max_hp, mech.hp + heal_amt)
 			if heal_amt >= 1.0:
 				mech._show_floating_text("+%d" % int(round(heal_amt)), Color(0.3, 1.0, 0.5))
+		"relentless":
+			# Less raw stats, but every ability comes back ~30% sooner per stage.
+			mech.fire_rate *= 0.9
+			mech.speed_modifier *= 1.08
+			cooldown_scale *= 0.7
+			boss_ability_cooldown = min(boss_ability_cooldown, 1.0)
+		"phase_shift":
+			# Each stage teleports the boss onto the player's flank with a free
+			# ambush shot and queues the next ability almost immediately.
+			mech.speed_modifier *= 1.1
+			if mech.target and is_instance_valid(mech.target):
+				_do_blink_strike()
+			boss_ability_cooldown = min(boss_ability_cooldown, 0.6)
 		"unstable":
 			mech.fire_rate *= randf_range(0.5, 0.85)
 			mech.speed_modifier *= randf_range(1.1, 1.5)
@@ -270,7 +316,7 @@ func _start_ability():
 		return
 	var pool = _get_ability_pool()
 	if pool.is_empty():
-		boss_ability_cooldown = BOSS_ABILITY_COOLDOWN # no ability available - don't retry every frame
+		boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale # no ability available - don't retry every frame
 		return
 	var ability = pool[randi() % pool.size()]
 	match ability:
@@ -287,20 +333,41 @@ func _start_ability():
 			boss_ability_windup = 1.2
 			_boss_railgun_aim = mech.target.global_position
 			_spawn_railgun_telegraph(_boss_railgun_aim, boss_ability_windup)
+		"meteor_rain":
+			_do_meteor_rain()
+			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale
+		"minefield":
+			_do_minefield()
+			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale
+		"gravity_well":
+			boss_ability_state = "gravity_well"
+			boss_ability_windup = 0.7
+			_telegraph_circle(mech.global_position, GRAVITY_RADIUS, boss_ability_windup, Color(0.6, 0.3, 1.0, 0.8))
+		"triple_rail":
+			boss_ability_state = "triple_rail"
+			boss_ability_windup = 1.4
+			_boss_railgun_aim = mech.target.global_position
+			for a in TRIPLE_RAIL_ANGLES:
+				_spawn_railgun_telegraph(mech.global_position + mech.global_position.direction_to(_boss_railgun_aim).rotated(a) * 100.0, boss_ability_windup)
+		"charge":
+			boss_ability_state = "charge"
+			boss_ability_windup = 0.9
+			_boss_railgun_aim = mech.target.global_position
+			_spawn_railgun_telegraph(_boss_railgun_aim, boss_ability_windup)
 		"blink_strike":
 			_do_blink_strike()
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
+			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale
 		"fire_pool":
 			_do_fire_pool()
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
+			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale
 		"jam_burst":
 			_do_jam_burst()
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
+			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale
 		"rally":
 			_do_rally()
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
+			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale
 		_:
-			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN # unrecognized key - don't retry every frame
+			boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale # unrecognized key - don't retry every frame
 
 	# Instant abilities resolved above (boss_ability_state is still "" for
 	# them) can chain right here; telegraphed ones chain later, from
@@ -331,8 +398,14 @@ func continue_ability(delta):
 		_resolve_shockwave()
 	elif boss_ability_state == "railgun":
 		_resolve_railgun()
+	elif boss_ability_state == "gravity_well":
+		_resolve_gravity_well()
+	elif boss_ability_state == "triple_rail":
+		_resolve_triple_rail()
+	elif boss_ability_state == "charge":
+		_resolve_charge()
 	boss_ability_state = ""
-	boss_ability_cooldown = BOSS_ABILITY_COOLDOWN
+	boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale
 	if not _boss_chaining:
 		_maybe_chain_ability()
 
@@ -486,3 +559,154 @@ func _do_rally():
 	var cam = mech.get_tree().get_first_node_in_group("camera")
 	if cam and cam.has_method("shake"):
 		cam.shake(1.0, 0.3)
+
+# ---------------------------------------------------------------------------
+# Extra signature abilities. All ground-telegraphed so they read as "scary but
+# fair": the player can always see where and when damage lands. Damage scales
+# off the boss's own max_hp like the originals; none of them summon anything.
+# ---------------------------------------------------------------------------
+const GRAVITY_RADIUS = 520.0
+const GRAVITY_PULSES = 5
+const GRAVITY_PULSE_GAP = 0.25
+const TRIPLE_RAIL_ANGLES = [-0.38, 0.0, 0.38]
+const CHARGE_LENGTH = 650.0
+const CHARGE_WIDTH = 70.0
+const BLAST_RADIUS = 110.0
+
+func _telegraph_circle(pos: Vector2, radius: float, duration: float, color: Color) -> void:
+	var ring = load("res://scripts/visuals/BossTelegraphRing.gd").new()
+	if mech.get_parent():
+		mech.get_parent().add_child(ring)
+		ring.global_position = pos
+		ring.telegraph(radius, duration, color)
+
+# Marks `pos` now, damages the player there after `delay` if still inside.
+func _delayed_blast(pos: Vector2, radius: float, delay: float, dmg_frac: float, element: String = "EXPLOSION") -> void:
+	_telegraph_circle(pos, radius, delay, Color(1.0, 0.35, 0.1, 0.8))
+	var tree = mech.get_tree()
+	if tree == null:
+		return
+	tree.create_timer(delay).timeout.connect(func():
+		if not is_instance_valid(mech) or mech.is_queued_for_deletion():
+			return
+		var p = mech._get_player_ref()
+		if p and is_instance_valid(p) and p.global_position.distance_to(pos) <= radius and p.has_method("apply_damage"):
+			var dmg = mech.max_hp * dmg_frac * mech._get_ambush_multiplier()
+			p.apply_damage(dmg, element)
+			mech._boss_emit_dealt_damage(dmg)
+		var ring = load("res://scripts/visuals/BossTelegraphRing.gd").new()
+		if mech.get_parent():
+			mech.get_parent().add_child(ring)
+			ring.global_position = pos
+			ring.burst(10.0, radius, 0.2, Color(1.0, 0.6, 0.2, 1.0)))
+
+# Meteor Rain: a salvo of delayed blasts that walks toward where the player is
+# heading, so standing still or running straight both get punished.
+func _do_meteor_rain() -> void:
+	var p = mech._get_player_ref()
+	if p == null or not is_instance_valid(p):
+		return
+	var vel = p.velocity if "velocity" in p else Vector2.ZERO
+	for i in range(5):
+		var delay = 0.9 + 0.3 * i
+		var lead = p.global_position + vel * delay * 0.8
+		var jitter = Vector2.RIGHT.rotated(randf() * TAU) * randf_range(0.0, 90.0)
+		_delayed_blast(lead + jitter, BLAST_RADIUS, delay, 0.035)
+	mech._show_floating_text("METEORS", Color(1.0, 0.5, 0.2))
+
+# Minefield: a ring of delayed blasts around the player - the centre and the
+# outside are safe, the band is not. Move, don't stand.
+func _do_minefield() -> void:
+	var p = mech._get_player_ref()
+	if p == null or not is_instance_valid(p):
+		return
+	var centre = p.global_position
+	var n = 7
+	for i in range(n):
+		var ang = TAU * float(i) / float(n) + randf() * 0.3
+		_delayed_blast(centre + Vector2.RIGHT.rotated(ang) * 250.0, 120.0, 1.5, 0.045)
+	mech._show_floating_text("MINEFIELD", Color(1.0, 0.4, 0.2))
+
+# Gravity Well: after a telegraph the player is hauled toward the boss in
+# several pulses, into a closing shockwave.
+func _resolve_gravity_well() -> void:
+	var tree = mech.get_tree()
+	if tree == null:
+		return
+	for i in range(GRAVITY_PULSES):
+		tree.create_timer(GRAVITY_PULSE_GAP * i).timeout.connect(func():
+			if not is_instance_valid(mech) or mech.is_queued_for_deletion():
+				return
+			var p = mech._get_player_ref()
+			if p and is_instance_valid(p) and "external_force" in p and p.global_position.distance_to(mech.global_position) <= GRAVITY_RADIUS:
+				var toward = mech.global_position - p.global_position
+				if toward.length() > 60.0:
+					p.external_force += toward.normalized() * 520.0)
+	tree.create_timer(GRAVITY_PULSE_GAP * GRAVITY_PULSES).timeout.connect(func():
+		if is_instance_valid(mech) and not mech.is_queued_for_deletion():
+			_resolve_shockwave())
+	mech._show_floating_text("GRAVITY", Color(0.7, 0.4, 1.0))
+
+func _rail_hit(dir_locked: Vector2, dmg_frac: float) -> void:
+	var p = mech._get_player_ref()
+	if p and is_instance_valid(p):
+		var to_player = p.global_position - mech.global_position
+		var along = to_player.dot(dir_locked)
+		if along > 0.0 and (to_player - dir_locked * along).length() < 40.0 and p.has_method("apply_damage"):
+			var dmg = mech.max_hp * dmg_frac * mech._get_ambush_multiplier()
+			p.apply_damage(dmg, "PIERCE")
+			mech._boss_emit_dealt_damage(dmg)
+	var beam = Line2D.new()
+	beam.width = 8.0
+	beam.default_color = Color(1.0, 0.9, 0.7, 1.0)
+	beam.z_index = 51
+	beam.points = PackedVector2Array([Vector2.ZERO, dir_locked * 2000.0])
+	beam.global_position = mech.global_position
+	if mech.get_parent():
+		mech.get_parent().add_child(beam)
+		var tw = beam.create_tween()
+		tw.tween_property(beam, "modulate:a", 0.0, 0.25)
+		tw.tween_callback(beam.queue_free)
+
+# Prism: three fanned locked beams; the gaps between them are the safe lanes.
+func _resolve_triple_rail() -> void:
+	var dir_locked = mech.global_position.direction_to(_boss_railgun_aim)
+	if dir_locked == Vector2.ZERO:
+		dir_locked = Vector2.RIGHT
+	for a in TRIPLE_RAIL_ANGLES:
+		_rail_hit(dir_locked.rotated(a), 0.055)
+	var cam = mech.get_tree().get_first_node_in_group("camera")
+	if cam and cam.has_method("shake"):
+		cam.shake(2.0, 0.25)
+
+# Charge: locked line telegraph, then the boss lunges along it, hitting and
+# shoving anything in the lane.
+func _resolve_charge() -> void:
+	var dir_locked = mech.global_position.direction_to(_boss_railgun_aim)
+	if dir_locked == Vector2.ZERO:
+		dir_locked = Vector2.RIGHT
+	var start = mech.global_position
+	var dest = start + dir_locked * CHARGE_LENGTH
+	var map = mech._get_map_ref()
+	if map:
+		dest = map.get_valid_spawn_position(dest)
+	var p = mech._get_player_ref()
+	if p and is_instance_valid(p) and p.has_method("apply_damage"):
+		var seg = dest - start
+		var seg_len2 = max(seg.length_squared(), 1.0)
+		var t = clamp((p.global_position - start).dot(seg) / seg_len2, 0.0, 1.0)
+		var closest = start + seg * t
+		if p.global_position.distance_to(closest) <= CHARGE_WIDTH:
+			var dmg = mech.max_hp * 0.08 * mech._get_ambush_multiplier()
+			p.apply_damage(dmg, "RAW")
+			mech._boss_emit_dealt_damage(dmg)
+			if "external_force" in p:
+				var side = Vector2(-dir_locked.y, dir_locked.x)
+				var away = p.global_position - closest
+				p.external_force += (side * sign(away.dot(side) if abs(away.dot(side)) > 1.0 else 1.0) + dir_locked * 0.5).normalized() * 800.0
+	var tw = mech.create_tween()
+	tw.tween_property(mech, "global_position", dest, 0.22)
+	mech._show_floating_text("CHARGE", Color(1.0, 0.7, 0.3))
+	var cam = mech.get_tree().get_first_node_in_group("camera")
+	if cam and cam.has_method("shake"):
+		cam.shake(2.5, 0.3)

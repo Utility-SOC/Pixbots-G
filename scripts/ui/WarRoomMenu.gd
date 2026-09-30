@@ -689,17 +689,26 @@ const ABILITY_LABELS = {
 	"fire_pool": "Fire Pool (DoT hazard zone)",
 	"jam_burst": "Jam Burst (vision blackout)",
 	"rally": "Rally (self-heal + shield + speed burst)",
+	"meteor_rain": "Meteor Rain (walking salvo of delayed blasts)",
+	"minefield": "Minefield (ring of delayed mines around you)",
+	"gravity_well": "Gravity Well (hauls you in, then a shockwave)",
+	"triple_rail": "Triple Rail (three fanned locked beams)",
+	"charge": "Charge (telegraphed lunge along a lane)",
 }
 const ENRAGE_LABELS = {
 	"berserker": "Berserker (fire rate + speed)",
 	"juggernaut": "Juggernaut (tighter engagement, tankier push)",
 	"vampiric": "Vampiric (heals on enrage, leans aggressive)",
 	"unstable": "Unstable (erratic, biggest swings)",
+	"relentless": "Relentless (abilities come back faster each stage)",
+	"phase_shift": "Phase Shift (teleports onto your flank each stage)",
 }
 const POSITION_LABELS = {
 	"aggressive": "Aggressive (closes distance, no kiting)",
 	"kiter": "Kiter (holds range, smart multi-angle retreat)",
 	"circler": "Circler (orbits at range)",
+	"teleporter": "Teleporter (circles, blinks to a fresh spot)",
+	"lurker": "Lurker (hangs far back until you are hurt)",
 }
 
 func _build_bosses(director):

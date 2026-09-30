@@ -41,10 +41,14 @@ func register_defaults():
 		{"name": "Incinerator", "role": "flamethrower", "ability": "fire_pool", "enrage": "unstable", "position": "aggressive", "hp_mult": 1.2},
 		{"name": "Warden", "role": "jammer", "ability": "jam_burst", "enrage": "vampiric", "position": "kiter", "hp_mult": 0.55},
 		{"name": "Overlord", "role": "commander", "ability": "rally", "enrage": "vampiric", "position": "circler", "hp_mult": 0.45},
+		{"name": "Stormcaller", "role": "commander", "ability": ["meteor_rain", "rally"], "enrage": "relentless", "position": "lurker", "hp_mult": 0.6},
+		{"name": "Tyrant", "role": "brawler", "ability": ["charge", "shockwave"], "enrage": "juggernaut", "position": "aggressive", "hp_mult": 1.1},
+		{"name": "Hexer", "role": "jammer", "ability": ["minefield", "gravity_well"], "enrage": "phase_shift", "position": "teleporter", "hp_mult": 0.7},
+		{"name": "Prism", "role": "sniper", "ability": ["triple_rail"], "enrage": "unstable", "position": "kiter", "hp_mult": 2.0},
 	]
 	for s in seeds:
 		var bp = BossProfile.new(s.name, s.role)
-		bp.ability_pool = [s.ability]
+		bp.ability_pool = s.ability.duplicate() if s.ability is Array else [s.ability]
 		bp.enrage_style = s.enrage
 		bp.position_style = s.position
 		bp.hp_mult = s.hp_mult
@@ -147,7 +151,7 @@ func _mutate_boss_profile(parent: BossProfile) -> BossProfile:
 	elif roll < 0.5:
 		mutant.position_style = BossProfile.ALL_POSITION_STYLES[randi() % BossProfile.ALL_POSITION_STYLES.size()]
 	elif roll < 0.8:
-		if mutant.ability_pool.size() < 2 and randf() < 0.6:
+		if mutant.ability_pool.size() < BossProfile.MAX_POOL and randf() < 0.6:
 			var addable = BossProfile.ALL_ABILITIES.filter(func(a): return not mutant.ability_pool.has(a))
 			if addable.size() > 0:
 				mutant.ability_pool.append(addable[randi() % addable.size()])

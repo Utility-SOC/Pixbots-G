@@ -256,6 +256,9 @@ static func merge_imported(target_templates: Array, target_solver_profiles: Arra
 		if considered > GenePool.BOSS_CAP:
 			report["skipped"] += 1
 			continue
+		if not lbp.sanitize():
+			report["skipped"] += 1
+			continue
 		var collision_b = false
 		var skip_dup = false
 		for bp in target_boss_profiles:

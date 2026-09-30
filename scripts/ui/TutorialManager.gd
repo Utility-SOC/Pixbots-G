@@ -55,6 +55,8 @@ var _guided_build_started_for_index: int = -1
 const CutscenePlayerScript = preload("res://scripts/cutscene/CutscenePlayer.gd")
 const CUTSCENE_DIR = "res://config/cutscenes/"
 var _active_cutscene = null
+const MazeTutorialScript = preload("res://scripts/ui/MazeTutorial.gd")
+var _maze = null
 
 var steps: Array = []
 var step_index: int = -1
@@ -260,6 +262,17 @@ func _process(_delta):
 		if escape_button:
 			escape_button.visible = false
 		return
+	if not _maze_waiting_step.is_empty():
+		if escape_button:
+			escape_button.visible = true
+		var m = get_parent()
+		if m and m.get("garage_ui") == null:
+			_start_maze(_maze_waiting_step)
+		return
+	if _maze:
+		if escape_button:
+			escape_button.visible = true
+		return
 	if escape_button:
 		escape_button.visible = true # never hidden by panel/spotlight state
 	if str(_current_step().get("type", "")) == "guided_build":
@@ -280,6 +293,10 @@ func _on_escape_pressed():
 	if _active_cutscene:
 		_active_cutscene.skip()
 		return
+	if _maze:
+		_maze.complete() # restores terrain, then _on_maze_finished advances
+		return
+	_maze_waiting_step = {}
 	_advance()
 
 func _goto_step(idx: int):
@@ -304,6 +321,10 @@ func _goto_step(idx: int):
 
 	if str(step.get("type", "")) == "cinematic":
 		_start_cinematic(step)
+		return
+
+	if str(step.get("type", "")) == "maze":
+		_start_maze(step)
 		return
 
 	_render_dialogue_step(step)
@@ -342,6 +363,40 @@ func _start_cinematic(step: Dictionary):
 	_active_cutscene = player
 	player.finished.connect(_on_cinematic_finished)
 	add_child(player)
+
+# Frank's maze (see MazeTutorial.gd): a live obstacle course in the arena.
+# Mandatory content degrades to a plain text step if the maze can't be built.
+var _maze_waiting_step: Dictionary = {}
+
+func _start_maze(step: Dictionary):
+	var main = get_parent()
+	# The arena only exists on screen outside the Garage - wait for deploy.
+	if main and main.get("garage_ui") != null:
+		_maze_waiting_step = step
+		panel.visible = false
+		_hide_spotlight()
+		corner_hint.visible = true
+		corner_hint.text = "Deploy from the Garage (F5) to start Frank's maze.\n(Stuck? \"Skip this step\" top-right.)"
+		return
+	_maze_waiting_step = {}
+	var maze = MazeTutorialScript.new()
+	add_child(maze)
+	if main == null or not maze.start(main):
+		maze.queue_free()
+		next_button.visible = true
+		_render_dialogue_step(step)
+		return
+	_maze = maze
+	maze.finished.connect(_on_maze_finished)
+	panel.visible = false
+	_hide_spotlight()
+	corner_hint.visible = true
+	corner_hint.text = str(step.get("text", "")) + "\n(Stuck? \"Skip this step\" top-right.)"
+
+func _on_maze_finished():
+	_maze = null
+	corner_hint.visible = false
+	_advance()
 
 func _on_cinematic_finished():
 	_active_cutscene = null

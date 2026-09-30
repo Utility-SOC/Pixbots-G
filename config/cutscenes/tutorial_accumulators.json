@@ -1,0 +1,101 @@
+{
+	"_comment": "Tutorial step 'accumulators' as a Frank cinematic.",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"register": {
+			"kind": "prop",
+			"prop_type": "register",
+			"placeholder_color": "#8a8a90",
+			"scale": 2
+		},
+		"case": {
+			"kind": "prop",
+			"prop_type": "case",
+			"placeholder_color": "#5f7a8a",
+			"scale": 2
+		},
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "case",
+			"from": [
+				0.58,
+				0.64
+			],
+			"to": [
+				0.58,
+				0.64
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "register",
+			"from": [
+				0.66,
+				0.563
+			],
+			"to": [
+				0.66,
+				0.563
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				0.68,
+				0.82
+			],
+			"to": [
+				0.34,
+				0.6
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Quick tip before your first match: route power through an Accumulator and it banks a BIG shot on keys 1, 2, or 3 - your regular trigger keeps working, at half strength while the bank fills, full once it's ready.",
+			"auto": 9.1
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Or skip the bank key: park one right NEXT TO a Weapon Mount or Missile Rack instead and it stretches how big a burst that mount can charge on its own before firing - even a basic Common one helps now, better rarities stretch it further.",
+			"auto": 10.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Press the key, watch the fireworks. The kids call it the nuke button. I also call it the nuke button.",
+			"auto": 5.2
+		},
+		{
+			"cmd": "shake",
+			"actor": "frank",
+			"duration": 0.3,
+			"strength": 3
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				0.68,
+				0.82
+			],
+			"duration": 0.8
+		}
+	]
+}

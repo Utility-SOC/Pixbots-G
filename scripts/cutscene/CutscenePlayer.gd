@@ -557,7 +557,7 @@ func _input(event):
 	if _done:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.physical_keycode == KEY_ESCAPE:
+		if event.physical_keycode == KEY_ESCAPE or event.physical_keycode == KEY_BACKSPACE:
 			skip()
 			get_viewport().set_input_as_handled()
 		elif event.physical_keycode == KEY_SPACE or event.physical_keycode == KEY_ENTER:

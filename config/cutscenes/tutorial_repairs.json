@@ -1,0 +1,101 @@
+{
+	"_comment": "Tutorial step 'repairs' as a Frank cinematic.",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"register": {
+			"kind": "prop",
+			"prop_type": "register",
+			"placeholder_color": "#8a8a90",
+			"scale": 2
+		},
+		"case": {
+			"kind": "prop",
+			"prop_type": "case",
+			"placeholder_color": "#5f7a8a",
+			"scale": 2
+		},
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "case",
+			"from": [
+				0.58,
+				0.64
+			],
+			"to": [
+				0.58,
+				0.64
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "register",
+			"from": [
+				0.66,
+				0.563
+			],
+			"to": [
+				0.66,
+				0.563
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				0.68,
+				0.82
+			],
+			"to": [
+				0.34,
+				0.6
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Bots take real hits out there.",
+			"auto": 2.7
+		},
+		{
+			"cmd": "shake",
+			"actor": "frank",
+			"duration": 0.3,
+			"strength": 3
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "A bad one can fry a tile dead - it stays dead until you repair it back here, and repairs cost scrap.",
+			"auto": 5.2
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Sell me your junk tiles anytime, I'm not picky. The scrap economy is half the game, kid.",
+			"auto": 4.7
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				0.68,
+				0.82
+			],
+			"duration": 0.8
+		}
+	]
+}

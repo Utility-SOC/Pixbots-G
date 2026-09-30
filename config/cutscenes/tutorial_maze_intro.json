@@ -1,0 +1,112 @@
+{
+	"_comment": "Frank's maze tutorial: intro.",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"register": {
+			"kind": "prop",
+			"prop_type": "register",
+			"placeholder_color": "#8a8a90",
+			"scale": 2
+		},
+		"case": {
+			"kind": "prop",
+			"prop_type": "case",
+			"placeholder_color": "#5f7a8a",
+			"scale": 2
+		},
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "case",
+			"from": [
+				0.58,
+				0.64
+			],
+			"to": [
+				0.58,
+				0.64
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "register",
+			"from": [
+				0.66,
+				0.563
+			],
+			"to": [
+				0.66,
+				0.563
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				0.68,
+				0.82
+			],
+			"to": [
+				0.34,
+				0.6
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Alright hotshot. Before I let you loose on the real table, a little obstacle course.",
+			"auto": 4.6
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Yes, a maze. Walls everywhere, the exit is on the far side. WASD to move, mouse to aim.",
+			"auto": 4.7
+		},
+		{
+			"cmd": "flip",
+			"actor": "frank"
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Some passages are plugged with boulders. Shoot them - they hate fire and explosions especially.",
+			"auto": 5.0
+		},
+		{
+			"cmd": "shake",
+			"actor": "frank",
+			"duration": 0.3,
+			"strength": 3
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Get to the exit. I'll be yelling directions. Mostly wrong ones.",
+			"auto": 3.9
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				0.68,
+				0.82
+			],
+			"duration": 0.8
+		}
+	]
+}

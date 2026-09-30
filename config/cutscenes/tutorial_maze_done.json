@@ -1,0 +1,94 @@
+{
+	"_comment": "Frank's maze tutorial: debrief.",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"register": {
+			"kind": "prop",
+			"prop_type": "register",
+			"placeholder_color": "#8a8a90",
+			"scale": 2
+		},
+		"case": {
+			"kind": "prop",
+			"prop_type": "case",
+			"placeholder_color": "#5f7a8a",
+			"scale": 2
+		},
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "case",
+			"from": [
+				0.58,
+				0.64
+			],
+			"to": [
+				0.58,
+				0.64
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "register",
+			"from": [
+				0.66,
+				0.563
+			],
+			"to": [
+				0.66,
+				0.563
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				0.68,
+				0.82
+			],
+			"to": [
+				0.34,
+				0.6
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Not bad! You only walked into the wall a few times.",
+			"auto": 3.4
+		},
+		{
+			"cmd": "shake",
+			"actor": "frank",
+			"duration": 0.3,
+			"strength": 3
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Movement, aiming, demolition - that's the fundamentals. The table's yours.",
+			"auto": 4.2
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				0.68,
+				0.82
+			],
+			"duration": 0.8
+		}
+	]
+}

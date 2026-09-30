@@ -73,14 +73,18 @@
       "text": "Quick tip before your first match: route power through an Accumulator and it banks a BIG shot on keys 1, 2, or 3 - your regular trigger keeps working, at half strength while the bank fills, full once it's ready. Or skip the bank key: park one right NEXT TO a Weapon Mount or Missile Rack instead and it stretches how big a burst that mount can charge on its own before firing - even a basic Common one helps now, better rarities stretch it further. Press the key, watch the fireworks. The kids call it the nuke button. I also call it the nuke button.",
       "anchor": "",
       "wait_for": "manual",
-      "requires_garage": true
+      "requires_garage": true,
+      "type": "cinematic",
+      "cutscene": "tutorial_accumulators.json"
     },
     {
       "id": "repairs",
       "text": "Bots take real hits out there. A bad one can fry a tile dead - it stays dead until you repair it back here, and repairs cost scrap. Sell me your junk tiles anytime, I'm not picky. The scrap economy is half the game, kid.",
       "anchor": "",
       "wait_for": "manual",
-      "requires_garage": true
+      "requires_garage": true,
+      "type": "cinematic",
+      "cutscene": "tutorial_repairs.json"
     },
     {
       "id": "black_market_and_chips",
@@ -93,11 +97,38 @@
       "id": "the_ai",
       "text": "Now - about the house bots. The Corp's trainer AI learns. Every match you play, it studies you, breeds new squads, holds a little grudge. Hit TAB anytime to see the War Room - that's its homework on YOU. Know your enemy. It absolutely knows you.",
       "anchor": "",
-      "wait_for": "manual"
+      "wait_for": "manual",
+      "type": "cinematic",
+      "cutscene": "tutorial_the_ai.json"
     },
     {
       "id": "table_sense",
       "text": "U pops the minimap, mouse wheel pulls the camera back so you can see the whole table. Red dots are trouble. Green dot is the way home. You'll figure out the rest by getting shot at, which is the traditional method.",
+      "anchor": "",
+      "wait_for": "manual",
+      "type": "cinematic",
+      "cutscene": "tutorial_table_sense.json"
+    },
+    {
+      "id": "maze_intro",
+      "type": "cinematic",
+      "cutscene": "tutorial_maze_intro.json",
+      "text": "Alright hotshot. A little obstacle course: get through the maze to the exit. Shoot any boulders blocking the way.",
+      "anchor": "",
+      "wait_for": "manual"
+    },
+    {
+      "id": "maze",
+      "type": "maze",
+      "text": "Get to the glowing exit on the far side of the maze. Shoot boulders that block the path.",
+      "anchor": "",
+      "wait_for": "manual"
+    },
+    {
+      "id": "maze_done",
+      "type": "cinematic",
+      "cutscene": "tutorial_maze_done.json",
+      "text": "Not bad! Movement, aiming, demolition - the fundamentals.",
       "anchor": "",
       "wait_for": "manual"
     },
@@ -105,7 +136,9 @@
       "id": "done",
       "text": "That's the whole loop: build, brawl, salvage, rebuild better. Your bot's registered with the Corp now - win matches, earn parts, and maybe someday it's YOUR name on the tournament bracket out front. Door's always open. Except after 10:00 PM Weeknights, and Tuesdays after 4 PM Now go make some noise.",
       "anchor": "",
-      "wait_for": "manual"
+      "wait_for": "manual",
+      "type": "cinematic",
+      "cutscene": "tutorial_done.json"
     }
   ]
 }

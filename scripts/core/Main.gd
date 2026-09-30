@@ -2340,7 +2340,9 @@ func _open_garage():
 	_despawn_all_drones()
 
 	# Full heal on entering garage
+	player.is_dead = false
 	player.hp = player.max_hp
+	player.shield_hp = player.max_shield_hp
 	player.visible = true
 	player.set_process(true)
 	player.set_physics_process(true)

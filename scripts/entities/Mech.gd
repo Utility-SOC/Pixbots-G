@@ -4301,6 +4301,12 @@ func die():
 	if not is_dead:
 		return
 
+	# The player node is owned by Main (game over hides it, then the garage
+	# restores it) - freeing it here left Main holding a dead reference and
+	# aborted _open_garage() on a real game over.
+	if is_player:
+		return
+
 	var is_over_water = false
 	var maps = get_tree().get_nodes_in_group("map_generator")
 	if maps.size() > 0:

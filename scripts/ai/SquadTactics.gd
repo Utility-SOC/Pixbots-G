@@ -185,6 +185,7 @@ func _tick(squad: Node, player: Node2D) -> void:
 		var raw = (centre - P).angle()
 		_approach_angle = _approach_angle + angle_difference(_approach_angle, raw) * 0.3 if _plan_time > TICK_INTERVAL * 2 else raw
 
+	_refresh_habit(director)
 	_maybe_replan(squad, members, director)
 
 	# Staging only makes sense before first contact.
@@ -250,8 +251,15 @@ func _assign_roles(members: Array, cfg: Dictionary) -> void:
 		flank_count = clampi(int(round(share * remaining)), 1, remaining - 1)
 	var side = 1.0
 	var ring_slot = 0
+	var cutoff_used = false
 	for i in range(idx, mobile.size()):
 		var id = mobile[i].get_instance_id()
+		if flank_count >= 2 and not cutoff_used and i - idx == 0 and cfg.get("split", false):
+			# Fastest flanker runs to the player's favoured escape heading.
+			_assign[id] = {"kind": "cutoff", "side": side, "slot": 0}
+			cutoff_used = true
+			side = -side
+			continue
 		if cfg.get("ring", false):
 			_assign[id] = {"kind": "ring", "side": 0.0, "slot": ring_slot}
 			ring_slot += 1
@@ -261,6 +269,21 @@ func _assign_roles(members: Array, cfg: Dictionary) -> void:
 				side = -side
 		else:
 			_assign[id] = {"kind": "anchor", "side": 0.0, "slot": 0}
+
+# Unit vector of the player's consistent retreat direction, else ZERO.
+var _habit_dir: Vector2 = Vector2.ZERO
+
+func _habit_heading() -> Vector2:
+	return _habit_dir
+
+func _refresh_habit(director: Node) -> void:
+	_habit_dir = Vector2.ZERO
+	if director and "player_model" in director and director.player_model and "habits" in director.player_model:
+		var h = director.player_model.habits
+		if h.ready_for_use():
+			var r = h.retreat_heading()
+			if float(r["confidence"]) >= h.MIN_CONFIDENCE:
+				_habit_dir = r["dir"]
 
 func _jitter(m: Node) -> float:
 	return float((m.get_instance_id() % 7) - 3) * 0.1
@@ -285,6 +308,16 @@ func _set_member_goal(m: Node, info: Dictionary, P: Vector2, cfg: Dictionary, ma
 					ang = _approach_angle + 3.14159 + _jitter(m)
 				goal = P + Vector2.from_angle(ang) * max(eng, 220.0) * float(cfg.get("standoff", 1.0)) * spread
 				label = "FLANK"
+			"cutoff":
+				var hd = _habit_heading()
+				if hd == Vector2.ZERO:
+					# No reliable habit yet: behave like an ordinary flanker.
+					var ang_c = _approach_angle + float(info.side) * float(cfg.get("arc", 1.5708)) + _jitter(m) * 0.5
+					goal = P + Vector2.from_angle(ang_c) * max(eng, 220.0) * float(cfg.get("standoff", 1.0)) * spread
+					label = "FLANK"
+				else:
+					goal = P + hd * max(eng, 220.0) * float(cfg.get("standoff", 1.0)) * spread * 1.15
+					label = "CUTOFF"
 			"ring":
 				var n = max(ring_n, 1)
 				goal = P + Vector2.from_angle(_approach_angle + TAU * float(info.slot) / float(n)) * max(eng, 220.0) * float(cfg.get("standoff", 1.0)) * spread

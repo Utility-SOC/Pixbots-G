@@ -4,6 +4,7 @@ extends RefCounted
 const TacticGenome = preload("res://scripts/ai/TacticGenome.gd")
 const GenePool = preload("res://scripts/ai/GenePool.gd")
 const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
+const PlayerModelScript = preload("res://scripts/ai/PlayerModel.gd")
 
 # Read-only stand-in for a live SquadDirector, built straight from the saved
 # learned_state.json - lets the War Room be opened from the Main Menu (no
@@ -21,6 +22,7 @@ var stock_builds: Array = []
 var active_squads: Array = []
 var wild_bots: Array = []
 var total_damage_taken: float = 0.0
+var player_model = PlayerModelScript.new()
 var player_element_usage: Dictionary = {}
 var bot_element_usage: Dictionary = {}
 var total_bot_damage_dealt: float = 0.0
@@ -65,6 +67,8 @@ static func load_from_disk():
 	if telemetry.get("player_element_usage") is Dictionary:
 		snap.player_element_usage = telemetry["player_element_usage"]
 	snap.total_damage_taken = float(telemetry.get("total_damage_taken", 0.0))
+	if telemetry.get("player_model") is Dictionary:
+		snap.player_model.from_dict(telemetry["player_model"])
 	if telemetry.get("bot_element_usage") is Dictionary:
 		snap.bot_element_usage = telemetry["bot_element_usage"]
 	snap.total_bot_damage_dealt = float(telemetry.get("total_bot_damage_dealt", 0.0))

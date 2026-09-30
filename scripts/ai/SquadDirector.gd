@@ -269,8 +269,34 @@ func request_save_learned_state():
 	_learned_state_dirty = true
 	_save_flush_timer = SAVE_FLUSH_INTERVAL
 
+const HABIT_SAMPLE_INTERVAL = 0.25
+var _habit_timer: float = 0.0
+
+# Feeds the movement-habit model: player motion vs the nearest living enemy.
+func _sample_habits(dt: float) -> void:
+	var players = get_tree().get_nodes_in_group("player")
+	if players.is_empty() or not is_instance_valid(players[0]):
+		return
+	var p = players[0]
+	var nearest = null
+	var best = INF
+	for e in get_tree().get_nodes_in_group("enemy"):
+		if is_instance_valid(e) and e is Node2D and not e.is_queued_for_deletion():
+			var d = p.global_position.distance_squared_to(e.global_position)
+			if d < best:
+				best = d
+				nearest = e
+	if nearest == null:
+		return
+	var vel = p.velocity if "velocity" in p else Vector2.ZERO
+	player_model.habits.sample(dt, p.global_position, vel, nearest.global_position)
+
 func _process(delta: float):
 	orders.pump(delta)
+	_habit_timer += delta
+	if _habit_timer >= HABIT_SAMPLE_INTERVAL:
+		_sample_habits(_habit_timer)
+		_habit_timer = 0.0
 	if _learned_state_dirty:
 		_save_flush_timer -= delta
 		if _save_flush_timer <= 0.0:
@@ -643,7 +669,7 @@ func _current_wave() -> int:
 # Picks a genome (a plan archetype plus evolved params) for a squad. Returns {}
 # only if the pool is somehow empty.
 func choose_tactic_genome(exclude_base: String = "", bias: String = "") -> Dictionary:
-	var id = TacticGenome.choose(_current_wave(), player_model.pressure, tactic_recent, tactic_pool, exclude_base, null, bias)
+	var id = TacticGenome.choose(_current_wave(), player_model.pressure, tactic_recent, tactic_pool, exclude_base, null, bias, player_model.habits.plan_multipliers())
 	var g = tactic_pool.get(id, {})
 	if not g.is_empty():
 		tactic_recent.append(g["base"])

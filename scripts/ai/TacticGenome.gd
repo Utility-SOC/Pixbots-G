@@ -85,7 +85,7 @@ static func available(pool: Dictionary, wave: int) -> Array:
 # Weight multiplier for the squad template's preferred archetype.
 const BIAS_WEIGHT = 2.5
 
-static func choose(wave: int, pressure: float, recent: Array, pool: Dictionary, exclude_base: String = "", rng: RandomNumberGenerator = null, bias: String = "") -> String:
+static func choose(wave: int, pressure: float, recent: Array, pool: Dictionary, exclude_base: String = "", rng: RandomNumberGenerator = null, bias: String = "", habit_mult: Dictionary = {}) -> String:
 	if rng == null:
 		rng = RandomNumberGenerator.new()
 		rng.randomize()
@@ -119,6 +119,7 @@ static func choose(wave: int, pressure: float, recent: Array, pool: Dictionary, 
 			w *= pow(0.5, seen)
 			if bias != "" and b == bias:
 				w *= BIAS_WEIGHT
+			w *= clamp(float(habit_mult.get(b, 1.0)), 0.25, 3.0)
 			var n_sum = 0
 			var m_sum = 0.0
 			for id in by_base[b]:

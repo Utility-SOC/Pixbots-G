@@ -39,6 +39,9 @@ class FakeSquad extends Node:
 			c += m.global_position
 		return c / max(1, members.size())
 
+class FakeDirector extends Node:
+	var player_model = null
+
 var failures = 0
 
 func _check(label: String, cond: bool):
@@ -350,6 +353,76 @@ func _ready():
 		_run(bs, sq4, 0.6)
 		dist_by_spread.append(f1.tactic_goal.length() if f1.tactic_goal_active else -1.0)
 	_check("spread widens the flank standoff (%.0f -> %.0f)" % [dist_by_spread[0], dist_by_spread[1]], dist_by_spread[0] > 0.0 and dist_by_spread[1] > dist_by_spread[0] * 1.3)
+
+
+	# --- movement habits: style recognition, persistence, plan counters, cut-off flanker
+	var Habits = load("res://scripts/ai/MovementHabits.gd")
+	var kiter = Habits.new()
+	for i in range(120):
+		kiter.sample(0.25, Vector2.ZERO, Vector2(-180, 0), Vector2(400, 0)) # running away from an enemy on the east
+	_check("retreating player is a kiter", kiter.profile()["style"] == "kiter")
+	var rh = kiter.retreat_heading()
+	_check("kiter's escape heading is west (conf %.2f)" % rh["confidence"], rh["dir"].x < -0.9 and rh["confidence"] > 0.9)
+	var camper = Habits.new()
+	for i in range(120):
+		camper.sample(0.25, Vector2.ZERO, Vector2.ZERO, Vector2(600, 0))
+	_check("stationary player is a camper", camper.profile()["style"] == "camper")
+	var brawler = Habits.new()
+	for i in range(120):
+		brawler.sample(0.25, Vector2.ZERO, Vector2(150, 0), Vector2(120, 0))
+	_check("close-range charger is a brawler", brawler.profile()["style"] == "brawler")
+	var strafer = Habits.new()
+	for i in range(120):
+		strafer.sample(0.25, Vector2.ZERO, Vector2(0, 160), Vector2(300, 0))
+	_check("orbiting player is a strafer", strafer.profile()["style"] == "strafer")
+	var fresh = Habits.new()
+	fresh.sample(0.25, Vector2.ZERO, Vector2(-180, 0), Vector2(400, 0))
+	_check("too little data stays unknown and gives no multipliers", fresh.profile()["style"] == "unknown" and fresh.plan_multipliers().is_empty())
+	var jink = Habits.new()
+	var vx = 150.0
+	for i in range(120):
+		if i % 3 == 0:
+			vx = -vx
+		jink.sample(0.25, Vector2.ZERO, Vector2(vx, 0), Vector2(0, 500))
+	_check("reversals raise reversal rate (%.2f vs %.2f)" % [jink.reversal_rate(), kiter.reversal_rate()], jink.reversal_rate() > kiter.reversal_rate() + 0.1)
+	var rt = Habits.new()
+	rt.from_dict(JSON.parse_string(JSON.stringify(kiter.to_dict())))
+	_check("habits survive JSON", rt.profile()["style"] == "kiter")
+	var bad = Habits.new()
+	bad.from_dict({"acc": {"t_close": 1e99, "evil": 5, "rx": "x"}})
+	_check("hostile habit data clamped/ignored", not bad.acc.has("evil") and float(bad.acc.get("t_close", 0.0)) <= 1e6)
+	var before_decay = float(kiter.acc["t_retreat"])
+	kiter.end_wave()
+	_check("end_wave decays", float(kiter.acc["t_retreat"]) < before_decay)
+	var mult = kiter.plan_multipliers()
+	var pool_h = Genome.seed_pool()
+	var hp_w = 0
+	var hp_n = 0
+	for i in range(400):
+		if Genome.choose(20, 0.0, [], pool_h, "", rng, "", mult) == "hammer_anvil": hp_w += 1
+		if Genome.choose(20, 0.0, [], pool_h, "", rng) == "hammer_anvil": hp_n += 1
+	_check("kiter habit lifts hammer_anvil (%d vs %d)" % [hp_w, hp_n], hp_w > hp_n * 1.2)
+
+	var dirx = FakeDirector.new()
+	var PM = load("res://scripts/ai/PlayerModel.gd")
+	dirx.player_model = PM.new()
+	dirx.player_model.habits = kiter
+	for i in range(40):
+		kiter.sample(0.25, Vector2.ZERO, Vector2(-180, 0), Vector2(400, 0))
+	var sqc = FakeSquad.new()
+	dirx.add_child(sqc)
+	add_child(dirx)
+	var cf1 = _mk(sqc, player, "scout", 220.0, Vector2(900, 100))
+	var cf2 = _mk(sqc, player, "diver", 200.0, Vector2(900, -100))
+	_mk(sqc, player, "brawler", 130.0, Vector2(950, 0))
+	var tc = Tactics.new()
+	tc.set_plan("pincer")
+	sqc.first_engagement_time = 1.0
+	player.global_position = Vector2.ZERO
+	_run(tc, sqc, 0.6)
+	_check("fastest flanker cuts off the escape route", cf1.tactic_label == "CUTOFF" and cf1.tactic_goal.x < -150.0)
+	_check("other flanker still flanks", cf2.tactic_label == "FLANK")
+	print("movement habits checks done")
 
 	print("tactics check done, failures=%d" % failures)
 	get_tree().quit(failures)

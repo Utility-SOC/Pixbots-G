@@ -296,7 +296,22 @@ func _refresh():
 
 # --- Threat Board ------------------------------------------------------------
 
+func _build_player_read(director):
+	var pm = director.get("player_model") if "player_model" in director else null
+	if pm == null:
+		return
+	_lbl(threat_vbox, "THE AI'S READ ON YOU", COL_SECTION, 16)
+	var pressure_txt = "%.1f / %.1f" % [pm.pressure, pm.MAX_PRESSURE]
+	_lbl(threat_vbox, "  Pressure: %s   |   playstyle shifts noticed: %d   |   last wave dominance: %.0f%%" % [pressure_txt, pm.shift_count, pm.last_dominance * 100.0], COL_TITLE, 14)
+	_lbl(threat_vbox, "  Pressure rises when you barely get scratched and eases when you struggle or change how you play.", COL_DIM, 11)
+	_lbl(threat_vbox, "  Movement: %s" % pm.habits.describe(), COL_TITLE, 14)
+	var top_el = pm.recent_top_damage_element()
+	if top_el != "":
+		_lbl(threat_vbox, "  Main damage lately: %s (%.0f%%)" % [top_el, pm.recent_damage_share(top_el) * 100.0], COL_TITLE, 14)
+	_lbl(threat_vbox, "", COL_DIM, 6)
+
 func _build_threat_board(director):
+	_build_player_read(director)
 	_lbl(threat_vbox, "YOUR MECH: POWER ESTIMATE", COL_SECTION, 16)
 	var player_power = director._estimate_player_power() if director.has_method("_estimate_player_power") else 700.0
 	var player_rarity = director._player_dominant_rarity() if director.has_method("_player_dominant_rarity") else 0

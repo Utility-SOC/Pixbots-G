@@ -19,6 +19,8 @@ extends RefCounted
 # enemy BEHAVIOUR/LOADOUT (mutation rate, counter-commitment), never raw stats
 # or component tier - tier is gated by wave (SquadDirector.RARITY_UNLOCK_WAVES).
 
+const MovementHabitsScript = preload("res://scripts/ai/MovementHabits.gd")
+
 const RECENT_DECAY = 0.75
 const SLOW_DECAY = 0.97
 const SHIFT_THRESHOLD = 0.35
@@ -36,6 +38,7 @@ var pressure: float = 0.0
 var waves_since_shift: int = 99
 var shift_count: int = 0
 var last_dominance: float = 0.0
+var habits = MovementHabitsScript.new()
 
 func log_damage(element: String, amount: float) -> void:
 	recent_damage[element] = float(recent_damage.get(element, 0.0)) + amount
@@ -108,6 +111,7 @@ func end_wave(damage_taken: float, player_ehp: float) -> Dictionary:
 	_decay(slow_damage, SLOW_DECAY)
 	_decay(slow_kills, SLOW_DECAY)
 	waves_since_shift += 1
+	habits.end_wave()
 
 	var shifted = false
 	if waves_since_shift >= SHIFT_COOLDOWN_WAVES and shift_score() >= SHIFT_THRESHOLD:
@@ -137,7 +141,7 @@ func to_dict() -> Dictionary:
 		"recent_damage": recent_damage, "slow_damage": slow_damage,
 		"recent_kills": recent_kills, "slow_kills": slow_kills,
 		"pressure": pressure, "waves_since_shift": waves_since_shift,
-		"shift_count": shift_count,
+		"shift_count": shift_count, "habits": habits.to_dict(),
 	}
 
 func from_dict(data: Dictionary) -> void:
@@ -150,3 +154,5 @@ func from_dict(data: Dictionary) -> void:
 	pressure = float(data.get("pressure", 0.0))
 	waves_since_shift = int(data.get("waves_since_shift", 99))
 	shift_count = int(data.get("shift_count", 0))
+	if data.get("habits") is Dictionary:
+		habits.from_dict(data["habits"])

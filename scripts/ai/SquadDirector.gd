@@ -34,8 +34,10 @@ var fitness_par = FitnessPar.new()
 const PlayerModel = preload("res://scripts/ai/PlayerModel.gd")
 var player_model = PlayerModel.new()
 const SquadTactics = preload("res://scripts/ai/SquadTactics.gd")
+const TacticGenome = preload("res://scripts/ai/TacticGenome.gd")
 var tactic_recent: Array = []
-var tactic_stats: Dictionary = {} # plan name -> {"n": int, "mean": float (normalized squad fitness)}
+var tactic_pool: Dictionary = TacticGenome.seed_pool() # genome id -> genome (see TacticGenome.gd)
+var tactic_serial: int = 1
 
 var solver_profiles: Array[SolverProfile] = []
 var boss_profiles: Array[BossProfile] = []
@@ -223,11 +225,12 @@ func load_learned_state():
 			fitness_par.from_dict(telemetry["fitness_par"])
 		if telemetry.get("player_model") is Dictionary:
 			player_model.from_dict(telemetry["player_model"])
-		if telemetry.get("tactic_stats") is Dictionary:
-			for k in telemetry["tactic_stats"]:
-				var e = telemetry["tactic_stats"][k]
-				if e is Dictionary:
-					tactic_stats[str(k)] = {"n": int(e.get("n", 0)), "mean": float(e.get("mean", 100.0))}
+		if telemetry.get("tactic_pool") is Dictionary:
+			tactic_pool = TacticGenome.sanitize(telemetry["tactic_pool"])
+			tactic_serial = int(telemetry.get("tactic_serial", 1))
+		elif telemetry.get("tactic_stats") is Dictionary:
+			tactic_pool = TacticGenome.seed_pool(telemetry["tactic_stats"])
+		TacticGenome.ensure_archetypes(tactic_pool)
 		_apply_kill_method_counter_pressure()
 		
 	var round_state = profile_manager.load_telemetry(LEARNED_STATE_NAME + "_rounds")
@@ -288,7 +291,8 @@ func save_learned_state():
 			"total_player_kills": total_player_kills,
 			"fitness_par": fitness_par.to_dict(),
 			"player_model": player_model.to_dict(),
-			"tactic_stats": tactic_stats,
+			"tactic_pool": tactic_pool,
+			"tactic_serial": tactic_serial,
 		})
 		profile_manager.save_telemetry(LEARNED_STATE_NAME + "_rounds", {
 			"current_round": current_round,
@@ -605,33 +609,47 @@ func _current_wave() -> int:
 	var main = get_tree().current_scene if get_tree() else null
 	return int(main.current_wave) if main and "current_wave" in main else 0
 
-func choose_tactic_plan(exclude: String = "") -> String:
-	var plan = SquadTactics.choose_plan(_current_wave(), player_model.pressure, tactic_recent, tactic_stats, exclude)
-	tactic_recent.append(plan)
-	while tactic_recent.size() > SquadTactics.RECENT_PLAN_MEMORY:
-		tactic_recent.pop_front()
-	return plan
+# Picks a genome (a plan archetype plus evolved params) for a squad. Returns {}
+# only if the pool is somehow empty.
+func choose_tactic_genome(exclude_base: String = "") -> Dictionary:
+	var id = TacticGenome.choose(_current_wave(), player_model.pressure, tactic_recent, tactic_pool, exclude_base)
+	var g = tactic_pool.get(id, {})
+	if not g.is_empty():
+		tactic_recent.append(g["base"])
+		while tactic_recent.size() > SquadTactics.RECENT_PLAN_MEMORY:
+			tactic_recent.pop_front()
+	return g
 
 func assign_tactics(squad: Squad) -> void:
 	squad.tactics = SquadTactics.new()
-	squad.tactics.set_plan(choose_tactic_plan())
-	print("[TACTICS] Squad '%s' plan: %s" % [squad.template.template_name if squad.template else "?", squad.tactics.plan_name])
+	var g = choose_tactic_genome()
+	if g.is_empty():
+		squad.tactics.set_plan("swarm")
+	else:
+		squad.tactics.set_genome(g)
+	print("[TACTICS] Squad '%s' plan: %s" % [squad.template.template_name if squad.template else "?", squad.tactics.genome_id])
 
-# Credits the squad's (par-normalized) fitness to every plan it ran, so plan
-# selection drifts toward what actually works against this player.
+# Credits the squad's (par-normalized) fitness to every genome it ran, then
+# lets the pool cull proven losers and breed from proven winners.
 func record_tactic_results(squad: Squad, normalized: float) -> void:
 	if not squad.tactics:
 		return
 	var seen = {}
-	for name in squad.tactics.plans_used:
-		if seen.has(name):
+	for id in squad.tactics.plans_used:
+		if seen.has(id):
 			continue
-		seen[name] = true
-		var e = tactic_stats.get(name, {"n": 0, "mean": normalized})
-		var n = int(e.n) + 1
-		e.mean = lerp(float(e.mean), normalized, max(1.0 / n, 0.1))
-		e.n = n
-		tactic_stats[name] = e
+		seen[id] = true
+		if not tactic_pool.has(id):
+			continue
+		TacticGenome.record(tactic_pool, id, normalized)
+		var rng = RandomNumberGenerator.new()
+		rng.randomize()
+		var res = TacticGenome.evolve(tactic_pool, id, tactic_serial, rng, player_model.pressure)
+		for dead in res["culled"]:
+			print("[TACTICS] culled %s" % dead)
+		if not res["born"].is_empty():
+			tactic_serial += 1
+			print("[TACTICS] born %s" % TacticGenome.describe(res["born"]))
 
 func _on_squad_request_linkup(squad: Squad):
 	# Find another squad that is also broken and nearby

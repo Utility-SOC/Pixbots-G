@@ -6,13 +6,14 @@ extends RefCounted
 # tick at TICK_INTERVAL (not per frame); members read the resulting
 # tactic_goal / tactic_path_clear / tactic_hold / tactic_label fields.
 #
-# Plans are data (PLANS below) so they can be mutated/evolved later; outcomes
-# are recorded per plan by the director (SquadDirector.tactic_stats) and feed
-# back into plan selection weights.
+# PLANS are the founding archetypes. Squads actually run a genome (see
+# TacticGenome.gd): an archetype plus evolved parameter overrides, selected and
+# credited by the director (SquadDirector.tactic_pool).
 
 const TICK_INTERVAL = 0.25
 const PROJECTILE_SPEED = 500.0
-const MAX_LEAD_DIST = 260.0
+const MAX_LEAD_DIST = 420.0
+const MAX_LEAD_TIME = 1.5
 const ARRIVE_RADIUS = 70.0
 const STALL_TICKS = 6
 const STALL_BAN_SECONDS = 3.0
@@ -33,9 +34,11 @@ const PLANS = {
 	"bait_flank": {"min_wave": 15, "weight": 0.8, "bait": true, "stage": true, "stage_extra": 300.0, "timeout": 9.0, "flank_share": 0.6, "arc": 1.9, "split": true},
 }
 
-var plan_name: String = "swarm"
-var plans_used: Array = []
-var lead_skill: float = 0.3
+var plan_name: String = "swarm" # archetype
+var genome_id: String = "swarm"
+var plans_used: Array = [] # genome ids, for credit
+var cfg: Dictionary = {}
+var lead_skill: float = 0.65
 
 var _phase: String = "commit" # "stage" | "commit"
 var _phase_time: float = 0.0
@@ -57,6 +60,14 @@ var _clock: float = 0.0
 static func plan_cfg(name: String) -> Dictionary:
 	return PLANS.get(name, PLANS["swarm"])
 
+# Archetype defaults overlaid with a genome's evolved params.
+static func cfg_for(g: Dictionary) -> Dictionary:
+	var out = plan_cfg(str(g.get("base", "swarm"))).duplicate()
+	var params = g.get("params", {})
+	for k in params:
+		out[k] = params[k]
+	return out
+
 static func available_plans(wave: int) -> Array:
 	var out = []
 	for n in PLANS:
@@ -64,49 +75,19 @@ static func available_plans(wave: int) -> Array:
 			out.append(n)
 	return out
 
-# Weighted pick with anti-repeat memory, outcome feedback, pressure bias and
-# an exploration roll, so squads don't run one "best" answer forever.
-static func choose_plan(wave: int, pressure: float, recent: Array, stats: Dictionary, exclude: String = "", rng: RandomNumberGenerator = null) -> String:
-	if rng == null:
-		rng = RandomNumberGenerator.new()
-		rng.randomize()
-	var pool = available_plans(wave)
-	if exclude != "" and pool.size() > 1:
-		pool.erase(exclude)
-	if pool.size() == 1:
-		return pool[0]
-	if rng.randf() < min(0.25, 0.05 * pressure):
-		return pool[rng.randi() % pool.size()]
-	var weights = []
-	var total = 0.0
-	for n in pool:
-		var w = float(PLANS[n]["weight"])
-		var seen = 0
-		for r in recent:
-			if r == n:
-				seen += 1
-		w *= pow(0.5, seen)
-		var st = stats.get(n)
-		if st is Dictionary and int(st.get("n", 0)) >= 3:
-			w *= clamp(0.6 + float(st.get("mean", 100.0)) / 250.0, 0.6, 1.4)
-		if n == "swarm":
-			w /= (1.0 + pressure)
-		else:
-			w *= 1.0 + 0.15 * pressure
-		weights.append(w)
-		total += w
-	var roll = rng.randf() * total
-	for i in range(pool.size()):
-		roll -= weights[i]
-		if roll <= 0.0:
-			return pool[i]
-	return pool[pool.size() - 1]
-
 func set_plan(name: String) -> void:
-	plan_name = name if PLANS.has(name) else "swarm"
-	plans_used.append(plan_name)
+	var base = name if PLANS.has(name) else "swarm"
+	set_genome({"id": base, "base": base, "params": {}})
+
+func set_genome(g: Dictionary) -> void:
+	plan_name = str(g.get("base", "swarm"))
+	if not PLANS.has(plan_name):
+		plan_name = "swarm"
+	genome_id = str(g.get("id", plan_name))
+	cfg = cfg_for(g)
+	plans_used.append(genome_id)
 	_plan_time = 0.0
-	_phase = "stage" if plan_cfg(plan_name).get("stage", false) else "commit"
+	_phase = "stage" if cfg.get("stage", false) else "commit"
 	_phase_time = 0.0
 	_stage_goal_ticks = 0
 	_assign.clear()
@@ -137,11 +118,36 @@ func update(squad: Node, delta: float) -> void:
 	if player:
 		_tick(squad, player)
 
-func lead_point(target_pos: Vector2, dist: float) -> Vector2:
+# Where to aim so a projectile of `proj_speed` fired from `shooter_pos` meets a
+# target moving at its tracked velocity: the exact intercept time from
+# |D + V t| = s t, scaled by lead_skill (and shrunk against jinking players).
+func lead_point(shooter_pos: Vector2, target_pos: Vector2, proj_speed: float = PROJECTILE_SPEED) -> Vector2:
 	if lead_skill <= 0.0 or _player_vel.length() < 20.0:
 		return target_pos
-	var t = min(dist / PROJECTILE_SPEED, 1.0)
-	var lead = _player_vel * t * lead_skill * lerp(0.4, 1.0, _predictability)
+	var s = max(proj_speed, 50.0)
+	var d = target_pos - shooter_pos
+	var v = _player_vel
+	var a = v.dot(v) - s * s
+	var b = 2.0 * d.dot(v)
+	var c = d.dot(d)
+	var t = d.length() / s
+	if abs(a) < 0.001:
+		if abs(b) > 0.001 and -c / b > 0.0:
+			t = -c / b
+	else:
+		var disc = b * b - 4.0 * a * c
+		if disc >= 0.0:
+			var sq = sqrt(disc)
+			var t1 = (-b - sq) / (2.0 * a)
+			var t2 = (-b + sq) / (2.0 * a)
+			var best = INF
+			for cand in [t1, t2]:
+				if cand > 0.0 and cand < best:
+					best = cand
+			if best < INF:
+				t = best
+	t = min(t, MAX_LEAD_TIME)
+	var lead = v * t * lead_skill * lerp(0.6, 1.0, _predictability)
 	if lead.length() > MAX_LEAD_DIST:
 		lead = lead.normalized() * MAX_LEAD_DIST
 	return target_pos + lead
@@ -164,11 +170,10 @@ func _tick(squad: Node, player: Node2D) -> void:
 	if members.is_empty():
 		return
 	var P: Vector2 = player.global_position
-	var cfg = plan_cfg(plan_name)
 
 	var director = squad.get_parent()
 	if director and "player_model" in director and director.player_model:
-		lead_skill = clamp(0.3 + 0.2 * director.player_model.pressure, 0.0, 1.0)
+		lead_skill = clamp(0.65 + 0.1 * director.player_model.pressure + float(cfg.get("lead_bonus", 0.0)), 0.0, 1.0)
 
 	# Approach bearing (player -> squad centre), smoothed so goals don't spin
 	# when the squad wraps around the player.
@@ -178,7 +183,6 @@ func _tick(squad: Node, player: Node2D) -> void:
 		_approach_angle = _approach_angle + angle_difference(_approach_angle, raw) * 0.3 if _plan_time > TICK_INTERVAL * 2 else raw
 
 	_maybe_replan(squad, members, director)
-	cfg = plan_cfg(plan_name)
 
 	# Staging only makes sense before first contact.
 	if _phase == "stage":
@@ -271,11 +275,11 @@ func _set_member_goal(m: Node, info: Dictionary, P: Vector2, cfg: Dictionary, ma
 				var ang = _approach_angle + float(info.side) * float(cfg.get("arc", 1.5708)) + _jitter(m) * 0.5
 				if not cfg.get("split", false) and float(cfg.get("arc", 0.0)) >= 3.0:
 					ang = _approach_angle + 3.14159 + _jitter(m)
-				goal = P + Vector2.from_angle(ang) * max(eng, 220.0)
+				goal = P + Vector2.from_angle(ang) * max(eng, 220.0) * float(cfg.get("standoff", 1.0))
 				label = "FLANK"
 			"ring":
 				var n = max(ring_n, 1)
-				goal = P + Vector2.from_angle(_approach_angle + TAU * float(info.slot) / float(n)) * max(eng, 220.0)
+				goal = P + Vector2.from_angle(_approach_angle + TAU * float(info.slot) / float(n)) * max(eng, 220.0) * float(cfg.get("standoff", 1.0))
 				label = "RING"
 			"bait":
 				label = "BAIT"
@@ -338,16 +342,16 @@ func _nudge_walkable(map: Node, P: Vector2, goal: Vector2, amph: bool) -> Vector
 # If the current plan is clearly failing (no hits landed after REPLAN_AFTER
 # seconds, or the squad is being ground down), swap to a different one.
 func _maybe_replan(squad: Node, members: Array, director: Node) -> void:
-	if _replan_cooldown > 0.0 or _plan_time < REPLAN_AFTER or director == null or not director.has_method("choose_tactic_plan"):
+	if _replan_cooldown > 0.0 or _plan_time < float(cfg.get("replan_after", REPLAN_AFTER)) or director == null or not director.has_method("choose_tactic_genome"):
 		return
 	var no_hits = squad.hits_landed - _plan_hits_at_start <= 0 and squad.first_engagement_time >= 0.0
 	var ground_down = squad.initial_members >= 3 and squad.active_members * 2 <= squad.initial_members and squad.total_damage_taken > squad.total_damage_dealt
 	if not (no_hits or ground_down):
 		return
-	var next = director.choose_tactic_plan(plan_name)
-	if next == plan_name:
+	var next: Dictionary = director.choose_tactic_genome(plan_name)
+	if next.is_empty() or str(next.get("base", "")) == plan_name:
 		return
-	print("[TACTICS] '%s' failing -> switching to '%s'" % [plan_name, next])
-	set_plan(next)
+	print("[TACTICS] '%s' failing -> switching to '%s'" % [genome_id, next["id"]])
+	set_genome(next)
 	_plan_hits_at_start = squad.hits_landed
 	_replan_cooldown = REPLAN_COOLDOWN

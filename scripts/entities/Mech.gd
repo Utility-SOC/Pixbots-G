@@ -325,6 +325,7 @@ var fire_rate: float = 0.25 # 4 shots per second
 var components: Dictionary = {} # Dict of HexTile.BodySlot -> ComponentEquipment
 var is_grid_dirty: bool = true
 var precalculated_weapons: Array = []
+var _ai_shot_speed_cache: float = -1.0
 # Every LanceMountTile found across all equipped components this recalc -
 # collected here (not folded into precalculated_weapons, which assumes the
 # WeaponMountTile bank/normal-split model) since Lance fires itself
@@ -2117,6 +2118,7 @@ static func generate_deviation_candidate(evo, template_name: String, role: Strin
 	return candidate
 
 func _reset_grid_state():
+	_ai_shot_speed_cache = -1.0
 	precalculated_weapons.clear()
 	lance_mounts.clear()
 	max_shield_hp = 0.0 # Reset shield HP
@@ -3321,10 +3323,29 @@ const TACTIC_ARRIVE_RADIUS = 70.0
 
 # Squad plans lead the player's motion (skill scales with director pressure);
 # without a squad/tactics it aims at the raw position as before.
-func _ai_aim_point(target_pos: Vector2, dist: float) -> Vector2:
+func _ai_aim_point(target_pos: Vector2, _dist: float) -> Vector2:
 	if squad and is_instance_valid(squad) and squad.get("tactics"):
-		return squad.tactics.lead_point(target_pos, dist)
+		return squad.tactics.lead_point(global_position, target_pos, _ai_shot_speed())
 	return target_pos
+
+# Mean projectile speed of this mech's weapons, mirroring Projectile.gd's
+# speed stat (500 base, +1200*pierce, -250*poison, -200*ice, Mythic beam x2.5).
+# Cached; _reset_grid_state() invalidates it.
+func _ai_shot_speed() -> float:
+	if _ai_shot_speed_cache > 0.0:
+		return _ai_shot_speed_cache
+	var total = 0.0
+	var n = 0
+	for data in precalculated_weapons:
+		var ratios = EnergyPacket.compute_ratios(data.packet.synergies)
+		var sp = 500.0 + 1200.0 * float(ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)) - 250.0 * float(ratios.get(EnergyPacket.SynergyType.POISON, 0.0)) - 200.0 * float(ratios.get(EnergyPacket.SynergyType.ICE, 0.0))
+		var tile = data.mount
+		if tile and "mythic_pattern" in tile and tile.rarity == HexTile.Rarity.MYTHIC and int(tile.get("mythic_pattern")) == 3:
+			sp *= 2.5
+		total += max(sp, 50.0)
+		n += 1
+	_ai_shot_speed_cache = total / n if n > 0 else 500.0
+	return _ai_shot_speed_cache
 
 func _execute_ai_tactics(delta):
 	# Flee/wild states override everything below for regular wave enemies -

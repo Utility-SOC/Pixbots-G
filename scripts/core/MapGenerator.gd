@@ -22,6 +22,9 @@ var obstacles: Dictionary = {}
 var main_continent_tiles: Dictionary = {}
 var astar_grid: AStarGrid2D = AStarGrid2D.new()
 var map_type: String = "Normal" # Can be "Arena"
+# Non-zero = deterministic generation (daily seed / shared run cards). The
+# global RNG is seeded for the generation window only, then re-randomized.
+var map_seed: int = 0
 
 # Fraction of tiles that came out BiomeType.WATER on this generation -
 # "Water" map_type floods the whole map with this, but "Normal" maps can
@@ -125,9 +128,16 @@ func _ready():
 	obstacle_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	obstacle_noise.frequency = 0.035 * freq_scale
 	
+	if map_seed != 0:
+		seed(map_seed)
+		noise.seed = map_seed
+		moisture_noise.seed = map_seed + 1
+		obstacle_noise.seed = map_seed + 2
 	_generate_map()
 	_draw_map_to_texture()
 	_build_navigation()
+	if map_seed != 0:
+		randomize()
 
 	if get_tree().root.has_node("ProceduralMusic"):
 		ProceduralMusic.set_biome(map_type)
@@ -843,7 +853,15 @@ func get_biome_at_world_pos(pos: Vector2) -> int:
 # individual texture small and safe, at the same total memory cost.
 const CHUNK_TILES = 50 # 50x50 tiles = 1600x1600px per chunk @ tile_size 32
 
+# chunk coord -> baked ground Sprite2D (TerrainEditor repaints single chunks)
+var _chunk_sprites: Dictionary = {}
+# layer -> {row y -> [{x, n, body}]}: merged collision runs, so a single cell
+# can be carved out of a run at runtime (TerrainEditor).
+var _runs: Dictionary = {}
+
 func _draw_map_to_texture():
+	_chunk_sprites.clear()
+	_runs.clear()
 	# CRITICAL for regeneration: every child of MapGenerator is generated
 	# output (chunk sprites, collision bodies, trees, ruins). The old code
 	# never cleared them, so each debug-menu map swap STACKED a whole new
@@ -964,7 +982,16 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 	sprite.texture = tex
 	sprite.centered = false
 	sprite.position = Vector2(tile_x0 * tile_size, tile_y0 * tile_size)
-	add_child(sprite)
+	var ckey = Vector2i(cx, cy)
+	if _chunk_sprites.has(ckey) and is_instance_valid(_chunk_sprites[ckey]):
+		var old_sprite = _chunk_sprites[ckey]
+		var old_idx = old_sprite.get_index()
+		old_sprite.queue_free()
+		add_child(sprite)
+		move_child(sprite, old_idx)
+	else:
+		add_child(sprite)
+	_chunk_sprites[ckey] = sprite
 
 # Structural pass: run-length merges collision bodies per row, same as the
 # original water/dungeon-border logic, now ALSO applied to non-tree
@@ -1157,6 +1184,11 @@ func _create_merged_collision(start_x: int, y: int, length: int, layer: int):
 	body.position = Vector2(start_x * tile_size + (tile_size * length) / 2.0, y * tile_size + tile_size / 2.0)
 	body.add_child(shape)
 	add_child(body)
+	if not _runs.has(layer):
+		_runs[layer] = {}
+	if not _runs[layer].has(y):
+		_runs[layer][y] = []
+	_runs[layer][y].append({"x": start_x, "n": length, "body": body})
 
 func _get_biome_color(biome: BiomeType) -> Color:
 	# Tabletop's ground reads as a painted + flocked wargaming mat (rust

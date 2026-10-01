@@ -122,6 +122,8 @@ const DEFAULT_POSITION = Vector2(4, 95)
 func _ready():
 	layer = 999 # above everything - HUD (5), War Room (99), Debug Menu (100)
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Hidden by default; F3 toggles it. Launch with --perf-overlay to start shown.
+	visible = "--perf-overlay" in OS.get_cmdline_user_args()
 
 	# Anchored top-LEFT, stacked in a VBoxContainer with left-aligned,
 	# autowrapping text - NOT the old top-right layout with a fixed negative

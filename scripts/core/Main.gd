@@ -554,8 +554,6 @@ func _update_hud():
 
 
 func _process(delta: float):
-	if orders_panel:
-		orders_panel.visible = garage_ui == null # no enemy chatter over the Garage
 	# Live-combat batch pool target sync (2026-08-11 cutover) - only when
 	# the setting's actually on, so this costs nothing for the vast
 	# majority of players who never touch the toggle. See

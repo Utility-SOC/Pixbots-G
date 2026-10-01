@@ -16,6 +16,7 @@ var _log = null
 var _age: Dictionary = {}
 
 func _init():
+	process_mode = Node.PROCESS_MODE_ALWAYS # runs while the Garage has the tree paused
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_theme_constant_override("separation", 2)
 
@@ -45,6 +46,8 @@ func _on_line(entry: Dictionary) -> void:
 		old.queue_free()
 
 func _process(delta: float) -> void:
+	var main = get_tree().current_scene
+	visible = main == null or not is_instance_valid(main.get("garage_ui")) # no chatter over the Garage
 	for l in get_children():
 		_age[l] = float(_age.get(l, 0.0)) + delta
 		var a = _age[l]

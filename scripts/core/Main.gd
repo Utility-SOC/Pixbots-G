@@ -734,6 +734,11 @@ func _setup_environment():
 	# tundra mat...) rather than "terrain".
 	var pool = _water_eligible_map_types()
 	map.map_type = pool[randi() % pool.size()]
+	var run_card: Dictionary = SaveManager.pending_run_card
+	if not run_card.is_empty():
+		map.map_type = str(run_card.get("map_type", map.map_type))
+		map.map_layout = str(run_card.get("layout", "auto"))
+		map.map_seed = int(run_card.get("seed", 0))
 	map.name = "GameMap"
 	world.add_child(map)
 
@@ -2012,6 +2017,9 @@ func _on_player_died():
 		return
 
 	print("!!! GAME OVER - MAGNIFICENT EXPLOSION !!!")
+	var daily_card: Dictionary = SaveManager.pending_run_card
+	if str(daily_card.get("mode", "")) == "daily":
+		MetaProgressScript.note_daily_result(str(daily_card.get("date", "")), current_wave)
 	var rp_gain = MetaProgressScript.note_run_end(current_wave)
 	if rp_gain > 0:
 		print("[META] +%d Research Points (new best wave %d)" % [rp_gain, current_wave])

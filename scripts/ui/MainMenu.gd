@@ -1,6 +1,7 @@
 extends Control
 
 func _ready():
+	SaveManager.pending_run_card = {} # a run card only applies to the run launched from it
 	_apply_controls_from_settings()
 	_setup_ui()
 
@@ -122,6 +123,7 @@ func _setup_ui():
 	# up unlocked immediately with no extra migration step.
 	var btn_tournament = _create_button("Tournament", _on_play_tournament)
 	vbox.add_child(btn_tournament)
+	vbox.add_child(_create_button("Daily Run", _on_daily_pressed))
 
 	var spacer2 = Control.new()
 	spacer2.custom_minimum_size = Vector2(0, 20)
@@ -198,6 +200,13 @@ func _on_war_room_pressed():
 	wr.name = "WarRoomInstance"
 	add_child(wr)
 	wr._toggle() # starts closed by default - open it immediately
+
+func _on_daily_pressed():
+	if get_node_or_null("DailyPanelInstance"):
+		return
+	var panel = load("res://scripts/ui/DailyPanel.gd").new()
+	panel.name = "DailyPanelInstance"
+	add_child(panel)
 
 func _on_perks_pressed():
 	if get_node_or_null("MetaPanelInstance"):

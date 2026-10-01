@@ -19,9 +19,10 @@ const PERKS = {
 const RP_PER_NEW_WAVE = 1
 const RP_PER_BOSS = 2
 const MAX_RP = 100000
+const DAILY_KEEP = 30
 
 static func _blank() -> Dictionary:
-	return {"rp": 0, "spent": 0, "best_wave": 0, "bosses": 0, "perks": {}}
+	return {"rp": 0, "spent": 0, "best_wave": 0, "bosses": 0, "perks": {}, "daily": {}}
 
 static func load_data() -> void:
 	_data = _blank()
@@ -37,9 +38,22 @@ static func load_data() -> void:
 		return
 	for k in ["rp", "spent", "best_wave", "bosses"]:
 		_data[k] = clampi(int(parsed.get(k, 0)), 0, MAX_RP)
+	if parsed.get("daily") is Dictionary:
+		var keys = parsed["daily"].keys()
+		keys.sort()
+		keys = keys.slice(maxi(0, keys.size() - DAILY_KEEP))
+		for k in keys:
+			var ks = str(k)
+			if _is_date_key(ks) and int(parsed["daily"][k]) > 0:
+				_data["daily"][ks] = clampi(int(parsed["daily"][k]), 0, 100000)
 	if parsed.get("perks") is Dictionary:
 		for id in PERKS:
 			_data["perks"][id] = clampi(int(parsed["perks"].get(id, 0)), 0, MAX_LEVEL)
+
+static func _is_date_key(k: String) -> bool:
+	if k.length() != 10 or k[4] != "-" or k[7] != "-":
+		return false
+	return k.substr(0, 4).is_valid_int() and k.substr(5, 2).is_valid_int() and k.substr(8, 2).is_valid_int()
 
 static func _ensure() -> void:
 	if not _loaded:
@@ -120,3 +134,20 @@ static func drop_multiplier(id: String) -> float:
 # Kills without any tile drop before drought protection starts to help.
 static func pity_threshold() -> int:
 	return 14 - 3 * perk_level("pity_timer")
+
+# Best wave reached on a given daily date (YYYY-MM-DD); 0 if not played.
+static func daily_best(date: String) -> int:
+	_ensure()
+	return int(_data["daily"].get(date, 0))
+
+static func note_daily_result(date: String, wave: int) -> bool:
+	_ensure()
+	if wave <= daily_best(date):
+		return false
+	_data["daily"][date] = clampi(wave, 0, 100000)
+	var keys = _data["daily"].keys()
+	keys.sort()
+	while keys.size() > DAILY_KEEP:
+		_data["daily"].erase(keys.pop_front())
+	save_data()
+	return true

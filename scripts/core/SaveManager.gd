@@ -135,6 +135,9 @@ var max_wave_reached: int = 1
 
 # Runtime flag set by the main menu so Main.gd knows what mode to launch.
 var current_game_mode: String = "normal"
+# Set by the Daily Run / run-card import; consumed by Main._setup_environment
+# (RunCard.parse output). Empty = a normal random run.
+var pending_run_card: Dictionary = {}
 
 # --- Difficulty (lives here because SaveManager is a global autoload) ------
 # 0 Casual, 1 Normal, 2 Hard, 3 "Why would you do this to yourself?"

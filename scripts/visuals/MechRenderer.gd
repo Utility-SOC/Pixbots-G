@@ -175,6 +175,8 @@ func _rebuild_visuals():
 		# Node2D.scale on the part's container does the whole stretch.
 		if part_name != "" and drawn_parts.has(part_name):
 			drawn_parts[part_name].scale = _compute_visual_factors(comp)
+			if is_hero:
+				_apply_grid_look(drawn_parts[part_name], comp, part_name)
 
 	# Draw standard parts for any slots that weren't overridden by tiles
 	var rng_def = RandomNumberGenerator.new()
@@ -652,6 +654,73 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 # "bulky AND sleek" build gets wider AND longer at once, clearly distinct
 # from pure-bulk (wide, normal length - stocky), pure-sleek (normal width,
 # long - lean), and neutral (1,1) builds alike.
+# --- Grid-driven hero look (workstream 6) ----------------------------------
+# Colour: the part's tint drifts toward the dominant synergy of the energy that
+# actually flows through its grid (HexGridComponent.flow, filled by the grid sim).
+# Width: heavier energy throughput widens the part (capped). Decorators: one
+# small "LCD" light per conditioning tile (Amplifier/Infuser/Catalyst/Resonator),
+# coloured by that tile's own dominant synergy. All via node properties on the
+# already-drawn container - no rebake. Needs the sim to have run (flow_ready).
+const GRID_LOOK_WIDTH_MAX = 0.22   # extra width at full load
+const GRID_LOOK_WIDTH_CAP = 1.4    # final X scale ceiling incl. bulk
+const GRID_LOOK_TINT_MAX = 0.55    # how far the tint can pull toward the colour
+const GRID_LOOK_LOAD_REF = 12.0    # mean energy per tile that counts as "full load"
+const GRID_LOOK_LIGHT_TILES = ["Amplifier", "Infuser", "Catalyst", "Resonator"]
+const GRID_LOOK_MAX_LIGHTS = 6
+
+func _apply_grid_look(container: Node2D, comp, part_name: String) -> void:
+	var grid = comp.hex_grid
+	if grid == null or not grid.flow_ready or grid.flow.is_empty():
+		return
+	var by_syn: Dictionary = {}
+	var total := 0.0
+	for key in grid.flow:
+		var f = grid.flow[key]
+		total += f["energy"]
+		if f["dom"] >= 0:
+			by_syn[f["dom"]] = by_syn.get(f["dom"], 0.0) + f["energy"]
+	var n = maxi(1, grid.get_all_tiles().size())
+	var load_norm = clamp((total / n) / GRID_LOOK_LOAD_REF, 0.0, 1.0)
+	container.set_meta("grid_load", load_norm)
+	# Width
+	container.scale.x = minf(container.scale.x * (1.0 + GRID_LOOK_WIDTH_MAX * load_norm), GRID_LOOK_WIDTH_CAP)
+	# Tint
+	var tint := Color(0, 0, 0, 0)
+	var wsum := 0.0
+	for syn in by_syn:
+		tint += EnergyPacket.get_color_for_synergy(syn) * by_syn[syn]
+		wsum += by_syn[syn]
+	if wsum > 0.0:
+		tint = Color(tint.r / wsum, tint.g / wsum, tint.b / wsum, 1.0)
+		container.modulate = Color.WHITE.lerp(tint, GRID_LOOK_TINT_MAX * clampf(load_norm * 2.0, 0.0, 1.0))
+	# Decorator lights
+	var lit := 0
+	var along_y = part_name != "Torso" and part_name != "Head"
+	for t in grid.get_all_tiles():
+		if lit >= GRID_LOOK_MAX_LIGHTS:
+			break
+		if not (t.tile_type in GRID_LOOK_LIGHT_TILES or t is InfuserTile):
+			continue
+		var key = Vector2i(t.grid_position.q, t.grid_position.r)
+		var f2 = grid.flow.get(key)
+		var col = Color(0.5, 0.5, 0.5)
+		if f2 != null and f2["dom"] >= 0:
+			col = EnergyPacket.get_color_for_synergy(f2["dom"])
+		var light = Polygon2D.new()
+		light.polygon = PackedVector2Array([Vector2(-1.5, -1.5), Vector2(1.5, -1.5), Vector2(1.5, 1.5), Vector2(-1.5, 1.5)])
+		light.color = col.lightened(0.25)
+		light.position = Vector2(0, 8 + lit * 5) if along_y else Vector2(-10 + lit * 4, 4)
+		light.z_index = 1
+		container.add_child(light)
+		lit += 1
+
+# Width factor the hero's hitbox may follow (the torso's grid width, capped small).
+func get_hero_width_factor() -> float:
+	var t = drawn_parts.get("Torso")
+	if t == null:
+		return 1.0
+	return clampf(1.0 + (t.scale.x - 1.0) * 0.5, 1.0, 1.15)
+
 const _BULK_TILE_TYPES = ["Shield Generator", "Core Reactor", "Microcore", "Accumulator", "Missile Rack", "Lance Mount"]
 const _SLEEK_TILE_TYPES = ["Cloak Generator", "Jumpjet", "Actuator", "Directional Conduit", "Filter"]
 const _AXIS_STEP = 0.03

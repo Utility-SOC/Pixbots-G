@@ -2300,6 +2300,7 @@ func _rotate_campaign_map():
 	active_enemies = 0
 
 	var old_type = map.map_type if is_instance_valid(map) else ""
+	var old_map_index = map.get_index() if is_instance_valid(map) else 0
 	if is_instance_valid(map):
 		map.queue_free()
 
@@ -2312,6 +2313,10 @@ func _rotate_campaign_map():
 	map.map_type = choices[randi() % choices.size()] if not choices.is_empty() else pool[randi() % pool.size()]
 	map.name = "GameMap"
 	world.add_child(map)
+	# Draw order among equal-z siblings is child order: limbs sit at z=0 like the
+	# map, so a map appended last painted over them (arms/legs vanished after a
+	# rotation). Keep the new map where the old one was, behind everything.
+	world.move_child(map, mini(old_map_index, world.get_child_count() - 1))
 
 	if player:
 		player.global_position = map.get_valid_spawn_position(Vector2(map.width * map.tile_size / 2.0, map.height * map.tile_size / 2.0))
@@ -2406,6 +2411,9 @@ func _close_garage():
 		# change moment) instead of interrupting live combat input.
 		if player.has_method("_recalculate_grid"):
 			player._recalculate_grid()
+		# Garage tile swaps never rebuilt the body art (only equip/paint did), so
+		# the mech kept its pre-garage look. Rebuild once at the deploy transition.
+		player.refresh_visuals()
 		# Live drones share their loadout OBJECT with the Drone Bay tile the
 		# garage just edited, but nothing ever marked THEIR grids dirty - an
 		# already-flying drone kept firing its stale precalculated weapons

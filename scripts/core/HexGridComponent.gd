@@ -4,6 +4,10 @@ extends Node
 # Maps Vector2i(q, r) -> HexTile
 var grid: Dictionary = {}
 
+# Emitted after any add_tile/remove_tile. Mech listens (player only) to queue
+# a coalesced visual redraw.
+signal changed
+
 # Per-tile energy flow from the last full energy-routing pass (Mech.
 # _simulate_energy_flow): Vector2i(anchor q, r) -> {"visits", "energy", "dom"}.
 # Tiles missing from it never received any energy ("unpowered").
@@ -76,6 +80,7 @@ func add_tile(coord: HexCoord, tile: HexTile):
 	grid[anchor] = tile
 	for off in tile.footprint_offsets:
 		grid[anchor + off] = tile
+	changed.emit()
 
 # Footprint-aware regardless of WHICH of a multi-cell tile's keys gets
 # passed in - resolves to the tile's own anchor (grid_position) and erases
@@ -99,6 +104,7 @@ func remove_tile(coord: HexCoord) -> HexTile:
 			var k2 = anchor + off
 			if grid.has(k2) and grid[k2] == tile:
 				grid.erase(k2)
+	changed.emit()
 	return tile
 
 # Deduped by object identity - a multi-cell tile occupies several `grid`

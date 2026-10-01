@@ -450,6 +450,9 @@ signal dealt_damage(amount: float)
 signal took_damage(amount: float, was_reflected: bool)
 signal died()
 signal fled_to_wild(bot: Node)
+# Fired (at most once per frame) after the equipped parts or any tile on them
+# changed. The player's body art listens and redraws; other systems may too.
+signal loadout_changed()
 
 # --- Wild-bot flee thresholds (Status.md queue) ----------------------------
 # Role-specific HP fractions below which a regular wave enemy breaks off,
@@ -669,6 +672,7 @@ func _ready():
 	# small it actually looks on screen.
 	var hitbox_scale = renderer.get_role_scale(combat_role, is_player)
 	var collision = CollisionShape2D.new()
+	_body_shape = collision
 	var shape = RectangleShape2D.new()
 	shape.size = Vector2(40, 40) * hitbox_scale
 	collision.shape = shape
@@ -713,8 +717,12 @@ func refresh_boss_visuals():
 # a visual-affecting field (paint_color, equipped components, etc.) changes
 # after the renderer already built once - e.g. applying a paint choice.
 func refresh_visuals():
+	_visuals_stale = false
 	if _renderer:
 		_renderer._rebuild_visuals()
+		if is_player and _body_shape:
+			# Silhouette width may nudge the hitbox, capped (see get_hero_width_factor).
+			_body_shape.shape.size = Vector2(40, 40) * _renderer.get_role_scale(combat_role, true) * Vector2(_renderer.get_hero_width_factor(), 1.0)
 
 # Special-ability backpacks for specific roles (cloak for ambushers, an
 # occasional jammer module for scouts, heal beacon for support). Falls back
@@ -801,13 +809,51 @@ func equip_component(comp: ComponentEquipment):
 	components[comp.slot_type] = comp
 	add_child(comp)
 	is_grid_dirty = true
+	_watch_component(comp)
+	_notify_loadout_changed()
 	
+# Tile edits only matter for the hero (enemy loadouts are built wholesale and
+# drawn once), so only the player hooks the per-grid change signal.
+func _watch_component(comp) -> void:
+	if is_player and comp.hex_grid and not comp.hex_grid.changed.is_connected(_notify_loadout_changed):
+		comp.hex_grid.changed.connect(_notify_loadout_changed)
+
+func _unwatch_component(comp) -> void:
+	if comp.hex_grid and comp.hex_grid.changed.is_connected(_notify_loadout_changed):
+		comp.hex_grid.changed.disconnect(_notify_loadout_changed)
+
+var _loadout_signal_queued: bool = false
+var _body_shape: CollisionShape2D = null
+var _visuals_stale: bool = false
+func _notify_loadout_changed() -> void:
+	if _loadout_signal_queued or not is_inside_tree():
+		return
+	_loadout_signal_queued = true
+	_flush_loadout_changed.call_deferred()
+
+func _flush_loadout_changed() -> void:
+	_loadout_signal_queued = false
+	if not is_inside_tree():
+		return
+	loadout_changed.emit()
+	if is_player and _renderer:
+		# Mid-garage the world is paused and hidden under the menu: just mark
+		# stale; Main's deploy transition (refresh_visuals) redraws once.
+		if get_tree().paused:
+			_visuals_stale = true
+		else:
+			if is_grid_dirty:
+				_recalculate_grid()
+			refresh_visuals()
+
 func unequip_component(slot: HexTile.BodySlot) -> ComponentEquipment:
 	if components.has(slot):
 		var comp = components[slot]
 		components.erase(slot)
 		remove_child(comp)
 		is_grid_dirty = true
+		_unwatch_component(comp)
+		_notify_loadout_changed()
 		return comp
 	return null
 

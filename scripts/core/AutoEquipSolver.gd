@@ -60,7 +60,7 @@ func _topology_cache_key_body(component: Node, inventory: Array, profile: Solver
 	for t in inventory:
 		inv_sig.append("%s:%d" % [t.tile_type, t.rarity])
 	inv_sig.sort()
-	return "%d|%s|%s|%s|%s" % [component.rarity, ",".join(hex_sig), ",".join(sink_sig), ",".join(inv_sig), "P" if profile != null else "N"]
+	return "%d|%d|%s|%s|%s|%s" % [component.rarity, int(component.slot_type), ",".join(hex_sig), ",".join(sink_sig), ",".join(inv_sig), "P" if profile != null else "N"]
 
 # Reads back what _solve_impl just decided, from the grid it left behind -
 # deliberately NOT threaded through as extra return values from _solve_impl
@@ -506,7 +506,7 @@ func _solve_impl(component: Node, inventory: Array, profile: SolverProfile = nul
 			
 			if entry_dir == exit_dir:
 				# Straight path -> Amplifier, Catalyst, Infuser
-				var tile_types = _straight_tile_priority(profile)
+				var tile_types = _straight_tile_priority(profile, int(component.slot_type))
 				var idx = _find_tile_index_by_priority(inventory, tile_types)
 
 				if idx >= 0:
@@ -517,6 +517,8 @@ func _solve_impl(component: Node, inventory: Array, profile: SolverProfile = nul
 						tile.active_faces.append(exit_dir)
 					elif tile.tile_type == "Elemental Infuser" and profile != null:
 						tile.secondary_synergy = _pick_profile_synergy(profile)
+					elif tile.tile_type == "Catalyst" and profile != null:
+						tile.target_synergy = _pick_profile_synergy(profile)
 					grid.add_tile(h, tile)
 					placed_tile = true
 			else:
@@ -650,7 +652,14 @@ func _aim_accessory_return(grid, acc_coord, tree_nodes: Dictionary, parent_map: 
 # so burying it behind Amplifier/Catalyst (as the original fixed order did)
 # meant profiles could almost never express themselves even when the
 # inventory had the right tiles.
-func _straight_tile_priority(profile: SolverProfile) -> Array:
+func _straight_tile_priority(profile: SolverProfile, slot_type: int = -1) -> Array:
+	# Head and Backpack exist to CONDITION energy on its way back to the torso
+	# (their Torso Return feeds the Accessory Return): Catalysts first so the
+	# element is set, then boosters.
+	if slot_type == HexTile.BodySlot.HEAD:
+		return ["Catalyst", "Amplifier", "Elemental Infuser", "Splitter"]
+	if slot_type == HexTile.BodySlot.BACKPACK:
+		return ["Catalyst", "Elemental Infuser", "Amplifier", "Splitter"]
 	if profile == null:
 		return ["Amplifier", "Catalyst", "Elemental Infuser", "Splitter"]
 	return ["Elemental Infuser", "Amplifier", "Catalyst", "Splitter"]

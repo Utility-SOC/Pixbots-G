@@ -91,7 +91,7 @@ func _ready():
 	_check("Accumulator.damage_boost", AccumulatorTileScript.new().damage_boost, 4.5)
 	_check("Amplifier.amplification", AmplifierTileScript.new().amplification, 1.2)
 	_check("Actuator.base_speed_multiplier", ActuatorTileScript.new().base_speed_multiplier, 0.5)
-	_check("Catalyst.efficiency", CatalystTileScript.new().efficiency, 1.2)
+	_check("Catalyst.efficiency", CatalystTileScript.new().efficiency, 1.5)
 	_check("Filter.raw_return_rate", FilterTileScript.new().raw_return_rate, 0.5)
 	_check("Jumpjet.speed_boost_mult", JumpjetTileScript.new().speed_boost_mult, 1.5)
 	_check("Resonator.boost_per_remnant", ResonatorTileScript.new().boost_per_remnant, 1.3)

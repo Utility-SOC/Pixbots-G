@@ -33,13 +33,21 @@ const MAX_SAVE_BYTES = 32 * 1024 * 1024
 var _deser_depth: int = 0
 var _allowed_tile_scripts: Dictionary = {} # path -> bool (verified once)
 
+var _tile_path_re: RegEx = null
+
+func _tile_path_regex() -> RegEx:
+	if _tile_path_re == null:
+		_tile_path_re = RegEx.new()
+		_tile_path_re.compile("^res://scripts/tiles/([A-Za-z0-9_]+/)*[A-Za-z0-9_]+\\.gd$")
+	return _tile_path_re
+
 func is_allowed_tile_script(path) -> bool:
 	if not (path is String):
 		return false
 	if _allowed_tile_scripts.has(path):
 		return _allowed_tile_scripts[path]
 	var ok = false
-	if path == HEXTILE_SCRIPT or (path.begins_with(TILE_SCRIPT_DIR) and path.ends_with(".gd") and not path.contains("..") and path.count("/") == 4):
+	if path == HEXTILE_SCRIPT or _tile_path_regex().search(path) != null:
 		if ResourceLoader.exists(path):
 			var sc = load(path)
 			if sc is GDScript and sc.can_instantiate():
@@ -59,7 +67,14 @@ static func _same_kind(current, incoming) -> bool:
 	var b = typeof(incoming)
 	if a == b:
 		return true
-	return (a == TYPE_INT or a == TYPE_FLOAT) and (b == TYPE_INT or b == TYPE_FLOAT)
+	var numeric = [TYPE_INT, TYPE_FLOAT, TYPE_BOOL]
+	if a in numeric and b in numeric:
+		return true
+	if (a == TYPE_STRING or a == TYPE_STRING_NAME) and (b == TYPE_STRING or b == TYPE_STRING_NAME):
+		return true
+	if a == TYPE_NIL:
+		return b != TYPE_OBJECT # untyped/unset property: any plain data
+	return false
 
 # Per-save tutorial-seen bit (the user asked for this instead of the tutorial
 # only tracking completion via the old global user://tutorial_completed.flag

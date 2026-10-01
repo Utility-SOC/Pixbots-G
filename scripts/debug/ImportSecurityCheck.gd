@@ -28,12 +28,20 @@ func _ready():
 	_check("refuses non-tile script in tiles dir naming (not extending HexTile)", not sm.is_allowed_tile_script("res://scripts/tiles/../ai/GenePool.gd"))
 
 	# every shipped tile script must remain loadable from saves
-	var dir = DirAccess.open("res://scripts/tiles/")
 	var rejected: Array = []
-	for f in dir.get_files():
-		if f.ends_with(".gd"):
-			if not sm.is_allowed_tile_script("res://scripts/tiles/" + f):
-				rejected.append(f)
+	var stack = ["res://scripts/tiles/"]
+	var checked = 0
+	while not stack.is_empty():
+		var d = stack.pop_back()
+		var dir = DirAccess.open(d)
+		for sub in dir.get_directories():
+			stack.append(d + sub + "/")
+		for f in dir.get_files():
+			if f.ends_with(".gd"):
+				checked += 1
+				if not sm.is_allowed_tile_script(d + f):
+					rejected.append(d + f)
+	_check("walked tile scripts incl. subfolders (%d)" % checked, checked > 40)
 	_check("all shipped tile scripts allowed (rejected: %s)" % str(rejected), rejected.is_empty())
 
 	# --- tile deserialization ---

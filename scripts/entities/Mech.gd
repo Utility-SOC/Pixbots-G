@@ -4499,6 +4499,7 @@ func build_loadout_for_role(role_name: String):
 			"res://scripts/tiles/AmplifierTile.gd",
 			"res://scripts/tiles/SplitterTile.gd",
 			"res://scripts/tiles/InfuserTile.gd",
+			"res://scripts/tiles/CatalystTile.gd",
 		]
 		for i in range(filler_count):
 			add_tile.call(filler_types[i % filler_types.size()], base_rarity)
@@ -4512,6 +4513,11 @@ func build_loadout_for_role(role_name: String):
 		inventory = solver.solve(components[HexTile.BodySlot.ARM_R], inventory, spawn_profile)
 	if components.has(HexTile.BodySlot.ARM_L):
 		inventory = solver.solve(components[HexTile.BodySlot.ARM_L], inventory, spawn_profile)
+	# Head/Backpack condition the energy returning to the torso (Catalyst/
+	# Amplifier/Infuser between their feed and Torso Return).
+	for acc_slot in [HexTile.BodySlot.HEAD, HexTile.BodySlot.BACKPACK]:
+		if components.has(acc_slot) and not components[acc_slot].fixed_sinks.is_empty():
+			inventory = solver.solve(components[acc_slot], inventory, spawn_profile)
 
 	_recalculate_grid()
 
@@ -4519,7 +4525,7 @@ func build_loadout_for_role(role_name: String):
 	_build_profile_name = spawn_profile.profile_name if spawn_profile != null else ""
 	if stock_evo and spawn_template_name != "":
 		var serialized := {}
-		for slot in [HexTile.BodySlot.TORSO, HexTile.BodySlot.ARM_R, HexTile.BodySlot.ARM_L]:
+		for slot in [HexTile.BodySlot.TORSO, HexTile.BodySlot.ARM_R, HexTile.BodySlot.ARM_L, HexTile.BodySlot.HEAD, HexTile.BodySlot.BACKPACK]:
 			if components.has(slot):
 				serialized[slot] = SaveManager._serialize_component(components[slot])
 		if stock == null:

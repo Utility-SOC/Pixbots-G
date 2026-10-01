@@ -95,6 +95,9 @@ var corner_hint: Label
 # = unstick), so a player can always claw forward one step at a time even
 # if a single step's trigger never fires.
 var escape_button: Button
+# Always-visible "skip the whole tutorial" twin of escape_button (the panel's own
+# Skip Tutorial button disappears during world steps like the maze).
+var skip_all_button: Button
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -242,6 +245,14 @@ func _build_ui():
 	escape_button.pressed.connect(_on_escape_pressed)
 	root.add_child(escape_button)
 
+	skip_all_button = Button.new()
+	skip_all_button.text = "Skip Tutorial"
+	skip_all_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	skip_all_button.position = Vector2(-180, 126)
+	skip_all_button.tooltip_text = "Exit the whole tutorial and deploy with a ready-to-fight bot."
+	skip_all_button.pressed.connect(_on_skip)
+	root.add_child(skip_all_button)
+
 func _make_dim_rect() -> ColorRect:
 	var r = ColorRect.new()
 	r.color = Color(0.0, 0.0, 0.0, 0.65)
@@ -250,9 +261,13 @@ func _make_dim_rect() -> ColorRect:
 	return r
 
 func _process(_delta):
+	if skip_all_button and escape_button:
+		skip_all_button.visible = escape_button.visible and is_active
 	if not is_active:
 		if escape_button:
 			escape_button.visible = false
+		if skip_all_button:
+			skip_all_button.visible = false
 		return
 	# The cutscene has its own Skip (Esc) affordance and full-screen
 	# presentation - TutorialManager's own overlay (panel/spotlight/escape
@@ -548,6 +563,19 @@ func _on_skip():
 	# convenience, not a gate, and an error inside it must never leave the
 	# player trapped in the tutorial ("the tutorial can't be skipped"). By
 	# the time _apply_skip_equip runs, the tutorial is already gone.
+	if _maze:
+		# complete() restores the terrain; detach first so it can't advance steps.
+		if _maze.finished.is_connected(_on_maze_finished):
+			_maze.finished.disconnect(_on_maze_finished)
+		_maze.complete()
+		_maze = null
+	_maze_waiting_step = {}
+	if _active_cutscene:
+		if is_instance_valid(_active_cutscene):
+			if _active_cutscene.finished.is_connected(_on_cinematic_finished):
+				_active_cutscene.finished.disconnect(_on_cinematic_finished)
+			_active_cutscene.skip()
+		_active_cutscene = null
 	is_active = false
 	SaveManager.tutorial_completed = true
 	if root:

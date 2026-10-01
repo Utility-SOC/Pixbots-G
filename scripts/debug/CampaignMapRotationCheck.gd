@@ -70,7 +70,11 @@ func _ready():
 		not main._should_rotate_map())
 
 	main._map_rotation_elapsed = MainScript.MAP_ROTATION_MAX_SECONDS
-	_check("rotates once the time cap is reached, even with waves nowhere near the cap",
+	_check("time cap alone does not rotate right after the opening waves",
+		not main._should_rotate_map())
+
+	main.current_wave = main._map_rotation_wave_start + MainScript.MAP_ROTATION_MIN_WAVES
+	_check("rotates once the time cap is reached and the minimum waves have passed",
 		main._should_rotate_map())
 
 	# --- _water_eligible_map_types(): pure logic, real calls on the same

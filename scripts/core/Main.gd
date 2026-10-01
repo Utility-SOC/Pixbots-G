@@ -81,6 +81,7 @@ const MAP_ROTATION_TYPES = ["Tabletop", "Tabletop", "Normal", "Open Field", "For
 # "so I can tune it," and this is the fastest place to find and change them.
 const MAP_ROTATION_MAX_WAVES = 10
 const MAP_ROTATION_MAX_SECONDS = 180.0
+const MAP_ROTATION_MIN_WAVES = 3 # waves before the time-based rotation may fire
 var _map_rotation_wave_start: int = 1
 var _map_rotation_elapsed: float = 0.0
 
@@ -2264,6 +2265,9 @@ func _should_rotate_map() -> bool:
 		return false
 	if current_wave - _map_rotation_wave_start >= MAP_ROTATION_MAX_WAVES:
 		return true
+	# The timer alone must not swap the map right after the opening waves.
+	if current_wave - _map_rotation_wave_start < MAP_ROTATION_MIN_WAVES:
+		return false
 	return _map_rotation_elapsed >= MAP_ROTATION_MAX_SECONDS
 
 # Regenerates the battlefield terrain (see MAP_ROTATION_MAX_WAVES/

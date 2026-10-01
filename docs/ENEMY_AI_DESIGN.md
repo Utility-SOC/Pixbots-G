@@ -75,3 +75,10 @@ Everything imported lands on **probation** (`GenePool.gd`, `WarRoomSnapshot.merg
 - `GenePool.diversity` feeds the "AI variety" line in the War Room (role/doctrine/element entropy, tactic variants, pilot-sourced entries, spliced builds).
 
 Import hardening (all imports are untrusted data): JSON only, never `load()`/eval/script paths from a payload; schema version and list-length gates; role names allow-listed, plan names checked against `SquadTactics.PLANS`, counts/sizes/spreads clamped, strings truncated; PNG chunk walker bounds-checks lengths and caps chunk size; style cards are deduped by content hash. Regression: `GenePoolCheck.tscn`.
+
+## Orders log, movement habits, boss kits
+
+- **Orders log** (`OrdersLog.gd`, HUD `OrdersPanel.gd`): squads post plan/commit/replan/casualty/wipe events; one line per 2.5 s, per-squad cooldowns, priority-ranked pending queue, stale lines dropped.
+- **Movement habits** (`MovementHabits.gd`, `PlayerModel.habits`): sampled at 4 Hz against the nearest enemy; classifies camper/kiter/brawler/strafer and tracks the player's favoured retreat heading. Style multiplies plan weights (`TacticGenome.choose(..., habit_mult)`), and pincer/hammer/bait squads send their fastest flanker to a `CUTOFF` goal on that heading. Shown in the War Room ("The AI's read on you"). Behaviour only.
+- **Boss kits** (`BossBrain.gd`, `BossProfile.gd`): 11 abilities (new: meteor_rain, minefield, gravity_well, triple_rail, charge), 6 enrage styles (new: relentless, phase_shift), 5 position styles (new: teleporter, lurker). All ground-telegraphed; bosses never summon. Imported boss profiles go through `BossProfile.sanitize`.
+- **Enemy builds** now also solve Head and Backpack as energy conditioners (Catalyst first) and serialize those slots in stock builds.

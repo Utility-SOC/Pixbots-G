@@ -59,6 +59,12 @@ func register_defaults():
 # there's no "always-fresh reactive baseline" here - boss_profiles is never
 # empty (see register_defaults), so a plain weighted pick is enough.
 func get_active_boss_profile() -> BossProfile:
+	# Debug menu hook: force one named profile (see DebugMenu "Spawn Boss").
+	var forced = str(director.get("debug_force_boss")) if director.get("debug_force_boss") != null else ""
+	if forced != "":
+		for bp in director.boss_profiles:
+			if bp.profile_name == forced:
+				return bp
 	if director.boss_profiles.is_empty():
 		return BossProfile.new()
 	var total_weight = 0.0

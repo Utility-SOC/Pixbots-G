@@ -196,6 +196,12 @@ func _ready():
 	force_ruins_check.text = "Force Ruins (any map type)"
 	tab_world.add_child(force_ruins_check)
 
+	var layout_opt = OptionButton.new()
+	layout_opt.add_item("Layout: auto")
+	for l in ["none", "river", "ridges", "pillars", "rings", "canyon", "crossroads"]:
+		layout_opt.add_item("Layout: " + l)
+	tab_world.add_child(layout_opt)
+
 	var map_grid = GridContainer.new()
 	map_grid.columns = 3
 	tab_world.add_child(map_grid)
@@ -236,6 +242,8 @@ func _ready():
 			if map:
 				map.map_type = map_type
 				map.force_ruins = force_ruins_check.button_pressed
+				map.map_layout = "auto" if layout_opt.selected <= 0 else layout_opt.get_item_text(layout_opt.selected).replace("Layout: ", "")
+				map.map_seed = 0
 				map._generate_map()
 				map._draw_map_to_texture()
 				map._build_navigation()
@@ -248,6 +256,36 @@ func _ready():
 		)
 		map_grid.add_child(btn)
 
+	_btn(tab_world, "Jump wave +5", func():
+		var m = get_tree().current_scene
+		if m and "current_wave" in m:
+			m.current_wave += 5
+	)
+	_btn(tab_world, "Start Frank's maze (needs tutorial-free arena)", func():
+		_toggle_menu()
+		var m = get_tree().current_scene
+		var mz = load("res://scripts/ui/MazeTutorial.gd").new()
+		m.add_child(mz)
+		if not mz.start(m):
+			mz.queue_free()
+	)
+	var boss_label = Label.new()
+	boss_label.text = "-- Spawn Boss --"
+	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tab_world.add_child(boss_label)
+	var boss_opt = OptionButton.new()
+	for n in ["Warhulk", "Longshot", "Specter", "Incinerator", "Warden", "Overlord", "Stormcaller", "Tyrant", "Hexer", "Prism"]:
+		boss_opt.add_item(n)
+	tab_world.add_child(boss_opt)
+	_btn(tab_world, "Spawn Selected Boss", func():
+		_toggle_menu()
+		var m = get_tree().current_scene
+		var d = m.world.get_node_or_null("SquadDirector") if (m and "world" in m and m.world) else null
+		if d and m.has_method("_spawn_boss"):
+			d.debug_force_boss = boss_opt.get_item_text(boss_opt.selected)
+			m._spawn_boss(d, false)
+			d.debug_force_boss = ""
+	)
 	_btn(tab_world, "Toggle Slomo (0.2x)", func():
 		Engine.time_scale = 0.2 if Engine.time_scale == 1.0 else 1.0
 	)

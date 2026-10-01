@@ -44,6 +44,7 @@ var tactic_serial: int = 1
 
 var solver_profiles: Array[SolverProfile] = []
 var boss_profiles: Array[BossProfile] = []
+var debug_force_boss: String = "" # DebugMenu: spawn this named boss profile next
 var stock_builds: Array[StockBuild] = []
 
 var templates: Array[SquadTemplate] = []

@@ -369,11 +369,38 @@ static func export_card(mech: Node, pilot_name: String, genes: Dictionary = {}) 
 	return path
 
 # Reads one card PNG and registers its ghost. Returns the ghost dict or {}.
+const MAX_CARD_FILE_BYTES = 16 * 1024 * 1024
+const MAX_RANK = 5000.0
+
+# Untrusted card payload -> only the fields we use, typed and clamped.
+# Component dicts are further validated tile-by-tile by SaveManager's
+# deserializer (script allow-list, size caps) when the ghost is spawned.
+static func sanitize_payload(raw: Dictionary) -> Dictionary:
+	if str(raw.get("format", "")) != PAYLOAD_FORMAT or not (raw.get("components") is Dictionary):
+		return {}
+	var comps: Dictionary = {}
+	for k in raw["components"]:
+		var ks = str(k)
+		if ks.is_valid_int() and int(ks) >= 1 and int(ks) <= 8 and raw["components"][k] is Dictionary and comps.size() < 8:
+			comps[ks] = raw["components"][k]
+	if comps.is_empty():
+		return {}
+	return {
+		"format": PAYLOAD_FORMAT,
+		"pilot_name": str(raw.get("pilot_name", "pilot")).substr(0, 40),
+		"rank": clampf(float(raw.get("rank", RANK_BASELINE)), 0.0, MAX_RANK),
+		"max_wave": clampi(int(raw.get("max_wave", 0)), 0, 100000),
+		"created_unix": clampi(int(raw.get("created_unix", 0)), 0, 4102444800),
+		"components": comps,
+	}
+
 static func import_card(path: String) -> Dictionary:
 	var f = FileAccess.open(path, FileAccess.READ)
 	if not f:
 		return {}
-	var payload = extract_payload(f.get_buffer(f.get_length()))
+	if f.get_length() > MAX_CARD_FILE_BYTES:
+		return {}
+	var payload = sanitize_payload(extract_payload(f.get_buffer(f.get_length())))
 	f.close()
 	if payload.is_empty():
 		return {}
@@ -423,7 +450,7 @@ static func find_new_style_cards(dir_path: String = CARDS_DIR) -> Array:
 		if not file.to_lower().ends_with(".png"):
 			continue
 		var f = FileAccess.open(dir_path.path_join(file), FileAccess.READ)
-		if not f or f.get_length() > 16 * 1024 * 1024:
+		if not f or f.get_length() > MAX_CARD_FILE_BYTES:
 			continue
 		var bytes = f.get_buffer(f.get_length())
 		f.close()
@@ -579,6 +606,8 @@ static func _set_local_rank(rank: float):
 # Records a match against a ghost: updates the local Elo rank against the
 # ghost's exported rank, and the ghost's local win/loss record.
 static func record_result(ghost_id: String, player_won: bool):
+	if ghost_id != ghost_id.validate_filename():
+		return # never build a path from something that isn't a plain file name
 	var path = GHOSTS_DIR + ghost_id + ".json"
 	var ghost_rank = RANK_BASELINE
 	var ghost: Dictionary = {}
@@ -588,7 +617,7 @@ static func record_result(ghost_id: String, player_won: bool):
 		f.close()
 		if parsed is Dictionary:
 			ghost = parsed
-			ghost_rank = float(ghost.get("rank", RANK_BASELINE))
+			ghost_rank = clampf(float(ghost.get("rank", RANK_BASELINE)), 0.0, MAX_RANK)
 
 	var mine = get_local_rank()
 	var expected = 1.0 / (1.0 + pow(10.0, (ghost_rank - mine) / 400.0))

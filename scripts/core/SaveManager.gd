@@ -17,6 +17,50 @@ func _load_cached(path: String) -> Script:
 		_script_load_cache[path] = load(path)
 	return _script_load_cache[path]
 
+# --- Import hardening ----------------------------------------------------------
+# Saves, loadouts, champion cards and style cards are all UNTRUSTED data. A tile's
+# "script_path" must never become an arbitrary load(): only plain tile scripts
+# shipped in res://scripts/tiles/ (or the HexTile base) that actually extend
+# HexTile may be instantiated.
+const TILE_SCRIPT_DIR = "res://scripts/tiles/"
+const HEXTILE_SCRIPT = "res://scripts/core/HexTile.gd"
+const MAX_TILES_PER_COMPONENT = 1500
+const MAX_HEXES_PER_COMPONENT = 1500
+const MAX_FIXED_SINKS = 64
+const MAX_FOOTPRINT_CELLS = 8
+const MAX_DESERIALIZE_DEPTH = 3
+const MAX_SAVE_BYTES = 32 * 1024 * 1024
+var _deser_depth: int = 0
+var _allowed_tile_scripts: Dictionary = {} # path -> bool (verified once)
+
+func is_allowed_tile_script(path) -> bool:
+	if not (path is String):
+		return false
+	if _allowed_tile_scripts.has(path):
+		return _allowed_tile_scripts[path]
+	var ok = false
+	if path == HEXTILE_SCRIPT or (path.begins_with(TILE_SCRIPT_DIR) and path.ends_with(".gd") and not path.contains("..") and path.count("/") == 4):
+		if ResourceLoader.exists(path):
+			var sc = load(path)
+			if sc is GDScript and sc.can_instantiate():
+				var base = sc
+				while base != null:
+					if base.resource_path == HEXTILE_SCRIPT:
+						ok = true
+						break
+					base = base.get_base_script()
+	_allowed_tile_scripts[path] = ok
+	return ok
+
+# Only assigns a saved value when its type matches the property's current type
+# (numbers interchangeable), so a hostile save can't stuff a Dictionary into a float.
+static func _same_kind(current, incoming) -> bool:
+	var a = typeof(current)
+	var b = typeof(incoming)
+	if a == b:
+		return true
+	return (a == TYPE_INT or a == TYPE_FLOAT) and (b == TYPE_INT or b == TYPE_FLOAT)
+
 # Per-save tutorial-seen bit (the user asked for this instead of the tutorial
 # only tracking completion via the old global user://tutorial_completed.flag
 # file, which didn't distinguish between save slots). Runtime state here,
@@ -344,6 +388,8 @@ func load_game(save_name: String) -> Dictionary:
 		return {}
 		
 	var file = FileAccess.open(path, FileAccess.READ)
+	if file == null or file.get_length() > MAX_SAVE_BYTES:
+		return {}
 	var json = JSON.parse_string(file.get_as_text())
 	file.close()
 	
@@ -535,10 +581,10 @@ func _deserialize_component(cdata: Dictionary):
 	var ScriptComponentEquipment = _load_cached("res://scripts/core/ComponentEquipment.gd")
 	var slot_type = cdata.get("slot_type", 0)
 	var rarity = cdata.get("rarity", 0)
-	var comp = ScriptComponentEquipment.new(int(slot_type), int(rarity))
+	var comp = ScriptComponentEquipment.new(clampi(int(slot_type), 0, 10), clampi(int(rarity), 0, 4))
 	comp.component_name = cdata.get("component_name", "Unknown")
-	if cdata.has("infusion_level"): comp.set("infusion_level", cdata["infusion_level"])
-	if cdata.has("infusion_xp"): comp.set("infusion_xp", cdata["infusion_xp"])
+	if cdata.has("infusion_level") and _same_kind(comp.get("infusion_level"), cdata["infusion_level"]): comp.set("infusion_level", cdata["infusion_level"])
+	if cdata.has("infusion_xp") and _same_kind(comp.get("infusion_xp"), cdata["infusion_xp"]): comp.set("infusion_xp", cdata["infusion_xp"])
 
 	# Overclocking rework (save format v5) - see this file's version log and
 	# ComponentEquipment.gd's header comment for the full data-model story.
@@ -577,10 +623,19 @@ func _deserialize_component(cdata: Dictionary):
 	if cdata.has("valid_hexes") and cdata["valid_hexes"] is Array and cdata["valid_hexes"].size() > 0:
 		comp.valid_hexes.clear()
 		for hdata in cdata["valid_hexes"]:
-			comp.valid_hexes.append(HexCoord.new(int(hdata["q"]), int(hdata["r"])))
+			if comp.valid_hexes.size() >= MAX_HEXES_PER_COMPONENT:
+				break
+			if hdata is Dictionary and hdata.has("q") and hdata.has("r"):
+				comp.valid_hexes.append(HexCoord.new(clampi(int(hdata["q"]), -200, 200), clampi(int(hdata["r"]), -200, 200)))
 
-	if cdata.has("tiles"):
+	if cdata.has("tiles") and cdata["tiles"] is Array:
+		var tile_budget = MAX_TILES_PER_COMPONENT
 		for tdata in cdata["tiles"]:
+			if tile_budget <= 0:
+				break
+			tile_budget -= 1
+			if not (tdata is Dictionary):
+				continue
 			var tile = _deserialize_tile(tdata)
 			if tile and tile.grid_position:
 				comp.hex_grid.add_tile(tile.grid_position, tile)
@@ -602,7 +657,10 @@ func _deserialize_component(cdata: Dictionary):
 	comp.fixed_sinks.clear()
 	if cdata.has("fixed_sinks"):
 		for hdata in cdata["fixed_sinks"]:
-			comp.fixed_sinks.append(HexCoord.new(int(hdata["q"]), int(hdata["r"])))
+			if comp.fixed_sinks.size() >= MAX_FIXED_SINKS:
+				break
+			if hdata is Dictionary and hdata.has("q") and hdata.has("r"):
+				comp.fixed_sinks.append(HexCoord.new(clampi(int(hdata["q"]), -200, 200), clampi(int(hdata["r"]), -200, 200)))
 	else:
 		for h in comp.hex_grid.grid.keys():
 			var tile = comp.hex_grid.grid[h]
@@ -767,6 +825,9 @@ func _serialize_tile(tile) -> Dictionary:
 
 func _deserialize_tile(data: Dictionary):
 	if not data.has("script_path"): return null
+	if not is_allowed_tile_script(data["script_path"]):
+		push_warning("SaveManager: refused tile script path %s" % str(data["script_path"]).substr(0, 80))
+		return null
 
 	var script = _load_cached(data["script_path"])
 	if not script: return null
@@ -789,7 +850,7 @@ func _deserialize_tile(data: Dictionary):
 	if tile.tile_type == "Reverse Accumulator":
 		tile.tile_type = "Chopper"
 	tile.category = int(data.get("category", 0))
-	tile.rarity = int(data.get("rarity", 0))
+	tile.rarity = clampi(int(data.get("rarity", 0)), 0, 4)
 	# AFTER the rarity assignment above - its setter re-rolls
 	# sync_adjustment, and the saved value must win (see _serialize_tile's
 	# matching comment). Old saves without the key keep the fresh roll.
@@ -798,10 +859,15 @@ func _deserialize_tile(data: Dictionary):
 	tile.body_slot = int(data.get("body_slot", 0))
 	tile.level = int(data.get("level", 1))
 	tile.grid_position = HexCoord.new(int(data.get("q", 0)), int(data.get("r", 0)))
-	if data.has("footprint_offsets"):
+	if data.has("footprint_offsets") and data["footprint_offsets"] is Array:
 		tile.footprint_offsets = []
 		for off in data["footprint_offsets"]:
-			tile.footprint_offsets.append(Vector2i(int(off.x), int(off.y)))
+			if tile.footprint_offsets.size() >= MAX_FOOTPRINT_CELLS:
+				break
+			if off is Dictionary and off.has("x") and off.has("y"):
+				tile.footprint_offsets.append(Vector2i(clampi(int(off["x"]), -8, 8), clampi(int(off["y"]), -8, 8)))
+			elif off is Vector2i:
+				tile.footprint_offsets.append(off)
 
 	if tile.tile_type == "Splitter" or tile.tile_type == "Accessory Return":
 		# Guarded on has() - a pre-fix save has no "active_faces" key for
@@ -810,9 +876,11 @@ func _deserialize_tile(data: Dictionary):
 		# array (process_energy's split_count==0 pass-through) instead of
 		# just leaving the tile's freshly-constructed class default
 		# (active_faces=[0]) alone - worse than the bug being fixed.
-		if data.has("active_faces"):
+		if data.has("active_faces") and data["active_faces"] is Array:
 			tile.active_faces.clear()
-			for f in data["active_faces"]: tile.active_faces.append(int(f))
+			for f in data["active_faces"]:
+				if tile.active_faces.size() < 6:
+					tile.active_faces.append(clampi(int(f), 0, 5))
 	elif tile.tile_type == "Elemental Infuser" or tile.tile_type == "Prime Circuit":
 		if data.has("secondary_synergy"):
 			tile.secondary_synergy = int(data["secondary_synergy"])
@@ -822,16 +890,22 @@ func _deserialize_tile(data: Dictionary):
 	elif tile.tile_type == "Core Reactor" or tile.tile_type == "Microcore":
 		tile.active_faces.clear()
 		var faces = data.get("active_faces", [])
-		for f in faces: tile.active_faces.append(int(f))
+		if faces is Array:
+			for f in faces:
+				if tile.active_faces.size() < 6:
+					tile.active_faces.append(clampi(int(f), 0, 5))
 		var fo = data.get("face_outputs", {})
-		for k in fo.keys():
-			tile.face_outputs[int(k)] = int(fo[k])
+		if fo is Dictionary:
+			for k in fo.keys():
+				tile.face_outputs[clampi(int(k), 0, 5)] = clampi(int(fo[k]), 0, 20) # keys clamped => at most 6 entries
 	elif "rotation_steps" in tile:
 		tile.rotation_steps = int(data.get("rotation_steps", 1))
 
 	if tile.tile_type == "Drone Bay":
-		if data.has("drone_loadout"):
+		if data.has("drone_loadout") and data["drone_loadout"] is Dictionary and _deser_depth < MAX_DESERIALIZE_DEPTH:
+			_deser_depth += 1
 			tile.drone_loadout = _deserialize_component(data["drone_loadout"])
+			_deser_depth -= 1
 		if data.has("visual_class"):
 			tile.visual_class = int(data["visual_class"])
 
@@ -839,7 +913,7 @@ func _deserialize_tile(data: Dictionary):
 	# mythic_capacity_dial deliberately removed from this list, see that
 	# comment for why an old save's stale value there is harmless)
 	for prop in ["mythic_pattern", "mythic_aim_direction", "mythic_mode", "mythic_focus", "inverted", "repel_mode", "min_attract_rarity", "trigger_key", "power_lost", "sync_dropoff_per_path", "output_ratios", "auto_dump_threshold", "gate_min_magnitude", "gate_every_n", "mythic_frame_multiplier", "mythic_split_factor", "targeting_mode"]:
-		if data.has(prop) and prop in tile:
+		if data.has(prop) and prop in tile and _same_kind(tile.get(prop), data[prop]):
 			tile.set(prop, data[prop])
 
 	return tile

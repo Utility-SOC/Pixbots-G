@@ -175,7 +175,7 @@ func _rebuild_visuals():
 		# Node2D.scale on the part's container does the whole stretch.
 		if part_name != "" and drawn_parts.has(part_name):
 			drawn_parts[part_name].scale = _compute_visual_factors(comp)
-			if is_hero:
+			if is_hero or is_boss:
 				_apply_grid_look(drawn_parts[part_name], comp, part_name)
 
 	# Draw standard parts for any slots that weren't overridden by tiles
@@ -658,15 +658,14 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 # Colour: the part's tint drifts toward the dominant synergy of the energy that
 # actually flows through its grid (HexGridComponent.flow, filled by the grid sim).
 # Width: heavier energy throughput widens the part (capped). Decorators: one
-# small "LCD" light per conditioning tile (Amplifier/Infuser/Catalyst/Resonator),
-# coloured by that tile's own dominant synergy. All via node properties on the
+# small mark per tile type (see _decor_kind), coloured by that tile's dominant
+# synergy. All via node properties on the
 # already-drawn container - no rebake. Needs the sim to have run (flow_ready).
 const GRID_LOOK_WIDTH_MAX = 0.22   # extra width at full load
 const GRID_LOOK_WIDTH_CAP = 1.4    # final X scale ceiling incl. bulk
 const GRID_LOOK_TINT_MAX = 0.55    # how far the tint can pull toward the colour
 const GRID_LOOK_LOAD_REF = 12.0    # mean energy per tile that counts as "full load"
-const GRID_LOOK_LIGHT_TILES = ["Amplifier", "Infuser", "Catalyst", "Resonator"]
-const GRID_LOOK_MAX_LIGHTS = 6
+const GRID_LOOK_MAX_DECOR = 8
 
 func _apply_grid_look(container: Node2D, comp, part_name: String) -> void:
 	var grid = comp.hex_grid
@@ -693,26 +692,88 @@ func _apply_grid_look(container: Node2D, comp, part_name: String) -> void:
 	if wsum > 0.0:
 		tint = Color(tint.r / wsum, tint.g / wsum, tint.b / wsum, 1.0)
 		container.modulate = Color.WHITE.lerp(tint, GRID_LOOK_TINT_MAX * clampf(load_norm * 2.0, 0.0, 1.0))
-	# Decorator lights
-	var lit := 0
+	# Tile decorators: one small, distinct mark per tile type, placed along the
+	# part. Multi-cell modules (footprint_offsets) always decorate and draw 2x.
 	var along_y = part_name != "Torso" and part_name != "Head"
+	var placed := 0
+	var barrels := 0
 	for t in grid.get_all_tiles():
-		if lit >= GRID_LOOK_MAX_LIGHTS:
-			break
-		if not (t.tile_type in GRID_LOOK_LIGHT_TILES or t is InfuserTile):
+		var kind = _decor_kind(t)
+		if kind == "":
 			continue
-		var key = Vector2i(t.grid_position.q, t.grid_position.r)
-		var f2 = grid.flow.get(key)
-		var col = Color(0.5, 0.5, 0.5)
+		if kind == "barrel":
+			barrels += 1
+		var big = t.footprint_offsets.size() > 0
+		if placed >= GRID_LOOK_MAX_DECOR and not big:
+			continue
+		var f2 = grid.flow.get(Vector2i(t.grid_position.q, t.grid_position.r))
+		var col = Color(0.55, 0.55, 0.6)
 		if f2 != null and f2["dom"] >= 0:
 			col = EnergyPacket.get_color_for_synergy(f2["dom"])
-		var light = Polygon2D.new()
-		light.polygon = PackedVector2Array([Vector2(-1.5, -1.5), Vector2(1.5, -1.5), Vector2(1.5, 1.5), Vector2(-1.5, 1.5)])
-		light.color = col.lightened(0.25)
-		light.position = Vector2(0, 8 + lit * 5) if along_y else Vector2(-10 + lit * 4, 4)
-		light.z_index = 1
-		container.add_child(light)
-		lit += 1
+		var slot = placed
+		var pos = Vector2((-3.0 if slot % 2 == 0 else 3.0), 6 + (slot / 2) * 5) if along_y else Vector2(-12 + slot * 4, 3 if slot % 2 == 0 else -3)
+		_add_decor(container, kind, col, pos, 2.0 if big else 1.0)
+		placed += 1
+	# Silhouette: weapon barrels lengthen arms (capped).
+	if barrels > 0 and part_name.begins_with("Arm"):
+		container.scale.y = minf(container.scale.y * (1.0 + 0.04 * barrels), 1.35)
+
+func _decor_kind(t) -> String:
+	if t is InfuserTile:
+		return "lcd"
+	match t.tile_type:
+		"Amplifier", "Catalyst", "Resonator": return "lcd"
+		"Shield Generator", "Reactive Plating", "Anchor", "Structural Strut": return "plate"
+		"Jumpjet", "Maneuvering Thruster", "Actuator": return "vent"
+		"Weapon Mount", "Missile Rack", "Lance Mount", "Orbiting Array": return "barrel"
+		"Accumulator", "Buffer Cell", "Microcore": return "cell"
+		"Magnet", "Reflector", "Weak Mirror", "Directional Conduit", "Filter", "Splitter", "Passive Tap": return "coil"
+	return ""
+
+func _add_decor(container: Node2D, kind: String, col: Color, pos: Vector2, k: float) -> void:
+	var a = Polygon2D.new()
+	var b: Polygon2D = null
+	match kind:
+		"lcd":
+			a.polygon = _rect(3, 3, k)
+			a.color = col.lightened(0.25)
+		"plate":
+			a.polygon = _rect(6, 3, k)
+			a.color = Color(0.32, 0.36, 0.42).lerp(col, 0.25)
+		"vent":
+			a.polygon = _rect(4, 2, k)
+			a.color = Color(0.08, 0.08, 0.1)
+			b = Polygon2D.new()
+			b.polygon = _rect(2, 1, k)
+			b.color = col.lightened(0.3)
+		"barrel":
+			a.polygon = _rect(3, 5, k)
+			a.color = Color(0.15, 0.15, 0.18)
+			b = Polygon2D.new()
+			b.polygon = _rect(3, 1.5, k)
+			b.position = Vector2(0, 3.2 * k)
+			b.color = col.lightened(0.35)
+		"cell":
+			a.polygon = _rect(2, 5, k)
+			a.color = Color(0.12, 0.14, 0.12)
+			b = Polygon2D.new()
+			b.polygon = _rect(1, 3, k)
+			b.color = col.lightened(0.2)
+		"coil":
+			a.polygon = _rect(1.2, 6, k)
+			a.color = col.darkened(0.1)
+	a.position = pos
+	a.z_index = 1
+	container.add_child(a)
+	if b:
+		b.z_index = 2
+		b.position += pos
+		container.add_child(b)
+
+static func _rect(w: float, h: float, k: float) -> PackedVector2Array:
+	var hw = w * k * 0.5
+	var hh = h * k * 0.5
+	return PackedVector2Array([Vector2(-hw, -hh), Vector2(hw, -hh), Vector2(hw, hh), Vector2(-hw, hh)])
 
 # Width factor the hero's hitbox may follow (the torso's grid width, capped small).
 func get_hero_width_factor() -> float:

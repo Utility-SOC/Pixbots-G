@@ -24,7 +24,7 @@ func _process(_d):
 		_main.player.hp = _main.player.max_hp
 	if _f == 60 and is_instance_valid(_main.garage_ui): _main._close_garage()
 	if _f == 200:
-		var d = JSON.parse_string(FileAccess.get_file_as_string("res://config/demo_builds/pyro.json"))
+		var d = JSON.parse_string(FileAccess.get_file_as_string("res://config/demo_builds/gunner.json"))
 		SaveManager.load_loadout_from_data(d, _main.player) if SaveManager.has_method("load_loadout_from_data") else _apply_demo(d)
 	if _f == 220:
 		_main.player._recalculate_grid(); _main.player.refresh_visuals(); _dump("demo"); _shot("limbs_demo")

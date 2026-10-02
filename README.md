@@ -5,7 +5,7 @@ Welcome to Pixbots-G, an engineering-focused Mech combat sandbox. This comprehen
 ## 1. INSTALLATION & SETUP
 
 ### Prerequisites
-- **Godot Engine**: Download and install Godot Engine **v4.2 or higher** (Standard version, .NET not required) from the [official website](https://godotengine.org/download).
+- **Godot Engine**: Download and install Godot Engine **v4.6 or higher** (Standard version, .NET not required) from the [official website](https://godotengine.org/download).
 - **Git**: Ensure Git is installed on your system if you plan to clone the repository.
 
 ### Installation Steps
@@ -24,7 +24,33 @@ Welcome to Pixbots-G, an engineering-focused Mech combat sandbox. This comprehen
 
 ---
 
-## 2. THE GARAGE & UPGRADE ECONOMY
+## 2. THE HEX GRID IN 60 SECONDS
+
+Every body part of your mech (torso, arms, legs, head, backpack) contains its own **hex grid**. You fill it with **tiles**; the game then simulates energy flowing through it, and whatever reaches a Weapon Mount (or a Shield, Actuator, Jumpjet...) is what your mech can actually do. The whole game is arranging that grid well.
+
+![The torso grid of a Gunner build, labelled](docs/images/hex_torso.png)
+
+*The torso grid. The **Core Reactor** emits energy; **Splitters** copy it onward; **Limb Links** pass it into arms, legs, head and backpack; a **Weapon Mount** turns it into shots. Blue outlines are powered tiles, the dimmed ones receive nothing.*
+
+Energy travels as **packets** that hop from tile to tile, one step at a time. Each tile can change a packet before passing it on:
+
+![A packet travelling down an arm grid](docs/images/hex_arm_flow.png)
+
+*An arm grid: energy enters at the **IN** port, picks up an element in the **Infusers**, is boosted by the **Amplifier**, routed by a **Splitter** and finally fired from the **Weapon Mount**. Press **Simulate Energy Flow** in the Garage to watch the packets move (the number on a packet is its magnitude).*
+
+A few things worth knowing before you dive in (everything else is for you to discover):
+- **Colour and shape mean something.** Amber icons are routing/modifier tiles, the outline colour shows power state, and each element has its own colour (see the synergy list below).
+- **Your mech looks like its grid.** Weapon barrels lengthen arms, Jumpjets/Actuators add vents, Shield/Anchor tiles add armour plates, Microcores and Accumulators add cells, and the overall tint drifts toward your dominant element. Enemies and bosses are drawn the same way, so you can read a build before it hits you.
+
+![A mech whose silhouette comes from its grid](docs/images/mech_grid_look.png)
+
+*A close-range fire build in battle: the big barrel on the left arm and the orange glow come straight from the tiles inside it.*
+
+**Garage safety nets:** unpowered tiles dim, tiles show energy bars, and if energy loops back on itself (an Infuser/Amplifier inside a ring can keep re-adding to the same packets until the whole part saturates) the looping tiles are outlined red with a warning. Press **F5** or **Ctrl+Enter** to deploy straight from the Garage.
+
+---
+
+## 3. THE GARAGE & UPGRADE ECONOMY
 
 The Garage is your engineering bay. Here, you construct the energy grids that power your Mech. 
 
@@ -47,7 +73,7 @@ The Black Market is a shop that offers specialized, high-tier components and til
 
 ---
 
-## 3. HEX TILES, RARITIES, AND SYNC DEVIATIONS
+## 4. HEX TILES, RARITIES, AND SYNC DEVIATIONS
 
 Your Mech is built from Hex Tiles. Every tile belongs to a rarity tier that dictates its efficiency, volatility, and features.
 
@@ -103,7 +129,7 @@ In Pixbots-G, if two energy paths merge at a Weapon Mount, they only combine the
 
 ---
 
-## 4. ELEMENTAL SYNERGIES & ROCK-PAPER-SCISSORS
+## 5. ELEMENTAL SYNERGIES & ROCK-PAPER-SCISSORS
 
 When specialized energy packets reach a Weapon Mount, they trigger unique subroutines. Projectiles blend physical properties (speed, scale, lifetime, trails, and color) proportionally based on the synergy ratios in the packet.
 
@@ -131,7 +157,7 @@ Different elements deal double damage (2.0x) against specific elemental shields:
 
 ---
 
-## 5. THE AI SYSTEM & SQUAD DIRECTOR
+## 6. THE AI SYSTEM & SQUAD DIRECTOR
 
 Pixbots-G doesn't use random spawns; you are fighting a learning AI called the **Squad Director**. 
 
@@ -156,21 +182,32 @@ The AI merges wild bots into squads and actively mutates its templates based on 
 - **Execute Counterplay**: If you over-rely on Piercing instant-kills, the Director logs your "kill methods" and will dynamically deploy **Piercing Jammers**. Units inside a Piercing Jammer's aura (along with Bosses and Commanders) are immune to executes!
 - **Frontier Searching**: AI squads now share search memory, actively mapping out unexplored map cells rather than redundantly sweeping the same ground.
 
+### Squad Tactics (new)
+Squads no longer just charge. A `SquadTactics` layer gives each member a part in a wave-gated plan: **swarm**, **synchronized strike**, **pincer**, **hammer & anvil**, **encircle** and **bait & flank**. Parts (FLANK, PIN, COVER, BAIT, RING, STAGE) show in the enemy's state tag, enemies solve a true intercept when leading shots, and a plan that isn't landing hits triggers a replan. Plans themselves are a **tactic genome**: a pool of archetype + parameter genomes that is bred, culled and saved alongside the squad templates.
+- **Movement-habit model**: the AI watches how *you* move (camper / kiter / brawler / strafer, and which way you retreat) and weights plans accordingly. Pincer-style squads send a flanker to cut off your usual retreat heading.
+- **Orders log**: a slow, rate-limited feed in the HUD where squads announce what they are doing ("pincer committing", "replanning", "squad wiped"), so you can read the AI instead of guessing.
+- **Design rule**: the game gets harder through *behaviour and loadout*, not by inflating stats or racing to Mythic tiers. Rarer components unlock by wave.
+- Full design notes: [`docs/ENEMY_AI_DESIGN.md`](docs/ENEMY_AI_DESIGN.md).
+
+### Sharing AI: gene pool & style cards (new)
+Share your trained AI as clipboard JSON or as a **Style Card** (your champion's PNG card carrying a hidden gene payload). Only genes travel, never your telemetry or movement profile. Imports arrive on **probation**: capped, reduced-weight and cross-bred with your local best, so a friend's "fast closers" and your "snipers" breed together rather than overwriting each other. Donor builds are spliced in one body slot at a time and must out-fight the current champion to stay. The War Room shows an "AI variety" line and an import preview.
+
+### Bosses (updated)
+Bosses now have **11 telegraphed abilities** (new: meteor rain, minefield, gravity well, triple rail, charge), **6 enrage styles** (new: relentless, phase shift) and **5 position styles** (new: teleporter, lurker), all of which evolve. Bosses never summon adds, and every ability is telegraphed on the ground.
+
 ### The War Room Interface
 Press **`TAB`** in-game to access the War Room. 
 - **Lineage Graphs & Fitness Logs**: View a visual log of the AI's evolving lineage, the current fitness scores of its Squad Templates, and what compositions it is favoring.
 - **Export to Clipboard**: Copies the AI's current learned profile (as JSON text) so you can share it with friends!
 - **Import from Clipboard**: Overwrites the AI's current state with a profile you pasted, allowing you to fight the exact AI your friend trained.
 
-*(Screenshots to be added here: `![Auto-Equipped Limbs](assets/images/auto_equip.png)`)*
 
 ---
 
-## 6. ENGINEERING BEST PRACTICES & SANDBOX FUN
+## 7. ENGINEERING BEST PRACTICES & SANDBOX FUN
 
 The engine is robust, but you can try to break it!
 
-*(Screenshots to be added here: `![Garage Simulation](assets/images/garage_sim.png)`, `![Battlefield Chaos](assets/images/battlefield.png)`)*
 
 
 ### Routing Suggestions
@@ -179,6 +216,14 @@ The engine is robust, but you can try to break it!
 - **Burst Buffer**: Place an Accumulator right before an Amplifier and Weapon Mount. Store energy during downtime, then release a massive pre-primed volley (by holding 1/2/3) to unleash an opening burst attack.
 - **The Speed Demon**: Try filling your Legs and Torso exclusively with Jumpjet and Actuator Tiles, feed them pure KINETIC energy, and phase through the environment.
 - **The Black Hole**: Stack multiple VORTEX elemental packets into a highly amplified weapon mount to permanently stick enemy squads to the walls.
+
+### Maps, Daily Run and Meta-progression (new)
+- **Map layouts**: on top of biomes, maps can roll a macro layout (river, ridges, pillars, rings, canyon, crossroads) that flank tactics must route around. Generation is seedable.
+- **Daily Run** (Main Menu): everyone gets the same map seed and layout each UTC day, no server needed. Finished runs can be saved as a **run card** PNG. A leaderboard interface exists as a stub for later. See [`docs/DAILY_SEED.md`](docs/DAILY_SEED.md).
+- **Corp Perks** (Main Menu): earn Research Points from new best waves and boss kills and spend them on a few permanent *salvage-luck* perks (never combat stats).
+- **Drop tuning**: structural/link tiles are suppressed (also for bosses), drops are anti-flood limited, biased toward tiles you haven't discovered, and have drought protection.
+- **Frank's maze tutorial**: a runtime-built maze with extra Frank cinematics; skip it any time with the always-visible **Skip Tutorial** button (Esc/Backspace also skip cutscenes).
+- **Import security**: saves, cards and AI profiles are treated as untrusted data (tile-script allow-list, size caps, clamped numbers). See [`docs/IMPORT_SECURITY.md`](docs/IMPORT_SECURITY.md).
 
 ### Main Menu Interface
 - **Difficulty Options**: The dropdown lets you set the baseline scaling. The highest difficulty forces the AI to remain peer-to-peer with your loadout strength.
@@ -193,9 +238,13 @@ Press **`~` (Tilde)** or **`F3`** during gameplay to open the Sandbox Debug Menu
 - **Spawn specific Enemies / Bosses**: Drops a custom threat right in front of you.
 - **Restore Components**: Instantly heals your mech to 100% and revives any destroyed component grids.
 
+### Dev tools (new)
+- The Debug menu gained a map-layout picker, boss spawner, wave jump and maze trigger.
+- A **flight recorder** autoload logs state changes, checks invariants and takes automatic / `F9` screenshots. `tools/play_recorded.sh [--silent]` launches the game with it and saves console output to `~/pixbots_session_<time>/`. The `F3` perf overlay is now hidden by default.
+
 ---
 
-## 7. CORE GAMEPLAY LOOP
+## 8. CORE GAMEPLAY LOOP
 
 Understanding the operational flow of Pixbots-G is essential for sustained success on the battlefield:
 1. **The Garage Phase:** You begin in the Garage. Here, you will install Hex Tiles into your Mech's chassis. Your primary goal is to ensure that energy packets generated by your Cores are efficiently routed through modifiers (like Amplifiers and Catalysts) and safely deposited into Weapon Mounts and Shield Generators.
@@ -204,11 +253,21 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 4. **Escalation & Adaptation:** As you fight, the Director analyzes your tactics and deploys counter-measures. You must adapt your combat style on the fly to survive the increasingly difficult waves.
 5. **Re-calibration:** After a successful engagement (or a catastrophic failure), you will return to the Garage. You can redesign your energy grids, test new synergistic combinations, and prepare for the next deployment.
 
-*(Screenshots to be added here: `![Component Infusion](assets/images/infusion.png)`)*
 
 ---
 
-## 8. RECENT SYSTEM UPDATES (CHANGELOG)
+## 9. RECENT SYSTEM UPDATES (CHANGELOG)
+
+- **Week of 2026-09-30 (AI, visuals, tutorial, meta):**
+  - **Visuals:** mechs, enemies and bosses are drawn from their grid (tint, width, lights, per-tile-type decorators, barrels lengthen arms; hitbox follows silhouette within a cap). Fixed limbs vanishing after a map rotation.
+  - **Garage:** per-tile energy flow recorded by the Rust sim drives dimming of unpowered tiles, energy bars, and loop/saturation warnings. Solver now conditions Head/Backpack returns and Catalysts are stronger (efficiency 1.5); enemy builds use the same logic.
+  - **AI:** tactic genome, squad tactics, solver-profile and formation genes, movement-habit model, shared gene pool + style cards, orders log, par-normalised fitness, wave-gated rarity unlocks, lead-aiming rework.
+  - **Bosses:** five new abilities, two enrage and two position styles, four new seed bosses, import sanitizing.
+  - **World:** map layouts, runtime `TerrainEditor` API, time-based map rotation waits at least 3 waves.
+  - **Meta:** daily seed and run cards, Corp Perks, drop-chance tuning.
+  - **Tutorial:** Frank's maze level, extra cinematics, always-visible skip.
+  - **Performance/stability:** off-wave enemy build pre-solving and a loading overlay on Garage exit, F5/Ctrl+Enter deploy, small-screen Garage layout, fixed Garage failing to open after final death.
+  - **Security/dev:** import allow-lists and caps, flight recorder, `play_recorded.sh`.
 
 - **Evolving Enemy Loadouts & Wave Shaping (Performance + AI Evolution):**
   - **Solver Topology Cache**: `AutoEquipSolver`'s expensive BFS/placement algorithm - previously re-run from scratch 3x for every single enemy mech spawned - now caches the placement decision per (component shape, rarity, inventory composition) and replays it on repeats, since that part never actually depended on WHICH bot or squad was spawning. This alone removed a large, measured chunk of the stutter seen during wave transitions.
@@ -272,7 +331,7 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 
 ---
 
-## 9. MODDING & ROADMAP
+## 10. MODDING & ROADMAP
 
 Pixbots-G was built with an open architecture. 
 - **Modding AI Squads**: You can define custom baseline squad packs by editing `config/default_squads.json`. See the `MODDING.md` file in the repository for full documentation on how to write custom JSON profiles and share them.

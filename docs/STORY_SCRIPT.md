@@ -288,7 +288,7 @@ Delivery targets: intermission toasts between waves, boss intro/defeat banners, 
 - "I've got a running tally of how many times someone's said 'just one more match' and meant it. The number is a lie every single time. Including yours. Especially yours."
 - "You know your shop's doing something right when the regulars start bringing their siblings. Half my new pilots this year came in that way."
 - "Somebody asked if there's a max skill level. There isn't. There's just how much further you're willing to push. I've seen it go pretty far."
-- "A parent thanked me for 'keeping their kid off the streets.' I said it's the least I can do. I did not say why I bolt the front door from the inside after dark."
+- "A parent thanked me for the 'after-school tutoring.' There is no tutoring. There's a bolted front door and a lot of tile bins. I let her keep the word."
 - "I keep this place brighter than it needs to be and warmer than it needs to be. On purpose. You'll understand why eventually. Maybe you already do."
 - "Somebody asked why I never franchise. This shop only works because I know every single one of your names. That doesn't scale. I like that it doesn't scale."
 - "New kid's first build was rough. Everybody's first build is rough. That's not a criticism. That's just Tuesday."

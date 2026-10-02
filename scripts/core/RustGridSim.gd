@@ -467,6 +467,12 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 			if gp == null:
 				continue
 			grid.record_flow(Vector2i(gp.q, gp.r), tf[i * 4], tf[i * 4 + 1], int(tf[i * 4 + 2]), tf[i * 4 + 3] > 0.5)
+		var ov: PackedFloat64Array = result.get("tile_overload", PackedFloat64Array())
+		if grid.has_method("record_overload"):
+			for i in range(mini(tile_objs.size(), ov.size())):
+				var gp2 = tile_objs[i].grid_position
+				if ov[i] > 0.0 and gp2 != null:
+					grid.record_overload(Vector2i(gp2.q, gp2.r), ov[i])
 		if result.get("hit_step_cap", false):
 			grid.sim_saturated = true
 

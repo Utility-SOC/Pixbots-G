@@ -72,6 +72,9 @@ func _test_split_and_bounce_end_to_end():
 		mythic_mount.pending_packets.size() == 1 and
 		abs(mythic_mount.pending_packets[0].packet.magnitude - 250000.0) < 1.0)
 
+	_check("only the Legendary mount is flagged as overloaded",
+		grid.flow_overload.size() == 1 and grid.flow_overload.has(Vector2i(1, 0)))
+
 	mech.free()
 	grid.free()
 
@@ -93,6 +96,7 @@ func _test_mythic_path_never_splits():
 	_check("a Mythic mount receives the full overcharged magnitude with no split",
 		mythic_mount.pending_packets.size() == 1 and
 		abs(mythic_mount.pending_packets[0].packet.magnitude - 400000.0) < 1.0)
+	_check("a Mythic-only path flags no overload", grid.flow_overload.is_empty())
 
 	mech.free()
 	grid.free()

@@ -3017,6 +3017,8 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscr
 				# lesser tile - only NORMAL_MAGNITUDE_CAP worth enters, the
 				# rest reflects back into the loop it came from.
 				if tile.rarity != HexTile.Rarity.MYTHIC and p.magnitude > EnergyPacket.NORMAL_MAGNITUDE_CAP:
+					if tile.grid_position and grid.has_method("record_overload"):
+						grid.record_overload(Vector2i(tile.grid_position.q, tile.grid_position.r), p.magnitude)
 					entering = p.split(EnergyPacket.NORMAL_MAGNITUDE_CAP / p.magnitude)
 					p.direction = (dir + 3) % 6
 					next_packets.append(p)

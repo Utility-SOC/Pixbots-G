@@ -977,6 +977,9 @@ impl HexGridSim {
         let mut flow_energy: Vec<f64> = vec![0.0; descs.len()];
         let mut flow_syn: Vec<[f64; SYN_COUNT]> = vec![[0.0; SYN_COUNT]; descs.len()];
         let mut entry_steps: Vec<[i64; 6]> = vec![[0; 6]; descs.len()];
+        // Largest magnitude that tried to enter each non-Mythic tile above
+        // NORMAL_MAGNITUDE_CAP (the tile can't carry it; the excess reflects).
+        let mut overload_peak: Vec<f64> = vec![0.0; descs.len()];
 
         let t_parsed = t_start.elapsed().as_micros() as i64;
         let mut steps = 0i64;
@@ -1000,6 +1003,9 @@ impl HexGridSim {
 
                     let mut entering = p.clone();
                     if descs[tidx].rarity != MYTHIC_RARITY && p.magnitude > NORMAL_MAGNITUDE_CAP {
+                        if p.magnitude > overload_peak[tidx] {
+                            overload_peak[tidx] = p.magnitude;
+                        }
                         entering = p.split(NORMAL_MAGNITUDE_CAP / p.magnitude);
                         entering.steps = p.steps;
                         p.dir = (dir + 3).rem_euclid(6);
@@ -1204,6 +1210,7 @@ impl HexGridSim {
         }
 
         let mut result: VDict = Dictionary::new();
+        let _ = result.insert("tile_overload", &PackedFloat64Array::from(overload_peak.as_slice()));
         let _ = result.insert("tile_flow", &PackedFloat64Array::from(flow_flat.as_slice()));
         let _ = result.insert("hit_step_cap", hit_step_cap);
         let _ = result.insert("capture_flat", &out_captures);

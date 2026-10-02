@@ -42,12 +42,12 @@ var _redraw_timer: float = 0.0
 
 # Power overlay: tiles the last full energy pass never reached are dimmed and
 # hatched, powered tiles get an energy bar tinted by their dominant element,
-# and tiles where energy recirculates pulse red. Only drawn once the mech's
+# and a tile handed more energy than it can carry pulses red (loops themselves are fine). Only drawn once the mech's
 # grid is clean (recalculated after the last edit) so it never shows stale data.
 var show_power_overlay: bool = true
 const POWER_RECALC_IDLE_MS = 450
 var _dirty_since_ms: int = 0
-var loop_tile_count: int = 0
+var overload_tile_count: int = 0
 var saturated: bool = false
 
 # Colors
@@ -362,7 +362,7 @@ func _draw():
 	if power_on:
 		for k in hex_grid.flow:
 			max_energy = max(max_energy, float(hex_grid.flow[k]["energy"]))
-	loop_tile_count = hex_grid.flow_loops.size() if power_on else 0
+	overload_tile_count = hex_grid.flow_overload.size() if power_on else 0
 	saturated = power_on and hex_grid.sim_saturated
 	for tile in tiles:
 		_draw_tile(tile)
@@ -386,8 +386,8 @@ func _draw():
 		_draw_packet(pkt)
 
 	# 5. Loop / saturation warning
-	if loop_tile_count > 0 or saturated:
-		var msg = "WARNING: energy loops back on itself (%d tile(s) outlined red) - an Infuser/Amplifier in a ring keeps re-adding to the same packets and can saturate the whole part. Move it off the loop." % loop_tile_count if loop_tile_count > 0 else "WARNING: energy never settles - the sim hit its step limit."
+	if overload_tile_count > 0 or saturated:
+		var msg = "WARNING: %d tile(s) outlined red can't carry the energy fed into them (over %d per packet) - the excess bounces back. Upgrade that tile to Mythic or split the stream before it." % [overload_tile_count, int(EnergyPacket.NORMAL_MAGNITUDE_CAP)] if overload_tile_count > 0 else "WARNING: energy never settles - the sim hit its step limit."
 		var font = ThemeDB.fallback_font
 		draw_string(font, Vector2(12, 22), msg, HORIZONTAL_ALIGNMENT_LEFT, size.x - 24, 14, Color(1.0, 0.45, 0.4))
 
@@ -464,7 +464,7 @@ func _draw_power_overlay(tile: HexTile, max_energy: float) -> void:
 		var y = center.y + hex_size * zoom * 0.72
 		var col = _get_synergy_color(int(flow["dom"])) if int(flow["dom"]) > 0 else Color(0.85, 0.85, 0.9)
 		draw_line(Vector2(center.x - w / 2.0, y), Vector2(center.x + w / 2.0, y), Color(col.r, col.g, col.b, 0.9), max(2.0, 4.0 * zoom))
-	if hex_grid.flow_loops.has(key):
+	if hex_grid.flow_overload.has(key):
 		var pulse = 0.5 + 0.5 * sin(time_elapsed * 6.0)
 		for c in _tile_cells(tile):
 			_draw_hex_outline(c, Color(1.0, 0.15, 0.15, 0.5 + 0.5 * pulse), 4.0)

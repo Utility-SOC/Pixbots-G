@@ -76,6 +76,17 @@ func _setup_ui():
 	spacer_diff.custom_minimum_size = Vector2(0, 14)
 	vbox.add_child(spacer_diff)
 
+	# Two columns (play modes | tools) so the menu fits short screens.
+	var cols = HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 40)
+	vbox.add_child(cols)
+	var left = VBoxContainer.new()
+	left.custom_minimum_size = Vector2(260, 0)
+	cols.add_child(left)
+	var right = VBoxContainer.new()
+	right.custom_minimum_size = Vector2(260, 0)
+	cols.add_child(right)
+
 	# Continue Game
 	var saves = SaveManager.get_save_files()
 	if saves.size() > 0:
@@ -97,23 +108,23 @@ func _setup_ui():
 			_launch_game("campaign")
 		)
 		btn_continue.modulate = Color(0.8, 1.0, 0.8)
-		vbox.add_child(btn_continue)
+		left.add_child(btn_continue)
 		
 		var spacer1_5 = Control.new()
 		spacer1_5.custom_minimum_size = Vector2(0, 10)
-		vbox.add_child(spacer1_5)
+		left.add_child(spacer1_5)
 	
 	# Play Modes
 	var btn_campaign = _create_button("New Campaign", _on_play_campaign)
 	var btn_endless = _create_button("Endless", _on_play_endless)
 	var btn_sandbox = _create_button("Sandbox", _on_play_sandbox)
 
-	vbox.add_child(btn_campaign)
-	vbox.add_child(btn_endless)
-	vbox.add_child(btn_sandbox)
+	left.add_child(btn_campaign)
+	left.add_child(btn_endless)
+	left.add_child(btn_sandbox)
 
 	var btn_boss_rush = _create_button("Boss Rush", _on_play_boss_rush)
-	vbox.add_child(btn_boss_rush)
+	left.add_child(btn_boss_rush)
 
 	# Tournament arc (the user: "Tournament mode is rounds of fights against
 	# the other players and the four champions"). Always enabled, same as
@@ -122,14 +133,10 @@ func _setup_ui():
 	# flag on this button, so an old save that's already past wave 100 shows
 	# up unlocked immediately with no extra migration step.
 	var btn_tournament = _create_button("Tournament", _on_play_tournament)
-	vbox.add_child(btn_tournament)
-	vbox.add_child(_create_button("Daily Run", _on_daily_pressed))
+	left.add_child(btn_tournament)
+	left.add_child(_create_button("Daily Run", _on_daily_pressed))
 
-	var spacer2 = Control.new()
-	spacer2.custom_minimum_size = Vector2(0, 20)
-	vbox.add_child(spacer2)
 	
-	# Tools & Options
 	# Tools & Options
 	var btn_war_room = _create_button("War Room", _on_war_room_pressed)
 	var btn_perks = _create_button("Corp Perks", _on_perks_pressed)
@@ -139,13 +146,14 @@ func _setup_ui():
 	var btn_credits = _create_button("Credits & Licenses", _on_credits_pressed)
 	var btn_quit = _create_button("Quit", _on_quit_pressed)
 
-	vbox.add_child(btn_war_room)
-	vbox.add_child(btn_perks)
-	vbox.add_child(btn_import_ai)
-	vbox.add_child(btn_import_mods)
-	vbox.add_child(btn_settings)
-	vbox.add_child(btn_credits)
-	vbox.add_child(btn_quit)
+	right.add_child(btn_war_room)
+	right.add_child(btn_perks)
+	right.add_child(btn_import_ai)
+	right.add_child(btn_import_mods)
+	right.add_child(btn_settings)
+	right.add_child(btn_credits)
+	right.add_child(btn_quit)
+
 
 func _create_button(text: String, callable: Callable) -> Button:
 	var btn = Button.new()

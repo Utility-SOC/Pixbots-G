@@ -17,6 +17,10 @@ var flow: Dictionary = {}
 var flow_loops: Dictionary = {}
 # True when packets were still alive at the sim step cap.
 var sim_saturated: bool = false
+# Anchors of tiles that were handed more energy than they can carry (a packet
+# above EnergyPacket.NORMAL_MAGNITUDE_CAP reaching a non-Mythic tile) ->
+# the largest incoming magnitude. Loops alone are fine; this is the real fault.
+var flow_overload: Dictionary = {}
 # Set once a full pass has completed since the last reset (distinguishes "nothing
 # powered" from "never simulated").
 var flow_ready: bool = false
@@ -24,6 +28,7 @@ var flow_ready: bool = false
 func reset_flow() -> void:
 	flow.clear()
 	flow_loops.clear()
+	flow_overload.clear()
 	sim_saturated = false
 	flow_ready = false
 
@@ -38,6 +43,10 @@ func record_flow(key: Vector2i, visits: float, energy: float, dom: int, looped: 
 			f["dom"] = dom
 	if looped:
 		flow_loops[key] = true
+
+func record_overload(key: Vector2i, magnitude: float) -> void:
+	if magnitude > float(flow_overload.get(key, 0.0)):
+		flow_overload[key] = magnitude
 
 func is_powered(key: Vector2i) -> bool:
 	return flow.has(key)

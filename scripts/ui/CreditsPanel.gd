@@ -39,10 +39,17 @@ func _setup_ui():
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
+	# CenterContainer (not a bare PRESET_CENTER anchor, which puts the panel's
+	# top-left corner at screen center and pushes Close off-screen) with the
+	# body height capped to the window so Close is always reachable.
+	var center = CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.add_child(center)
+
+	var vp = get_viewport().get_visible_rect().size
 	var panel = PanelContainer.new()
-	panel.custom_minimum_size = Vector2(520, 460)
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	bg.add_child(panel)
+	panel.custom_minimum_size = Vector2(minf(520.0, vp.x - 40.0), 0)
+	center.add_child(panel)
 
 	var vbox = VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 12)
@@ -55,14 +62,14 @@ func _setup_ui():
 	vbox.add_child(title)
 
 	var scroll = ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(480, 340)
+	scroll.custom_minimum_size = Vector2(0, clampf(vp.y - 220.0, 120.0, 340.0))
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(scroll)
 
 	var body = Label.new()
 	body.text = CREDITS_TEXT
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
-	body.custom_minimum_size = Vector2(460, 0)
+	body.custom_minimum_size = Vector2(minf(460.0, vp.x - 80.0), 0)
 	scroll.add_child(body)
 
 	var btn_close = Button.new()
@@ -70,3 +77,9 @@ func _setup_ui():
 	btn_close.custom_minimum_size = Vector2(0, 40)
 	btn_close.pressed.connect(func(): queue_free())
 	vbox.add_child(btn_close)
+
+
+func _unhandled_input(event):
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		queue_free()

@@ -28,10 +28,15 @@ func _setup_ui():
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 	
+	# CenterContainer: a bare PRESET_CENTER anchor puts the panel's top-left at
+	# screen center, pushing it (and its Close button) off-screen.
+	var center = CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.add_child(center)
+
 	var panel = PanelContainer.new()
 	panel.custom_minimum_size = Vector2(400, 300)
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	bg.add_child(panel)
+	center.add_child(panel)
 	
 	var vbox = VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 15)

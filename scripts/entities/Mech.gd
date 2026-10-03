@@ -1645,8 +1645,20 @@ func _get_rarity_charge_multiplier(tile) -> float:
 		4: return 2.5  # MYTHIC
 	return 1.0
 
+# True when a listed weapon can no longer fire: its mount was knocked out or
+# destroyed, or its whole limb broke. Checked at fire time so the effect is
+# immediate, not delayed until the grid is next recalculated.
+func _weapon_offline(data) -> bool:
+	var mount = data.mount
+	if mount.is_disabled or mount.power_lost:
+		return true
+	var slot = data.get("slot_type", HexTile.BodySlot.NONE)
+	return components.has(slot) and components[slot].is_broken
+
 func _tick_weapon_charges(delta: float):
 	for data in precalculated_weapons:
+		if _weapon_offline(data):
+			continue
 		var mount = data.mount
 		var required = data.packet.charge_required
 		var r_mult = _get_rarity_charge_multiplier(mount)
@@ -1696,6 +1708,8 @@ func _tick_weapon_charges(delta: float):
 	# Lance mounts fire themselves - no mouse/key trigger, see
 	# LanceMountTile.gd's own header comment.
 	for lance in lance_mounts:
+		if lance.is_disabled or lance.power_lost:
+			continue
 		var r_mult = _get_rarity_charge_multiplier(lance)
 		if lance.cooldown_timer > 0.0:
 			lance.cooldown_timer -= delta * r_mult
@@ -1744,6 +1758,8 @@ func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = tr
 	var fired_a_shot = false
 
 	for data in precalculated_weapons:
+		if _weapon_offline(data):
+			continue
 		if is_player and separate_arm_firing and data.slot_type != HexTile.BodySlot.BACKPACK:
 			if fire_left_arm and data.slot_type == HexTile.BodySlot.ARM_R:
 				continue
@@ -2230,7 +2246,7 @@ func _compute_mass_and_stat_modifiers():
 	total_mass = 0.0
 	var mass_reduction_sum = 0.0
 	for comp in components.values():
-		if comp.get("hex_grid"):
+		if comp.get("hex_grid") and not comp.is_broken:
 			for t in comp.hex_grid.get_all_tiles():
 				total_mass += t.get_weight()
 		if comp.get("mass_reduction"):
@@ -2273,7 +2289,7 @@ func _simulate_energy_flow(torso):
 	# Simulate HEAD and BACKPACK first so they can return energy
 	var return_pkts: Array[EnergyPacket] = []
 	for accessory_slot in [HexTile.BodySlot.HEAD, HexTile.BodySlot.BACKPACK]:
-		if peripheral_transfer.has(accessory_slot) and components.has(accessory_slot):
+		if peripheral_transfer.has(accessory_slot) and components.has(accessory_slot) and not components[accessory_slot].is_broken:
 			var accessory_comp = components[accessory_slot]
 			var a_pkts = peripheral_transfer[accessory_slot]
 			_route_to_peripheral(a_pkts, accessory_comp)
@@ -2334,6 +2350,8 @@ func _simulate_energy_flow(torso):
 			continue # Already simulated
 
 		var comp = components[slot]
+		if comp.is_broken:
+			continue # a destroyed limb carries no energy
 		var pkts: Array[EnergyPacket] = []
 		if peripheral_transfer.has(slot):
 			pkts.append_array(peripheral_transfer[slot])
@@ -2378,7 +2396,11 @@ const RAPID_FIRE_CHARGE_MULT = 1.4
 
 func _collect_weapon_mounts_and_tile_capabilities():
 	for comp in components.values():
+		if comp.is_broken:
+			continue # destroyed limb: no weapons, no tile abilities
 		for tile in comp.hex_grid.get_all_tiles():
+			if tile.is_disabled or tile.power_lost:
+				continue # knocked-out/destroyed tiles contribute nothing until rebooted/repaired
 			if (tile.tile_type == "Weapon Mount" or tile.tile_type == "Missile Rack" or tile.tile_type == "Accessory Return" or tile.tile_type == "Torso Return") and "pending_packets" in tile and tile.pending_packets.size() > 0:
 				# Accumulator split-fire model (the user's locked design):
 				# whenever accumulators feed this mount - routed THROUGH the
@@ -3985,12 +4007,31 @@ func apply_part_damage(slot: int, amount: float, element: String = "RAW"):
 	if not components.has(slot): return
 	var comp = components[slot]
 
+	# Shooting the stump of a destroyed limb hurts the torso instead - a broken
+	# part is not a free invulnerable decoy.
+	if comp.is_broken and components.has(HexTile.BodySlot.TORSO):
+		slot = HexTile.BodySlot.TORSO
+		comp = components[slot]
+
+	# Limb breakage: non-torso parts soak hits into a structural integrity pool.
+	if slot != HexTile.BodySlot.TORSO and not comp.is_broken:
+		if comp.integrity < 0.0:
+			var share = LIMB_INTEGRITY_SHARE.get(slot, 0.3)
+			comp.max_integrity = max_hp * share
+			comp.integrity = comp.max_integrity
+		comp.integrity -= mitigated_amount
+		if comp.integrity <= 0.0:
+			_break_component(comp)
+
 	# Apply damage to a random tile in that component's grid - still not
 	# picky about exactly where the structural HP damage lands.
 	var tiles = comp.hex_grid.get_all_tiles()
 	if tiles.size() > 0:
 		var hit_tile = tiles[randi() % tiles.size()]
+		var was_offline = hit_tile.is_disabled
 		hit_tile.take_damage(mitigated_amount)
+		if hit_tile.is_disabled and not was_offline:
+			_on_tile_went_offline(hit_tile)
 		# Any hit that actually reached the component (shields didn't fully
 		# absorb it) also gets a separate shot at knocking a tile offline,
 		# independent of that specific tile's own HP pool - see
@@ -4031,6 +4072,7 @@ func _roll_component_disable(comp, amount: float, element: String):
 
 	target.hp = 0
 	target.is_disabled = true
+	_on_tile_went_offline(target)
 	if severity * pierce_bonus >= GRAVE_HIT_RATIO:
 		# Catastrophic overkill - the tile is fried, not just knocked
 		# offline. No self-recovery timer; only a Garage repair fixes it.
@@ -4041,6 +4083,75 @@ func _roll_component_disable(comp, amount: float, element: String):
 		target.disable_timer = base_cooldown + (target.times_disabled * 2.0)
 		target.times_disabled += 1
 		_show_floating_text(target.tile_type + " OFFLINE", Color(1.0, 0.7, 0.2))
+
+# --- Limb breakage + offline-tile bookkeeping ---------------------------------
+# Share of the mech's max_hp a limb can soak before it breaks. Torso never breaks
+# (that is what global HP is for). Limbs stay broken for the rest of the fight;
+# only a Garage repair restores them.
+const LIMB_INTEGRITY_SHARE = {
+	HexTile.BodySlot.ARM_L: 0.30, HexTile.BodySlot.ARM_R: 0.30,
+	HexTile.BodySlot.LEG_L: 0.35, HexTile.BodySlot.LEG_R: 0.35,
+	HexTile.BodySlot.HEAD: 0.22, HexTile.BodySlot.BACKPACK: 0.28,
+}
+const LEG_BROKEN_SPEED_MULT = 0.6 # per broken leg (two broken legs = a crawl)
+const SLOT_LABELS = {
+	HexTile.BodySlot.ARM_L: "LEFT ARM", HexTile.BodySlot.ARM_R: "RIGHT ARM",
+	HexTile.BodySlot.LEG_L: "LEFT LEG", HexTile.BodySlot.LEG_R: "RIGHT LEG",
+	HexTile.BodySlot.HEAD: "HEAD", HexTile.BodySlot.BACKPACK: "BACKPACK",
+}
+
+var _offline_watch: Array = [] # tiles knocked offline, polled so a reboot re-enables their function
+var _offline_poll_t: float = 0.0
+
+func _on_tile_went_offline(tile) -> void:
+	is_grid_dirty = true # re-route energy and rebuild weapon/capability lists without it
+	if not _offline_watch.has(tile):
+		_offline_watch.append(tile)
+
+# Cheap: only walks tiles that are actually offline, 4x per second.
+func _poll_offline_tiles(delta: float) -> void:
+	if _offline_watch.is_empty():
+		return
+	_offline_poll_t += delta
+	if _offline_poll_t < 0.25:
+		return
+	_offline_poll_t = 0.0
+	var still: Array = []
+	for t in _offline_watch:
+		if is_instance_valid(t) and t.is_disabled and not t.power_lost:
+			still.append(t)
+		elif is_instance_valid(t) and not t.is_disabled:
+			is_grid_dirty = true # rebooted: bring its function back
+	_offline_watch = still
+
+func _break_component(comp) -> void:
+	if comp.is_broken:
+		return
+	comp.is_broken = true
+	comp.integrity = 0.0
+	is_grid_dirty = true
+	_show_floating_text(SLOT_LABELS.get(comp.slot_type, "PART") + " DESTROYED", Color(1.0, 0.2, 0.2))
+	if _renderer and _renderer.has_method("apply_broken_parts"):
+		_renderer.apply_broken_parts()
+	_recalculate_grid() # pay the cost now so weapons/abilities drop immediately
+
+func broken_leg_count() -> int:
+	var n := 0
+	for slot in [HexTile.BodySlot.LEG_L, HexTile.BodySlot.LEG_R]:
+		if components.has(slot) and components[slot].is_broken:
+			n += 1
+	return n
+
+# Restores every broken limb (Garage repair / new life).
+func repair_broken_parts() -> void:
+	for comp in components.values():
+		if comp.is_broken:
+			comp.is_broken = false
+			comp.integrity = -1.0
+	_offline_watch.clear()
+	is_grid_dirty = true
+	if _renderer and _renderer.has_method("apply_broken_parts"):
+		_renderer.apply_broken_parts()
 
 # Priority search for the disable roll's target - independent of which tile
 # happened to take the direct structural damage in apply_part_damage above.
@@ -4099,7 +4210,8 @@ func _get_mass_speed_mult() -> float:
 	return clamp(1.0 - (total_mass - MASS_BASELINE) * MASS_SPEED_COEFF, MASS_SPEED_MIN_MULT, MASS_SPEED_MAX_MULT)
 
 func update_status_effects(delta: float):
-	current_move_speed = base_move_speed * _get_mass_speed_mult()
+	_poll_offline_tiles(delta)
+	current_move_speed = base_move_speed * _get_mass_speed_mult() * pow(LEG_BROKEN_SPEED_MULT, broken_leg_count())
 	if is_amphibious and _in_water:
 		current_move_speed *= AMPHIBIOUS_WATER_SPEED_MULT
 

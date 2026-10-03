@@ -9,6 +9,13 @@ var rarity: HexTile.Rarity = HexTile.Rarity.COMMON
 var level: int = 1
 var role_variant: String = ""
 
+# Limb breakage (combat): a non-torso part soaks hits into `integrity`; at 0 it is
+# `is_broken` for the rest of the fight - its weapons and tile abilities are
+# gone and it is skipped by the energy routing. Only a Garage repair restores it.
+var is_broken: bool = false
+var integrity: float = -1.0 # -1 = not yet initialised (sized lazily from the mech's max_hp)
+var max_integrity: float = 0.0
+
 var grid_width: int = 3
 var grid_height: int = 3
 

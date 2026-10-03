@@ -2014,6 +2014,7 @@ func _on_player_died():
 		player.is_dead = false
 		player.hp = player.max_hp
 		player.shield_hp = player.max_shield_hp
+		player.repair_broken_parts() # a new life comes back with all limbs
 		if player.has_method("_show_floating_text"):
 			player._show_floating_text("LIFE LOST - %d LEFT" % player_lives_remaining, Color(1.0, 0.5, 0.2))
 		return

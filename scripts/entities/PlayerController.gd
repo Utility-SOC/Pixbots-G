@@ -177,6 +177,8 @@ func fire_charged(key: String, target_pos: Vector2):
 			continue
 		if data.packet.trigger_key != key:
 			continue
+		if mech._weapon_offline(data):
+			continue
 		var mount = data.mount
 		var required = data.packet.charge_required
 

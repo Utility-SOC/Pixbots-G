@@ -92,6 +92,22 @@ func _get_role_visual_profile(role: String) -> Dictionary:
 		_:
 			return {"color": Color(0.3, 0.4, 0.5), "scale": 1.0, "accent": ""}
 
+# Hides the drawn parts of any destroyed limb (see Mech._break_component).
+func apply_broken_parts() -> void:
+	var mech = get_parent()
+	if not mech or not ("components" in mech):
+		return
+	var names = {
+		HexTile.BodySlot.ARM_L: "Arm_true", HexTile.BodySlot.ARM_R: "Arm_false",
+		HexTile.BodySlot.LEG_L: "Leg_true", HexTile.BodySlot.LEG_R: "Leg_false",
+		HexTile.BodySlot.HEAD: "Head",
+	}
+	for slot in names:
+		var part = drawn_parts.get(names[slot])
+		if part and is_instance_valid(part):
+			var broken = mech.components.has(slot) and mech.components[slot].is_broken
+			part.visible = not broken
+
 func _rebuild_visuals():
 	# Clear existing
 	for child in get_children():
@@ -197,6 +213,7 @@ func _rebuild_visuals():
 		_draw_head(null, _part_color(profile.color, mech, "head", def_tier), rng_def, profile.scale, 0, profile.accent, is_boss)
 
 	_finalize_particles()
+	apply_broken_parts()
 
 	# Added LAST so it's the final child in the tree - Godot draws sibling
 	# CanvasItems in child order, so being last means this always renders on

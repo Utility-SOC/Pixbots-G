@@ -545,6 +545,7 @@ func _serialize_component(comp) -> Dictionary:
 		"rarity": comp.rarity,
 		"component_name": comp.component_name,
 		"infusion_level": comp.get("infusion_level") if comp.get("infusion_level") != null else 0,
+		"is_broken": bool(comp.get("is_broken")),
 		"infusion_xp": comp.get("infusion_xp") if comp.get("infusion_xp") != null else 0,
 		# stat_modifiers itself is NOT persisted (save format v5+) - it's a
 		# derived cache, rebuilt from the three fields below by
@@ -599,6 +600,7 @@ func _deserialize_component(cdata: Dictionary):
 	var comp = ScriptComponentEquipment.new(clampi(int(slot_type), 0, 10), clampi(int(rarity), 0, 4))
 	comp.component_name = cdata.get("component_name", "Unknown")
 	if cdata.has("infusion_level") and _same_kind(comp.get("infusion_level"), cdata["infusion_level"]): comp.set("infusion_level", cdata["infusion_level"])
+	if cdata.has("is_broken") and typeof(cdata["is_broken"]) == TYPE_BOOL: comp.is_broken = cdata["is_broken"]
 	if cdata.has("infusion_xp") and _same_kind(comp.get("infusion_xp"), cdata["infusion_xp"]): comp.set("infusion_xp", cdata["infusion_xp"])
 
 	# Overclocking rework (save format v5) - see this file's version log and

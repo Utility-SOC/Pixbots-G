@@ -95,7 +95,10 @@ func repair_all():
 	var damaged_tiles = 0
 	var disabled_tiles = 0
 	var destroyed_tiles = 0
+	var broken_limbs = 0
 	for comp in mech.components.values():
+		if comp.is_broken:
+			broken_limbs += 1
 		for tile in comp.hex_grid.get_all_tiles():
 			if "power_lost" in tile and tile.power_lost:
 				destroyed_tiles += 1
@@ -107,8 +110,8 @@ func repair_all():
 	# Destroyed (power_lost) tiles - the "grave enough hit" outcome from
 	# Mech._roll_component_disable - cost more than an ordinary knocked-out
 	# tile since they'd otherwise never come back on their own.
-	var cost = int(ceil(missing_hp / 2.0)) + disabled_tiles * 25 + destroyed_tiles * 100
-	if cost <= 0 and damaged_tiles == 0:
+	var cost = int(ceil(missing_hp / 2.0)) + disabled_tiles * 25 + destroyed_tiles * 100 + broken_limbs * 150
+	if cost <= 0 and damaged_tiles == 0 and broken_limbs == 0:
 		garage._show_scrap_float("Nothing to repair", Color(0.7, 0.7, 0.7))
 		return
 	cost = max(cost, 1)
@@ -126,6 +129,7 @@ func repair_all():
 			tile.times_disabled = 0
 			if "power_lost" in tile:
 				tile.power_lost = false
+	mech.repair_broken_parts()
 	garage._refresh_inventory_ui() # updates the scrap label
 	garage._show_scrap_float("Fully repaired  (-" + str(cost) + " scrap)", Color(0.4, 1.0, 0.5))
 

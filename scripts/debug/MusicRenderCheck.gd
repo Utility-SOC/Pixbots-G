@@ -22,10 +22,17 @@ func _ready():
 		["combat_w1", Synth.Ctx.COMBAT, 1, 0],
 		["combat_w15", Synth.Ctx.COMBAT, 15, 6],
 		["boss", Synth.Ctx.BOSS, 20, 2],
+		["biome_surf", Synth.Ctx.COMBAT, 8, 1, "Water"],
+		["biome_fae", Synth.Ctx.COMBAT, 8, 4, "Forest"],
+		["biome_snow", Synth.Ctx.COMBAT, 8, 5, "Tundra"],
+		["biome_dune", Synth.Ctx.COMBAT, 8, 2, "Desert"],
+		["biome_forge", Synth.Ctx.COMBAT, 8, 6, "Volcano"],
+		["biome_crypt", Synth.Ctx.COMBAT, 8, 3, "Dungeon"],
+		["biome_farm", Synth.Ctx.COMBAT, 8, 7, "FightShovel"],
 	]
 	for c in cases:
 		var t0 = Time.get_ticks_msec()
-		var st: AudioStreamWAV = Synth.generate_track(c[1], c[3], c[2])
+		var st: AudioStreamWAV = Synth.generate_track(c[1], c[3], c[2], Callable(), c[4] if c.size() > 4 else "")
 		var ms = Time.get_ticks_msec() - t0
 		var d: PackedByteArray = st.data
 		var n = d.size() / 2

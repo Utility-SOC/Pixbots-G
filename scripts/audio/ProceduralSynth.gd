@@ -19,6 +19,22 @@ enum Ctx { GARAGE, COMBAT, BOSS }
 const SCALE_DORIAN := [0, 2, 3, 5, 7, 9, 10]
 const SCALE_MINOR := [0, 2, 3, 5, 7, 8, 10]
 const SCALE_PHRYGIAN := [0, 1, 3, 5, 7, 8, 10]
+const SCALE_PHRYGIAN_DOM := [0, 1, 4, 5, 7, 8, 10] # surf (Misirlou) and desert
+const SCALE_LYDIAN := [0, 2, 4, 6, 7, 9, 11] # fae / woodland
+const SCALE_HARM_MINOR := [0, 2, 3, 5, 7, 8, 11] # crypt
+const SCALE_MIXOLYDIAN := [0, 2, 4, 5, 7, 9, 10] # dust-bowl farm
+
+# Biome voices (combat music only): map_type -> voice. Anything not listed
+# keeps the default synthwave sound.
+const VOICE_BY_MAP := {
+	"Water": "surf", "Forest": "fae", "Tundra": "snow", "Desert": "dune",
+	"Volcano": "forge", "Dungeon": "crypt", "FightShovel": "farm",
+}
+const VOICE_BPM := {"surf": 150.0, "fae": 98.0, "snow": 92.0, "dune": 104.0, "forge": 96.0, "crypt": 84.0, "farm": 128.0}
+const VOICE_SCALE := {
+	"surf": SCALE_PHRYGIAN_DOM, "fae": SCALE_LYDIAN, "snow": SCALE_DORIAN, "dune": SCALE_PHRYGIAN_DOM,
+	"forge": SCALE_PHRYGIAN, "crypt": SCALE_HARM_MINOR, "farm": SCALE_MIXOLYDIAN,
+}
 
 # Chord roots as scale-degree indices, 4 chords x 2 bars.
 const PROGRESSIONS := [
@@ -57,17 +73,23 @@ static func generate_level_loop(synergy: EnergyPacket.SynergyType, is_combat: bo
 
 # cancel_check: polled between notes so the caller's worker thread can bail
 # promptly at app quit - returns null when cancelled.
-static func generate_track(ctx: int, synergy: int, wave: int, cancel_check: Callable = Callable()) -> AudioStreamWAV:
+static func generate_track(ctx: int, synergy: int, wave: int, cancel_check: Callable = Callable(), biome: String = "") -> AudioStreamWAV:
 	var s = ProceduralSynth.new()
-	return s._render(ctx, synergy, wave, cancel_check)
+	return s._render(ctx, synergy, wave, cancel_check, biome)
 
 
-static func loop_seconds(ctx: int, wave: int) -> float:
-	var bpm = _bpm_for(ctx, wave)
+static func voice_for_biome(biome: String) -> String:
+	return VOICE_BY_MAP.get(biome, "")
+
+
+static func loop_seconds(ctx: int, wave: int, voice: String = "") -> float:
+	var bpm = _bpm_for(ctx, wave, voice)
 	return BARS * 4.0 * 60.0 / bpm
 
 
-static func _bpm_for(ctx: int, wave: int) -> float:
+static func _bpm_for(ctx: int, wave: int, voice: String = "") -> float:
+	if voice != "" and ctx == Ctx.COMBAT:
+		return float(VOICE_BPM.get(voice, 116.0))
 	match ctx:
 		Ctx.GARAGE:
 			return 72.0
@@ -88,10 +110,11 @@ func _is_cancelled() -> bool:
 	return _cancelled
 
 
-func _render(ctx: int, synergy: int, wave: int, cancel_check: Callable) -> AudioStreamWAV:
+func _render(ctx: int, synergy: int, wave: int, cancel_check: Callable, biome: String = "") -> AudioStreamWAV:
 	_cancel = cancel_check
 	_rng.randomize()
-	var bpm = _bpm_for(ctx, wave)
+	var voice = voice_for_biome(biome) if ctx == Ctx.COMBAT else ""
+	var bpm = _bpm_for(ctx, wave, voice)
 	_step = int(round(60.0 / bpm / 4.0 * SAMPLE_RATE))
 	_n = _step * STEPS_PER_BAR * BARS
 	for buf in [_bass, _pad, _mel, _drums]:
@@ -105,6 +128,8 @@ func _render(ctx: int, synergy: int, wave: int, cancel_check: Callable) -> Audio
 		scale = SCALE_DORIAN
 	elif ctx == Ctx.BOSS:
 		scale = SCALE_PHRYGIAN
+	elif voice != "":
+		scale = VOICE_SCALE[voice]
 	var root_midi: float = 33.0 + float((absi(synergy) * 5) % 12) # A1..G#2, element picks the key
 	var progs: Array = BOSS_PROGRESSIONS if ctx == Ctx.BOSS else PROGRESSIONS
 	var prog: Array = progs[_rng.randi() % progs.size()]
@@ -120,6 +145,11 @@ func _render(ctx: int, synergy: int, wave: int, cancel_check: Callable) -> Audio
 		chords.append({"root": scale[d], "tones": tones})
 
 	var chord_steps = STEPS_PER_BAR * 2 # two bars per chord
+
+	if voice != "":
+		_voice_layers(voice, chords, root_midi, scale, wave)
+		if _is_cancelled(): return null
+		return _mix_to_stream(ctx)
 
 	# --- Pad (all contexts) ---
 	for c in range(chords.size()):
@@ -177,7 +207,10 @@ func _render(ctx: int, synergy: int, wave: int, cancel_check: Callable) -> Audio
 
 	if _is_cancelled(): return null
 
-	# --- Mix ---
+	return _mix_to_stream(ctx)
+
+
+func _mix_to_stream(ctx: int) -> AudioStreamWAV:
 	var out := PackedByteArray()
 	out.resize(_n * 2)
 	var peak := 0.0
@@ -368,3 +401,355 @@ func _hat(start: int, vel: float) -> void:
 		var hp: float = n - prev # crude high-pass
 		prev = n
 		_drums[(start + i) % _n] += hp * exp(-t * 90.0) * 0.1 * vel
+
+
+# ===========================================================================
+# Biome voices (combat music). Each fills _bass/_pad/_mel/_drums directly.
+# ===========================================================================
+
+# Additive sine note: partials = [[freq_mult, amp, decay_per_sec], ...]. Stops
+# early once the (decaying) note is inaudible, so long ring-outs stay cheap.
+func _add_partials(buf: PackedFloat32Array, start: int, length: int, freq: float, partials: Array, amp: float, attack: float = 0.003, release: float = 0.05) -> void:
+	var att: float = maxf(attack * SAMPLE_RATE, 1.0)
+	var rel: float = maxf(release * SAMPLE_RATE, 1.0)
+	for p in partials:
+		var f: float = freq * p[0]
+		if f > SAMPLE_RATE * 0.45:
+			continue
+		var inc: float = f / SAMPLE_RATE
+		var pa: float = amp * p[1]
+		var dm: float = exp(-p[2] / SAMPLE_RATE) if p[2] > 0.0 else 1.0
+		var g: float = 1.0
+		var phase: float = 0.0
+		var idx: int = start % _n
+		for i in range(length):
+			if g < 0.004:
+				break
+			var env: float = g
+			if i < att:
+				env *= float(i) / att
+			var rem: int = length - i
+			if rem < rel:
+				env *= float(rem) / rel
+			buf[idx] += sin(TAU * phase) * env * pa
+			phase += inc
+			if phase >= 1.0:
+				phase -= 1.0
+			g *= dm
+			idx += 1
+			if idx >= _n:
+				idx = 0
+
+
+# Vibrato voice for flute / snake-charmer / harmonica (kind 0 sine+octave, 1 saw).
+func _add_vib_tone(buf: PackedFloat32Array, start: int, length: int, freq: float, amp: float, attack: float, release: float, kind: int) -> void:
+	var att: float = maxf(attack * SAMPLE_RATE, 1.0)
+	var rel: float = maxf(release * SAMPLE_RATE, 1.0)
+	var phase: float = 0.0
+	var idx: int = start % _n
+	for i in range(length):
+		var t: float = float(i) / SAMPLE_RATE
+		var vib: float = 1.0 + 0.006 * sin(TAU * 5.4 * t) * clampf(t / 0.25, 0.0, 1.0)
+		var env: float = 1.0
+		if i < att:
+			env = float(i) / att
+		var rem: int = length - i
+		if rem < rel:
+			env *= float(rem) / rel
+		var w: float
+		if kind == 0:
+			w = sin(TAU * phase) + 0.18 * sin(TAU * phase * 2.0)
+		else:
+			w = 2.0 * phase - 1.0
+		buf[idx] += w * env * amp
+		phase += freq * vib / SAMPLE_RATE
+		if phase >= 1.0:
+			phase -= 1.0
+		idx += 1
+		if idx >= _n:
+			idx = 0
+
+
+func _soft_thump(start: int, amp: float, f0: float = 70.0) -> void:
+	var len_s: int = int(0.28 * SAMPLE_RATE)
+	var phase := 0.0
+	for i in range(len_s):
+		var t: float = float(i) / SAMPLE_RATE
+		phase += (f0 * (1.0 + 0.8 * exp(-t * 30.0))) / SAMPLE_RATE
+		_drums[(start + i) % _n] += sin(TAU * phase) * exp(-t * 11.0) * amp
+
+
+func _jingle(start: int, vel: float) -> void:
+	var len_s: int = int(0.12 * SAMPLE_RATE)
+	var prev := 0.0
+	for i in range(len_s):
+		var t: float = float(i) / SAMPLE_RATE
+		var n: float = _rng.randf() * 2.0 - 1.0
+		var hp: float = n - prev
+		prev = n
+		var ring: float = sin(TAU * 3100.0 * t) + 0.7 * sin(TAU * 4300.0 * t) + 0.5 * sin(TAU * 5800.0 * t)
+		_drums[(start + i) % _n] += (ring * 0.035 + hp * 0.03) * exp(-t * 26.0) * vel
+
+
+func _wind() -> void:
+	var y := 0.0
+	var a: float = 1.0 - exp(-TAU * 450.0 / SAMPLE_RATE)
+	for i in range(_n):
+		y += a * ((_rng.randf() * 2.0 - 1.0) - y)
+		_pad[i] += y * (0.55 + 0.45 * sin(TAU * 2.0 * float(i) / _n)) * 0.2
+
+
+func _taiko(start: int, amp: float) -> void:
+	var len_s: int = int(0.4 * SAMPLE_RATE)
+	var phase := 0.0
+	for i in range(len_s):
+		var t: float = float(i) / SAMPLE_RATE
+		phase += (48.0 + 70.0 * exp(-t * 22.0)) / SAMPLE_RATE
+		var idx: int = (start + i) % _n
+		_drums[idx] += (sin(TAU * phase) * exp(-t * 7.0) + (_rng.randf() * 2.0 - 1.0) * exp(-t * 60.0) * 0.25) * amp
+		_duck[idx] = minf(_duck[idx], 1.0 - 0.55 * exp(-t * 12.0))
+
+
+func _darbuka(start: int, kind: int) -> void: # 0 dum, 1 tek
+	var len_s: int = int((0.2 if kind == 0 else 0.06) * SAMPLE_RATE)
+	var phase := 0.0
+	for i in range(len_s):
+		var t: float = float(i) / SAMPLE_RATE
+		var idx: int = (start + i) % _n
+		if kind == 0:
+			phase += (95.0 + 90.0 * exp(-t * 30.0)) / SAMPLE_RATE
+			_drums[idx] += sin(TAU * phase) * exp(-t * 14.0) * 0.45
+		else:
+			var n: float = _rng.randf() * 2.0 - 1.0
+			_drums[idx] += (n * 0.18 + sin(TAU * 720.0 * t) * 0.14) * exp(-t * 55.0)
+
+
+func _chord_step(c: int, s: int) -> int:
+	return (c * STEPS_PER_BAR * 2 + s) * _step
+
+
+func _voice_layers(voice: String, chords: Array, root_midi: float, scale: Array, wave: int) -> void:
+	match voice:
+		"surf": _v_surf(chords, root_midi, scale, wave)
+		"fae": _v_fae(chords, root_midi, scale, wave)
+		"snow": _v_snow(chords, root_midi, scale, wave)
+		"dune": _v_dune(chords, root_midi, scale, wave)
+		"forge": _v_forge(chords, root_midi, scale, wave)
+		"crypt": _v_crypt(chords, root_midi, scale, wave)
+		"farm": _v_farm(chords, root_midi, scale, wave)
+
+
+func _scale_note(scale: Array, deg: int) -> int:
+	return scale[posmod(deg, 7)] + 12 * int(floor(float(deg) / 7.0))
+
+
+# Surf guitar: palm-muted bass, offbeat chord scratches, tremolo-picked twangy
+# lead with a descending run into each chord, spring-reverb tail, driving kit.
+func _v_surf(chords: Array, rm: float, scale: Array, wave: int) -> void:
+	for c in range(chords.size()):
+		var r: float = rm + chords[c].root
+		for s in range(32):
+			if _is_cancelled(): return
+			var st = _chord_step(c, s)
+			if s % 2 == 0:
+				_add_tone(_bass, st, int(_step * 1.6), _midi(r), 1, 0.26, 0.004, 0.03, 10.0, 0.5)
+			if s % 4 == 2:
+				for off in chords[c].tones:
+					_add_tone(_mel, st, int(_step * 0.9), _midi(rm + 24.0 + off), 2, 0.03, 0.002, 0.03, 26.0, 0.35)
+		# Tremolo-picked held note (first half bar) then a run down the scale (bar 2).
+		var d0: int = [0, 2, 4, 5][_rng.randi() % 4]
+		var held: float = rm + 24.0 + _scale_note(scale, d0 + 7)
+		for k in range(8):
+			_add_tone(_mel, _chord_step(c, k), int(_step * 1.4), _midi(held), 2, 0.05, 0.002, 0.04, 14.0, 0.3)
+		for k in range(8):
+			var dd: int = 9 - k
+			_add_tone(_mel, _chord_step(c, 16 + k), int(_step * 1.3), _midi(rm + 24.0 + _scale_note(scale, dd)), 2, 0.05, 0.002, 0.04, 12.0, 0.3)
+		for k in range(4):
+			_add_tone(_mel, _chord_step(c, 24 + k * 2), int(_step * 3.0), _midi(held), 2, 0.05, 0.002, 0.05, 6.0, 0.3)
+	_lowpass(_bass, 800.0)
+	_lowpass(_mel, 5200.0)
+	_echo(_mel, int(0.035 * SAMPLE_RATE), 0.55, 4) # spring reverb
+	_drum_pattern(Ctx.COMBAT, wave)
+
+
+# Woodland fae: harp arpeggios, glockenspiel bells, airy sine pad, flute lead,
+# shaker and soft hand drum. Lydian, no hard kick.
+func _v_fae(chords: Array, rm: float, scale: Array, wave: int) -> void:
+	var harp := [[1.0, 1.0, 1.7], [2.0, 0.4, 3.4], [3.0, 0.18, 6.0]]
+	var bell := [[1.0, 1.0, 2.0], [2.76, 0.4, 2.8], [5.4, 0.2, 3.6]]
+	for c in range(chords.size()):
+		if _is_cancelled(): return
+		var tones: Array = chords[c].tones
+		var span: Array = [tones[0], tones[1], tones[2], tones[0] + 12, tones[1] + 12, tones[2] + 12, tones[0] + 24, tones[2] + 12]
+		for s in range(0, 32, 2):
+			if _rng.randf() < 0.14:
+				continue
+			var off: int = span[(s / 2) % span.size()]
+			_add_partials(_mel, _chord_step(c, s), int(_step * 12.0), _midi(rm + 12.0 + off), harp, 0.07, 0.002, 0.08)
+		for off in tones:
+			_add_tone(_pad, _chord_step(c, 0), 32 * _step + _step * 4, _midi(rm + 12.0 + off), 0, 0.04, 0.9, 1.0, 0.0, 0.5)
+		for bar in range(2):
+			if _rng.randf() < 0.65:
+				var n: int = tones[_rng.randi() % 3] + 24
+				_add_partials(_mel, _chord_step(c, bar * 16 + 8), int(_step * 20.0), _midi(rm + 24.0 + n), bell, 0.06, 0.002, 0.2)
+	if wave >= 4:
+		for c in range(chords.size()):
+			var deg: int = 7 + _rng.randi() % 3
+			for k in range(3):
+				if _is_cancelled(): return
+				deg = clampi(deg + (_rng.randi() % 3) - 1, 5, 11)
+				_add_vib_tone(_mel, _chord_step(c, k * 10 + 2), int(_step * 8.0), _midi(rm + 24.0 + _scale_note(scale, deg)), 0.05, 0.08, 0.25, 0)
+	_lowpass(_pad, 1500.0)
+	_echo(_mel, _step * 4, 0.42, 3)
+	for s in range(STEPS_PER_BAR * BARS):
+		if s % 2 == 0:
+			_hat(s * _step, 0.5)
+		if s % 8 == 0:
+			_soft_thump(s * _step, 0.22, 95.0)
+
+
+# Snow: celesta/music-box arps, glassy pad, bell melody, sleigh-bell gallop,
+# distant wind, and a soft heartbeat thump. Dorian, sparse, spacious.
+func _v_snow(chords: Array, rm: float, scale: Array, wave: int) -> void:
+	var celesta := [[1.0, 1.0, 3.5], [4.0, 0.3, 7.0], [6.0, 0.12, 10.0]]
+	var bell := [[1.0, 1.0, 2.0], [2.76, 0.4, 3.0], [5.4, 0.2, 4.0]]
+	for c in range(chords.size()):
+		if _is_cancelled(): return
+		var tones: Array = chords[c].tones
+		var span: Array = [tones[0], tones[2], tones[1], tones[2], tones[0] + 12, tones[1], tones[2], tones[1] + 12]
+		for s in range(0, 32, 2):
+			if _rng.randf() < 0.3:
+				continue
+			_add_partials(_mel, _chord_step(c, s), int(_step * 9.0), _midi(rm + 24.0 + span[(s / 2) % span.size()]), celesta, 0.06, 0.002, 0.06)
+		_add_tone(_pad, _chord_step(c, 0), 32 * _step + _step * 4, _midi(rm + 12.0 + tones[0]), 0, 0.045, 0.9, 1.0, 0.0, 0.5)
+		_add_tone(_pad, _chord_step(c, 0), 32 * _step + _step * 4, _midi(rm + 12.0 + tones[1]), 0, 0.035, 0.9, 1.0, 0.0, 0.5)
+		_add_tone(_pad, _chord_step(c, 0), 32 * _step + _step * 4, _midi(rm + 24.0 + tones[2]), 0, 0.03, 0.9, 1.0, 0.0, 0.5)
+		for bar in range(2):
+			if _rng.randf() < 0.55:
+				var deg: int = 7 + _rng.randi() % 5
+				_add_partials(_mel, _chord_step(c, bar * 16 + (_rng.randi() % 3) * 4), int(_step * 18.0), _midi(rm + 24.0 + _scale_note(scale, deg)), bell, 0.07, 0.002, 0.2)
+			_add_tone(_bass, _chord_step(c, bar * 16), _step * 14, _midi(rm + chords[c].root), 0, 0.2, 0.02, 0.3, 0.0, 0.5)
+	_lowpass(_pad, 1700.0)
+	_lowpass(_bass, 400.0)
+	_echo(_mel, _step * 3, 0.4, 4)
+	_wind()
+	for s in range(STEPS_PER_BAR * BARS):
+		var bs: int = s % 16
+		if bs % 4 == 0 or bs % 4 == 3:
+			_jingle(s * _step, 1.0 if bs % 4 == 0 else 0.6)
+		if bs == 0 or bs == 8:
+			_soft_thump(s * _step, 0.3, 62.0)
+
+
+# Desert: oud ostinato with grace notes, droning pad, snake-charmer lead and a
+# maqsum darbuka groove. Phrygian dominant.
+func _v_dune(chords: Array, rm: float, scale: Array, wave: int) -> void:
+	for c in range(chords.size()):
+		var r: float = rm + chords[c].root
+		for f in [0.0, 7.0]:
+			_add_tone(_pad, _chord_step(c, 0), 32 * _step + _step * 4, _midi(r + 12.0 + f), 1, 0.03, 0.6, 0.8, 0.0, 0.5)
+		_add_tone(_bass, _chord_step(c, 0), 32 * _step, _midi(r), 0, 0.18, 0.2, 0.4, 0.0, 0.5)
+		var deg: int = 0
+		for s in range(0, 32, 2):
+			if _is_cancelled(): return
+			deg = clampi(deg + (_rng.randi() % 3) - 1, -1, 5)
+			var note: float = rm + chords[c].root + 12.0 + _scale_note(scale, deg + 0)
+			if s % 8 == 6:
+				_add_tone(_mel, _chord_step(c, s) - _step, int(_step * 1.2), _midi(note + 1.0), 1, 0.05, 0.002, 0.03, 18.0, 0.5) # grace note
+			_add_tone(_mel, _chord_step(c, s), int(_step * 3.0), _midi(note), 1, 0.08, 0.003, 0.05, 6.0, 0.5)
+	if wave >= 4:
+		for c in range(chords.size()):
+			var d: int = 7 + _rng.randi() % 3
+			for k in range(3):
+				d = clampi(d + (_rng.randi() % 3) - 1, 6, 10)
+				_add_vib_tone(_mel, _chord_step(c, k * 10 + 4), int(_step * 7.0), _midi(rm + 12.0 + _scale_note(scale, d)), 0.045, 0.05, 0.15, 0)
+	_lowpass(_pad, 600.0)
+	_lowpass(_mel, 2600.0)
+	_echo(_mel, _step * 3, 0.3, 3)
+	for s in range(STEPS_PER_BAR * BARS):
+		var bs: int = s % 16
+		if bs == 0 or bs == 8 or bs == 10:
+			_darbuka(s * _step, 0)
+		if bs == 4 or bs == 6 or bs == 12 or bs == 14:
+			_darbuka(s * _step, 1)
+
+
+# Volcano forge: low-brass swells, taiko, anvil rings, sub rumble. Phrygian.
+func _v_forge(chords: Array, rm: float, scale: Array, wave: int) -> void:
+	var anvil := [[1.0, 1.0, 10.0], [2.4, 0.6, 12.0], [3.9, 0.4, 14.0], [5.3, 0.3, 16.0]]
+	for c in range(chords.size()):
+		var r: float = rm + chords[c].root
+		for f in [0.0, 7.0]:
+			_add_tone(_pad, _chord_step(c, 0), 32 * _step + _step * 4, _midi(r + 12.0 + f) * 0.998, 1, 0.05, 0.35, 0.5, 0.0, 0.5)
+			_add_tone(_pad, _chord_step(c, 0), 32 * _step + _step * 4, _midi(r + 12.0 + f) * 1.002, 1, 0.05, 0.35, 0.5, 0.0, 0.5)
+		for s in range(0, 32, 4):
+			_add_tone(_bass, _chord_step(c, s), int(_step * 3.0), _midi(r), 1, 0.3, 0.01, 0.06, 3.0, 0.5)
+		if wave >= 4:
+			var deg: int = 4
+			for k in range(4):
+				deg = clampi(deg + (_rng.randi() % 3) - 1, 2, 7)
+				_add_tone(_mel, _chord_step(c, k * 8 + 2), _step * 6, _midi(rm + 12.0 + _scale_note(scale, deg)), 1, 0.05, 0.03, 0.12, 1.5, 0.5)
+	_add_tone(_bass, 0, _n - 1, _midi(rm - 12.0), 0, 0.12, 0.5, 0.5, 0.0, 0.5) # sub rumble drone
+	_lowpass(_pad, 700.0)
+	_lowpass(_bass, 650.0)
+	_lowpass(_mel, 1800.0)
+	for i in range(_n):
+		_bass[i] = tanh(_bass[i] * 2.4) * 0.55
+	for s in range(STEPS_PER_BAR * BARS):
+		var bs: int = s % 16
+		if bs == 0:
+			_taiko(s * _step, 0.9)
+		elif bs == 6 or bs == 8 or bs == 11:
+			_taiko(s * _step, 0.55)
+		if bs == 4 or bs == 12:
+			_add_partials(_drums, s * _step, int(_step * 5.0), 880.0, anvil, 0.07, 0.001, 0.04)
+		if bs % 4 == 2:
+			_hat(s * _step, 0.35)
+
+
+# Dungeon crypt: organ drone, tolling bell, water drips, heartbeat. Harmonic minor.
+func _v_crypt(chords: Array, rm: float, scale: Array, wave: int) -> void:
+	var toll := [[1.0, 1.0, 1.2], [2.0, 0.6, 1.5], [2.76, 0.5, 2.0], [5.4, 0.2, 3.0]]
+	var organ := [[1.0, 1.0, 0.0], [2.0, 0.45, 0.0]]
+	for c in range(chords.size()):
+		if _is_cancelled(): return
+		var r: float = rm + chords[c].root
+		for f in [0.0, 7.0]:
+			_add_partials(_pad, _chord_step(c, 0), 32 * _step + _step * 4, _midi(r + 12.0 + f), organ, 0.04, 0.6, 0.8)
+		_add_partials(_mel, _chord_step(c, 0), _step * 40, _midi(r + 12.0), toll, 0.11, 0.003, 0.3)
+		_add_tone(_bass, _chord_step(c, 0), 32 * _step, _midi(r - 12.0), 0, 0.2, 0.3, 0.5, 0.0, 0.5)
+	for k in range(10):
+		var st: int = (_rng.randi() % (STEPS_PER_BAR * BARS)) * _step
+		_add_tone(_mel, st, int(_step * 4.0), _rng.randf_range(1500.0, 3300.0), 0, 0.035, 0.001, 0.05, 20.0, 0.5)
+	_lowpass(_pad, 1200.0)
+	_echo(_mel, _step * 5, 0.45, 4)
+	for s in range(0, STEPS_PER_BAR * BARS, 16):
+		_soft_thump(s * _step, 0.32, 58.0)
+		_soft_thump((s + 3) * _step, 0.22, 58.0)
+	if wave >= 8:
+		for s in range(0, STEPS_PER_BAR * BARS, 8):
+			_soft_thump((s + 8) * _step, 0.18, 52.0)
+
+
+# Farm: banjo forward-roll, upright-bass pluck, stomp/clap, harmonica lead.
+func _v_farm(chords: Array, rm: float, scale: Array, wave: int) -> void:
+	var roll := [0, 2, 1, 2, 0, 2, 1, 2]
+	for c in range(chords.size()):
+		if _is_cancelled(): return
+		var tones: Array = chords[c].tones.duplicate()
+		var r: float = rm + chords[c].root
+		for s in range(32):
+			var off: int = tones[roll[s % 8]]
+			_add_tone(_mel, _chord_step(c, s), int(_step * 2.0), _midi(rm + 24.0 + off), 2, 0.04, 0.002, 0.03, 15.0, 0.2)
+		for s in range(0, 32, 4):
+			var note: float = r if (s / 4) % 2 == 0 else r + 7.0
+			_add_tone(_bass, _chord_step(c, s), int(_step * 3.0), _midi(note), 1, 0.3, 0.004, 0.05, 5.0, 0.5)
+		if wave >= 4:
+			var deg: int = 7 + _rng.randi() % 3
+			for k in range(3):
+				deg = clampi(deg + (_rng.randi() % 3) - 1, 5, 10)
+				_add_vib_tone(_mel, _chord_step(c, k * 10 + 2), int(_step * 6.0), _midi(rm + 24.0 + _scale_note(scale, deg)), 0.035, 0.02, 0.1, 1)
+	_lowpass(_bass, 700.0)
+	_lowpass(_mel, 3800.0)
+	_echo(_mel, _step * 3, 0.25, 2)
+	_drum_pattern(Ctx.COMBAT, 1)

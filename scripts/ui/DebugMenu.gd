@@ -181,6 +181,36 @@ func _ready():
 		print("[Debug] Gave 1 +10%% chip for each of the 11 stats - open a part's config popup in the Garage and use Equip Mod Chip.")
 	)
 
+	# --- Tab: Late Game ------------------------------------------------------
+	# One-click setups for testing late-game behaviour (limb breakage vs. bosses,
+	# huge-magnitude projectiles, near-peer scaling) without grinding there.
+	var tab_late = _tab(tabs, "Late Game")
+	var wave_opt = OptionButton.new()
+	for w in [50, 100, 250, 500]:
+		wave_opt.add_item("Wave %d" % w, w)
+	wave_opt.selected = 1
+	tab_late.add_child(wave_opt)
+	_btn(tab_late, "Jump to selected wave", func():
+		var m = get_tree().current_scene
+		if m and "current_wave" in m:
+			m.current_wave = wave_opt.get_selected_id()
+			if m.has_method("_update_hud"):
+				m._update_hud()
+	)
+	_btn(tab_late, "Sniper kit: Mythic set + Kinetic/Pierce sniper (selected wave)", func():
+		_toggle_menu()
+		_on_late_game_sniper_kit(wave_opt.get_selected_id())
+	)
+	_btn(tab_late, "Difficulty: Why would you do this to yourself?", func():
+		SaveManager.set_difficulty(3)
+		print("[Debug] Difficulty set to the top tier (applies to newly spawned waves).")
+	)
+	var late_hint = Label.new()
+	late_hint.text = "Sniper kit equips Mythic parts, builds a long straight Kinetic+Pierce arm\n(Amplifier run into a Sniper Mount, Accumulator bank on hotkey 1) and\njumps the wave. Open the Garage after to inspect or tweak it."
+	late_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	late_hint.modulate = Color(0.75, 0.75, 0.8)
+	tab_late.add_child(late_hint)
+
 	# --- Tab: World ---------------------------------------------------------
 	var tab_world = _tab(tabs, "World")
 
@@ -599,3 +629,101 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		if main.garage_ui.has_method("_refresh_inventory_ui"):
 			main.garage_ui._refresh_inventory_ui()
 	print("[Debug] Added GOD Inventory (50x All Legendary or Mythic)")
+
+
+# Late-game sniper test kit: Mythic components equipped, a curated Mythic tile
+# inventory, then the real AutoEquipSolver builds the torso/arms toward Kinetic
+# (range) + Pierce (velocity, ignores armour) with the Farsight Sniper Mount.
+func _on_late_game_sniper_kit(wave: int) -> void:
+	var main = get_tree().current_scene
+	if not main or main.get("player") == null or main.get("player_inventory") == null:
+		return
+	var player = main.player
+	main.current_wave = wave
+	main.player_scrap += 500000
+	var Rarity = HexTile.Rarity.MYTHIC
+	var CE = load("res://scripts/core/ComponentEquipment.gd")
+
+	# 1. Mythic body, replacing whatever is equipped (and keeping spares).
+	var comps = [
+		CE.create_starter_torso("Mythic Torso", Rarity),
+		CE.create_starter_head("Mythic Head", Rarity),
+		CE.create_starter_arm(true, "Mythic Arm L", Rarity),
+		CE.create_starter_arm(false, "Mythic Arm R", Rarity),
+		CE.create_starter_leg(true, "Mythic Leg L", Rarity),
+		CE.create_starter_leg(false, "Mythic Leg R", Rarity),
+		CE.create_jetpack_backpack(),
+	]
+	comps[6].rarity = Rarity
+	comps[6].component_name = "Mythic Jetpack"
+	for c in comps:
+		var old = player.unequip_component(c.slot_type)
+		if old:
+			old.queue_free()
+		player.equip_component(c)
+
+	# 2. Curated Mythic tile kit - ONLY what a sniper arm wants, so the solver
+	#    builds one long, amplified Kinetic/Pierce weapon instead of spraying
+	#    weapon mounts everywhere. Anything unused goes to the normal inventory.
+	var kit = {
+		"AmplifierTile": 6, "InfuserTile": 3, "AccumulatorTile": 3, "CatalystTile": 2,
+		"DirectionalConduitTile": 8,
+	}
+	var kit_inv: Array = []
+	for name in kit:
+		var script = load("res://scripts/tiles/%s.gd" % name)
+		if not script:
+			continue
+		for i in range(kit[name]):
+			var t = script.new()
+			t.rarity = Rarity
+			kit_inv.append(t)
+	var sniper_mount = BrandTileFactory.random_tile_for_brand("sniper")
+	if sniper_mount:
+		kit_inv.append(sniper_mount)
+	else:
+		var wm = load("res://scripts/tiles/WeaponMountTile.gd").new()
+		wm.rarity = Rarity
+		kit_inv.append(wm)
+
+	# 3. Solve the right arm toward range + armour-piercing: favour Kinetic, mix in Pierce.
+	var profile = SolverProfile.new("Debug Sniper", EnergyPacket.SynergyType.KINETIC)
+	profile.pierce_priority = 0.8
+	profile.amplify_priority = 1.0
+	profile.secondary_synergy = EnergyPacket.SynergyType.PIERCE
+	profile.secondary_mix = 0.4
+	var solver = load("res://scripts/core/AutoEquipSolver.gd").new()
+	if player.components.has(HexTile.BodySlot.ARM_R):
+		var res = solver.solve(player.components[HexTile.BodySlot.ARM_R], kit_inv, profile)
+		if res != null:
+			kit_inv = res
+	# The arm's own mount is a built-in fixed tile the solver never swaps, so put
+	# the Farsight Sniper Mount (6x range) in its place, same position/rarity.
+	var smount = BrandTileFactory.random_tile_for_brand("sniper")
+	if smount and player.components.has(HexTile.BodySlot.ARM_R):
+		var grid = player.components[HexTile.BodySlot.ARM_R].hex_grid
+		for t in grid.get_all_tiles():
+			if t.tile_type == "Weapon Mount" and t.grid_position:
+				var pos = HexCoord.new(t.grid_position.q, t.grid_position.r)
+				smount.body_slot = t.body_slot
+				grid.remove_tile(pos)
+				grid.add_tile(pos, smount)
+				break
+		kit_inv = kit_inv.filter(func(x): return x != smount)
+	var inv: Array = main.player_inventory
+	inv.append_array(kit_inv) # leftovers
+	main.player_inventory = inv
+	if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
+		main.garage_ui.inventory = inv
+		if main.garage_ui.has_method("_refresh_inventory_ui"):
+			main.garage_ui._refresh_inventory_ui()
+		if main.garage_ui.has_method("_refresh_component_ui"):
+			main.garage_ui._refresh_component_ui()
+
+	player.is_grid_dirty = true
+	player._recalculate_grid()
+	player.refresh_visuals()
+	player.hp = player.max_hp
+	if main.has_method("_update_hud"):
+		main._update_hud()
+	print("[Debug] Sniper kit ready at wave %d: %d weapon(s) listed." % [wave, player.precalculated_weapons.size()])

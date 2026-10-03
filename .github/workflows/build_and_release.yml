@@ -134,14 +134,14 @@ jobs:
       # grab it from the run's Summary page, host it wherever you like -
       # no GitHub Release required.
       - name: Upload Installer Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Pixbots-Installer
           path: Pixbots-Installer.exe
           if-no-files-found: error
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: Pixbots-Installer.exe
@@ -226,14 +226,14 @@ jobs:
           tar -czf Pixbots-G-linux.tar.gz -C dist Pixbots-G-linux
 
       - name: Upload Linux Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Pixbots-Linux
           path: Pixbots-G-linux.tar.gz
           if-no-files-found: error
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: Pixbots-G-linux.tar.gz

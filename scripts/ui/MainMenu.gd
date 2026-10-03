@@ -141,7 +141,7 @@ func _setup_ui():
 	var btn_war_room = _create_button("War Room", _on_war_room_pressed)
 	var btn_perks = _create_button("Corp Perks", _on_perks_pressed)
 	var btn_import_ai = _create_button("Import AI Templates", _on_import_ai)
-	var btn_import_mods = _create_button("Import Mods", _on_import_mods)
+	var btn_import_mods = _create_button("Open Mods Folder", _on_import_mods)
 	var btn_settings = _create_button("Settings", _on_settings_pressed)
 	var btn_credits = _create_button("Credits & Licenses", _on_credits_pressed)
 	var btn_quit = _create_button("Quit", _on_quit_pressed)
@@ -224,10 +224,13 @@ func _on_perks_pressed():
 	add_child(panel)
 
 func _on_import_ai():
-	print("Opening AI Import Menu... (Mock)")
-	
+	# AI templates/profiles/style cards are imported from the War Room.
+	_on_war_room_pressed()
+
 func _on_import_mods():
-	print("Opening Mod Import Menu... (Mock)")
+	# Mods are drop-in files (see docs/MODDING.md); open the folder they go in.
+	DirAccess.make_dir_recursive_absolute("user://ai_profiles")
+	OS.shell_open(ProjectSettings.globalize_path("user://ai_profiles"))
 
 func _on_settings_pressed():
 	# Reuse a single instance across repeat presses, same guard as

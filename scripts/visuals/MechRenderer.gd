@@ -106,7 +106,12 @@ func apply_broken_parts() -> void:
 		var part = drawn_parts.get(names[slot])
 		if part and is_instance_valid(part):
 			var broken = mech.components.has(slot) and mech.components[slot].is_broken
-			part.visible = not broken
+			if broken and SaveManager.broken_limb_style == 1:
+				part.visible = false
+			else:
+				part.visible = true
+				# Husk: the wreck stays attached but dark and lifeless.
+				part.modulate = Color(0.24, 0.22, 0.22, 1.0) if broken else Color(1, 1, 1, 1)
 
 func _rebuild_visuals():
 	# Clear existing

@@ -645,7 +645,12 @@ func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, d
 	scale_mult *= (1.0 + 0.5 * packet.aoe_bonus)
 	if packet.is_banked_shot:
 		scale_mult *= 1.35
-	scale_mult = min(scale_mult, 8.0)
+	var uncapped_scale_mult = min(scale_mult, 8.0)
+	scale_mult = min(uncapped_scale_mult, SaveManager.projectile_scale_cap())
+	if scale_mult < uncapped_scale_mult - 0.05:
+		# Capped size: brightness carries the magnitude (additive blending in the pool).
+		var pf = SaveManager.projectile_power_fraction(packet.magnitude)
+		color = Color(color.r * (1.0 + 0.8 * pf), color.g * (1.0 + 0.8 * pf), color.b * (1.0 + 0.8 * pf), 1.0)
 	var stat_modifiers = mech.stat_modifiers.duplicate()
 	var proc_synergies = packet.proc_synergies.duplicate()
 

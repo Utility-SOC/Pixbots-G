@@ -63,7 +63,11 @@ func _ready():
 	_check("broken arm's weapons are gone, the other limbs' remain", after.get(arm_slot, 0) == 0 and m.precalculated_weapons.size() == start - arm_weapons)
 	var part_name = {HexTile.BodySlot.ARM_L: "Arm_true", HexTile.BodySlot.ARM_R: "Arm_false"}[arm_slot]
 	var drawn = m._renderer.drawn_parts.get(part_name)
-	_check("the broken arm's sprite is hidden", drawn != null and not drawn.visible)
+	_check("husk style (default): the broken arm stays visible but dark", drawn != null and drawn.visible and drawn.modulate.r < 0.4)
+	SaveManager.broken_limb_style = 1
+	m._renderer.apply_broken_parts()
+	_check("removed style: the broken arm's sprite is hidden", drawn != null and not drawn.visible)
+	SaveManager.broken_limb_style = 0
 	var torso_hp = m.hp
 	m.apply_part_damage(arm_slot, 100.0, "RAW")
 	_check("hits on the stump are redirected to the torso (not a free decoy)", m.components[arm_slot].is_broken and m.hp < torso_hp)
@@ -85,7 +89,7 @@ func _ready():
 			t.is_disabled = false
 			t.power_lost = false
 	m._recalculate_grid()
-	_check("repair shows the arm sprite again", m._renderer.drawn_parts[part_name].visible)
+	_check("repair shows the arm sprite again at normal colour", m._renderer.drawn_parts[part_name].visible and m._renderer.drawn_parts[part_name].modulate.r > 0.9)
 	_check("repair restores all limbs and weapons", m.precalculated_weapons.size() == start and not m.components[arm_slot].is_broken)
 	m.update_status_effects(0.016)
 	_check("repair restores movement speed", absf(m.current_move_speed - s_full) < 0.01)

@@ -825,8 +825,22 @@ func _build_visuals():
 	# magnitude mixed-splitter shot.
 	if is_banked_shot:
 		p_scale *= 1.35
-	p_scale = min(p_scale, 8.0)
+	var uncapped_scale = min(p_scale, 8.0)
+	p_scale = min(uncapped_scale, SaveManager.projectile_scale_cap())
 	visual_scale = p_scale # so _ready()'s CollisionShape2D can match this
+	if p_scale < uncapped_scale - 0.05:
+		# Size was capped (setting/difficulty): show the lost magnitude as a
+		# brighter shot plus a thin power ring instead of a bigger one.
+		var pf = SaveManager.projectile_power_fraction(total_power)
+		var ring = Line2D.new()
+		var pts = PackedVector2Array()
+		for k in range(17):
+			pts.append(Vector2.from_angle(TAU * float(k) / 16.0) * (7.0 * p_scale + 3.0))
+		ring.points = pts
+		ring.width = 1.0 + 2.5 * pf
+		ring.default_color = Color(final_color.r, final_color.g, final_color.b, 0.35 + 0.5 * pf)
+		visual_node.add_child(ring)
+		modulate = Color(1.0 + 0.6 * pf, 1.0 + 0.6 * pf, 1.0 + 0.6 * pf, 1.0)
 
 	if dominant == EnergyPacket.SynergyType.KINETIC:
 		# Sharp, aerodynamic shape

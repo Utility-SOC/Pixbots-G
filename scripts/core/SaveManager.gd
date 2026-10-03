@@ -283,6 +283,46 @@ func set_batch_render_mode(mode: int):
 	config.set_value("Rendering", "BatchRenderMode", batch_render_mode)
 	config.save(SETTINGS_PATH)
 
+# How a shot's MAGNITUDE shows on screen (late-game shots reach 600,000 and
+# used to balloon to 8x size, burying the screen). 0 Full scale (old
+# behaviour), 1 Auto (size cap tightens with difficulty), 2 Compact (small
+# shots; power reads through brightness and a power ring instead of size).
+# Size drives the hit radius too (sqrt of it), so a lower cap also shrinks
+# the biggest shots' hitbox - damage, not area, carries the power.
+const PROJECTILE_SIZE_MODE_NAMES = ["Full scale", "Auto (cap shrinks with difficulty)", "Compact (glow shows power)"]
+const PROJECTILE_SCALE_CAP_BY_DIFFICULTY = [8.0, 5.0, 3.5, 2.5]
+var projectile_size_mode: int = 1
+
+func set_projectile_size_mode(mode: int):
+	projectile_size_mode = clamp(mode, 0, 2)
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("Rendering", "ProjectileSizeMode", projectile_size_mode)
+	config.save(SETTINGS_PATH)
+
+func projectile_scale_cap() -> float:
+	match projectile_size_mode:
+		0: return 8.0
+		2: return 1.6
+	return PROJECTILE_SCALE_CAP_BY_DIFFICULTY[clamp(difficulty, 0, 3)]
+
+# 0..1 "how powerful is this shot" on a log scale up to the 600,000 ceiling -
+# drives the glow/ring that stands in for size when the size cap bites.
+static func projectile_power_fraction(magnitude: float) -> float:
+	return clampf(log(1.0 + magnitude / 200.0) / log(1.0 + 600000.0 / 200.0), 0.0, 1.0)
+
+# What a destroyed limb looks like: 0 husk (dark, lifeless wreck stays attached),
+# 1 removed (part vanishes). Cosmetic only; the limb is broken either way.
+const BROKEN_LIMB_STYLE_NAMES = ["Husk (dark wreck stays)", "Removed (part vanishes)"]
+var broken_limb_style: int = 0
+
+func set_broken_limb_style(style: int):
+	broken_limb_style = clamp(style, 0, 1)
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("Rendering", "BrokenLimbStyle", broken_limb_style)
+	config.save(SETTINGS_PATH)
+
 # Live-combat cutover (2026-08-11) - "switch to batch for main gameplay,
 # but be able to enable the legacy system." Default OFF: the real
 # Projectile.gd path stays the default renderer/simulator for every real
@@ -315,6 +355,8 @@ func _ready():
 		pilot_name = str(config.get_value("Game", "PilotName", "Unknown Pilot"))
 		batch_render_mode = clamp(int(config.get_value("Rendering", "BatchRenderMode", 0)), 0, 4)
 		batch_renderer_in_combat = bool(config.get_value("Rendering", "BatchInCombat", false))
+		projectile_size_mode = clamp(int(config.get_value("Rendering", "ProjectileSizeMode", 1)), 0, 2)
+		broken_limb_style = clamp(int(config.get_value("Rendering", "BrokenLimbStyle", 0)), 0, 1)
 
 # SAVE FORMAT VERSION LOG (bump on any schema change; loaders are
 # has()-guarded so old saves keep working, this is for humans + future

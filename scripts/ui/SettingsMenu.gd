@@ -86,6 +86,31 @@ func _setup_ui():
 	visuals_tab.name = "Visuals"
 	tab_container.add_child(visuals_tab)
 
+	var size_label = Label.new()
+	size_label.text = "Projectile Size vs. Power"
+	visuals_tab.add_child(size_label)
+	var size_hint = Label.new()
+	size_hint.text = "Late-game shots can grow huge. Auto tightens the size cap on harder difficulties; Compact keeps shots small and shows power as glow and a ring. Applies to newly fired shots."
+	size_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	size_hint.modulate = Color(0.7, 0.7, 0.7)
+	visuals_tab.add_child(size_hint)
+	var opt_size = OptionButton.new()
+	for n in SaveManager.PROJECTILE_SIZE_MODE_NAMES:
+		opt_size.add_item(n)
+	opt_size.selected = SaveManager.projectile_size_mode
+	opt_size.item_selected.connect(func(index): SaveManager.set_projectile_size_mode(index))
+	visuals_tab.add_child(opt_size)
+
+	var limb_label = Label.new()
+	limb_label.text = "Destroyed Limbs"
+	visuals_tab.add_child(limb_label)
+	var opt_limb = OptionButton.new()
+	for n in SaveManager.BROKEN_LIMB_STYLE_NAMES:
+		opt_limb.add_item(n)
+	opt_limb.selected = SaveManager.broken_limb_style
+	opt_limb.item_selected.connect(func(index): SaveManager.set_broken_limb_style(index))
+	visuals_tab.add_child(opt_limb)
+
 	var render_mode_label = Label.new()
 	render_mode_label.text = "Projectile Render Mode"
 	visuals_tab.add_child(render_mode_label)

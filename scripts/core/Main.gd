@@ -1106,7 +1106,7 @@ func _start_wave():
 	LootManager.current_wave = current_wave
 	_wave_guaranteed_mythic_used = false
 	# Reactive music: combat loop (faster arps + drums) for the wave.
-	AudioManager.set_combat_state(true)
+	AudioManager.set_combat_state(true, current_wave)
 
 	var director = _ensure_squad_director()
 
@@ -1477,6 +1477,7 @@ func _spawn_boss(director, is_mega: bool):
 	var boss_rarity_floor = HexTile.Rarity.MYTHIC if _difficulty_scaling_wave() >= MYTHIC_MILESTONE_START_WAVE else 0
 	var boss = director._spawn_bot_for_role(profile.base_role, false, boss_rarity_floor)
 	boss.boss_profile = profile
+	AudioManager.set_boss(true) # heavier boss track over the wave music
 	var hp_mult = profile.hp_mult
 	if is_mega:
 		boss.scale = Vector2(3.0, 3.0)

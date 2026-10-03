@@ -3,7 +3,7 @@ extends Node
 # End-to-end frame-time benchmark of the REAL wave loop (real squads, real
 # spawn stagger, real AI). Run windowed:
 #   godot --path . res://scripts/debug/BenchGame.tscn -- --wave=12 --seconds=40
-# Options: --wave=N (starting wave, scales enemy count), --seconds=S,
+# Options: --map=TYPE (force a map type), --wave=N (starting wave, scales enemy count), --seconds=S,
 # --nofire, --rate=N (fps cap; default uncapped/no vsync).
 # Player gets unlimited lives and full HP so the run can't end early.
 # Output: one BENCH_SEC line per second, then a BENCH summary line.
@@ -22,6 +22,7 @@ var _peak_enemies := 0
 var _peak_nodes := 0
 var _hist_done := false
 var _seed := 1
+var _map_type := ""
 var _notrees := false
 var _nomusic := false
 var _presolve := false
@@ -35,6 +36,7 @@ func _ready():
 		elif a.begins_with("--rate="): _cap = int(a.split("=")[1])
 		elif a == "--nofire": _fire = false
 		elif a.begins_with("--seed="): _seed = int(a.split("=")[1])
+		elif a.begins_with("--map="): _map_type = a.split("=")[1]
 		elif a == "--notrees": _notrees = true
 		elif a == "--nomusic": _nomusic = true
 		elif a == "--presolve": _presolve = true
@@ -46,6 +48,8 @@ func _ready():
 		ProceduralMusic.set_process(false)
 		ProceduralMusic.stop()
 		AudioManager._quitting = true
+	if _map_type != "":
+		SaveManager.pending_run_card = {"map_type": _map_type, "layout": "auto", "seed": 0}
 	_main = load("res://main.tscn").instantiate()
 	get_tree().root.add_child.call_deferred(_main)
 	(func(): get_tree().current_scene = _main).call_deferred()

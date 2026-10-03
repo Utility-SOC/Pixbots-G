@@ -72,6 +72,18 @@ fn lerp_color(from: Color, to: Color, weight: f32) -> Color {
 
 // Matches Godot's own Image::set_pixel byte conversion (truncating cast, not
 // rounding) - see part_rasterizer.rs's color_to_bytes for the same note.
+// Masonry colour for the full-tile "Wall" obstacle, tinted by the ground it
+// stands on so forts in the desert read as sandstone, in tundra as ice-stone.
+fn wall_color(biome: i32) -> Color {
+    match biome {
+        BIOME_DESERT => Color::from_rgba(0.72, 0.6, 0.4, 1.0),
+        BIOME_TUNDRA => Color::from_rgba(0.68, 0.76, 0.84, 1.0),
+        BIOME_VOLCANO => Color::from_rgba(0.2, 0.16, 0.18, 1.0),
+        BIOME_DUNGEON => Color::from_rgba(0.3, 0.28, 0.38, 1.0),
+        _ => Color::from_rgba(0.5, 0.48, 0.46, 1.0),
+    }
+}
+
 fn color_to_bytes(c: Color) -> [u8; 4] {
     [
         (c.r.clamp(0.0, 1.0) * 255.0) as u8,
@@ -108,6 +120,8 @@ const BIOME_FOREST: i32 = 3;
 const BIOME_TUNDRA: i32 = 4;
 const BIOME_VOLCANO: i32 = 5;
 const BIOME_DUNGEON: i32 = 6;
+const BIOME_ROAD: i32 = 7;
+const BIOME_FLOOR: i32 = 8;
 
 const GROUND_PIXEL_SIZE: i32 = 8;
 
@@ -136,6 +150,8 @@ fn biome_color(map_type: &str, biome: i32) -> Color {
         BIOME_TUNDRA => Color::from_rgba(0.8, 0.9, 0.9, 1.0),
         BIOME_VOLCANO => Color::from_rgba(0.3, 0.1, 0.1, 1.0),
         BIOME_DUNGEON => Color::from_rgba(0.15, 0.1, 0.2, 1.0),
+        BIOME_ROAD => Color::from_rgba(0.58, 0.47, 0.33, 1.0),
+        BIOME_FLOOR => Color::from_rgba(0.4, 0.37, 0.38, 1.0),
         _ => Color::from_rgba(0.0, 0.0, 0.0, 1.0),
     }
 }
@@ -210,6 +226,23 @@ fn textured_pixel_color(rng: &mut Rng, map_type: &str, base: Color, biome: i32) 
                 darkened(base, 0.15 + rng.randf() * 0.15)
             } else {
                 darkened(base, rng.randf() * 0.06)
+            }
+        }
+        BIOME_ROAD => {
+            let roll = rng.randf();
+            if roll < 0.18 {
+                darkened(base, 0.1 + rng.randf() * 0.12)
+            } else if roll < 0.28 {
+                lightened(base, 0.1)
+            } else {
+                darkened(base, rng.randf() * 0.04)
+            }
+        }
+        BIOME_FLOOR => {
+            if rng.randf() < 0.2 {
+                darkened(base, 0.08 + rng.randf() * 0.1)
+            } else {
+                lightened(base, rng.randf() * 0.04)
             }
         }
         BIOME_WATER => {
@@ -321,6 +354,12 @@ impl TerrainRasterizer {
                     }
                 }
 
+                if biome == BIOME_FLOOR {
+                    let mortar = darkened(base, 0.3);
+                    fill_rect(&mut pixels, img_w, img_h, local_x, local_y, tile_size, 2, mortar);
+                    fill_rect(&mut pixels, img_w, img_h, local_x, local_y, 2, tile_size, mortar);
+                }
+
                 // Trees, RuinParts, and the DestructibleObstacle-backed flat
                 // types (Boulder/Cactus/IceBoulder/LavaRock/StoneWall) have
                 // real scene nodes drawing them now - only the remaining
@@ -331,7 +370,17 @@ impl TerrainRasterizer {
                     obstacle_name.as_str(),
                     "Boulder" | "Cactus" | "IceBoulder" | "LavaRock" | "StoneWall"
                 );
-                if !obstacle_name.is_empty() && obstacle_name != "Tree" && obstacle_name != "RuinPart" && !is_destructible_flat {
+                if obstacle_name == "Wall" {
+                    let wc = wall_color(biome);
+                    fill_rect(&mut pixels, img_w, img_h, local_x, local_y, tile_size, tile_size, wc);
+                    fill_rect(&mut pixels, img_w, img_h, local_x, local_y, tile_size, 4, lightened(wc, 0.18));
+                    fill_rect(&mut pixels, img_w, img_h, local_x, local_y + tile_size - 4, tile_size, 4, darkened(wc, 0.3));
+                    let mortar = darkened(wc, 0.4);
+                    fill_rect(&mut pixels, img_w, img_h, local_x, local_y + tile_size / 2 - 1, tile_size, 2, mortar);
+                    let seam = if ty % 2 == 0 { tile_size / 2 } else { tile_size / 4 };
+                    fill_rect(&mut pixels, img_w, img_h, local_x + seam, local_y, 2, tile_size / 2, mortar);
+                    fill_rect(&mut pixels, img_w, img_h, local_x + seam + tile_size / 2, local_y + tile_size / 2, 2, tile_size / 2, mortar);
+                } else if !obstacle_name.is_empty() && obstacle_name != "Tree" && obstacle_name != "RuinPart" && !is_destructible_flat {
                     if obstacle_name == "Tractor" {
                         let obs_color = Color::from_rgba(0.55, 0.28, 0.12, 1.0);
                         fill_rect(&mut pixels, img_w, img_h, local_x + 8, local_y + 8, tile_size - 16, tile_size - 16, obs_color);

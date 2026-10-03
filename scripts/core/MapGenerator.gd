@@ -7,6 +7,7 @@ extends Node2D
 # build_installer.ps1 works around with a warm-up pass), so a bare
 # `DestructibleObstacle.OBSTACLE_STATS` reference can fail to resolve.
 const DestructibleObstacleScript = preload("res://scripts/core/DestructibleObstacle.gd")
+const MapStructure = preload("res://scripts/core/MapStructure.gd")
 
 var width: int = 400
 var height: int = 250
@@ -55,7 +56,7 @@ const MOSTLY_WATER_THRESHOLD = 0.5
 func is_mostly_water() -> bool:
 	return water_fraction > MOSTLY_WATER_THRESHOLD
 
-enum BiomeType { GRASSLAND, WATER, DESERT, FOREST, TUNDRA, VOLCANO, DUNGEON }
+enum BiomeType { GRASSLAND, WATER, DESERT, FOREST, TUNDRA, VOLCANO, DUNGEON, ROAD, FLOOR }
 
 # --- FightShovel 1920: corn fields + trampled trails (Utility-SOC) --------
 # Vector2i -> true for every tile marked as corn during generation (see the
@@ -369,6 +370,7 @@ func _generate_map():
 		if obstacle_noise:
 			obstacle_noise.seed = randi()
 		
+		var region_seeds: Array = MapStructure.prepare_regions(self) if map_type == "Normal" else []
 		var arena_center = Vector2(width / 2.0, height / 2.0)
 		var rx = 100.0 # 200 tiles wide
 		var ry = 60.0  # 120 tiles tall
@@ -413,9 +415,9 @@ func _generate_map():
 					# Tabletop reusing it for the plywood mat.
 					biome = BiomeType.DESERT
 				else:
-					var elev = noise.get_noise_2d(x, y)
-					var moist = moisture_noise.get_noise_2d(x, y)
-					biome = _get_biome(elev, moist)
+					# Normal: a handful of big contiguous regions (warped Voronoi)
+					# rather than the old noise-threshold patchwork that read as camo.
+					biome = MapStructure.region_biome(self, region_seeds, x, y)
 					
 				row.append(biome)
 				if biome == BiomeType.WATER:
@@ -429,7 +431,19 @@ func _generate_map():
 						obstacles[Vector2i(x, y)] = _get_obstacle_name(biome)
 			terrain.append(row)
 			
-		if map_type in LAYOUT_TYPES:
+		# Structure pass: zones, built set pieces and roads (land maps) or
+		# real rooms+corridors (Dungeon), before the macro layout overlay.
+		if map_type == "Dungeon":
+			MapStructure.build_dungeon(self)
+		elif map_type in MapStructure.ZONE_WEIGHTS:
+			MapStructure.build_regions(self)
+			water_tile_count = 0
+			for wy in range(height):
+				for wx in range(width):
+					if terrain[wy][wx] == BiomeType.WATER:
+						water_tile_count += 1
+
+		if map_type in LAYOUT_TYPES and map_type != "Dungeon":
 			layout_name = map_layout if map_layout != "auto" else LAYOUT_ROLL[randi() % LAYOUT_ROLL.size()]
 			if not LAYOUTS.has(layout_name):
 				layout_name = "none"
@@ -1134,7 +1148,9 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 				# real scene nodes drawing them now - only the remaining
 				# genuinely flat/indestructible types (Tractor, Fence) get a
 				# painted square baked into the static terrain texture.
-				if obstacles.has(pos) and obstacles[pos] != "Tree" and obstacles[pos] != "RuinPart" and not DestructibleObstacleScript.OBSTACLE_STATS.has(obstacles[pos]):
+				if obstacles.get(pos, "") == "Wall":
+					_paint_wall_tile(img, local_x, local_y, biome, ty)
+				elif obstacles.has(pos) and obstacles[pos] != "Tree" and obstacles[pos] != "RuinPart" and not DestructibleObstacleScript.OBSTACLE_STATS.has(obstacles[pos]):
 					var obs_rect = Rect2i(local_x + 8, local_y + 8, tile_size - 16, tile_size - 16)
 					var obs_color = Color(0.2, 0.2, 0.2)
 					if obstacles[pos] == "Tractor":
@@ -1388,6 +1404,8 @@ func _get_biome_color(biome: BiomeType) -> Color:
 		BiomeType.TUNDRA: return Color(0.8, 0.9, 0.9)
 		BiomeType.VOLCANO: return Color(0.3, 0.1, 0.1)
 		BiomeType.DUNGEON: return Color(0.15, 0.1, 0.2)
+		BiomeType.ROAD: return Color(0.58, 0.47, 0.33)
+		BiomeType.FLOOR: return Color(0.4, 0.37, 0.38)
 	return Color.BLACK
 
 # Chunky "fat pixel" size for the ground texture, in real pixels. tile_size
@@ -1418,6 +1436,29 @@ func _paint_textured_tile(img: Image, local_x: int, local_y: int, biome: BiomeTy
 			else:
 				color = _get_textured_pixel_color(base, biome)
 			img.fill_rect(Rect2i(local_x + bx * GROUND_PIXEL_SIZE, local_y + by * GROUND_PIXEL_SIZE, GROUND_PIXEL_SIZE, GROUND_PIXEL_SIZE), color)
+	if biome == BiomeType.FLOOR: # flagstone mortar
+		var mortar = base.darkened(0.3)
+		img.fill_rect(Rect2i(local_x, local_y, tile_size, 2), mortar)
+		img.fill_rect(Rect2i(local_x, local_y, 2, tile_size), mortar)
+
+# Full-tile masonry for the "Wall" obstacle, tinted by the ground it stands on
+# (mirrors terrain_rasterizer.rs's wall_color/painting).
+func _paint_wall_tile(img: Image, local_x: int, local_y: int, biome: int, ty: int) -> void:
+	var wc = Color(0.5, 0.48, 0.46)
+	match biome:
+		BiomeType.DESERT: wc = Color(0.72, 0.6, 0.4)
+		BiomeType.TUNDRA: wc = Color(0.68, 0.76, 0.84)
+		BiomeType.VOLCANO: wc = Color(0.2, 0.16, 0.18)
+		BiomeType.DUNGEON: wc = Color(0.3, 0.28, 0.38)
+	var t = tile_size
+	img.fill_rect(Rect2i(local_x, local_y, t, t), wc)
+	img.fill_rect(Rect2i(local_x, local_y, t, 4), wc.lightened(0.18))
+	img.fill_rect(Rect2i(local_x, local_y + t - 4, t, 4), wc.darkened(0.3))
+	var mortar = wc.darkened(0.4)
+	img.fill_rect(Rect2i(local_x, local_y + t / 2 - 1, t, 2), mortar)
+	var seam = t / 2 if ty % 2 == 0 else t / 4
+	img.fill_rect(Rect2i(local_x + seam, local_y, 2, t / 2), mortar)
+	img.fill_rect(Rect2i(local_x + seam + t / 2, local_y + t / 2, 2, t / 2), mortar)
 
 func _get_textured_pixel_color(base: Color, biome: BiomeType) -> Color:
 	# Flock texture for the Tabletop mat: mottled rust with darker worn
@@ -1439,6 +1480,14 @@ func _get_textured_pixel_color(base: Color, biome: BiomeType) -> Color:
 		elif dust_roll < 0.30: return Color(0.7, 0.63, 0.5).lerp(base, 0.35) # drifted dust
 		return base.darkened(randf() * 0.05)
 	match biome:
+		BiomeType.ROAD:
+			var rroll = randf()
+			if rroll < 0.18: return base.darkened(0.1 + randf() * 0.12)
+			elif rroll < 0.28: return base.lightened(0.1)
+			return base.darkened(randf() * 0.04)
+		BiomeType.FLOOR:
+			if randf() < 0.2: return base.darkened(0.08 + randf() * 0.1)
+			return base.lightened(randf() * 0.04)
 		BiomeType.GRASSLAND:
 			# Darker flecks read as little grass tufts, occasional lighter
 			# blocks break up the flatness without looking noisy.

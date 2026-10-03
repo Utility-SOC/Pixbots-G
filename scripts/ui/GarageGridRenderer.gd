@@ -387,7 +387,7 @@ func _draw():
 
 	# 5. Loop / saturation warning
 	if overload_tile_count > 0 or saturated:
-		var msg = "WARNING: %d tile(s) outlined red can't carry the energy fed into them (over %d per packet) - the excess bounces back. Upgrade that tile to Mythic or split the stream before it." % [overload_tile_count, int(EnergyPacket.NORMAL_MAGNITUDE_CAP)] if overload_tile_count > 0 else "WARNING: energy never settles - the sim hit its step limit."
+		var msg = "WARNING: %d red tile(s) are overloaded (>%d per packet) - excess bounces back. Use Mythic or split the stream." % [overload_tile_count, int(EnergyPacket.NORMAL_MAGNITUDE_CAP)] if overload_tile_count > 0 else "WARNING: energy never settles - the sim hit its step limit."
 		var font = ThemeDB.fallback_font
 		draw_string(font, Vector2(12, 22), msg, HORIZONTAL_ALIGNMENT_LEFT, size.x - 24, 14, Color(1.0, 0.45, 0.4))
 

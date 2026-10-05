@@ -323,12 +323,12 @@ func set_broken_limb_style(style: int):
 	config.set_value("Rendering", "BrokenLimbStyle", broken_limb_style)
 	config.save(SETTINGS_PATH)
 
-# Live-combat cutover (2026-08-11) - "switch to batch for main gameplay,
-# but be able to enable the legacy system." Default OFF: the real
-# Projectile.gd path stays the default renderer/simulator for every real
-# fight until you flip this yourself, same [Rendering] settings.cfg
+# Live-combat cutover (2026-08-11): batch pool for real combat, legacy
+# Projectile.gd path still selectable. Default flipped to ON 2026-10-05
+# (atlas renderer, ~9x cheaper per mixed-element shot on the HD 4000); turn it
+# off in Settings > Visuals for the legacy path. Same [Rendering] settings.cfg
 # section as batch_render_mode above.
-var batch_renderer_in_combat: bool = false
+var batch_renderer_in_combat: bool = true
 
 func set_batch_renderer_in_combat(enabled: bool):
 	batch_renderer_in_combat = enabled
@@ -354,7 +354,7 @@ func _ready():
 		difficulty = clamp(int(config.get_value("Game", "Difficulty", 1)), 0, 3)
 		pilot_name = str(config.get_value("Game", "PilotName", "Unknown Pilot"))
 		batch_render_mode = clamp(int(config.get_value("Rendering", "BatchRenderMode", 0)), 0, 4)
-		batch_renderer_in_combat = bool(config.get_value("Rendering", "BatchInCombat", false))
+		batch_renderer_in_combat = bool(config.get_value("Rendering", "BatchInCombat", true))
 		projectile_size_mode = clamp(int(config.get_value("Rendering", "ProjectileSizeMode", 1)), 0, 2)
 		broken_limb_style = clamp(int(config.get_value("Rendering", "BrokenLimbStyle", 0)), 0, 1)
 

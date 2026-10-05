@@ -125,8 +125,14 @@ func should_show_full_ornament(synergy_type: int) -> bool:
 	_ornament_counters[synergy_type] = count
 	return count % rate == 0
 
+# Batch-pool shots cost roughly a fifth of a legacy Projectile node each
+# (measured 2026-10-05), so they count at that weight toward the tiers.
+const BATCH_SHOT_WEIGHT = 0.2
+
 func consolidation_factor() -> int:
 	var n = _active.size()
+	if should_use_batch_pool():
+		n += int(live_batch_pool.live_count() * BATCH_SHOT_WEIGHT)
 	for tier in CONSOLIDATE_TIERS:
 		if n >= tier[0]:
 			return tier[1]

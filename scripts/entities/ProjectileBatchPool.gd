@@ -416,6 +416,8 @@ func _ready():
 	# 60, floating labels z_index 90/100).
 	z_index = 50
 	_setup_render_polygons()
+	_ensure_atlas()
+	_setup_atlas_colors()
 	_ensure_flight_rust()
 
 # Same pattern as ProjectileManager._ensure_flight_rust() - real Node
@@ -872,7 +874,319 @@ func _process(delta):
 # unlike the old MultiMesh setup's careful "trail child added before
 # body child" ordering, draw order here doesn't need to match visual
 # layering intent at all.
+# --- Atlas renderer (2026-10-05 perf pass) ---------------------------------
+# Measured on the HD 4000: the polygon _draw() below costs ~0.4 ms PER SHOT
+# (each draw_colored_polygon is its own GPU draw; 450 mixed shots = 4500
+# draws = 133 ms/frame). Godot merges consecutive draw_texture_rect_region
+# calls that share one texture into a single draw, so the same 4500 quads
+# cost ~6.6 ms. Every shape the FLAT render mode draws (10 synergy bodies,
+# beam needle, soft disc for glow/sparks, Fire/Kinetic comets) is therefore
+# rasterised ONCE per process into a single atlas, and the default _draw
+# path just places tinted quads. Variety stays: shape per element, orbiting
+# secondary echoes, vortex helix, comet trails, sparks, glow scaled by size.
+# The cosmetic Pie/Blend/Starburst/Rings modes keep the polygon path.
+const ATLAS_PPU = 3.0 # texels per world unit
+const ATLAS_SUB = 3 # vertical subsamples per texel row (x coverage is exact)
+const ATLAS_WIDTH = 512
+const CELL_BEAM = 10
+const CELL_DISC = 11
+const CELL_COMET_FIRE = 12
+const CELL_COMET_KINETIC = 13
+static var _atlas_tex: ImageTexture = null
+static var _atlas_units: Array = [] # Rect2 per cell, in world units (draw rect)
+static var _atlas_px: Array = [] # Rect2 per cell, in texels (source rect)
+var use_atlas: bool = true # false = original per-polygon draw (visual A/B, debugging)
+var _echo_colors: Array = []
+var _vortex_color: Color
+
+static func _ensure_atlas():
+	if _atlas_tex != null:
+		return
+	var specs: Array = [] # [unit Rect2, kind, poly]
+	for syn in range(10):
+		specs.append([Rect2(-14, -14, 28, 28), "poly", _get_polygon_for_synergy(syn)])
+	specs.append([Rect2(-26, -2.5, 52, 5), "poly", PackedVector2Array([Vector2(24, 0), Vector2(3, 1.2), Vector2(-24, 0), Vector2(3, -1.2)])])
+	specs.append([Rect2(-8, -8, 16, 16), "disc", PackedVector2Array()])
+	specs.append([Rect2(-23, -4, 24, 8), "comet", _build_tapered_trail_points(22.0, 7.0)])
+	specs.append([Rect2(-17, -3.5, 18, 7), "comet", _build_tapered_trail_points(16.0, 3.0)])
+	# Shelf-pack.
+	var placements: Array = []
+	var x = 0
+	var y = 0
+	var row_h = 0
+	for sp in specs:
+		var w = int(ceil(sp[0].size.x * ATLAS_PPU))
+		var h = int(ceil(sp[0].size.y * ATLAS_PPU))
+		if x + w > ATLAS_WIDTH:
+			x = 0
+			y += row_h
+			row_h = 0
+		placements.append(Vector2i(x, y))
+		x += w
+		row_h = max(row_h, h)
+	var atlas_h = y + row_h
+	var data = PackedByteArray()
+	data.resize(ATLAS_WIDTH * atlas_h * 4)
+	data.fill(255) # white RGB, alpha overwritten below
+	for k in range(data.size() / 4):
+		data[k * 4 + 3] = 0
+	_atlas_units = []
+	_atlas_px = []
+	for idx in range(specs.size()):
+		var sp = specs[idx]
+		var ur: Rect2 = sp[0]
+		var w = int(ceil(ur.size.x * ATLAS_PPU))
+		var h = int(ceil(ur.size.y * ATLAS_PPU))
+		var ox = placements[idx].x
+		var oy = placements[idx].y
+		_atlas_units.append(ur)
+		_atlas_px.append(Rect2(ox, oy, w, h))
+		var row = PackedFloat32Array()
+		row.resize(w)
+		for py in range(h):
+			row.fill(0.0)
+			if sp[1] == "disc":
+				for px in range(w):
+					var u = Vector2((px + 0.5) / ATLAS_PPU + ur.position.x, (py + 0.5) / ATLAS_PPU + ur.position.y).length() / 8.0
+					row[px] = clamp((1.0 - u) / 0.25, 0.0, 1.0) # soft edge over the outer quarter
+			else:
+				_scan_row(sp[2], ur, py, w, row)
+				if sp[1] == "comet":
+					var length = -sp[2][2].x
+					for px in range(w):
+						var xu = (px + 0.5) / ATLAS_PPU + ur.position.x
+						row[px] *= clamp(1.0 + xu / length, 0.0, 1.0)
+			var base = ((oy + py) * ATLAS_WIDTH + ox) * 4
+			for px in range(w):
+				data[base + px * 4 + 3] = int(clamp(row[px], 0.0, 1.0) * 255.0)
+	var img = Image.create_from_data(ATLAS_WIDTH, atlas_h, false, Image.FORMAT_RGBA8, data)
+	_atlas_tex = ImageTexture.create_from_image(img)
+
+# Exact-in-x, ATLAS_SUB-sampled-in-y even-odd coverage of `poly` for one
+# texel row, accumulated into `row` (0..1 per texel).
+static func _scan_row(poly: PackedVector2Array, ur: Rect2, py: int, w: int, row: PackedFloat32Array):
+	var n = poly.size()
+	for sub in range(ATLAS_SUB):
+		var yu = ur.position.y + (py + (sub + 0.5) / ATLAS_SUB) / ATLAS_PPU
+		var xs: Array = []
+		for e in range(n):
+			var a = poly[e]
+			var b = poly[(e + 1) % n]
+			if (a.y <= yu and b.y > yu) or (b.y <= yu and a.y > yu):
+				xs.append(a.x + (yu - a.y) / (b.y - a.y) * (b.x - a.x))
+		xs.sort()
+		var k = 0
+		while k + 1 < xs.size():
+			var pa = clamp((xs[k] - ur.position.x) * ATLAS_PPU, 0.0, float(w))
+			var pb = clamp((xs[k + 1] - ur.position.x) * ATLAS_PPU, 0.0, float(w))
+			var p0 = int(floor(pa))
+			var p1 = min(int(floor(pb)), w - 1)
+			for px in range(p0, p1 + 1):
+				row[px] += (min(pb, px + 1.0) - max(pa, float(px))) / ATLAS_SUB
+			k += 2
+
+func _setup_atlas_colors():
+	_echo_colors.resize(10)
+	for syn in range(10):
+		_echo_colors[syn] = EnergyPacket.get_color_for_synergy(syn) * 1.5
+	_vortex_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.VORTEX)
+
+func _dq(cell: int, pos: Vector2, rot: float, sx: float, sy: float, col: Color):
+	draw_set_transform(pos, rot, Vector2(sx, sy))
+	draw_texture_rect_region(_atlas_tex, _atlas_units[cell], _atlas_px[cell], col)
+
+func _draw_atlas():
+	_gv.clear()
+	_gc.clear()
+	_gi.clear()
+	for i in range(_highest_active + 1):
+		if _alive[i] == 0:
+			continue
+		var syn = _dominant_synergy[i]
+		if syn < 0 or syn >= 10:
+			continue
+		var dir = _direction[i]
+		var rot = dir.angle()
+		var rp = _position[i] + _visual_offset[i]
+		var sc = _scale[i]
+		var c = _color[i]
+		var a = 1.0 - (clamp(_elapsed[i] / _lifetime[i], 0.0, 1.0) if _lifetime[i] > 0.0 else 0.0)
+		c.a = a
+		var beam = _is_beam[i] == 1
+
+		if not beam:
+			var gc = c
+			gc.a = a * GLOW_ALPHA_MULT
+			var gs = GLOW_BASE_RADIUS * sc * GLOW_SCALE_MULT / 8.0
+			_dq(CELL_DISC, rp, 0.0, gs, gs, gc)
+
+		var tc = c
+		tc.a = a * TRAIL_ALPHA_MULT
+		var trail_cell = syn
+		if syn == EnergyPacket.SynergyType.FIRE:
+			trail_cell = CELL_COMET_FIRE
+		elif syn == EnergyPacket.SynergyType.KINETIC:
+			trail_cell = CELL_COMET_KINETIC
+		_dq(trail_cell, rp - dir * TRAIL_OFFSET_PX, rot, sc * TRAIL_SCALE_MULT, sc * TRAIL_SCALE_MULT, tc)
+
+		var body = CELL_BEAM if beam else syn
+		var sx = sc * (clamp(_speed[i] / 500.0, 1.0, 3.0) if beam else 1.0)
+		if render_mode == RenderMode.FLAT or (beam and render_mode == RenderMode.SHAPE_BLEND):
+			_dq(body, rp, rot, sx, sc, c)
+			_dq(body, rp, rot, sx * 0.5, sc * 0.5, c)
+		else:
+			var xf = Transform2D(rot, Vector2(sx, sc), 0.0, rp)
+			if render_mode == RenderMode.SHAPE_BLEND:
+				# Aura AND core are this shot's own blended outline (a star-shaped
+				# radial profile, so a centre fan triangulates it exactly).
+				var blend = _blended_polygon_for_slot(i)
+				_emit_fan(blend, xf, c)
+				_emit_fan(blend, Transform2D(rot, Vector2(sx * 0.5, sc * 0.5), 0.0, rp), c)
+			else:
+				_dq(body, rp, rot, sx, sc, c) # synergy aura stays an atlas quad
+				var ratios = _pie_ratios_for_slot(i)
+				match render_mode:
+					RenderMode.PIE_CHART: _emit_pie(ratios, xf, a)
+					RenderMode.STARBURST: _emit_starburst(ratios, xf, a)
+					RenderMode.RINGS: _emit_rings(ratios, xf, a)
+
+		var el = _elapsed[i]
+		if syn == EnergyPacket.SynergyType.VORTEX:
+			var vc = _vortex_color
+			vc.a = a
+			for orb in range(3):
+				var ang = el * VORTEX_HELIX_SPEED + orb * (TAU / 3.0)
+				var op = rp + Vector2(cos(ang), sin(ang)) * VORTEX_HELIX_RADIUS
+				var cell = VORTEX_HELIX_CHANNELS[orb]
+				_dq(cell, op, rot, sc * ECHO_SCALE_MULT, sc * ECHO_SCALE_MULT, vc)
+				_dq(cell, op, rot, sc * ECHO_SCALE_MULT * 0.5, sc * ECHO_SCALE_MULT * 0.5, vc)
+		else:
+			var s1 = _secondary_synergy_1[i]
+			if s1 != NO_SYNERGY:
+				var ec: Color
+				var ep: Vector2
+				if s1 == EnergyPacket.SynergyType.PIERCE:
+					ec = Color(1.0, 1.0, 1.0, a * 0.8)
+					ep = rp
+				else:
+					ec = _echo_colors[s1]
+					ec.a = a
+					var ang1 = el * ECHO_ORBIT_SPEED
+					ep = rp + Vector2(cos(ang1), sin(ang1)) * ECHO_ORBIT_RADIUS
+				_dq(s1, ep, rot, sc * ECHO_SCALE_MULT, sc * ECHO_SCALE_MULT, ec)
+				_dq(s1, ep, rot, sc * ECHO_SCALE_MULT * 0.5, sc * ECHO_SCALE_MULT * 0.5, ec)
+			var s2 = _secondary_synergy_2[i]
+			if s2 != NO_SYNERGY:
+				var ec2: Color
+				var ep2: Vector2
+				if s2 == EnergyPacket.SynergyType.PIERCE:
+					ec2 = Color(1.0, 1.0, 1.0, a * 0.8)
+					ep2 = rp
+				else:
+					ec2 = _echo_colors[s2]
+					ec2.a = a
+					var ang2 = el * ECHO_ORBIT_SPEED + PI
+					ep2 = rp + Vector2(cos(ang2), sin(ang2)) * ECHO_ORBIT_RADIUS
+				var cell2 = s2
+				if s2 == EnergyPacket.SynergyType.FIRE:
+					cell2 = CELL_COMET_FIRE
+				elif s2 == EnergyPacket.SynergyType.KINETIC:
+					cell2 = CELL_COMET_KINETIC
+				_dq(cell2, ep2, rot, sc * ECHO_SCALE_MULT, sc * ECHO_SCALE_MULT, ec2)
+
+		if not beam:
+			var ortho = Vector2(-dir.y, dir.x)
+			var bucket = int(el / SPARK_REFRESH_INTERVAL)
+			var gen_hash = int(hash(_spawn_gen[i]))
+			for sk in range(SPARK_COUNT):
+				var seed = gen_hash ^ (sk * 7919) ^ bucket
+				var trail_t = float(abs(seed) % 1000) / 1000.0
+				var perp_t = (float(abs(seed ^ 0x5bd1e995) % 2000) / 1000.0) - 1.0
+				var dist = SPARK_MIN_TRAIL_DIST + trail_t * (SPARK_MAX_TRAIL_DIST - SPARK_MIN_TRAIL_DIST)
+				var spc = c
+				spc.a = a * SPARK_ALPHA_MULT * (1.0 - trail_t * 0.5)
+				var ss = SPARK_BASE_RADIUS * sc / 8.0
+				_dq(CELL_DISC, rp - dir * dist + ortho * perp_t * SPARK_JITTER_PERP, 0.0, ss, ss, spc)
+	if not _gi.is_empty():
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE) # the last per-shot transform would otherwise apply to this array
+		# One command for every mode-specific core this frame (pie wedges,
+		# blended outlines, spikes, rings) instead of one GPU draw each.
+		RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), _gi, _gv, _gc)
+
+
+# --- Mode-core geometry (Pie / Shape Blend / Starburst / Rings) ---
+# Same shapes and colours as _draw_pie_wedges/_draw_starburst/_draw_rings and
+# the blended polygon, but appended to shared triangle buffers (see
+# _draw_atlas) instead of one draw_colored_polygon each.
+var _gv := PackedVector2Array()
+var _gc := PackedColorArray()
+var _gi := PackedInt32Array()
+
+func _emit_tri(a: Vector2, b: Vector2, c2: Vector2, col: Color):
+	var base = _gv.size()
+	_gv.append(a)
+	_gv.append(b)
+	_gv.append(c2)
+	_gc.append(col)
+	_gc.append(col)
+	_gc.append(col)
+	_gi.append(base)
+	_gi.append(base + 1)
+	_gi.append(base + 2)
+
+# Fan from the local origin around `ring` (a closed outline, origin-star-shaped).
+func _emit_fan(ring: PackedVector2Array, xf: Transform2D, col: Color):
+	var n = ring.size()
+	var o = xf.origin
+	var prev = xf * ring[n - 1]
+	for k in range(n):
+		var cur = xf * ring[k]
+		_emit_tri(o, prev, cur, col)
+		prev = cur
+
+func _emit_pie(ratios: Dictionary, xf: Transform2D, alpha: float):
+	for wedge in _compute_pie_wedges(ratios):
+		var span = wedge["end_angle"] - wedge["start_angle"]
+		var seg_count = max(1, int(ceil(span / TAU * PIE_SEGMENTS_PER_TAU)))
+		var col = EnergyPacket.get_color_for_synergy(wedge["synergy"])
+		col.a = alpha
+		var o = xf.origin
+		var prev = xf * (Vector2(cos(wedge["start_angle"]), sin(wedge["start_angle"])) * PIE_RADIUS)
+		for sidx in range(1, seg_count + 1):
+			var ang = lerp(wedge["start_angle"], wedge["end_angle"], float(sidx) / float(seg_count))
+			var cur = xf * (Vector2(cos(ang), sin(ang)) * PIE_RADIUS)
+			_emit_tri(o, prev, cur, col)
+			prev = cur
+
+func _emit_starburst(ratios: Dictionary, xf: Transform2D, alpha: float):
+	for spike in _compute_starburst_spikes(ratios):
+		var col = EnergyPacket.get_color_for_synergy(spike["synergy"])
+		col.a = alpha
+		var pts: PackedVector2Array = spike["points"]
+		_emit_tri(xf * pts[0], xf * pts[1], xf * pts[2], col)
+
+func _emit_rings(ratios: Dictionary, xf: Transform2D, alpha: float):
+	for ring in _compute_halo_rings(ratios):
+		var col = EnergyPacket.get_color_for_synergy(ring["synergy"])
+		col.a = alpha
+		var r_in: float = ring["inner"]
+		var r_out: float = ring["outer"]
+		var pi_ = xf * Vector2(r_in, 0.0)
+		var po = xf * Vector2(r_out, 0.0)
+		for sidx in range(1, RING_SEGMENTS + 1):
+			var ang = sidx * TAU / float(RING_SEGMENTS)
+			var d = Vector2(cos(ang), sin(ang))
+			var ni = xf * (d * r_in)
+			var no = xf * (d * r_out)
+			_emit_tri(pi_, po, no, col)
+			_emit_tri(pi_, no, ni, col)
+			pi_ = ni
+			po = no
+
 func _draw():
+	if use_atlas and _atlas_tex != null:
+		_draw_atlas()
+		return
 	for i in range(_highest_active + 1):
 		if _alive[i] == 0:
 			continue

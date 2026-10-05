@@ -132,16 +132,15 @@ func _setup_ui():
 	visuals_tab.add_child(opt_render_mode)
 
 	# Live-combat cutover (2026-08-11: "switch to batch for main gameplay,
-	# but be able to enable the legacy system"). Default OFF - real combat
-	# keeps using Projectile.gd until this is explicitly turned on.
+	# but be able to enable the legacy system"). Default ON since 2026-10-05.
 	var batch_combat_hint = Label.new()
-	batch_combat_hint.text = "Experimental: use the Batch Renderer above for real combat instead of just the Test Range. Leave off unless you're specifically trying it out."
+	batch_combat_hint.text = "Fast projectile renderer for real combat (default). Turn off to use the legacy per-shot renderer, which is slower with many mixed elements."
 	batch_combat_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 	batch_combat_hint.modulate = Color(0.7, 0.7, 0.7)
 	visuals_tab.add_child(batch_combat_hint)
 
 	check_batch_combat = CheckButton.new()
-	check_batch_combat.text = "Use Batch Renderer in Combat (Experimental)"
+	check_batch_combat.text = "Use Batch Renderer in Combat"
 	check_batch_combat.button_pressed = SaveManager.batch_renderer_in_combat
 	check_batch_combat.toggled.connect(func(pressed): SaveManager.set_batch_renderer_in_combat(pressed))
 	visuals_tab.add_child(check_batch_combat)

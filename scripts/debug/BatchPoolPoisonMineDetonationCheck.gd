@@ -47,15 +47,15 @@ func _ready():
 	pool.register_target(direct)
 	pool.register_target(nearby)
 	var mine_i = pool.spawn(Vector2(300, 0), Vector2.RIGHT, 0.0, 10.0, 20.0, 10.0, Color.WHITE, 1.0, true, null,
-		EnergyPacket.SynergyType.POISON, {EnergyPacket.SynergyType.POISON: 0.5, EnergyPacket.SynergyType.FIRE: 0.3})
+		EnergyPacket.SynergyType.POISON, {EnergyPacket.SynergyType.POISON: 0.4, EnergyPacket.SynergyType.ICE: 0.3, EnergyPacket.SynergyType.VORTEX: 0.2})
 	_check("a Poison+Fire ratio spawns as a real mine", pool._is_mine[mine_i] == 1)
 	var nearby_hp_before = nearby.hp
 	pool._step_hit_test() # direct is at the exact same position - contact
 	_check("contact detonates the mine (_mine_detonated set)", pool._mine_detonated[mine_i] == 1)
 	_check("contact detonation splashes a nearby target too, not just the direct hit (nearby hp dropped from %.0f to %.0f)" % [nearby_hp_before, nearby.hp],
 		nearby.hp < nearby_hp_before)
-	_check("contact detonation themes its status effect by the strongest non-Poison/Kinetic ratio (Fire -> burning)",
-		nearby.status_effects.get("burning", 0.0) > 0.0)
+	_check("contact detonation applies each secondary element's status (Ice -> frozen; Fire is a sustain element, see PoisonGatewayCheck)",
+		nearby.status_effects.get("frozen", 0.0) > 0.0)
 	_check("the mine slot is consumed (despawned) by contact detonation, not left alive to pierce through",
 		pool._alive[mine_i] == 0)
 	pool.unregister_target(direct)

@@ -651,7 +651,7 @@ func unregister_target(target: Node):
 func sync_targets_from_groups():
 	_targets = EntityCache.get_group("player") + EntityCache.get_group("enemy") + EntityCache.get_group("drone")
 
-func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}, proc_synergies: Dictionary = {}, aoe_bonus: float = 0.0, stat_modifiers: Dictionary = {}, range_mult: float = 1.0, is_beam: bool = false) -> int:
+func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}, proc_synergies: Dictionary = {}, aoe_bonus: float = 0.0, stat_modifiers: Dictionary = {}, range_mult: float = 1.0, is_beam: bool = false, no_mine: bool = false) -> int:
 	if _free_indices.is_empty():
 		return -1
 	var i = _free_indices.pop_back()
@@ -705,7 +705,8 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	_r_exp[i] = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
 	_aoe_bonus[i] = aoe_bonus
 	# Mirrors Projectile.gd:350's _is_poison_mine derivation exactly.
-	_is_mine[i] = 1 if _r_psn[i] > _ProjectileScript.MINE_POISON_THRESHOLD else 0
+	# no_mine: sub-shots from a MineEmitter carry poison but never become mines (one generation only).
+	_is_mine[i] = 1 if (_r_psn[i] > _ProjectileScript.MINE_POISON_THRESHOLD and not no_mine) else 0
 	_mine_detonated[i] = 0
 	# Mirrors Projectile.gd:598-601's pierce_count derivation.
 	_pierce_count[i] = 1 + int(4.0 * _r_prc[i]) if _r_prc[i] > 0.0 else 1
@@ -1448,7 +1449,7 @@ func _step_mine_movement(delta: float):
 		if _alive[i] == 0 or _is_mine[i] == 0:
 			continue
 		_prev_position[i] = _position[i]
-		var velocity = _direction[i] * _ProjectileScript.MINE_CRAWL_SPEED * _r_kin[i]
+		var velocity = _direction[i] * _ProjectileScript.mine_speed(_r_kin[i])
 		var step = velocity * delta
 		_position[i] += step
 		_distance_traveled[i] += step.length()
@@ -1772,46 +1773,67 @@ func _trigger_poison_mine_detonation(i: int):
 		return
 	_mine_detonated[i] = 1
 
-	var theme = -1
-	var theme_ratio = 0.0
-	var theme_candidates = {
+	# Emergent mine behavior - see Projectile.mine_profile (shared with the legacy path).
+	var profile = _ProjectileScript.mine_profile({
 		EnergyPacket.SynergyType.LIGHTNING: _r_ltg[i], EnergyPacket.SynergyType.VORTEX: _r_vtx[i],
 		EnergyPacket.SynergyType.FIRE: _r_fire[i], EnergyPacket.SynergyType.ICE: _r_ice[i],
-		EnergyPacket.SynergyType.EXPLOSION: _r_exp[i], EnergyPacket.SynergyType.PIERCE: _r_prc[i],
-		EnergyPacket.SynergyType.VAMPIRIC: _r_vamp[i],
-	}
-	for k in theme_candidates:
-		if theme_candidates[k] > theme_ratio:
-			theme_ratio = theme_candidates[k]
-			theme = k
-
-	var radius = 220.0 * (1.0 + 0.5 * _aoe_bonus[i])
-	var burst_damage = _damage[i] * 1.5
-	var status_by_theme = {
-		EnergyPacket.SynergyType.LIGHTNING: ["paralyzed", 0.6],
-		EnergyPacket.SynergyType.VORTEX: ["vortexed", 1.2],
-		EnergyPacket.SynergyType.FIRE: ["burning", 5.0],
-		EnergyPacket.SynergyType.ICE: ["frozen", 3.0],
-	}
-	var dmg_mult = 0.6 if theme == EnergyPacket.SynergyType.ICE else 1.0
-	# Real _trigger_poison_mine_detonation only ever passes an explicit
-	# element for the Lightning theme (Projectile.gd:1580: `col.apply_
-	# damage(burst_damage, "LIGHTNING")`) - every other theme's damage call
-	# has no element arg at all (RAW default, bypasses resistance).
-	var element = "LIGHTNING" if theme == EnergyPacket.SynergyType.LIGHTNING else "RAW"
-
+		EnergyPacket.SynergyType.EXPLOSION: _r_exp[i], EnergyPacket.SynergyType.POISON: _r_psn[i],
+		EnergyPacket.SynergyType.KINETIC: _r_kin[i], EnergyPacket.SynergyType.PIERCE: _r_prc[i],
+	})
+	var elements: Array = profile["elements"]
+	var radius = 220.0 * (1.0 + 0.5 * _aoe_bonus[i]) * profile["radius_mult"]
+	var total_damage = _damage[i] * 1.5
+	var burst_damage = total_damage * profile["burst_share"]
+	if profile["field_share"] > 0.0 or profile["volley_share"] > 0.0:
+		if load("res://scripts/attacks/MineEmitter.gd").can_deploy():
+			_deploy_mine_emitter(i, total_damage * profile["field_share"], total_damage * profile["volley_share"])
+		else:
+			burst_damage = total_damage # too many emitters live: detonate as a plain burst instead
+			profile["burst_share"] = 1.0
 	var fired_by_player = _fired_by_player[i] == 1
-	for t in _targets:
-		if not is_instance_valid(t) or t.get("is_dead") == true:
-			continue
-		if not _is_valid_target_side(t, fired_by_player):
-			continue
-		if not t.has_method("apply_damage") and not t.has_method("apply_part_damage"):
-			continue
-		if t.global_position.distance_to(_position[i]) <= radius:
-			_apply_damage_to_target(t, burst_damage * dmg_mult, element)
-			if status_by_theme.has(theme) and t.has_method("apply_status"):
-				t.apply_status(status_by_theme[theme][0], status_by_theme[theme][1])
+	if profile["burst_share"] > 0.001:
+		var statuses = _ProjectileScript.mine_statuses(elements)
+		var dmg_mult = 0.6 if elements == [EnergyPacket.SynergyType.ICE] else 1.0
+		var element = "LIGHTNING" if elements.has(EnergyPacket.SynergyType.LIGHTNING) else "RAW"
+		for t in _targets:
+			if not is_instance_valid(t) or t.get("is_dead") == true:
+				continue
+			if not _is_valid_target_side(t, fired_by_player):
+				continue
+			if not t.has_method("apply_damage") and not t.has_method("apply_part_damage"):
+				continue
+			if t.global_position.distance_to(_position[i]) <= radius:
+				_apply_damage_to_target(t, burst_damage * dmg_mult, element)
+				if t.has_method("apply_status"):
+					for st in statuses:
+						t.apply_status(st[0], st[1])
+
+	if profile["cloud"] and get_parent():
+		var cloud = load("res://scripts/attacks/ElementalPuddle.gd").new()
+		cloud.setup(radius * 0.85, _ProjectileScript.POISON_CLOUD_SECONDS, total_damage, profile["cloud_synergies"], fired_by_player)
+		cloud.global_position = _position[i]
+		get_parent().add_child(cloud)
+
+func _deploy_mine_emitter(i: int, flame_total: float, volley_total: float):
+	if not get_parent():
+		return
+	var sub_ratios = _ProjectileScript._sub_shot_ratios({
+		EnergyPacket.SynergyType.POISON: _r_psn[i], EnergyPacket.SynergyType.KINETIC: _r_kin[i],
+		EnergyPacket.SynergyType.PIERCE: _r_prc[i], EnergyPacket.SynergyType.LIGHTNING: _r_ltg[i],
+		EnergyPacket.SynergyType.VORTEX: _r_vtx[i], EnergyPacket.SynergyType.ICE: _r_ice[i],
+		EnergyPacket.SynergyType.VAMPIRIC: _r_vamp[i], EnergyPacket.SynergyType.EXPLOSION: _r_exp[i],
+		EnergyPacket.SynergyType.FIRE: _r_fire[i],
+	})
+	var dom = _ProjectileScript._dominant_of(sub_ratios)
+	var col = EnergyPacket.get_color_for_synergy(dom) * 1.5
+	col.a = 1.0
+	var emitter = load("res://scripts/attacks/MineEmitter.gd").new()
+	emitter.global_position = _position[i]
+	get_parent().add_child(emitter)
+	var by_player = _fired_by_player[i] == 1
+	emitter.setup(_ProjectileScript.FLAME_TURRET_SECONDS, flame_total, _ProjectileScript.FLAME_TURRET_RANGE * (1.0 + 0.5 * _aoe_bonus[i]), volley_total, _ProjectileScript.SUB_SHOT_RANGE, 4 if by_player else 8, self, {
+		"color": col, "dominant": dom, "ratios": sub_ratios, "by_player": by_player, "source": _source_mech[i],
+	})
 
 # Mirrors Projectile.gd:1937-1965's biome/oil-slick cross-triggers,
 # reading EntityCache.get_group("map_generator")/"oil_slick" exactly like

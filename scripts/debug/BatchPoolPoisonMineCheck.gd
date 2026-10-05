@@ -50,13 +50,13 @@ func _ready():
 		pool._position[mine_i].distance_to(Vector2.ZERO) < 0.001)
 	pool.despawn(mine_i)
 
-	# --- 3: real Kinetic ratio -> crawls at exactly MINE_CRAWL_SPEED*r_kin,
+	# --- 3: real Kinetic ratio -> crawls at exactly mine_speed(r_kin) (linear crawl + quadratic "scream" for high Kinetic),
 	# not the shot's own `speed` field ---
 	var crawl_i = pool.spawn(Vector2.ZERO, Vector2.RIGHT, 999999.0, 1.0, 5.0, 10.0, Color.WHITE, 1.0, true, null,
 		EnergyPacket.SynergyType.POISON, {EnergyPacket.SynergyType.POISON: 0.5, EnergyPacket.SynergyType.KINETIC: 0.5})
 	pool._step_simulate(1.0 / 60.0)
-	var expected_crawl = ProjectileScript.MINE_CRAWL_SPEED * 0.5 * (1.0 / 60.0)
-	_check("a 0.5-Kinetic mine crawls at MINE_CRAWL_SPEED*r_kin (expected ~%.3f, got %.3f), completely ignoring its own absurd `speed` field" % [expected_crawl, pool._position[crawl_i].x],
+	var expected_crawl = ProjectileScript.mine_speed(0.5) * (1.0 / 60.0)
+	_check("a 0.5-Kinetic mine moves at mine_speed(r_kin) (expected ~%.3f, got %.3f), completely ignoring its own absurd `speed` field" % [expected_crawl, pool._position[crawl_i].x],
 		abs(pool._position[crawl_i].x - expected_crawl) < 0.01)
 	pool.despawn(crawl_i)
 

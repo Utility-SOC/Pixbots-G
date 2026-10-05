@@ -1517,7 +1517,7 @@ func _apply_blink_hop(target: Node, r_ltg: float):
 func _physics_process_mine(delta: float):
 	var r_kin = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
 	var r_ltg = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
-	var velocity = direction * MINE_CRAWL_SPEED * r_kin
+	var velocity = direction * mine_speed(r_kin)
 
 	var _prev_global_pos = global_position
 	position += velocity * delta
@@ -1558,78 +1558,186 @@ func _physics_process_mine(delta: float):
 # time/range - "explodes when it expires") and _handle_hit() (an enemy
 # walked into it), guarded so it only ever fires once regardless of which
 # happens first.
+const MINE_EFFECT_THRESHOLD = 0.15
+# Elements that keep acting AFTER a mine triggers instead of popping once:
+# SUSTAIN elements burn nearby targets (flame), VOLLEY elements fire sub-shots.
+const MINE_SUSTAIN_ELEMENTS = [EnergyPacket.SynergyType.FIRE]
+const MINE_VOLLEY_ELEMENTS = [EnergyPacket.SynergyType.KINETIC, EnergyPacket.SynergyType.PIERCE]
+const MINE_SCREAM_SPEED = 900.0 # extra mine flight speed at 100% Kinetic (quadratic: only HIGH kinetic screams)
+
+# Mine flight speed. Poison makes a shot a mine; Kinetic is what lets it travel.
+static func mine_speed(r_kin: float) -> float:
+	return MINE_CRAWL_SPEED * r_kin + MINE_SCREAM_SPEED * r_kin * r_kin
+
+# What a poison mine does when it triggers, derived from its element ratios.
+# Shared by Projectile.gd and ProjectileBatchPool.gd so both paths agree.
+# There are no named recipes: Poison makes a shot a persistent mine, and each
+# other element at or above the threshold adds its own trait - burst elements
+# (Vortex pull, Ice freeze, Lightning paralyze, Explosion blast size + cloud)
+# act once at detonation, sustain elements (Fire) and volley elements
+# (Kinetic, Pierce) leave an emitter behind. The damage budget splits between
+# burst / flame / volley in proportion to their ratios, so a mix behaves like
+# the sum of its parts and a mine with only emitter elements is all emitter.
+static func mine_profile(r: Dictionary) -> Dictionary:
+	var found: Array = []
+	for el in [EnergyPacket.SynergyType.LIGHTNING, EnergyPacket.SynergyType.VORTEX, EnergyPacket.SynergyType.FIRE, EnergyPacket.SynergyType.ICE, EnergyPacket.SynergyType.EXPLOSION]:
+		var v = float(r.get(el, 0.0))
+		if v >= MINE_EFFECT_THRESHOLD:
+			found.append([el, v])
+	found.sort_custom(func(a, b): return a[1] > b[1])
+	var els: Array = []
+	var burst = 0.0
+	var sustain = 0.0
+	for f in found:
+		els.append(f[0])
+		if MINE_SUSTAIN_ELEMENTS.has(f[0]):
+			sustain += f[1]
+		else:
+			burst += f[1]
+	var volley = 0.0
+	for el in MINE_VOLLEY_ELEMENTS:
+		var v2 = float(r.get(el, 0.0))
+		if v2 >= MINE_EFFECT_THRESHOLD:
+			volley += v2
+	var total = burst + sustain + volley
+	var has_exp = els.has(EnergyPacket.SynergyType.EXPLOSION)
+	var cloud_syn = {EnergyPacket.SynergyType.POISON: maxf(float(r.get(EnergyPacket.SynergyType.POISON, 0.0)), 0.01)}
+	if els.has(EnergyPacket.SynergyType.FIRE):
+		cloud_syn[EnergyPacket.SynergyType.FIRE] = float(r.get(EnergyPacket.SynergyType.FIRE, 0.0))
+	return {
+		"elements": els,
+		"lead": els[0] if not els.is_empty() else -1,
+		"burst_share": (burst / total) if total > 0.0 else 1.0,
+		"field_share": (sustain / total) if total > 0.0 else 0.0,
+		"volley_share": (volley / total) if total > 0.0 else 0.0,
+		"radius_mult": POISON_BLAST_RADIUS_MULT if has_exp else 1.0,
+		"cloud": has_exp,
+		"cloud_synergies": cloud_syn,
+	}
+
+# Statuses applied by the one-shot burst (sustain elements apply theirs from
+# the emitter's ticks instead).
+static func mine_statuses(els: Array) -> Array:
+	var out: Array = []
+	if els.has(EnergyPacket.SynergyType.LIGHTNING): out.append(["paralyzed", 0.6])
+	if els.has(EnergyPacket.SynergyType.VORTEX): out.append(["vortexed", 1.2])
+	if els.has(EnergyPacket.SynergyType.ICE): out.append(["frozen", 3.0])
+	return out
+
+const POISON_BLAST_RADIUS_MULT = 1.7
+const POISON_CLOUD_SECONDS = 6.0
+const FLAME_TURRET_SECONDS = 5.0
+const FLAME_TURRET_RANGE = 300.0
+const SUB_SHOT_RANGE = 650.0
+
+static var _fallback_pool: Node = null
+
+# Sub-shots are spawned through the batch pool even when the legacy renderer is
+# selected for normal fire (a lazily created private pool in that case).
+func _emitter_pool() -> Node:
+	if ProjectileManager.should_use_batch_pool():
+		return ProjectileManager.live_batch_pool
+	if not is_instance_valid(_fallback_pool) and get_parent():
+		_fallback_pool = load("res://scripts/entities/ProjectileBatchPool.gd").new()
+		get_parent().add_child(_fallback_pool)
+	if is_instance_valid(_fallback_pool):
+		_fallback_pool.sync_targets_from_groups()
+	return _fallback_pool
+
+func _deploy_mine_emitter(flame_total: float, volley_total: float):
+	if not get_parent():
+		return
+	var sub_ratios = _sub_shot_ratios(ratios)
+	var dom = _dominant_of(sub_ratios)
+	var col = EnergyPacket.get_color_for_synergy(dom) * 1.5
+	col.a = 1.0
+	# Everything is resolved NOW, while this projectile is alive: the emitter
+	# outlives it and must not call back into it (see MineEmitter).
+	var pool = _emitter_pool()
+	var emitter = load("res://scripts/attacks/MineEmitter.gd").new()
+	emitter.global_position = global_position
+	get_parent().add_child(emitter)
+	emitter.setup(FLAME_TURRET_SECONDS, flame_total, FLAME_TURRET_RANGE * (1.0 + 0.5 * aoe_bonus), volley_total, SUB_SHOT_RANGE, 4 if fired_by_player else 8, pool, {
+		"color": col, "dominant": dom, "ratios": sub_ratios, "by_player": fired_by_player, "source": source_mech,
+	})
+	var v = PulseRingVisual.new()
+	v.global_position = global_position
+	get_parent().add_child(v)
+	v.setup(60.0, EnergyPacket.get_color_for_synergy(dom), 0.4)
+
+# The mix a sub-shot carries: the mine's own ratios minus the sustain elements
+# (their effect is the emitter's flame, not a second flame bullet).
+static func _sub_shot_ratios(r: Dictionary) -> Dictionary:
+	var out = {}
+	for k in r:
+		if not MINE_SUSTAIN_ELEMENTS.has(int(k)):
+			out[k] = r[k]
+	return out
+
+static func _dominant_of(r: Dictionary) -> int:
+	var best = 0
+	var best_v = -1.0
+	for k in r:
+		if r[k] > best_v:
+			best_v = r[k]
+			best = int(k)
+	return best
+
 func _trigger_poison_mine_detonation():
 	if _mine_detonated:
 		return
 	_mine_detonated = true
 
-	var theme = -1
-	var theme_ratio = 0.0
-	for k in ratios:
-		if k == EnergyPacket.SynergyType.POISON or k == EnergyPacket.SynergyType.KINETIC or k == EnergyPacket.SynergyType.RAW:
-			continue
-		if ratios[k] > theme_ratio:
-			theme_ratio = ratios[k]
-			theme = k
-
-	var radius = 220.0 * (1.0 + 0.5 * aoe_bonus)
-	var space_state = get_world_2d().direct_space_state
-	var query = PhysicsShapeQueryParameters2D.new()
-	var shape = CircleShape2D.new()
-	shape.radius = radius
-	query.shape = shape
-	query.transform = global_transform
-	query.collision_mask = collision_mask
-	var results = space_state.intersect_shape(query)
+	# Emergent mine behavior - see mine_profile (no named recipes).
+	var profile = mine_profile(ratios)
+	var elements: Array = profile["elements"]
+	var radius = 220.0 * (1.0 + 0.5 * aoe_bonus) * profile["radius_mult"]
+	var total_damage = damage * 1.5
+	var burst_damage = total_damage * profile["burst_share"]
+	if profile["field_share"] > 0.0 or profile["volley_share"] > 0.0:
+		if load("res://scripts/attacks/MineEmitter.gd").can_deploy():
+			_deploy_mine_emitter(total_damage * profile["field_share"], total_damage * profile["volley_share"])
+		else:
+			burst_damage = total_damage # too many emitters live: detonate as a plain burst instead
+			profile["burst_share"] = 1.0
 
 	var ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.POISON)
-	var burst_damage = damage * 1.5
-
-	match theme:
-		EnergyPacket.SynergyType.LIGHTNING:
-			ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.LIGHTNING)
-			for res in results:
-				var col = res["collider"]
-				if col.has_method("apply_damage"):
-					col.apply_damage(burst_damage, "LIGHTNING")
-					if col.has_method("apply_status"):
-						col.apply_status("paralyzed", 0.6)
-					_draw_lightning_arc(Vector2.ZERO, to_local(col.global_position))
-		EnergyPacket.SynergyType.VORTEX:
-			ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.VORTEX)
-			for res in results:
-				var col = res["collider"]
-				if col.has_method("apply_damage"):
-					col.apply_damage(burst_damage)
+	if profile["lead"] >= 0:
+		ring_color = EnergyPacket.get_color_for_synergy(profile["lead"])
+	if profile["burst_share"] > 0.001:
+		var space_state = get_world_2d().direct_space_state
+		var query = PhysicsShapeQueryParameters2D.new()
+		var shape = CircleShape2D.new()
+		shape.radius = radius
+		query.shape = shape
+		query.transform = global_transform
+		query.collision_mask = collision_mask
+		var results = space_state.intersect_shape(query)
+		var dmg_mult = 0.6 if elements == [EnergyPacket.SynergyType.ICE] else 1.0
+		var has_ltg = elements.has(EnergyPacket.SynergyType.LIGHTNING)
+		for res in results:
+			var col = res["collider"]
+			if not col.has_method("apply_damage"):
+				continue
+			if elements.has(EnergyPacket.SynergyType.VORTEX):
 				if col.has_method("pull_towards"):
 					col.pull_towards(global_position, 1.0, 900.0)
 				elif col is CharacterBody2D:
 					col.velocity = (global_position - col.global_position).normalized() * 900.0
-				if col.has_method("apply_status"):
-					col.apply_status("vortexed", 1.2)
-		EnergyPacket.SynergyType.FIRE:
-			ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.FIRE)
-			for res in results:
-				var col = res["collider"]
-				if col.has_method("apply_damage"):
-					col.apply_damage(burst_damage)
-					if col.has_method("apply_status"):
-						col.apply_status("burning", 5.0)
-		EnergyPacket.SynergyType.ICE:
-			ring_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.ICE)
-			for res in results:
-				var col = res["collider"]
-				if col.has_method("apply_damage"):
-					col.apply_damage(burst_damage * 0.6)
-					if col.has_method("apply_status"):
-						col.apply_status("frozen", 3.0)
-		_:
-			# Generic detonation - Explosion/Pierce/Vampiric/no clear
-			# secondary all just get a bigger version of the plain blast.
-			for res in results:
-				var col = res["collider"]
-				if col.has_method("apply_damage"):
-					col.apply_damage(burst_damage)
+			if has_ltg:
+				col.apply_damage(burst_damage * dmg_mult, "LIGHTNING")
+				_draw_lightning_arc(Vector2.ZERO, to_local(col.global_position))
+			else:
+				col.apply_damage(burst_damage * dmg_mult)
+			if col.has_method("apply_status"):
+				for st in mine_statuses(elements):
+					col.apply_status(st[0], st[1])
+
+	if profile["cloud"] and get_parent():
+		var cloud = load("res://scripts/attacks/ElementalPuddle.gd").new()
+		cloud.setup(radius * 0.85, POISON_CLOUD_SECONDS, total_damage, profile["cloud_synergies"], fired_by_player)
+		cloud.global_position = global_position
+		get_parent().add_child(cloud)
 
 	if get_parent():
 		var v = PulseRingVisual.new()

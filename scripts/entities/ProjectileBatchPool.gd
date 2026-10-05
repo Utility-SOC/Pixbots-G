@@ -187,6 +187,12 @@ const ECHO_SCALE_MULT = 0.4
 const NO_SYNERGY: int = 255 # sentinel for PackedByteArray (unsigned, can't hold -1)
 var _secondary_synergy_1: PackedByteArray
 var _secondary_synergy_2: PackedByteArray
+# Elements beyond the dominant + two echoes that still carry >= EXTRA_ELEMENT_THRESHOLD of the shot:
+# one bit per SynergyType id. Shown as a small ring of orbiting dots (4+ element mixes) - see
+# _draw_atlas. RAW (id 0) is the colourless remainder and never gets a dot.
+var _extra_mask: PackedInt32Array
+const EXTRA_ELEMENT_THRESHOLD = 0.08
+const EXTRA_RING_UNITS = 13.0
 
 var _flight_checked: bool = false
 var _flight_rasterizer = null
@@ -386,6 +392,7 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_proc_synergies.resize(capacity)
 	_secondary_synergy_1.resize(capacity)
 	_secondary_synergy_2.resize(capacity)
+	_extra_mask.resize(capacity)
 	for i in range(capacity):
 		_free_indices.append(i)
 		_color[i] = Color.WHITE
@@ -394,6 +401,7 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 		_proc_synergies[i] = {}
 		_secondary_synergy_1[i] = NO_SYNERGY
 		_secondary_synergy_2[i] = NO_SYNERGY
+		_extra_mask[i] = 0
 
 func _ready():
 	process_priority = -900
@@ -733,6 +741,7 @@ func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, 
 	var secondaries = _compute_secondary_synergies(ratios, _dominant_synergy[i])
 	_secondary_synergy_1[i] = secondaries[0]
 	_secondary_synergy_2[i] = secondaries[1]
+	_extra_mask[i] = _compute_extra_mask(ratios, _dominant_synergy[i], secondaries[0], secondaries[1])
 
 	if i > _highest_active:
 		_highest_active = i
@@ -811,6 +820,16 @@ static func _compute_beam_stretch(speed: float, is_beam: bool) -> float:
 # math, not a MultiMesh round-trip" reasoning as _compute_trail_render) -
 # the two next-biggest ratios after the dominant, above SECONDARY_SYNERGY_
 # THRESHOLD, sorted descending. Returns [syn_or_NO_SYNERGY, syn_or_NO_SYNERGY].
+static func _compute_extra_mask(ratios: Dictionary, dominant: int, s1: int, s2: int) -> int:
+	var mask = 0
+	for syn_type in ratios:
+		var e = int(syn_type)
+		if e <= 0 or e > 9 or e == dominant or e == s1 or e == s2:
+			continue
+		if float(ratios[syn_type]) >= EXTRA_ELEMENT_THRESHOLD:
+			mask |= (1 << e)
+	return mask
+
 static func _compute_secondary_synergies(ratios: Dictionary, dominant: int) -> Array:
 	var best1 = NO_SYNERGY
 	var best1_val = SECONDARY_SYNERGY_THRESHOLD
@@ -840,6 +859,7 @@ func despawn(i: int):
 	# being drawn next frame, no explicit "hide it" step needed.
 	_secondary_synergy_1[i] = NO_SYNERGY
 	_secondary_synergy_2[i] = NO_SYNERGY
+	_extra_mask[i] = 0
 	_source_mech[i] = null
 	_free_indices.append(i)
 
@@ -1094,6 +1114,24 @@ func _draw_atlas():
 				elif s2 == EnergyPacket.SynergyType.KINETIC:
 					cell2 = CELL_COMET_KINETIC
 				_dq(cell2, ep2, rot, sc * ECHO_SCALE_MULT, sc * ECHO_SCALE_MULT, ec2)
+
+		var xm = _extra_mask[i]
+		if xm != 0 and not beam:
+			# 4+ element mix: one dot per remaining element, orbiting the body.
+			var n_extra = 0
+			for e in range(1, 10):
+				if xm & (1 << e):
+					n_extra += 1
+			var ring_r = max(EXTRA_RING_UNITS, 7.0 * sc)
+			var dot = 0.32 * max(1.0, sqrt(sc))
+			var k_extra = 0
+			for e in range(1, 10):
+				if xm & (1 << e):
+					var ang_e = el * 3.4 + TAU * float(k_extra) / float(n_extra)
+					var dc: Color = _echo_colors[e]
+					dc.a = a * 0.95
+					_dq(CELL_DISC, rp + Vector2(cos(ang_e), sin(ang_e)) * ring_r, 0.0, dot, dot, dc)
+					k_extra += 1
 
 		if not beam:
 			var ortho = Vector2(-dir.y, dir.x)

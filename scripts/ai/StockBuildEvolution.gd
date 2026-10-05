@@ -172,7 +172,7 @@ func _all_keys(rarity: int) -> Array:
 # Everything the upcoming wave could need: missing champions first, then
 # spare deviation candidates. `on_progress(done, total)` drives the loading
 # screen; `should_abort` stops background runs when the wave's spawn burst starts.
-func pregenerate(rarity: int, should_abort: Callable = Callable(), on_progress: Callable = Callable()) -> void:
+func pregenerate(rarity: int, should_abort: Callable = Callable(), on_progress: Callable = Callable(), include_candidates: bool = true) -> void:
 	if _presolving:
 		return
 	_presolving = true
@@ -180,10 +180,11 @@ func pregenerate(rarity: int, should_abort: Callable = Callable(), on_progress: 
 	var tree = director.get_tree()
 	var builds = missing_build_keys(rarity)
 	var total = builds.size()
-	for k in _all_keys(rarity):
-		var key = _key(k[0], k[1], _rarity_for(k[1], rarity), k[2])
-		if get_stock_build(k[0], k[1], _rarity_for(k[1], rarity), k[2]) != null and _candidate_pool.get(key, []).size() < CANDIDATE_POOL_TARGET:
-			total += 1
+	if include_candidates:
+		for k in _all_keys(rarity):
+			var key = _key(k[0], k[1], _rarity_for(k[1], rarity), k[2])
+			if get_stock_build(k[0], k[1], _rarity_for(k[1], rarity), k[2]) != null and _candidate_pool.get(key, []).size() < CANDIDATE_POOL_TARGET:
+				total += 1
 	var done = 0
 	for k in builds:
 		if _should_stop(should_abort):
@@ -194,7 +195,7 @@ func pregenerate(rarity: int, should_abort: Callable = Callable(), on_progress: 
 		if on_progress.is_valid():
 			on_progress.call(done, total)
 		await tree.process_frame
-	for k in _all_keys(rarity):
+	for k in (_all_keys(rarity) if include_candidates else []):
 		if _should_stop(should_abort):
 			break
 		var key = _key(k[0], k[1], _rarity_for(k[1], rarity), k[2])
@@ -212,6 +213,42 @@ func pregenerate(rarity: int, should_abort: Callable = Callable(), on_progress: 
 			on_progress.call(done, total)
 		await tree.process_frame
 	_presolving = false
+
+# Spare deviation candidates are only consumed by the small share of spawns that
+# test a deviation, and take_deviation_candidate() simply returns null (the
+# champion is replayed) when the pool is empty - so they do NOT need a blocking
+# loading screen. Each solve costs ~50-100 ms, so this makes them one at a time,
+# one every `interval_sec`, and only while `is_idle` says the field is quiet
+# (no enemies to hitch in front of, not paused in the Garage).
+var _trickling: bool = false
+
+func trickle_candidates(rarity: int, is_idle: Callable, interval_sec: float = 2.5) -> void:
+	if _trickling:
+		return
+	_trickling = true
+	var MechScript = load("res://scripts/entities/Mech.gd")
+	var tree = director.get_tree()
+	while true:
+		if not is_instance_valid(director) or not director.is_inside_tree():
+			break
+		var keys = missing_candidate_keys(rarity)
+		if keys.is_empty():
+			break
+		await tree.create_timer(interval_sec).timeout
+		if not is_instance_valid(director) or not director.is_inside_tree():
+			break
+		if _presolving or not (is_idle.is_valid() and is_idle.call()):
+			continue
+		var k = keys[0]
+		_presolving = true
+		var cand = _make_candidate(MechScript, k[0], k[1], _rarity_for(k[1], rarity), k[2], director.get_active_solver_profile(k[1]))
+		if cand != null:
+			var key = _key(k[0], k[1], _rarity_for(k[1], rarity), k[2])
+			var pool: Array = _candidate_pool.get(key, [])
+			pool.append(cand)
+			_candidate_pool[key] = pool
+		_presolving = false
+	_trickling = false
 
 func is_busy() -> bool:
 	return _presolving

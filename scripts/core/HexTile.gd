@@ -338,6 +338,11 @@ func _fire_combined_projectile(mech, packet: EnergyPacket, step: int, _pattern_c
 	# inside `if`) so the Shotgun/Radial pattern branches below can reuse the
 	# exact same saturation reading instead of recomputing it - see their own
 	# comment on why they need it too.
+	# Enemy energy growth (SquadDirector.energy_scale_for_wave): scale the packet once, at
+	# the top-level volley, so pattern/chopper children inherit it without compounding.
+	if not _pattern_child and not _chopper_child and "energy_scale" in mech and mech.energy_scale != 1.0:
+		packet = packet.copy()
+		packet.amplify(mech.energy_scale)
 	var saturation_k = 1
 	if not _pattern_child and not _chopper_child:
 		saturation_k = ProjectileManager.consolidation_factor()

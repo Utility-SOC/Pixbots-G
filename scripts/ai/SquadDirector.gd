@@ -519,7 +519,9 @@ func maybe_introduce_experimental_template():
 	template_evolution.maybe_introduce_experimental_template()
 
 func attempt_squad_assembly(allowed_templates: Array = []) -> Squad:
-	var selected_template = template_evolution.select_template_weighted(allowed_templates)
+	var selected_template = _draft_next(allowed_templates)
+	if selected_template == null:
+		selected_template = template_evolution.select_template_weighted(allowed_templates)
 	if not selected_template:
 		return null
 	return await _assemble_squad(selected_template)
@@ -1119,7 +1121,21 @@ func _all_roles_filled(roles: Dictionary) -> bool:
 # "grunt") rather than blanket-immunizing the whole roster.
 const WATER_SAFETY_EXCLUDED_ROLES = ["sniper", "brawler"]
 
-func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0, template_name: String = "", force_full_counter: bool = false, sub_archetype_slot: int = 0) -> Node:
+func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int = 0, template_name: String = "", force_full_counter: bool = false, sub_archetype_slot: int = 0, park: bool = false) -> Node:
+	# Pre-built bot pool: a bot for this exact key may already be waiting, parked, from
+	# the garage-return rebuild or a lull refill (see the "Bot pool" section below).
+	# Only ordinary squad slots pool (no forced rarity / nemesis counter).
+	if not park and p_rarity == 0 and not force_full_counter:
+		var pkey = _pool_key(role, has_shields, template_name, sub_archetype_slot)
+		var pooled = null if _mythic_milestone_pending() else _pool_take(pkey)
+		if pooled != null:
+			pool_hits += 1
+			_activate_parked(pooled)
+			return pooled
+		pool_misses += 1
+		if OS.get_cmdline_user_args().has("--pooldebug") and pool_misses <= 12:
+			print("[POOL] miss key=%s have=%s quota=%s queue=%d" % [pkey, str(_pool.get(pkey, []).size()), str(_pool_quota.get(pkey, 0)), _draft_queue.size()])
+		_pool_demand[pkey] = int(_pool_demand.get(pkey, 0)) + 1
 	var bot
 	if role == "jammer":
 		bot = load("res://scripts/entities/JammerMech.gd").new()
@@ -1280,25 +1296,9 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 			bot._show_floating_text("COUNTER-FIT", Color(0.8, 0.45, 1.0))
 	)
 	
-	var wave_multiplier = 1.0
-	# NOTE: was get_parent() - that broke when SquadDirector moved from being
-	# a direct child of Main to a child of Main.world (the pixel-viewport
-	# game world, see Main.gd's _setup_pixel_viewport()). current_scene
-	# still correctly resolves to Main regardless of how deep world nesting
-	# goes, so it's the more robust reference here.
 	var difficulty = SaveManager.difficulty
 	var main = get_tree().current_scene
-	if main and "current_wave" in main:
-		# Difficulty-driven growth with the post-knee linear tail - see
-		# SaveManager.wave_hp_multiplier for the curve and its rationale.
-		wave_multiplier = SaveManager.wave_hp_multiplier(difficulty, main.current_wave)
-
-	# "Why would you do this to yourself?": enemies are near-peers with the
-	# player's ACTUAL build power, always - clown-shoes full-Mythic builds
-	# included. Also applies stat pressure on Hard, at a gentler exponent.
-	if difficulty >= 2:
-		var peer_exp = 0.85 if difficulty >= 3 else 0.5
-		wave_multiplier *= max(1.0, pow(_estimate_player_power() / NEAR_PEER_BASELINE, peer_exp))
+	var wave_multiplier = _wave_multiplier()
 
 	# Gear parity: on Hard the bots' component rarity creeps up with waves;
 	# on near-peer they simply build from the player's dominant tier.
@@ -1320,7 +1320,7 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	# happens to be first through this function that wave consumes it.
 	# Bosses get their own separate always-Mythic rule from wave 120 on -
 	# see Main._spawn_boss.
-	if main and "current_wave" in main and "MYTHIC_MILESTONE_START_WAVE" in main and int(main.current_wave) >= int(main.MYTHIC_MILESTONE_START_WAVE):
+	if not park and main and "current_wave" in main and "MYTHIC_MILESTONE_START_WAVE" in main and int(main.current_wave) >= int(main.MYTHIC_MILESTONE_START_WAVE):
 		if "_wave_guaranteed_mythic_used" in main and not main._wave_guaranteed_mythic_used:
 			main._wave_guaranteed_mythic_used = true
 			bot.base_rarity = HexTile.Rarity.MYTHIC
@@ -1397,6 +1397,8 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	if "spawn_profile" in bot and bot.spawn_profile != null:
 		bot.engagement_distance *= bot.spawn_profile.engage_scale
 
+	bot.set_meta("pool_base_hp", base_hp)
+	bot.set_meta("pool_has_shield", has_shields or role == "commander" or difficulty >= 3)
 	bot.max_hp = base_hp * wave_multiplier
 	bot.hp = bot.max_hp
 
@@ -1420,6 +1422,11 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	var _t_spawn = Time.get_ticks_usec()
 	add_child(bot)
 	_perf_bot_spawn_usec += Time.get_ticks_usec() - _t_spawn
+
+	if park:
+		_park_bot(bot)
+		return bot
+	bot.energy_scale = energy_scale_for_wave()
 
 	# One-time visibility sync for the Blind mechanic (see Main.
 	# _update_player_blind_state): that check only re-walks the "enemy"
@@ -1484,10 +1491,237 @@ func _estimate_mech_power(mech) -> float:
 # Difficulty-driven component rarity a template spawn resolves to (the
 # Mythic milestone bot aside) - shared by _spawn_bot_for_role and the
 # stock-build pre-solve so both agree on which cache keys will be hit.
+
+# ===========================  Bot pool  ===========================
+# Enemy bots are pre-built and PARKED (hidden, no processing, no collision, out of
+# the "enemy" group) so a wave only has to activate them instead of paying ~15-20 ms
+# of shape/loadout/visual construction per bot mid-fight. The pool is fully rebuilt
+# every time the player returns from the garage (begin_rebuild + draft + fill behind
+# the loading screen) - the only moment the player's build can change, so counters
+# are always current. Between visits rarity tiers stay frozen at the rebuild wave and
+# enemy power climbs instead (energy_scale_for_wave, uncapped), refilled in lulls.
+const POOL_MAX_BOTS = 120
+const ENERGY_SCALE_PER_WAVE = 0.02 # +2% energy output per wave since the last rebuild; deliberately NOT capped
+const PARKED_POSITION = Vector2(-1000000, -1000000)
+
+var rebuild_wave: int = -1
+var pool_hits: int = 0
+var pool_misses: int = 0
+var _pool: Dictionary = {} # key -> Array of parked bots
+var _pool_quota: Dictionary = {} # key -> desired stock
+var _pool_demand: Dictionary = {} # key -> live-build misses seen (biases refills)
+var _pool_filling: bool = false
+var _wm_cache: Dictionary = {"wave": -1, "usec": 0, "value": 1.0}
+
+func _pool_key(role: String, has_shields: bool, template_name: String, slot: int) -> String:
+	return "%s|%d|%s|%d" % [role, 1 if has_shields else 0, template_name, slot]
+
+func pool_stock() -> int:
+	var n = 0
+	for k in _pool:
+		for b in _pool[k]:
+			if is_instance_valid(b):
+				n += 1
+	return n
+
+func _pool_take(key: String):
+	var arr: Array = _pool.get(key, [])
+	while not arr.is_empty():
+		var b = arr.pop_back()
+		if is_instance_valid(b) and not b.is_queued_for_deletion():
+			return b
+	return null
+
+# While a Mythic milestone grunt is still owed this wave, spawn live so the guarantee
+# (applied during construction) still fires.
+func _mythic_milestone_pending() -> bool:
+	var main = get_tree().current_scene
+	return main != null and "current_wave" in main and "MYTHIC_MILESTONE_START_WAVE" in main \
+		and int(main.current_wave) >= int(main.MYTHIC_MILESTONE_START_WAVE) \
+		and "_wave_guaranteed_mythic_used" in main and not main._wave_guaranteed_mythic_used
+
+# Per-bot HP/shield growth for the current wave (+ near-peer scaling on hard). Cached
+# briefly: activation runs once per bot and the near-peer term walks the player's tiles.
+func _wave_multiplier() -> float:
+	var main = get_tree().current_scene
+	var wave = int(main.current_wave) if main and "current_wave" in main else 0
+	var now = Time.get_ticks_usec()
+	if int(_wm_cache["wave"]) == wave and now - int(_wm_cache["usec"]) < 1000000:
+		return float(_wm_cache["value"])
+	var difficulty = SaveManager.difficulty
+	var wave_multiplier = 1.0
+	if main and "current_wave" in main:
+		wave_multiplier = SaveManager.wave_hp_multiplier(difficulty, main.current_wave)
+	if difficulty >= 2:
+		var peer_exp = 0.85 if difficulty >= 3 else 0.5
+		wave_multiplier *= max(1.0, pow(_estimate_player_power() / NEAR_PEER_BASELINE, peer_exp))
+	_wm_cache = {"wave": wave, "usec": now, "value": wave_multiplier}
+	return wave_multiplier
+
+# Energy-output multiplier for bots deployed this wave: 1.0 at the rebuild wave, +2%
+# per wave after, no cap. Applied to the packets a bot fires (HexTile._fire_combined_
+# projectile) rather than by re-simulating its grid, which would cost a ~35 ms energy
+# sim per bot.
+func energy_scale_for_wave() -> float:
+	var main = get_tree().current_scene
+	var wave = int(main.current_wave) if main and "current_wave" in main else 0
+	var base = rebuild_wave if rebuild_wave >= 0 else wave
+	return 1.0 + ENERGY_SCALE_PER_WAVE * float(max(0, wave - base))
+
+# Full rebuild at garage return: freezes rarity tiers at `wave`, discards every parked
+# bot and the old draft (the player's build may have changed).
+func begin_rebuild(wave: int) -> void:
+	rebuild_wave = wave
+	for k in _pool:
+		for b in _pool[k]:
+			if is_instance_valid(b):
+				b.queue_free()
+	_pool.clear()
+	_pool_quota.clear()
+	_pool_demand.clear()
+	_draft_queue.clear()
+	pool_hits = 0
+	pool_misses = 0
+	_wm_cache["wave"] = -1
+
+# Draft the next wave: decide its squad list NOW with the same weighted selection the wave
+# would use (so templates that do well against the player carry more weight), queue those
+# templates for attempt_squad_assembly to consume in order, and set the pool quotas to
+# exactly their bots. Existing stock for keys still wanted is kept; surplus is trimmed.
+var _draft_queue: Array = [] # SquadTemplates, consumed front-first by attempt_squad_assembly
+
+func draft_pool(target_bots: int, allowed_templates: Array = []) -> void:
+	_pool_quota.clear()
+	_draft_queue.clear()
+	var planned = 0
+	var target = min(max(target_bots, 0), POOL_MAX_BOTS)
+	var guard = 0
+	while planned < target and guard < 200:
+		guard += 1
+		var t = template_evolution.select_template_weighted(allowed_templates)
+		if t == null:
+			break
+		_draft_queue.append(t)
+		var has_scout = false
+		for role in t.required_roles:
+			if role == "scout":
+				has_scout = true
+			for slot in range(int(t.required_roles[role])):
+				var key = _pool_key(role, t.has_shields, t.template_name, slot)
+				_pool_quota[key] = int(_pool_quota.get(key, 0)) + 1
+				planned += 1
+		if not has_scout: # _assemble_squad always adds a scout when none is required
+			var skey = _pool_key("scout", t.has_shields, t.template_name, 0)
+			_pool_quota[skey] = int(_pool_quota.get(skey, 0)) + 1
+			planned += 1
+	_pool_trim()
+
+# Frees surplus parked bots (stock beyond the quota) when stock + still-missing would
+# exceed POOL_MAX_BOTS.
+func _pool_trim() -> void:
+	var overflow = pool_stock() + pool_missing_count() - POOL_MAX_BOTS
+	if overflow <= 0:
+		return
+	for key in _pool.keys():
+		var arr: Array = _pool[key]
+		var keep = int(_pool_quota.get(key, 0))
+		while overflow > 0 and arr.size() > keep:
+			var b = arr.pop_back()
+			if is_instance_valid(b):
+				b.queue_free()
+			overflow -= 1
+		if overflow <= 0:
+			break
+
+# Next drafted template (skipping any that were culled or no longer match the wave's
+# filter), or null when the draft is spent - the caller then rolls live as before.
+func _draft_next(allowed_templates: Array):
+	while not _draft_queue.is_empty():
+		var t = _draft_queue.pop_front()
+		if t != null and templates.has(t) and (allowed_templates.is_empty() or allowed_templates.has(t)):
+			return t
+	return null
+
+func _pool_deficit(key: String) -> int:
+	var stock = 0
+	for b in _pool.get(key, []):
+		if is_instance_valid(b):
+			stock += 1
+	return int(_pool_quota.get(key, 0)) + min(int(_pool_demand.get(key, 0)), 3) - stock
+
+func pool_missing_count() -> int:
+	var n = 0
+	for key in _pool_quota:
+		n += max(0, _pool_deficit(key))
+	return n
+
+# Builds ONE parked bot for the most-needed key. Returns false when the pool is full.
+func fill_pool_step() -> bool:
+	if _pool_filling or pool_stock() >= POOL_MAX_BOTS or OS.get_cmdline_user_args().has("--nopool"):
+		return false
+	var best_key = ""
+	var best_def = 0
+	for key in _pool_quota:
+		var d = _pool_deficit(key)
+		if d > best_def:
+			best_def = d
+			best_key = key
+	if best_key == "":
+		return false
+	_pool_filling = true
+	var parts = best_key.split("|")
+	var bot = _spawn_bot_for_role(parts[0], parts[1] == "1", 0, parts[2], false, int(parts[3]), true)
+	if bot != null:
+		var arr: Array = _pool.get(best_key, [])
+		arr.append(bot)
+		_pool[best_key] = arr
+	_pool_filling = false
+	return true
+
+func _park_bot(bot: Node) -> void:
+	bot.set_meta("parked", true)
+	bot.visible = false
+	bot.remove_from_group("enemy")
+	bot.collision_layer = 0
+	bot.collision_mask = 0
+	var saved: Array = []
+	for c in bot.get_children():
+		if c is Area2D:
+			saved.append([c, c.collision_layer])
+			c.collision_layer = 0
+	bot.set_meta("parked_area_layers", saved)
+	bot.process_mode = Node.PROCESS_MODE_DISABLED
+	bot.global_position = PARKED_POSITION
+
+func _activate_parked(bot: Node) -> void:
+	bot.set_meta("parked", false)
+	bot.process_mode = Node.PROCESS_MODE_INHERIT
+	bot.add_to_group("enemy")
+	bot.collision_layer = 4
+	bot.collision_mask = 1 | 2 | 8 | 32
+	for pair in bot.get_meta("parked_area_layers", []):
+		if is_instance_valid(pair[0]):
+			pair[0].collision_layer = pair[1]
+	var main = get_tree().current_scene
+	bot.visible = not (main and "player_is_blind" in main and main.player_is_blind)
+	var wm = _wave_multiplier()
+	var base_hp = float(bot.get_meta("pool_base_hp", 100.0))
+	bot.max_hp = base_hp * wm
+	bot.hp = bot.max_hp
+	if bool(bot.get_meta("pool_has_shield", false)):
+		bot.max_shield_hp = base_hp * 0.5 * wm
+		bot.shield_hp = bot.max_shield_hp
+	bot.energy_scale = energy_scale_for_wave()
+	DroneBayTileScript.spawn_drones_for(bot, self)
+
 func expected_base_rarity(p_rarity: int = 0, role: String = "") -> int:
 	var difficulty = SaveManager.difficulty
 	var main = get_tree().current_scene
 	var wave = int(main.current_wave) if main and "current_wave" in main else 0
+	# Frozen between garage visits: tiers only advance on the full rebuild at garage
+	# return (begin_rebuild); in between, power climbs via energy_scale_for_wave().
+	if rebuild_wave >= 0:
+		wave = rebuild_wave
 	var gate = rarity_ceiling_for_wave(wave, role)
 	if difficulty == 1:
 		return max(p_rarity, max(0, gate - 1))

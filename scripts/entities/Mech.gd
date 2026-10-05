@@ -584,6 +584,9 @@ func get_individual_fitness() -> float:
 	return max(0.0, damage_score + hit_score + survival_score + trade_score + blind_score + priority_score - reflection_penalty)
 
 var is_dead: bool = false
+# Enemy power growth: multiplier on the energy packets this mech fires (set by the
+# SquadDirector from waves since the last rebuild; see energy_scale_for_wave). 1.0 = none.
+var energy_scale: float = 1.0
 
 # TEMPORARY diagnostic aid (not a real feature - easy to strip once the
 # "enemies not chasing" report is actually pinned down): a small label above

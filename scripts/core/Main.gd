@@ -1072,6 +1072,55 @@ func _ensure_squad_director():
 		orders_panel.bind(director.orders)
 	return director
 
+# The wave's squad count and eligible templates, computed once per wave and memoized so the
+# pool draft (made during the countdown, see _refill_pool_for_wave) and the real spawn agree
+# even where the plan rolls randomness (the every-4th-wave random role filter).
+var _wave_plan_cache: Dictionary = {} # wave -> {target, allowed, template_count}
+
+func _wave_plan(director) -> Dictionary:
+	var cached = _wave_plan_cache.get(current_wave)
+	# A template introduced at wave start (maybe_introduce_experimental_template) changes
+	# which templates match a filter - recompute if the roster changed since the draft.
+	if cached != null and int(cached["template_count"]) == director.templates.size():
+		return cached
+	# Difficulty scales how MANY as well as how strong (SquadDirector
+	# handles per-bot strength; near-peer stat scaling lives there too).
+	var count_mult = SaveManager.DIFFICULTY_COUNT_MULT[SaveManager.difficulty]
+	# Map-area density scaling: the Tabletop (64x32) is ~1/50th the default
+	# map's area - the same 80-cap there is a mosh pit, not a battle. sqrt
+	# keeps small maps busy-but-breathable (Tabletop lands around x0.23).
+	var area_ratio = float(map.width * map.height) / float(400 * 250)
+	var density_mult = clamp(sqrt(area_ratio), 0.15, 1.0)
+	var target_enemy_count = min(80, int((5 + int((current_wave - 1) / 4) * 20) * count_mult * density_mult))
+	target_enemy_count = max(3, target_enemy_count)
+
+	# Wave archetype shaping - deliberately narrows which squad templates are
+	# eligible on certain waves, so a heavy wave needs far fewer distinct
+	# enemy loadouts solved/replayed (complements StockBuildEvolution's
+	# per-template build cache: fewer active templates this wave = fewer
+	# (template, role) keys in play at once). Independent of the boss/rival/
+	# megaboss/champion elif chain above - those are entity spawns, this is
+	# squad composition, resolved regardless of which branch above fired.
+	# Non-conflicting moduli, most-restrictive checked first.
+	var allowed_templates: Array = []
+	if current_wave > 0 and current_wave % 7 == 0:
+		# "Gang Up": only the templates that have lately been most effective
+		# against the player, nothing else.
+		allowed_templates = director.top_n_by_recent_effectiveness(3)
+	elif current_wave > 0 and current_wave % 4 == 0:
+		var role = SquadTemplateMutatorScript.ALL_ROLES[randi() % SquadTemplateMutatorScript.ALL_ROLES.size()]
+		for t in director.templates:
+			if t.required_roles.has(role):
+				allowed_templates.append(t)
+	elif current_wave > 0 and current_wave % 3 == 0:
+		for t in director.templates:
+			if t.required_roles.has("scout"):
+				allowed_templates.append(t)
+
+	var plan = {"target": target_enemy_count, "allowed": allowed_templates, "template_count": director.templates.size()}
+	_wave_plan_cache[current_wave] = plan
+	return plan
+
 func _start_wave():
 	# Re-entrancy guard (user report 2026-08-05: stuck on wave 65, killing
 	# everything spawned after a Garage visit never advanced it). Extraction
@@ -1261,39 +1310,11 @@ func _start_wave():
 		if not ghosts.is_empty():
 			_spawn_traveling_champion(ghosts[randi() % ghosts.size()])
 
-	# Difficulty scales how MANY as well as how strong (SquadDirector
-	# handles per-bot strength; near-peer stat scaling lives there too).
-	var count_mult = SaveManager.DIFFICULTY_COUNT_MULT[SaveManager.difficulty]
-	# Map-area density scaling: the Tabletop (64x32) is ~1/50th the default
-	# map's area - the same 80-cap there is a mosh pit, not a battle. sqrt
-	# keeps small maps busy-but-breathable (Tabletop lands around x0.23).
-	var area_ratio = float(map.width * map.height) / float(400 * 250)
-	var density_mult = clamp(sqrt(area_ratio), 0.15, 1.0)
-	var target_enemy_count = min(80, int((5 + int((current_wave - 1) / 4) * 20) * count_mult * density_mult))
-	target_enemy_count = max(3, target_enemy_count)
-
-	# Wave archetype shaping - deliberately narrows which squad templates are
-	# eligible on certain waves, so a heavy wave needs far fewer distinct
-	# enemy loadouts solved/replayed (complements StockBuildEvolution's
-	# per-template build cache: fewer active templates this wave = fewer
-	# (template, role) keys in play at once). Independent of the boss/rival/
-	# megaboss/champion elif chain above - those are entity spawns, this is
-	# squad composition, resolved regardless of which branch above fired.
-	# Non-conflicting moduli, most-restrictive checked first.
-	var allowed_templates: Array = []
-	if current_wave > 0 and current_wave % 7 == 0:
-		# "Gang Up": only the templates that have lately been most effective
-		# against the player, nothing else.
-		allowed_templates = director.top_n_by_recent_effectiveness(3)
-	elif current_wave > 0 and current_wave % 4 == 0:
-		var role = SquadTemplateMutatorScript.ALL_ROLES[randi() % SquadTemplateMutatorScript.ALL_ROLES.size()]
-		for t in director.templates:
-			if t.required_roles.has(role):
-				allowed_templates.append(t)
-	elif current_wave > 0 and current_wave % 3 == 0:
-		for t in director.templates:
-			if t.required_roles.has("scout"):
-				allowed_templates.append(t)
+	var plan = _wave_plan(director)
+	print("[POOL] wave %d start: stock=%d missing=%d drafted_squads=%d target=%d hits=%d misses=%d" % [current_wave, director.pool_stock(), director.pool_missing_count(), director._draft_queue.size(), plan["target"], director.pool_hits, director.pool_misses])
+	var target_enemy_count: int = plan["target"]
+	var allowed_templates: Array = plan["allowed"]
+	_wave_plan_cache.erase(current_wave)
 
 	# Staggered deployment (fire-and-forget async) - see _spawn_wave_async.
 	_spawn_wave_async(director, target_enemy_count, allowed_templates)
@@ -2269,6 +2290,24 @@ func _on_wave_cleared():
 		_start_intermission()
 	if tell_director:
 		tell_director.presolve_upcoming_stock_builds()
+		_refill_pool_for_wave(tell_director)
+
+# Between waves (no enemies on the field): re-draft the pool for the coming wave and
+# top it up one bot per frame, so the wave itself only has to activate parked bots.
+func _refill_pool_for_wave(director) -> void:
+	if not is_instance_valid(director):
+		return
+	var plan = _wave_plan(director)
+	director.draft_pool(int(plan["target"]) + 6, plan["allowed"])
+	while is_instance_valid(director) and is_inside_tree() and director.pool_missing_count() > 0:
+		if _spawning_wave or active_enemies > 0:
+			break # the wave started; anything still missing builds live
+		if get_tree().paused:
+			await get_tree().process_frame
+			continue
+		if not director.fill_pool_step():
+			break
+		await get_tree().process_frame
 
 func _should_rotate_map() -> bool:
 	if SaveManager.current_game_mode != "campaign":
@@ -2478,40 +2517,72 @@ func _close_garage():
 # Loading screen on Deploy: generates every missing champion build plus a
 # spare deviation candidate per key for the wave's expected rarity, so no
 # solver run lands mid-wave. Skipped (no flash) when nothing is missing.
+# {total, builds, candidates, ms} of the last deploy's "Preparing enemy forces" pass.
+var last_prepare_stats: Dictionary = {}
+
 func _prepare_enemies_then_countdown():
 	var director = _ensure_squad_director() if world else null
 	var evo = director.stock_build_evolution if director else null
 	if evo:
 		while evo.is_busy():
 			await get_tree().process_frame
-		var rarity = -1 # per-role wave-gated tier, see StockBuildEvolution._rarity_for
-		var total = evo.missing_build_keys(rarity).size() + evo.missing_candidate_keys(rarity).size()
-		if total > 0:
-			var layer = CanvasLayer.new()
-			layer.layer = 60
-			var dim = ColorRect.new()
-			dim.color = Color(0, 0, 0, 0.75)
-			dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-			layer.add_child(dim)
-			var box = VBoxContainer.new()
-			box.set_anchors_preset(Control.PRESET_CENTER)
-			box.custom_minimum_size = Vector2(360, 0)
-			box.grow_horizontal = Control.GROW_DIRECTION_BOTH
-			box.grow_vertical = Control.GROW_DIRECTION_BOTH
-			var label = Label.new()
-			label.text = "Preparing enemy forces..."
-			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			var bar = ProgressBar.new()
-			bar.max_value = total
-			bar.custom_minimum_size = Vector2(360, 24)
-			box.add_child(label)
-			box.add_child(bar)
-			layer.add_child(box)
-			add_child(layer)
-			await evo.pregenerate(rarity, Callable(), func(done, tot):
-				bar.max_value = tot
+	# Every return from the garage is a FULL enemy rebuild behind a loading screen (the
+	# player's build can only change in there, so counters are always current): rarity
+	# tiers freeze at this wave, the parked-bot pool is thrown away, re-drafted for the
+	# coming wave from the director's weighted picks, and rebuilt - all with the world
+	# paused. Between garage visits nothing is rebuilt; power climbs via
+	# SquadDirector.energy_scale_for_wave and the pool refills in lulls.
+	if director:
+		director.begin_rebuild(current_wave)
+		var rarity = -1 # per-role tier at the (now frozen) rebuild wave
+		var builds_missing = evo.missing_build_keys(rarity).size() if evo else 0
+		var plan = _wave_plan(director)
+		director.draft_pool(int(plan["target"]) + 6, plan["allowed"])
+		var total = builds_missing + director.pool_missing_count()
+		var _prep_t0 = Time.get_ticks_msec()
+		last_prepare_stats = {"builds": builds_missing, "pool": director.pool_missing_count(), "enemies_on_board": active_enemies}
+		# Enemies already on the board are frozen too: pausing keeps them from acting
+		# (and from hitting the player) at loading-screen frame rates.
+		var was_paused = get_tree().paused
+		get_tree().paused = true
+		var layer = CanvasLayer.new()
+		layer.layer = 60
+		var dim = ColorRect.new()
+		dim.color = Color(0, 0, 0, 0.75)
+		dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+		layer.add_child(dim)
+		var box = VBoxContainer.new()
+		box.set_anchors_preset(Control.PRESET_CENTER)
+		box.custom_minimum_size = Vector2(360, 0)
+		box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		box.grow_vertical = Control.GROW_DIRECTION_BOTH
+		var label = Label.new()
+		label.text = "Preparing enemy forces..."
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		var bar = ProgressBar.new()
+		bar.max_value = max(1, total)
+		bar.custom_minimum_size = Vector2(360, 24)
+		box.add_child(label)
+		box.add_child(bar)
+		layer.add_child(box)
+		add_child(layer)
+		var done = 0
+		if evo and builds_missing > 0:
+			await evo.pregenerate(rarity, Callable(), func(d, tot):
+				done = d
 				bar.value = done
-				label.text = "Preparing enemy forces...  %d / %d" % [done, tot])
-			layer.queue_free()
+				label.text = "Preparing enemy forces...  %d / %d" % [done, total], false)
+		# Parked-bot pool for the coming wave, one bot per frame so the bar moves.
+		while is_instance_valid(director) and director.fill_pool_step():
+			done += 1
+			bar.value = done
+			label.text = "Preparing enemy forces...  %d / %d" % [min(done, total), total]
+			await get_tree().process_frame
+		layer.queue_free()
+		get_tree().paused = was_paused
+		last_prepare_stats["ms"] = Time.get_ticks_msec() - _prep_t0
+		last_prepare_stats["pool_stock"] = director.pool_stock()
+		if evo:
+			evo.trickle_candidates(rarity, func(): return not get_tree().paused and active_enemies <= 0 and not (garage_ui and is_instance_valid(garage_ui)))
 	if active_enemies <= 0:
 		_show_countdown()

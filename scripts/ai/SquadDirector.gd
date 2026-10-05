@@ -295,6 +295,7 @@ func _sample_habits(dt: float) -> void:
 	player_model.habits.sample(dt, p.global_position, vel, nearest.global_position)
 
 func _process(delta: float):
+	_combat_refill(delta)
 	orders.pump(delta)
 	_habit_timer += delta
 	if _habit_timer >= HABIT_SAMPLE_INTERVAL:
@@ -1589,10 +1590,15 @@ func begin_rebuild(wave: int) -> void:
 # templates for attempt_squad_assembly to consume in order, and set the pool quotas to
 # exactly their bots. Existing stock for keys still wanted is kept; surplus is trimmed.
 var _draft_queue: Array = [] # SquadTemplates, consumed front-first by attempt_squad_assembly
+var _pool_allowed: Array = [] # the plan's allowed templates, kept so the draft can be extended mid-wave
+var _combat_refill_t: float = 0.0
+const COMBAT_REFILL_INTERVAL = 0.35
+const COMBAT_REFILL_MIN_FPS = 45
 
 func draft_pool(target_bots: int, allowed_templates: Array = []) -> void:
 	_pool_quota.clear()
 	_draft_queue.clear()
+	_pool_allowed = allowed_templates.duplicate()
 	var planned = 0
 	var target = min(max(target_bots, 0), POOL_MAX_BOTS)
 	var guard = 0
@@ -1615,6 +1621,41 @@ func draft_pool(target_bots: int, allowed_templates: Array = []) -> void:
 			_pool_quota[skey] = int(_pool_quota.get(skey, 0)) + 1
 			planned += 1
 	_pool_trim()
+
+# Adds `squads` more drafted squads (queue + quotas) without clearing anything: mid-wave the
+# original draft runs dry, and replacements would otherwise all be built live.
+func draft_extend(squads: int) -> void:
+	for n in range(squads):
+		var t = template_evolution.select_template_weighted(_pool_allowed)
+		if t == null:
+			return
+		_draft_queue.append(t)
+		var has_scout = false
+		for role in t.required_roles:
+			if role == "scout":
+				has_scout = true
+			for slot in range(int(t.required_roles[role])):
+				var key = _pool_key(role, t.has_shields, t.template_name, slot)
+				_pool_quota[key] = int(_pool_quota.get(key, 0)) + 1
+		if not has_scout:
+			var skey = _pool_key("scout", t.has_shields, t.template_name, 0)
+			_pool_quota[skey] = int(_pool_quota.get(skey, 0)) + 1
+	_pool_trim()
+
+# During combat, top the pool up one bot at a time - only on a healthy frame rate, so the build
+# (~15 ms) lands where there is headroom instead of in a burst when a squad is wanted.
+func _combat_refill(delta: float) -> void:
+	_combat_refill_t -= delta
+	if _combat_refill_t > 0.0:
+		return
+	_combat_refill_t = COMBAT_REFILL_INTERVAL
+	if rebuild_wave < 0 or get_tree().paused or pool_stock() >= POOL_MAX_BOTS:
+		return
+	if Engine.get_frames_per_second() < COMBAT_REFILL_MIN_FPS:
+		return
+	if _draft_queue.size() < 2:
+		draft_extend(3)
+	fill_pool_step()
 
 # Frees surplus parked bots (stock beyond the quota) when stock + still-missing would
 # exceed POOL_MAX_BOTS.

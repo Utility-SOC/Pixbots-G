@@ -1359,14 +1359,21 @@ var _active_enemies_drift_timer: float = 0.0
 # left to spawn, so a wave still finishes promptly rather than idling.
 # Pulled out of _spawn_wave_async's loop into its own pure function so it
 # can be tested directly without driving the full spawn coroutine.
+# Replacement-squad pacing floor. The old 0.12 s beat (and the 0.12 s used once extraction opens)
+# let the director rebuild the field as fast as squads could be built whenever the player killed
+# faster than it spawned - ~10-28 live bot builds per second at ~15 ms each, the periodic hitch
+# of a long, fast run. One squad per MIN_SPAWN_INTERVAL bounds that to ~5 builds/s.
+const MIN_SPAWN_INTERVAL = 1.0
+const POST_EXTRACTION_SPAWN_INTERVAL = 1.5
+
 func _compute_spawn_interval(target_enemy_count: int, wave_start_garage_timer: float) -> float:
 	var remaining_enemies = max(0, target_enemy_count - active_enemies)
 	if remaining_enemies <= 0 or garage_timer <= WAVE_SPAWN_SAFETY_MARGIN_SECONDS:
-		return 0.12
+		return POST_EXTRACTION_SPAWN_INTERVAL
 	var elapsed_wave_time = wave_start_garage_timer - garage_timer
 	var remaining_spread_time = max(0.0, WAVE_SPAWN_SPREAD_SECONDS - elapsed_wave_time)
 	var estimated_remaining_squads = max(1.0, ceil(remaining_enemies / WAVE_SPAWN_AVG_SQUAD_SIZE_ESTIMATE))
-	return max(0.12, remaining_spread_time / estimated_remaining_squads)
+	return max(MIN_SPAWN_INTERVAL, remaining_spread_time / estimated_remaining_squads)
 
 func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Array = []) -> void:
 	_spawning_wave = true

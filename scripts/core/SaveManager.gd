@@ -337,7 +337,14 @@ func set_batch_renderer_in_combat(enabled: bool):
 	config.set_value("Rendering", "BatchInCombat", batch_renderer_in_combat)
 	config.save(SETTINGS_PATH)
 
+# Physics catch-up cap. When a frame runs long Godot runs extra fixed physics steps to catch
+# up (default max 8); in a crowded fight that is a death spiral - 128 frames over 100 ms in a
+# 60 s bench of the long-run regime, ~7 steps in each. Capping at 3 trades those hitches for a
+# brief slow-down under overload (0 frames over 100 ms, worst 66 ms in the same bench).
+const MAX_PHYSICS_STEPS_PER_FRAME = 3
+
 func _ready():
+	Engine.max_physics_steps_per_frame = MAX_PHYSICS_STEPS_PER_FRAME
 	var dir = DirAccess.open("user://")
 	if not dir.dir_exists("saves"):
 		dir.make_dir("saves")

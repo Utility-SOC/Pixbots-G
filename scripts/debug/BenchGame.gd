@@ -23,6 +23,7 @@ var _peak_nodes := 0
 var _hist_done := false
 var _seed := 1
 var _garage_at := -1.0
+var _extraction := false
 var _swarm := 0
 var _swarm_spawned := 0
 var _swarm_ring := 700.0
@@ -46,6 +47,8 @@ func _ready():
 		elif a.begins_with("--map="): _map_type = a.split("=")[1]
 		elif a.begins_with("--swarm="): _swarm = int(a.split("=")[1])
 		elif a.begins_with("--swarmring="): _swarm_ring = float(a.split("=")[1])
+		elif a == "--extraction": _extraction = true
+		elif a.begins_with("--maxsteps="): Engine.max_physics_steps_per_frame = int(a.split("=")[1])
 		elif a.begins_with("--garage="): _garage_at = float(a.split("=")[1])
 		elif a == "--notrees": _notrees = true
 		elif a == "--nomusic": _nomusic = true
@@ -155,6 +158,8 @@ func _process(delta):
 						if n.get_script() and n.get_script().resource_path.ends_with("TreeObstacle.gd"):
 							n.queue_free()
 				_main._close_garage()
+				if _extraction:
+					_main.garage_timer = 2.0 # extraction open: the long-run regime (post-extraction spawn pacing)
 				if OS.get_cmdline_user_args().has("--nooil"):
 					var cnt = 0
 					for n in get_tree().root.find_children("*", "Node2D", true, false):

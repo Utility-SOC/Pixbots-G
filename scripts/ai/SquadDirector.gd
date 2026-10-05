@@ -263,6 +263,8 @@ func load_learned_state():
 # sites (clipboard import, rival-loss game-over) - those aren't spammy and
 # want the write to land immediately.
 const SAVE_FLUSH_INTERVAL = 4.0
+const SAVE_MAX_DEFER = 90.0 # seconds a dirty save may wait for a combat lull
+var _dirty_age: float = 0.0
 var _learned_state_dirty: bool = false
 var _save_flush_timer: float = 0.0
 
@@ -300,9 +302,15 @@ func _process(delta: float):
 		_habit_timer = 0.0
 	if _learned_state_dirty:
 		_save_flush_timer -= delta
-		if _save_flush_timer <= 0.0:
+		_dirty_age += delta
+		# A save is a synchronous multi-MB JSON write (~100+ ms), so it waits for a
+		# lull (no active squads) instead of landing mid-fight; the age cap keeps
+		# a never-ending wave from postponing it forever. Wave clear, Garage and
+		# exit flush through the paths above/below regardless.
+		if _save_flush_timer <= 0.0 and (active_squads.is_empty() or _dirty_age >= SAVE_MAX_DEFER):
 			save_learned_state()
 			_learned_state_dirty = false
+			_dirty_age = 0.0
 
 func _exit_tree():
 	# Flush rather than lose the last few seconds of learning on garage
@@ -311,7 +319,17 @@ func _exit_tree():
 		save_learned_state()
 		_learned_state_dirty = false
 
+# ms of the last save_learned_state() (read by BenchGame; the F3 overlay can use it).
+var last_save_ms: float = 0.0
+
 func save_learned_state():
+	var _save_t0 = Time.get_ticks_usec()
+	_save_learned_state_impl()
+	last_save_ms = (Time.get_ticks_usec() - _save_t0) / 1000.0
+	if last_save_ms > 30.0:
+		print("[DIRECTOR] save_learned_state took %.0f ms" % last_save_ms)
+
+func _save_learned_state_impl():
 	if profile_manager:
 		profile_manager.save_profile(LEARNED_STATE_NAME, templates, solver_profiles, boss_profiles, stock_builds, {
 			"player_element_usage": player_element_usage,
@@ -331,7 +349,9 @@ func save_learned_state():
 			"active_rival_pool": active_rival_pool,
 			"consecutive_rival_losses": consecutive_rival_losses
 		})
-		profile_manager.save_telemetry(LEARNED_STATE_NAME + "_captures", captured_loadouts)
+		if _captures_dirty:
+			profile_manager.save_telemetry(LEARNED_STATE_NAME + "_captures", captured_loadouts)
+			_captures_dirty = false
 
 func export_learned_state_to_clipboard():
 	if profile_manager:
@@ -785,6 +805,7 @@ var total_bot_damage_dealt: float = 0.0
 # in the war room"). Persisted alongside the rest of learned state - see
 # save_learned_state/load_learned_state.
 var captured_loadouts: Dictionary = {}
+var _captures_dirty: bool = true # written on the first save, then only when a capture changes (it is MBs of JSON)
 
 # Called from credit_bot_death() for EVERY non-player death, deliberately
 # NOT gated behind the spawn_profile/solver_profiles checks that guard the
@@ -808,6 +829,7 @@ func _maybe_capture_loadout(mech: Node, fitness: float):
 	for slot in mech.components:
 		serialized_components[slot] = SaveManager._serialize_component(mech.components[slot])
 
+	_captures_dirty = true
 	captured_loadouts[key] = {
 		"fitness": fitness,
 		"rarity": int(mech.base_rarity) if "base_rarity" in mech else 0,

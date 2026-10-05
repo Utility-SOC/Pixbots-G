@@ -60,7 +60,9 @@ func save_profile(profile_name: String, templates: Array[SquadTemplate], solver_
 	for sb in stock_builds:
 		profile_data["stock_builds"].append(sb.to_dict())
 
-	var json_string = JSON.stringify(profile_data, "\t")
+	# Compact on purpose: this file is MBs and written during play; indenting made the
+	# stringify ~2-3x slower. JSON.parse reads it the same either way.
+	var json_string = JSON.stringify(profile_data)
 	var file = FileAccess.open(save_path, FileAccess.WRITE)
 	if file:
 		file.store_string(json_string)

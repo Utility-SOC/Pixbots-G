@@ -16,18 +16,19 @@ var beat_counter: int = 0
 var notes_playing: Array = []
 static var _perf_fill_usec: int = 0
 
+# RETIRED: this live note generator ran on the Master bus underneath the composed loops (quiet
+# square-wave notes every couple of beats, plus a per-frame buffer fill on the main thread). Music now
+# comes entirely from AudioManager (pre-rendered, crossfaded loops). It stays as an autoload only so
+# MapGenerator's set_biome call still lands - which now tells AudioManager which biome voice to use.
 func _ready():
-	process_mode = Node.PROCESS_MODE_ALWAYS
-	generator = AudioStreamGenerator.new()
-	generator.mix_rate = sample_hz
-	generator.buffer_length = 0.1
-	
-	stream = generator
-	play()
-	playback = get_stream_playback()
+	process_mode = Node.PROCESS_MODE_DISABLED
+	set_process(false)
 
 func set_biome(biome_name: String):
 	current_biome = biome_name
+	if is_instance_valid(AudioManager):
+		AudioManager.set_biome(biome_name)
+	return # (legacy tempo table below is unused)
 	if biome_name == "Island":
 		tempo_bpm = 140.0 # Fast surf rock vibe
 	elif biome_name == "Snow":

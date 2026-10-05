@@ -73,8 +73,9 @@ static func generate_level_loop(synergy: EnergyPacket.SynergyType, is_combat: bo
 
 # cancel_check: polled between notes so the caller's worker thread can bail
 # promptly at app quit - returns null when cancelled.
-static func generate_track(ctx: int, synergy: int, wave: int, cancel_check: Callable = Callable(), biome: String = "") -> AudioStreamWAV:
+static func generate_track(ctx: int, synergy: int, wave: int, cancel_check: Callable = Callable(), biome: String = "", throttle: bool = false) -> AudioStreamWAV:
 	var s = ProceduralSynth.new()
+	s._throttle = throttle
 	return s._render(ctx, synergy, wave, cancel_check, biome)
 
 
@@ -102,7 +103,21 @@ func _midi(m: float) -> float:
 	return 440.0 * pow(2.0, (m - 69.0) / 12.0)
 
 
+# Worker-thread pacing: when rendering in the background, sleep briefly every few ms so the render
+# never monopolises a core on a dual-core machine (a full render is seconds of tight GDScript).
+var _throttle := false
+var _slice_start_usec := 0
+const THROTTLE_SLICE_USEC = 4000
+const THROTTLE_SLEEP_USEC = 3000
+
 func _is_cancelled() -> bool:
+	if _throttle:
+		var now = Time.get_ticks_usec()
+		if _slice_start_usec == 0:
+			_slice_start_usec = now
+		elif now - _slice_start_usec > THROTTLE_SLICE_USEC:
+			OS.delay_usec(THROTTLE_SLEEP_USEC)
+			_slice_start_usec = Time.get_ticks_usec()
 	if _cancelled:
 		return true
 	if _cancel.is_valid() and _cancel.call():

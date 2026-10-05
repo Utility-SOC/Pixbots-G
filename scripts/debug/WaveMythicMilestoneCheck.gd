@@ -1,9 +1,9 @@
 extends Node
 
-# Regression check for the wave-75 guaranteed-Mythic milestone (replaced the
+# Regression check for the wave-120 guaranteed-Mythic milestone (replaced the
 # old mythic_seed_chance per-spawn random roll - see SquadDirector.gd's
 # _spawn_bot_for_role comment and Main.gd's MYTHIC_MILESTONE_START_WAVE).
-# Before wave 75: never force Mythic. At/after wave 75: exactly the FIRST
+# Before wave 120: never force Mythic. At/after wave 120: exactly the FIRST
 # bot spawned each wave is forced to Mythic, consuming
 # _wave_guaranteed_mythic_used; later spawns that same wave are untouched
 # until the flag resets (Main._start_wave's job, not exercised here).
@@ -18,7 +18,7 @@ extends Node
 # stand-in for the real spawn call site.
 
 var current_wave: int = 1
-const MYTHIC_MILESTONE_START_WAVE = 75
+const MYTHIC_MILESTONE_START_WAVE = 120
 var _wave_guaranteed_mythic_used: bool = false
 
 var failures = 0
@@ -35,9 +35,9 @@ func _ready():
 	director.name = "SquadDirector"
 	add_child(director)
 
-	# --- 1: before wave 75, spawning never force-promotes to Mythic, no
+	# --- 1: before wave 120, spawning never force-promotes to Mythic, no
 	# matter how many bots come through.
-	current_wave = 74
+	current_wave = 119
 	_wave_guaranteed_mythic_used = false
 	var pre_milestone_mythic = false
 	for i in range(5):
@@ -45,18 +45,18 @@ func _ready():
 		if int(bot.base_rarity) == HexTile.Rarity.MYTHIC:
 			pre_milestone_mythic = true
 		bot.queue_free()
-	_check("before wave 75, no spawn is force-promoted to Mythic", not pre_milestone_mythic)
+	_check("before wave 120, no spawn is force-promoted to Mythic", not pre_milestone_mythic)
 
-	# --- 2: at wave 75, the FIRST bot spawned is forced to Mythic.
-	current_wave = 75
+	# --- 2: at wave 120, the FIRST bot spawned is forced to Mythic.
+	current_wave = 120
 	_wave_guaranteed_mythic_used = false
 	var first_bot = director._spawn_bot_for_role("brawler")
-	_check("at wave 75, the first spawn of the wave is forced to Mythic (got %s)" % HexTile.Rarity.keys()[first_bot.base_rarity],
+	_check("at wave 120, the first spawn of the wave is forced to Mythic (got %s)" % HexTile.Rarity.keys()[first_bot.base_rarity],
 		int(first_bot.base_rarity) == HexTile.Rarity.MYTHIC)
 	_check("the guarantee flag is consumed after firing", _wave_guaranteed_mythic_used)
 	first_bot.queue_free()
 
-	# --- 3: still wave 75, subsequent spawns are NOT also forced Mythic
+	# --- 3: still wave 120, subsequent spawns are NOT also forced Mythic
 	# (the guarantee is once-per-wave, not once-per-milestone-forever).
 	var later_bot = director._spawn_bot_for_role("brawler")
 	_check("later spawns the same wave are not also forced Mythic (got %s)" % HexTile.Rarity.keys()[later_bot.base_rarity],
@@ -65,7 +65,7 @@ func _ready():
 
 	# --- 4: a fresh wave (flag reset, matching Main._start_wave) can
 	# trigger the guarantee again.
-	current_wave = 76
+	current_wave = 121
 	_wave_guaranteed_mythic_used = false
 	var next_wave_bot = director._spawn_bot_for_role("brawler")
 	_check("resetting the flag on a new wave lets the guarantee fire again (got %s)" % HexTile.Rarity.keys()[next_wave_bot.base_rarity],
@@ -73,5 +73,5 @@ func _ready():
 	next_wave_bot.queue_free()
 
 	if failures == 0:
-		print("PASS: wave-75 guaranteed-Mythic milestone fires exactly once per wave, not before, not twice")
+		print("PASS: wave-120 guaranteed-Mythic milestone fires exactly once per wave, not before, not twice")
 	get_tree().quit(0 if failures == 0 else 1)

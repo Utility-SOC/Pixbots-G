@@ -1313,12 +1313,12 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	# this session's own spawn-perf investigation: rarity is part of both
 	# cache keys, so scattering it unpredictably across most spawns meant
 	# a large share never got a cache hit). Replaced with a deterministic,
-	# once-per-wave guarantee instead: first Mythic-tier grunt at wave 75
+	# once-per-wave guarantee instead: first Mythic-tier grunt at wave 120
 	# (Main.MYTHIC_MILESTONE_START_WAVE), a single predictable event rather
 	# than a diffuse chance across many bots. main._wave_guaranteed_mythic_
 	# used is reset once per wave in Main._start_wave(); whichever bot
 	# happens to be first through this function that wave consumes it.
-	# Bosses get their own separate always-Mythic rule from wave 75 on -
+	# Bosses get their own separate always-Mythic rule from wave 120 on -
 	# see Main._spawn_boss.
 	if main and "current_wave" in main and "MYTHIC_MILESTONE_START_WAVE" in main and int(main.current_wave) >= int(main.MYTHIC_MILESTONE_START_WAVE):
 		if "_wave_guaranteed_mythic_used" in main and not main._wave_guaranteed_mythic_used:
@@ -1492,7 +1492,7 @@ func expected_base_rarity(p_rarity: int = 0, role: String = "") -> int:
 	if difficulty == 1:
 		return max(p_rarity, max(0, gate - 1))
 	elif difficulty == 2:
-		# Mythic arrives only through the wave-75 milestone rule, not here.
+		# Mythic arrives only through the Mythic milestone rule (wave 120), not here.
 		return max(p_rarity, min(gate, HexTile.Rarity.LEGENDARY))
 	elif difficulty >= 3:
 		return max(p_rarity, min(gate, _player_dominant_rarity()))
@@ -1502,7 +1502,7 @@ func expected_base_rarity(p_rarity: int = 0, role: String = "") -> int:
 # fitness is normalized per (role, tier) (see FitnessPar.gd), so a higher tier
 # raises the bar rather than the score. Rank-and-file roles unlock each tier
 # ROLE_UNLOCK_DELAY waves after elites do.
-const RARITY_UNLOCK_WAVES = [0, 8, 16, 40, 75] # COMMON..MYTHIC
+const RARITY_UNLOCK_WAVES = [0, 10, 25, 75, 120] # COMMON..MYTHIC
 const ROLE_UNLOCK_DELAY = {"brawler": 12, "scout": 8, "diver": 8}
 
 func rarity_ceiling_for_wave(wave: int, role: String = "") -> int:

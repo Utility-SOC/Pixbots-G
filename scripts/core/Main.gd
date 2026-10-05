@@ -33,12 +33,12 @@ var current_wave: int = 1
 # spawn-perf investigation). A deterministic, single, predictable event per
 # wave instead of a diffuse chance across many bots - reset in _start_wave(),
 # consumed by the first SquadDirector._spawn_bot_for_role call that checks
-# it each wave. Per the user: first Mythic-tier grunt at wave 75 (bosses get
+# it each wave. Per the user: first Mythic-tier grunt at wave 120 (bosses get
 # their own separate always-on rule from that point too - see Main.
 # _spawn_boss); wave 110+ additionally lets the loot table start dropping
 # Mythic-tier COMPONENTS (not just tiles) - that's a LootManager-side change,
 # explicitly out of scope here, not yet implemented.
-const MYTHIC_MILESTONE_START_WAVE = 75
+const MYTHIC_MILESTONE_START_WAVE = 120
 var _wave_guaranteed_mythic_used: bool = false
 var campaign_data: Dictionary = {}
 var active_enemies: int = 0
@@ -1476,7 +1476,7 @@ func _difficulty_scaling_wave() -> int:
 # flavor. First-pass numbers, not measured against real playtesting.
 func _spawn_boss(director, is_mega: bool):
 	var profile = director.get_active_boss_profile()
-	# Per the user: once the wave-75 Mythic milestone hits, EVERY boss from
+	# Per the user: once the wave-120 Mythic milestone hits, EVERY boss from
 	# then on gets guaranteed Mythic-tier hexes, not just a once-per-wave
 	# grunt chance - passed as the rarity FLOOR (p_rarity), same pattern
 	# Nemesis Bounties/forced-Mythic rivals already use, so difficulty-

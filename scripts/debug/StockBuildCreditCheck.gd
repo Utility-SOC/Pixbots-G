@@ -71,12 +71,12 @@ func _ready():
 	# --- rarity gate
 	var d = DirectorScript.new()
 	_check("wave 0 is COMMON", d.rarity_ceiling_for_wave(0, "sniper") == 0)
-	_check("wave 8 unlocks UNCOMMON for elites", d.rarity_ceiling_for_wave(8, "sniper") == 1)
-	_check("brawlers unlock later than snipers at wave 8", d.rarity_ceiling_for_wave(8, "brawler") == 0)
-	_check("wave 20 brawler is UNCOMMON", d.rarity_ceiling_for_wave(20, "brawler") == 1)
-	_check("wave 40 sniper is LEGENDARY", d.rarity_ceiling_for_wave(40, "sniper") == 3)
-	_check("wave 74 sniper is not yet MYTHIC", d.rarity_ceiling_for_wave(74, "sniper") == 3)
-	_check("wave 75 sniper is MYTHIC", d.rarity_ceiling_for_wave(75, "sniper") == 4)
+	_check("wave 10 unlocks UNCOMMON for elites", d.rarity_ceiling_for_wave(10, "sniper") == 1)
+	_check("brawlers unlock later than snipers at wave 10", d.rarity_ceiling_for_wave(10, "brawler") == 0)
+	_check("wave 25 brawler is UNCOMMON", d.rarity_ceiling_for_wave(25, "brawler") == 1)
+	_check("wave 75 sniper is LEGENDARY", d.rarity_ceiling_for_wave(75, "sniper") == 3)
+	_check("wave 119 sniper is not yet MYTHIC", d.rarity_ceiling_for_wave(119, "sniper") == 3)
+	_check("wave 120 sniper is MYTHIC", d.rarity_ceiling_for_wave(120, "sniper") == 4)
 	d.free()
 
 	# --- PlayerModel: shift detection, pressure ratchet

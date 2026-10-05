@@ -907,6 +907,14 @@ func _initialize_starter_inventory():
 	fire_infuser.secondary_synergy = EnergyPacket.SynergyType.FIRE
 	player_inventory.append(fire_infuser)
 
+	# Optional Kinetic backing for Fire (pure fire is a deliberate ~130 px melee weapon):
+	# AutoEquipSolver swaps this one in beside the Fire infuser (see
+	# _back_fire_with_kinetic).
+	var kinetic_infuser = load("res://scripts/tiles/InfuserTile.gd").new()
+	kinetic_infuser.rarity = HexTile.Rarity.UNCOMMON
+	kinetic_infuser.secondary_synergy = EnergyPacket.SynergyType.KINETIC
+	player_inventory.append(kinetic_infuser)
+
 	# Add Catalyst - Rare, not Legendary; a starter taste, not a free BiS tile
 	var starter_cat = load("res://scripts/tiles/CatalystTile.gd").new()
 	starter_cat.rarity = HexTile.Rarity.RARE

@@ -191,11 +191,63 @@ func solve(component: Node, inventory: Array, profile: SolverProfile = null) -> 
 		return inventory
 	var key = _topology_cache_key(component, inventory, profile)
 	var cached_plan = _topology_cache.get(key)
+	var result: Array
 	if cached_plan != null:
-		return _replay_plan(component, inventory, profile, cached_plan)
-	var result = _solve_impl(component, inventory, profile)
-	_topology_cache[key] = _extract_plan(component)
+		result = _replay_plan(component, inventory, profile, cached_plan)
+	else:
+		result = _solve_impl(component, inventory, profile)
+		_topology_cache[key] = _extract_plan(component)
+	if profile == null:
+		# After plan extraction on purpose: the cached plan stays the plain
+		# placement, and every replay re-applies this same fix-up.
+		_back_fire_with_kinetic(component, result)
 	return result
+
+# Pure fire is a deliberate ~130 px melee weapon (800*ratio px/s^2 drag, 0.4 s life);
+# this only helps the PLAYER default: when a Fire infuser is placed with no
+# Kinetic/Pierce carrier, a spare Kinetic infuser (cancels drag, adds range)
+# is swapped in so the default build can reach targets. Enemies are untouched.
+# Prefers replacing a non-Fire infuser;
+# only replaces a Fire one when there are 2+ of them.
+func _back_fire_with_kinetic(component: Node, inventory: Array) -> void:
+	var grid = component.hex_grid
+	var fire_coords: Array = []
+	var other_coords: Array = []
+	for coord_v in grid.grid.keys():
+		var t = grid.grid[coord_v]
+		if t == null or t.tile_type != "Elemental Infuser":
+			continue
+		var el = int(t.secondary_synergy)
+		if el == EnergyPacket.SynergyType.KINETIC or el == EnergyPacket.SynergyType.PIERCE:
+			return # already backed
+		if el == EnergyPacket.SynergyType.FIRE:
+			fire_coords.append(coord_v)
+		else:
+			other_coords.append(coord_v)
+	if fire_coords.is_empty():
+		return
+	var spare_idx = -1
+	for i in range(inventory.size()):
+		var it = inventory[i]
+		if it.tile_type == "Elemental Infuser" and int(it.secondary_synergy) == EnergyPacket.SynergyType.KINETIC:
+			spare_idx = i
+			break
+	if spare_idx < 0:
+		return
+	var victim = null
+	if not other_coords.is_empty():
+		victim = other_coords[other_coords.size() - 1]
+	elif fire_coords.size() >= 2:
+		victim = fire_coords[fire_coords.size() - 1]
+	if victim == null:
+		return
+	var h = HexCoord.new(victim.x, victim.y)
+	var old_tile = grid.remove_tile(h)
+	var kin_tile = inventory[spare_idx]
+	inventory.remove_at(spare_idx)
+	grid.add_tile(h, kin_tile)
+	if old_tile:
+		inventory.append(old_tile)
 
 # `profile` (SolverProfile, optional) is what makes this solver actually
 # aim at something instead of always doing the same fixed Amplifier ->

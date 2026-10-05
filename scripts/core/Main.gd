@@ -1394,6 +1394,10 @@ func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Arr
 		var map_h = map.height * map.tile_size
 
 		for mech in squad.members:
+			# A member can be freed while the squad was still assembling (spawn_squad
+			# awaits frames between bots) - positioning it then threw script errors.
+			if not is_instance_valid(mech):
+				continue
 			var raw_pos = center_spawn + Vector2(randf_range(-200, 200), randf_range(-200, 200))
 			# Hard-clamp inside the walls BEFORE the valid-position search:
 			# get_valid_spawn_position returns its input unchanged when it

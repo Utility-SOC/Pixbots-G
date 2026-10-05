@@ -122,6 +122,7 @@ func _on_body_entered(body: Node2D):
 			print("Player picked up equipment: ", equipment_data.component_name)
 			var main = body.get_tree().current_scene
 			if main and "player_component_inventory" in main:
+				load("res://scripts/core/ComponentViability.gd").ensure(equipment_data) # never hand over a non-routable part
 				main.player_component_inventory.append(equipment_data)
 				if main.has_method("note_haul"): main.note_haul("component", equipment_data)
 		elif tile_data:

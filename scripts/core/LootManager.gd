@@ -333,6 +333,8 @@ func _create_procedural_component(rarity: int, mech: Node, name_prefix: String):
 	# links) - see _add_procedural_payload_sink's own header for why this
 	# is what actually makes AutoEquipSolver do anything on this shape.
 	comp_script._add_procedural_payload_sink(pack, rarity)
+	# Every dropped part must be fully wired and routable (the garage cannot fix one by hand).
+	load("res://scripts/core/ComponentViability.gd").ensure(pack)
 	return pack
 
 func _spawn_component_drop(mech: Node, pack):

@@ -2452,6 +2452,26 @@ func _rotate_campaign_map():
 	_map_rotation_wave_start = current_wave
 	_map_rotation_elapsed = 0.0
 
+# Every part must be fully wired and routable - the garage cannot fix one by hand. Sweeps the
+# inventory (incl. parts saved or picked up before the drop builder was fixed) and anything
+# equipped; ComponentViability.ensure only touches parts that actually have problems.
+func _repair_component_viability() -> void:
+	var viability = load("res://scripts/core/ComponentViability.gd")
+	var fixed = 0
+	var parts: Array = player_component_inventory.duplicate()
+	if player and is_instance_valid(player) and "components" in player:
+		parts.append_array(player.components.values())
+	for comp in parts:
+		if comp == null or not is_instance_valid(comp) or comp.hex_grid == null:
+			continue
+		if not viability.problems(comp).is_empty():
+			var left = viability.ensure(comp)
+			fixed += 1
+			if not left.is_empty():
+				push_warning("[REPAIR] %s still has problems: %s" % [str(comp.component_name), str(left)])
+	if fixed > 0:
+		print("[REPAIR] repaired %d part(s) with broken construction" % fixed)
+
 func _open_garage():
 	# Idempotent: never stack a second Garage on top of an existing one.
 	# _open_garage has multiple callers (the new-game start, the tutorial's
@@ -2467,6 +2487,7 @@ func _open_garage():
 		return
 	print("Opening Garage Menu...")
 	_secure_haul()
+	_repair_component_viability()
 	get_tree().paused = true
 	AudioManager.set_combat_state(false) # garage is downtime regardless of how we got here
 

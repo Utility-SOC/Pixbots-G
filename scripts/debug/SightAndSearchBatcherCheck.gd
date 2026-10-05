@@ -109,7 +109,9 @@ func _ready():
 	if enemy_clear.has_sight_of_player:
 		push_error("FAIL: enemy standing inside player's jammer field should be blinded")
 		failures += 1
-	elif enemy_clear.last_known_player_pos != field.global_position:
+	# 1 px tolerance: the field eases toward its owner every frame (sub-pixel wobble), and how many
+	# physics steps run per frame depends on the engine's step cap, so exact float equality is fragile.
+	elif enemy_clear.last_known_player_pos.distance_to(field.global_position) > 1.0:
 		push_error("FAIL: blinded enemy's last_known_player_pos should snap to the field's position, got %s want %s" % [enemy_clear.last_known_player_pos, field.global_position])
 		failures += 1
 	else:

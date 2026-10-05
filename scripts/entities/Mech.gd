@@ -4194,7 +4194,7 @@ func _find_disable_priority_tile(comp):
 
 func apply_status(effect_name: String, duration: float):
 	status_effects[effect_name] = duration
-	if effect_name == "burning" or effect_name == "poisoned":
+	if effect_name == "burning" or effect_name == "poisoned" or effect_name == "frozen" or effect_name == "paralyzed":
 		load("res://scripts/visuals/StatusAura.gd").ensure_on(self)
 
 # Melee/mass physics pillar: heavier loadouts move slower, lighter ones get

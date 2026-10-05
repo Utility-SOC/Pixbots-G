@@ -1,9 +1,10 @@
 class_name StatusAura
 extends Node2D
 
-# Particle look for the burning and poisoned statuses on a Mech: orange/yellow
-# embers rising off a burning bot, green bubbles drifting up and popping off a
-# poisoned one. Both can show at once. Particles are textured quads from ONE
+# Particle look for status effects on a Mech: orange/yellow embers rising off a burning bot,
+# green bubbles drifting up and popping off a poisoned one, a pale-blue frost shift with
+# twinkling crystals on a frozen one, and little lightning jolts crackling across a paralyzed
+# one (vortex needs no indicator - being hurled around is the indicator). Any can show at once. Particles are textured quads from ONE
 # shared soft-disc texture (same-texture quads batch into a single draw, unlike
 # per-particle draw_circle), simulated analytically from a clock (no per-
 # particle state), and the aura only redraws while a status is active. A global
@@ -12,6 +13,10 @@ extends Node2D
 const MAX_AURAS = 28
 const EMBERS = 8
 const BUBBLES = 6
+const CRYSTALS = 7
+const JOLTS = 3
+const JOLT_STEPS = 5
+const AURA_STATUSES = ["burning", "poisoned", "frozen", "paralyzed"]
 const BODY_RADIUS = 36.0
 
 static var _tex: ImageTexture = null
@@ -63,11 +68,17 @@ func _process(delta: float) -> void:
 		queue_free()
 		return
 	var fx = mech.get("status_effects")
-	if fx == null or (not fx.has("burning") and not fx.has("poisoned")):
+	if fx == null or not _any_status(fx):
 		queue_free()
 		return
 	_t += delta
 	queue_redraw()
+
+static func _any_status(fx: Dictionary) -> bool:
+	for st in AURA_STATUSES:
+		if fx.has(st):
+			return true
+	return false
 
 func _quad(pos: Vector2, size: float, col: Color) -> void:
 	draw_texture_rect(_tex, Rect2(pos - Vector2(size, size) * 0.5, Vector2(size, size)), false, col)
@@ -99,3 +110,24 @@ func _draw() -> void:
 			_quad(Vector2(x, y), size, Color(0.35, 0.95, 0.25, 0.95 * pop))
 		# faint green sheen at the base so poison reads even between bubbles
 		_quad(Vector2(0, BODY_RADIUS * 0.4), BODY_RADIUS * 2.4, Color(0.2, 0.8, 0.15, 0.28))
+	if fx.has("frozen"):
+		# Frost: a pale-blue shift over the whole bot plus a few slowly twinkling ice crystals.
+		_quad(Vector2(0, 0), BODY_RADIUS * 3.0, Color(0.25, 0.6, 1.0, 0.5))
+		_quad(Vector2(0, BODY_RADIUS * 0.2), BODY_RADIUS * 2.0, Color(0.35, 0.7, 1.0, 0.35))
+		for k in range(CRYSTALS):
+			var h = float(k) * 0.754 + _seed
+			var pos = Vector2((fmod(h * 9.0, 1.0) - 0.5) * 1.7 * BODY_RADIUS, (fmod(h * 5.0, 1.0) - 0.5) * 2.0 * BODY_RADIUS)
+			var tw = 0.55 + 0.45 * sin(_t * 3.0 + h * 20.0)
+			_quad(pos, lerp(9.0, 16.0, fmod(h * 3.0, 1.0)), Color(0.55, 0.85, 1.0, 0.9 * tw))
+	if fx.has("paralyzed"):
+		# Jolts: short jagged paths re-rolled ~12x a second (stable inside each bucket).
+		var bucket = int(_t * 12.0)
+		for j in range(JOLTS):
+			var seed_f = float(bucket * 7 + j * 13) + _seed * 100.0
+			var pos = Vector2((fmod(seed_f * 0.37, 1.0) - 0.5) * 1.6 * BODY_RADIUS, (fmod(seed_f * 0.61, 1.0) - 0.5) * 1.8 * BODY_RADIUS)
+			var dir = Vector2.from_angle(fmod(seed_f * 1.7, TAU))
+			for step in range(JOLT_STEPS):
+				var jitter = Vector2(fmod(seed_f * (step + 1.3), 1.0) - 0.5, fmod(seed_f * (step + 2.1), 1.0) - 0.5) * 9.0
+				pos += dir * 5.0 + jitter
+				_quad(pos, 10.0, Color(1.0, 0.9, 0.3, 0.9))
+				_quad(pos, 4.5, Color(1, 1, 1, 1))

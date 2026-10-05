@@ -7,13 +7,13 @@ func _ready():
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="): out = a.split("=")[1]
 	var world = Node2D.new(); add_child(world)
-	var cam = Camera2D.new(); cam.position = Vector2(200, 60); cam.zoom = Vector2(3, 3); world.add_child(cam)
-	var kinds = [["burning"], ["poisoned"], ["burning", "poisoned"], []]
+	var cam = Camera2D.new(); cam.position = Vector2(230, 60); cam.zoom = Vector2(2.4, 2.4); world.add_child(cam)
+	var kinds = [["burning"], ["poisoned"], ["frozen"], ["paralyzed"], ["frozen", "paralyzed"], []]
 	for i in range(kinds.size()):
 		var m = MechScript.new()
 		world.add_child(m)
 		m.set_physics_process(false)
-		m.global_position = Vector2(60 + i * 90, 60)
+		m.global_position = Vector2(30 + i * 80, 60)
 		for st in kinds[i]:
 			m.apply_status(st, 30.0)
 	for f in range(40):

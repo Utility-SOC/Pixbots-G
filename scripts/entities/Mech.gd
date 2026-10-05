@@ -667,6 +667,8 @@ func _ready():
 	renderer.components = components
 	renderer._rebuild_visuals()
 	_perf_visual_build_usec += Time.get_ticks_usec() - _t_visuals
+	if not is_player:
+		_perf_bots_built += 1
 
 	# Collision shape - sized to match this mech's actual visual scale
 	# (role-based, e.g. scout renders ~0.8x, brawler ~1.2x, boss up to 1.8x
@@ -900,6 +902,7 @@ static var _perf_move_usec: int = 0
 # usec's own comment). Three candidate costs inside Mech._ready(), split
 # out so the next playtest screenshot shows which one actually dominates.
 static var _perf_shape_gen_usec: int = 0
+static var _perf_bots_built: int = 0 # non-player Mechs whose _ready finished (BenchGame per-bot averages)
 static var _perf_build_loadout_usec: int = 0
 static var _perf_visual_build_usec: int = 0
 # build_loadout_for_role's own internal breakdown (2026-08-10 playtest,

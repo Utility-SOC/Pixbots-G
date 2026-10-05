@@ -2433,9 +2433,15 @@ func _open_garage():
 	else:
 		print("Failed to load GarageMenu!")
 	
+# Per-section cost (ms) of the last _close_garage() - read by BenchGame and the
+# F3 debug overlay; deploy hitches show up here, not in the wave loop.
+var last_deploy_timings: Dictionary = {}
+
 func _close_garage():
 	print("Deploying from Garage...")
 	get_tree().paused = false
+	var _dt0 = Time.get_ticks_usec()
+	var _dt = {}
 
 	garage_timer = 90.0
 	player_lives_remaining = SaveManager.DIFFICULTY_LIVES[SaveManager.difficulty]
@@ -2462,11 +2468,16 @@ func _close_garage():
 		# freezes the game... a brief freeze, .25-.5 seconds." Doing it here
 		# instead moves that cost to the deploy transition (already a scene
 		# change moment) instead of interrupting live combat input.
+		var _t_a = Time.get_ticks_usec()
 		if player.has_method("_recalculate_grid"):
 			player._recalculate_grid()
+		_dt["player_recalc"] = (Time.get_ticks_usec() - _t_a) / 1000.0
 		# Garage tile swaps never rebuilt the body art (only equip/paint did), so
 		# the mech kept its pre-garage look. Rebuild once at the deploy transition.
+		_t_a = Time.get_ticks_usec()
 		player.refresh_visuals()
+		_dt["refresh_visuals"] = (Time.get_ticks_usec() - _t_a) / 1000.0
+		_t_a = Time.get_ticks_usec()
 		# Live drones share their loadout OBJECT with the Drone Bay tile the
 		# garage just edited, but nothing ever marked THEIR grids dirty - an
 		# already-flying drone kept firing its stale precalculated weapons
@@ -2480,6 +2491,8 @@ func _close_garage():
 			if is_instance_valid(live_drone) and live_drone.has_method("_recalculate_grid"):
 				live_drone.is_grid_dirty = true
 				live_drone._recalculate_grid()
+		_dt["drone_recalc"] = (Time.get_ticks_usec() - _t_a) / 1000.0
+		_t_a = Time.get_ticks_usec()
 		# Prewarm every already-known enemy StockBuild's energy-simulation
 		# cache here too - same "move the cost to the deploy transition
 		# instead of live combat" reasoning as the player/drone recalcs
@@ -2492,8 +2505,13 @@ func _close_garage():
 			var director = _ensure_squad_director()
 			if director.stock_build_evolution:
 				director.stock_build_evolution.prewarm_all_simulation_caches()
+		_dt["prewarm"] = (Time.get_ticks_usec() - _t_a) / 1000.0
+		_t_a = Time.get_ticks_usec()
 		SaveManager.save_game("autosave", player, player_inventory)
+		_dt["autosave"] = (Time.get_ticks_usec() - _t_a) / 1000.0
+		_t_a = Time.get_ticks_usec()
 		_spawn_drones_if_needed()
+		_dt["spawn_drones"] = (Time.get_ticks_usec() - _t_a) / 1000.0
 		# Reactive music: key the soundtrack to the build that just left the
 		# bay - the dominant synergy across every armed weapon's packet.
 		var syn_totals: Dictionary = {}
@@ -2511,7 +2529,9 @@ func _close_garage():
 	if garage_ui:
 		garage_ui.queue_free()
 		garage_ui = null
-		
+
+	_dt["total_sync"] = (Time.get_ticks_usec() - _dt0) / 1000.0
+	last_deploy_timings = _dt
 	_prepare_enemies_then_countdown()
 
 # Loading screen on Deploy: generates every missing champion build plus a

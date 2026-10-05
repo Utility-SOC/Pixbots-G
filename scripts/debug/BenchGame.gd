@@ -22,6 +22,13 @@ var _peak_enemies := 0
 var _peak_nodes := 0
 var _hist_done := false
 var _seed := 1
+var _garage_at := -1.0
+var _swarm := 0
+var _swarm_spawned := 0
+var _swarm_ring := 700.0
+var _cum := {"shape": 0.0, "loadout": 0.0, "visual": 0.0, "replay": 0.0, "spawn": 0.0}
+var _garage_done := false
+var _prep_logged := false
 var _map_type := ""
 var _notrees := false
 var _nomusic := false
@@ -37,12 +44,16 @@ func _ready():
 		elif a == "--nofire": _fire = false
 		elif a.begins_with("--seed="): _seed = int(a.split("=")[1])
 		elif a.begins_with("--map="): _map_type = a.split("=")[1]
+		elif a.begins_with("--swarm="): _swarm = int(a.split("=")[1])
+		elif a.begins_with("--swarmring="): _swarm_ring = float(a.split("=")[1])
+		elif a.begins_with("--garage="): _garage_at = float(a.split("=")[1])
 		elif a == "--notrees": _notrees = true
 		elif a == "--nomusic": _nomusic = true
 		elif a == "--presolve": _presolve = true
 		elif a.begins_with("--off="): _off = a.split("=")[1].split(",")
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = _cap
+	RenderingServer.viewport_set_measure_render_time(get_tree().root.get_viewport_rid(), true)
 	seed(_seed)
 	if _nomusic:
 		ProceduralMusic.set_process(false)
@@ -50,13 +61,70 @@ func _ready():
 		AudioManager._quitting = true
 	if _map_type != "":
 		SaveManager.pending_run_card = {"map_type": _map_type, "layout": "auto", "seed": 0}
+	if OS.get_cmdline_user_args().has("--listnodes"):
+		for c in get_tree().root.get_children():
+			print("BENCH_ROOT ", c.name, " ", c.get_class())
+	call_deferred("_plant_root_probes")
+	var probe_a = load("res://scripts/debug/FrameSplitProbe.gd").new()
+	var probe_b = load("res://scripts/debug/FrameSplitProbe.gd").new()
+	probe_b.is_last = true
+	get_tree().root.add_child.call_deferred(probe_a)
+	get_tree().root.add_child.call_deferred(probe_b)
 	_main = load("res://main.tscn").instantiate()
 	get_tree().root.add_child.call_deferred(_main)
 	(func(): get_tree().current_scene = _main).call_deferred()
 
+func _describe(n: Node) -> String:
+	var sc = ""
+	if n.get_script():
+		sc = str(n.get_script().resource_path).get_file()
+	var kids = []
+	for k in n.get_children():
+		kids.append((str(k.get_script().resource_path).get_file() if k.get_script() else k.get_class()))
+	return "%s{%s}[%s]" % [n.get_class(), sc, ",".join(kids.slice(0, 5))]
+
+func _mk_probe(lbl: String) -> Node:
+	var pr = load("res://scripts/debug/TreeProbe.gd").new()
+	pr.label = lbl
+	return pr
+
+func _plant_root_probes():
+	var root = get_tree().root
+	root.add_child(_mk_probe("__first"))
+	root.move_child(root.get_child(root.get_child_count() - 1), 0)
+	var names = []
+	for c in root.get_children():
+		if c.get_script() and str(c.get_script().resource_path).ends_with("TreeProbe.gd"):
+			continue
+		names.append(c)
+	for c in names:
+		var pr = _mk_probe("after:" + str(c.name))
+		root.add_child(pr)
+		root.move_child(pr, c.get_index() + 1)
+	root.add_child(_mk_probe("__last"))
+
+var _main_probed := false
+func _plant_main_probes():
+	_main_probed = true
+	var nodes = []
+	for c in _main.get_children():
+		nodes.append(c)
+	for c in nodes:
+		var pr = _mk_probe("main/after:" + _describe(c))
+		_main.add_child(pr)
+		_main.move_child(pr, c.get_index() + 1)
+	if _main.world:
+		var wn = []
+		for c in _main.world.get_children():
+			wn.append(c)
+		for c in wn:
+			var pr2 = _mk_probe("world/after:" + str(c.name))
+			_main.world.add_child(pr2)
+			_main.world.move_child(pr2, c.get_index() + 1)
+
 func _process(delta):
 	_t += delta
-	if _phase >= 1 and is_instance_valid(_main.player):
+	if _phase >= 1 and is_instance_valid(_main.player) and not OS.get_cmdline_user_args().has("--nogod"):
 		_main.player.hp = _main.player.max_hp
 		_main.player_lives_remaining = 99999
 		for comp in _main.player.components.values():
@@ -87,6 +155,18 @@ func _process(delta):
 						if n.get_script() and n.get_script().resource_path.ends_with("TreeObstacle.gd"):
 							n.queue_free()
 				_main._close_garage()
+				if OS.get_cmdline_user_args().has("--nooil"):
+					var cnt = 0
+					for n in get_tree().root.find_children("*", "Node2D", true, false):
+						if n.get_script() and n.get_script().resource_path.ends_with("OilSlickHazard.gd"):
+							n.queue_free()
+							cnt += 1
+					print("BENCH_NOOIL freed=", cnt)
+				if OS.get_cmdline_user_args().has("--freemap"):
+					_main.world.get_node("GameMap").queue_free()
+				if OS.get_cmdline_user_args().has("--nomainproc"):
+					_main.set_process(false)
+					_main.set_physics_process(false)
 				if _fire:
 					var ev = InputEventMouseButton.new()
 					ev.button_index = MOUSE_BUTTON_LEFT
@@ -96,7 +176,33 @@ func _process(delta):
 				_phase = 1
 				_t = 0.0
 		1:
+			if not _main_probed:
+				_plant_main_probes()
 			_record(delta)
+			if OS.get_cmdline_user_args().has("--listnodes") and _t < 0.2 and not _hist_done:
+				_hist_done = true
+				for c in _main.get_children():
+					print("BENCH_MAIN ", c.name, " ", c.get_class(), " children=", c.get_child_count())
+				for c in _main.world.get_children():
+					print("BENCH_WORLD ", c.name, " ", c.get_class(), " children=", c.get_child_count())
+			if _swarm > 0 and _t > 3.0 and _swarm_spawned < _swarm:
+				# Force a crowded field: one squad per frame on a ring around the player.
+				var dsw = _main._ensure_squad_director()
+				if dsw.templates.size() > 0:
+					var ang = randf() * TAU
+					var posw = _main.player.global_position + Vector2(cos(ang), sin(ang)) * _swarm_ring
+					dsw.spawn_specific_squad(dsw.templates[randi() % dsw.templates.size()], posw)
+					_swarm_spawned += 1
+			if not _prep_logged and _main.last_prepare_stats.has("ms"):
+				_prep_logged = true
+				print("BENCH_PREPARE ", _main.last_prepare_stats, " (t=%.1f)" % _t)
+			if _garage_at >= 0.0 and not _garage_done and _t >= _garage_at:
+				# Redeploy mid-wave with enemies already on the board.
+				_garage_done = true
+				var live = get_tree().get_nodes_in_group("enemy").size()
+				var t0 = Time.get_ticks_usec()
+				_main._close_garage()
+				print("BENCH_GARAGE_RETURN t=%.1f enemies_on_board=%d sync_ms=%.1f sections=%s" % [_t, live, (Time.get_ticks_usec() - t0) / 1000.0, _main.last_deploy_timings])
 			if not _hist_done and _t > _seconds * 0.6:
 				_hist_done = true
 				_node_histogram()
@@ -110,6 +216,11 @@ func _record(delta):
 	_sec_frames.append(ms)
 	_sec_t += delta
 	if ms > 80.0:
+		var sp = load("res://scripts/debug/FrameSplitProbe.gd").last_split
+		print("BENCH_GAPS t=%.2f ms=%.0f %s" % [_t, ms, load("res://scripts/debug/TreeProbe.gd").worst_gaps(2)])
+		print("BENCH_SPLIT t=%.2f total=%.0f gap_pre=%.1f phys=%.1f (steps=%d) gap_post=%.1f proc=%.1f" % [_t, ms, sp.get("gap_pre", 0.0), sp.get("phys", 0.0), sp.get("steps", 0), sp.get("gap_post", 0.0), sp.get("proc", 0.0)])
+		var vp = get_tree().root.get_viewport_rid()
+		print("BENCH_SPIKE_RENDER t=%.2f frame_setup_cpu=%.1f vp_cpu=%.1f vp_gpu=%.1f" % [_t, RenderingServer.get_frame_setup_time_cpu(), RenderingServer.viewport_get_measured_render_time_cpu(vp), RenderingServer.viewport_get_measured_render_time_gpu(vp)])
 		print("BENCH_SPIKE t=%.2f ms=%.0f proc=%.0f phys=%.0f nav=%.0f enemies=%d nodes=%d physsteps=%d" % [
 			_t, ms, Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
@@ -121,6 +232,7 @@ func _record(delta):
 		var w := 0.0
 		for x in _sec_frames:
 			w = max(w, x)
+		print("BENCH_LIVE enemy_group=%d" % get_tree().get_nodes_in_group("enemy").size())
 		print("BENCH_SEC t=%02d fps=%d worst_ms=%.0f enemies=%d nodes=%d draws=%d proc_ms=%.1f phys_ms=%.1f projectiles=%d" % [
 			int(_t), _sec_frames.size(), w, _main.active_enemies, get_tree().get_node_count(),
 			int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
@@ -134,6 +246,11 @@ func _record(delta):
 			Mech._perf_ai_tactics_usec / 1000.0, Mech._perf_shoot_usec / 1000.0, Mech._perf_move_usec / 1000.0,
 			Mech._perf_sight_usec / 1000.0, Mech._perf_flow_field_usec / 1000.0, Mech._perf_separation_usec / 1000.0,
 			Mech._perf_status_effects_usec / 1000.0, ProceduralMusic._perf_fill_usec / 1000.0, Mech._perf_recalc_usec / 1000.0, Mech._perf_recalc_calls])
+		_cum["shape"] += Mech._perf_shape_gen_usec
+		_cum["loadout"] += Mech._perf_build_loadout_usec
+		_cum["visual"] += Mech._perf_visual_build_usec
+		_cum["replay"] += Mech._perf_stock_replay_usec
+		_cum["spawn"] += SquadDirector._perf_bot_spawn_usec
 		SquadDirector._perf_bot_spawn_usec = 0
 		Mech._perf_shape_gen_usec = 0
 		Mech._perf_build_loadout_usec = 0
@@ -208,6 +325,10 @@ func _node_histogram():
 		print("BENCH_NODES %5d  %s" % [counts[keys[i]], keys[i]])
 
 func _report():
+	var dpool = _main._ensure_squad_director()
+	print("BENCH_POOL hits=%d misses=%d stock=%d rebuild_wave=%d energy_scale=%.2f" % [dpool.pool_hits, dpool.pool_misses, dpool.pool_stock(), dpool.rebuild_wave, dpool.energy_scale_for_wave()])
+	var nb = max(1, Mech._perf_bots_built)
+	print("BENCH_PER_BOT bots=%d avg_ms: spawn=%.1f shape=%.1f loadout=%.1f (replay=%.1f) visual=%.1f" % [Mech._perf_bots_built, _cum["spawn"] / 1000.0 / nb, _cum["shape"] / 1000.0 / nb, _cum["loadout"] / 1000.0 / nb, _cum["replay"] / 1000.0 / nb, _cum["visual"] / 1000.0 / nb])
 	var s = _frames.duplicate()
 	s.sort()
 	var sum := 0.0

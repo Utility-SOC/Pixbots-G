@@ -272,7 +272,57 @@ func _ready():
 	version_label.text = _build_version_text
 	box.add_child(version_label)
 
+# Always-on spike log: any frame over SPIKE_LOG_MS of REAL time (not scaled by
+# hitstop) writes one "[PERF] ..." line to the console (the launcher saves it to
+# ~/pixbots_session_*/console.log) with the live counts that explain it, so slow
+# sessions can be diagnosed from the log alone. Rate-limited, Garage pauses and
+# the first seconds after a scene load are ignored.
+const SPIKE_LOG_MS = 80.0
+const SPIKE_LOG_COOLDOWN_USEC = 2000000
+var _last_frame_usec: int = 0
+var _last_spike_log_usec: int = 0
+var _spikes_since_log: int = 0
+var _bots_built_at_last_log: int = 0
+
+func _pool_summary() -> String:
+	var main = get_tree().current_scene
+	if main == null or not main.has_method("_ensure_squad_director") or main.get("world") == null:
+		return "-"
+	var d = main.world.get_node_or_null("SquadDirector")
+	if d == null or not "pool_hits" in d:
+		return "-"
+	return "%d/%d stock%d" % [d.pool_hits, d.pool_hits + d.pool_misses, d.pool_stock()]
+
+func _log_spike_if_any() -> void:
+	var now = Time.get_ticks_usec()
+	var real_ms = (now - _last_frame_usec) / 1000.0 if _last_frame_usec > 0 else 0.0
+	_last_frame_usec = now
+	if real_ms < SPIKE_LOG_MS or get_tree().paused or Engine.get_process_frames() < 120:
+		return
+	_spikes_since_log += 1
+	if now - _last_spike_log_usec < SPIKE_LOG_COOLDOWN_USEC:
+		return
+	_last_spike_log_usec = now
+	var main = get_tree().current_scene
+	var wave = main.get("current_wave") if main and "current_wave" in main else -1
+	var batch_live = 0
+	if is_instance_valid(ProjectileManager.live_batch_pool):
+		batch_live = ProjectileManager.live_batch_pool.live_count()
+	var built = Mech._perf_bots_built
+	print("[PERF] spike %.0fms (x%d since last) wave=%s | enemies=%d drones=%d | proj legacy=%d batch=%d emitters=%d | bots_built+%d pool=%s | nodes=%d phys2d active=%d pairs=%d | draws=%d | proc=%.0fms phys=%.0fms" % [
+		real_ms, _spikes_since_log, str(wave),
+		get_tree().get_nodes_in_group("enemy").size(), get_tree().get_nodes_in_group("drone").size(),
+		ProjectileManager.live_count(), batch_live, load("res://scripts/attacks/MineEmitter.gd").live_count,
+		built - _bots_built_at_last_log, _pool_summary(),
+		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		int(Performance.get_monitor(Performance.PHYSICS_2D_ACTIVE_OBJECTS)), int(Performance.get_monitor(Performance.PHYSICS_2D_COLLISION_PAIRS)),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0])
+	_spikes_since_log = 0
+	_bots_built_at_last_log = built
+
 func _process(delta: float):
+	_log_spike_if_any()
 	if not visible:
 		return
 	_frame_times.append(delta)

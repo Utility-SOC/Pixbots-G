@@ -108,6 +108,16 @@ func _note_wave() -> void:
 			if float(_recent_drops[k]) < 0.05:
 				_recent_drops.erase(k)
 
+# Long-run streak bonus: every wave since the player's last garage visit raises ordinary
+# (non-structural) drop chances by STREAK_DROP_RATE, uncapped (the final chance still clamps
+# at 100%). It pays for staying out - while the haul it fills is unsecured until extraction
+# (Main.note_haul / _apply_haul_loss) and the enemies keep scaling (SquadDirector).
+const STREAK_DROP_RATE = 0.03
+var garage_wave: int = 1 # wave of the last garage visit; set by Main
+
+func streak_multiplier() -> float:
+	return 1.0 + STREAK_DROP_RATE * float(max(0, current_wave - garage_wave))
+
 func is_structural(tile_type: String) -> bool:
 	return tile_type in STRUCTURAL_TILE_TYPES or tile_type == "Microcore"
 
@@ -117,6 +127,9 @@ func drop_chance(tile_type: String, rarity: int, is_boss: bool, discovered: bool
 	if rarity == HexTile.Rarity.MYTHIC and is_boss:
 		base = BOSS_TILE_DROP_CHANCE
 	var chance = base * _tile_type_drop_multiplier(tile_type, rarity)
+	# Mythic plumbing is exempt from the plumbing discount, so it also takes the streak bonus.
+	if not is_structural(tile_type) or rarity == HexTile.Rarity.MYTHIC:
+		chance *= streak_multiplier()
 	if not is_structural(tile_type):
 		chance *= MetaProgress.drop_multiplier("salvage_contract")
 		if not discovered:

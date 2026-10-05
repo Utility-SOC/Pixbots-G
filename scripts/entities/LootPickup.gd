@@ -117,16 +117,19 @@ func _on_body_entered(body: Node2D):
 			var main = body.get_tree().current_scene
 			if main and "player_modifier_chips" in main:
 				main.player_modifier_chips.append(chip_data)
+				if main.has_method("note_haul"): main.note_haul("chip", chip_data)
 		elif equipment_data:
 			print("Player picked up equipment: ", equipment_data.component_name)
 			var main = body.get_tree().current_scene
 			if main and "player_component_inventory" in main:
 				main.player_component_inventory.append(equipment_data)
+				if main.has_method("note_haul"): main.note_haul("component", equipment_data)
 		elif tile_data:
 			print("Player picked up tile: ", tile_data.tile_type)
 			var main = body.get_tree().current_scene
 			if main and "player_inventory" in main:
 				main.player_inventory.append(tile_data)
+				if main.has_method("note_haul"): main.note_haul("tile", tile_data)
 				TileDiscoveryPopup.announce_if_new(tile_data)
 			
 		queue_free()

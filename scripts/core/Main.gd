@@ -528,7 +528,13 @@ func _update_player_blind_state():
 
 func _update_hud():
 	if wave_label:
-		wave_label.text = "Wave: " + str(current_wave) + "  |  Lives: " + str(player_lives_remaining)
+		var hud_text = "Wave: " + str(current_wave) + "  |  Lives: " + str(player_lives_remaining)
+		if not _haul.is_empty():
+			hud_text += "  |  Haul at risk: " + str(_haul.size())
+		var streak_pct = int(round((LootManager.streak_multiplier() - 1.0) * 100.0))
+		if streak_pct > 0:
+			hud_text += "  |  Loot +" + str(streak_pct) + "%"
+		wave_label.text = hud_text
 	if timer_label:
 		if garage_timer > 0:
 			timer_label.text = "Extraction in: " + str(int(garage_timer)) + "s"
@@ -805,6 +811,7 @@ func _setup_player():
 		if load_data.has("current_wave"):
 			current_wave = max(1, int(load_data["current_wave"]))
 			last_garage_wave = current_wave
+			LootManager.garage_wave = current_wave
 		# Tournament is its own circuit, not a continuation of the
 		# campaign's wave count - a save picked from TournamentMenu is
 		# guaranteed max_wave_reached >= 100, so without this the bracket
@@ -814,6 +821,7 @@ func _setup_player():
 		if SaveManager.current_game_mode == "tournament":
 			current_wave = 1
 			last_garage_wave = current_wave
+			LootManager.garage_wave = current_wave
 		if load_data.has("player_sponsorship"):
 			player_sponsorship = str(load_data["player_sponsorship"])
 		if load_data.has("player_paint_color"):
@@ -2028,6 +2036,51 @@ var last_garage_wave: int = 1
 # that's immediately, matching the original single-life behavior exactly.
 var player_lives_remaining: int = SaveManager.DIFFICULTY_LIVES[SaveManager.difficulty]
 
+# --- Haul: loot at risk on a long run ----------------------------------------------------
+# Everything picked up since the last garage visit is UNSECURED: it sits in the inventories
+# (you can only use it in the garage anyway) but is tracked here. Losing a life costs
+# HAUL_LOSS_PER_LIFE of it; a game over costs all of it; any garage visit (extraction)
+# secures it. Paired with LootManager.streak_multiplier (drops grow per wave since the
+# garage, uncapped) and the uncapped enemy power curve (SquadDirector.energy_scale_for_wave).
+const HAUL_LOSS_PER_LIFE = 0.4
+var _haul: Array = [] # [kind, item] in pickup order; kind: "tile" | "component" | "chip"
+
+func note_haul(kind: String, item) -> void:
+	_haul.append([kind, item])
+	_update_hud()
+
+func haul_count() -> int:
+	return _haul.size()
+
+func _secure_haul() -> void:
+	if not _haul.is_empty():
+		print("[HAUL] secured %d items" % _haul.size())
+	_haul.clear()
+
+# Removes `fraction` of the haul (random items; the fractional remainder rolls, so small hauls
+# still lose that share on average). Returns how many items were lost.
+func _apply_haul_loss(fraction: float) -> int:
+	var n = _haul.size()
+	if n == 0 or fraction <= 0.0:
+		return 0
+	var lose = n
+	if fraction < 1.0:
+		var exact = float(n) * fraction
+		lose = int(floor(exact))
+		if randf() < exact - float(lose):
+			lose += 1
+	for i in range(lose):
+		var idx = randi() % _haul.size()
+		var entry = _haul[idx]
+		_haul.remove_at(idx)
+		match entry[0]:
+			"tile": player_inventory.erase(entry[1])
+			"component": player_component_inventory.erase(entry[1])
+			"chip": player_modifier_chips.erase(entry[1])
+	print("[HAUL] lost %d of %d unsecured items (%d%%)" % [lose, n, int(round(fraction * 100.0))])
+	_update_hud()
+	return lose
+
 func _on_player_died():
 	# Extra life: respawn in place instead of the full death sequence.
 	# Lives = RESPAWNS REMAINING: any death while at least one remains
@@ -2044,11 +2097,14 @@ func _on_player_died():
 		player.hp = player.max_hp
 		player.shield_hp = player.max_shield_hp
 		player.repair_broken_parts() # a new life comes back with all limbs
+		var lost_items = _apply_haul_loss(HAUL_LOSS_PER_LIFE)
 		if player.has_method("_show_floating_text"):
-			player._show_floating_text("LIFE LOST - %d LEFT" % player_lives_remaining, Color(1.0, 0.5, 0.2))
+			var suffix = "  -  HAUL: -%d ITEMS" % lost_items if lost_items > 0 else ""
+			player._show_floating_text("LIFE LOST - %d LEFT%s" % [player_lives_remaining, suffix], Color(1.0, 0.5, 0.2))
 		return
 
 	print("!!! GAME OVER - MAGNIFICENT EXPLOSION !!!")
+	_apply_haul_loss(1.0) # everything unsecured is gone (before the autosave below persists it)
 	var daily_card: Dictionary = SaveManager.pending_run_card
 	if str(daily_card.get("mode", "")) == "daily":
 		MetaProgressScript.note_daily_result(str(daily_card.get("date", "")), current_wave)
@@ -2267,6 +2323,7 @@ func _on_wave_cleared():
 	if tell_director:
 		tell_director.end_of_wave_update()
 	current_wave += 1
+	LootManager.current_wave = current_wave # streak bonus tracks the wave right away, not at wave start
 	if current_wave > SaveManager.max_wave_reached:
 		SaveManager.max_wave_reached = current_wave
 	# Tournament arc unlock (the user: "yes re wave/level" - Level 100 ==
@@ -2405,6 +2462,7 @@ func _open_garage():
 	if garage_ui and is_instance_valid(garage_ui):
 		return
 	print("Opening Garage Menu...")
+	_secure_haul()
 	get_tree().paused = true
 	AudioManager.set_combat_state(false) # garage is downtime regardless of how we got here
 
@@ -2448,6 +2506,7 @@ func _close_garage():
 	_update_hud()
 
 	last_garage_wave = current_wave
+	LootManager.garage_wave = current_wave
 
 	if player != null:
 		# Anything could have changed in there - tile placement, routing,

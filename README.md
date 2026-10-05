@@ -258,6 +258,17 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 
 ## 9. RECENT SYSTEM UPDATES (CHANGELOG)
 
+- **2026-10-05 (performance, element roles, long runs, parts):**
+  - **Projectiles:** the batch renderer draws shots from one baked texture atlas (about 9x cheaper per mixed-element shot on the HD 4000) and is on by default; Pie, Shape Blend, Starburst and Rings keep their looks. Elements beyond a shot's dominant one and two orbiting echoes show as a ring of small coloured dots.
+  - **Element roles (no named recipes):** Poison is the gateway to mines and turrets. A mine's other elements each add a trait: Vortex pulls, Ice freezes, Lightning paralyzes, Explosion widens the blast and leaves a poison or fire cloud, Fire leaves a flame emitter, Kinetic and Pierce leave an emitter that fires one-generation sub-shots carrying the mix. Pure Fire stays a melee weapon. Combinations are meant to be discovered, so nothing in-game names them.
+  - **Missiles:** blast radius scales with the explosive damage carried (up to 5x), a kinetic-dominant missile is a small, precise "sword" (no splash, harder direct hit), lightning missiles chain out from a small impact, poison missiles leave a turret, and a fire share leaves lasting burning ground.
+  - **Status particles:** burning bots shed embers, poisoned bots drift green bubbles.
+  - **Enemy pool and long runs:** every return from the garage is a full enemy rebuild behind a loading screen; between visits rarity tiers are frozen and enemy energy grows 2% per wave since the rebuild, uncapped. Unsecured loot (the haul) is lost 40% per life and entirely on game over, and any garage visit secures it; drop chances grow 3% per wave since the last garage. See `docs/ENEMY_POOL.md`.
+  - **Rarity unlock waves** are now Uncommon 10, Rare 25, Legendary 75, Mythic 120.
+  - **Parts:** every dropped part is guaranteed wired and routable (dropped torsos were missing their Accessory Return and had unroutable links); repaired on pickup and when the garage opens.
+  - **Performance:** fixed periodic hitches from the minimap rebuild (every 5 s), the learned-state save (every 4 s), deploy-time enemy generation, replacement squads spawning too fast once extraction opens, and physics catch-up spirals (`max_physics_steps_per_frame` capped at 3).
+  - **Diagnostics:** the FPS counter logs a `[PERF]` line for any frame over 80 ms into the console log, and a `[POOL]` line is logged each wave.
+
 - **Week of 2026-09-30 (AI, visuals, tutorial, meta):**
   - **Visuals:** mechs, enemies and bosses are drawn from their grid (tint, width, lights, per-tile-type decorators, barrels lengthen arms; hitbox follows silhouette within a cap). Fixed limbs vanishing after a map rotation.
   - **Garage:** per-tile energy flow recorded by the Rust sim drives dimming of unpowered tiles, energy bars, and loop/saturation warnings. Solver now conditions Head/Backpack returns and Catalysts are stronger (efficiency 1.5); enemy builds use the same logic.

@@ -6,6 +6,14 @@ Effort: **S** under a day, **M** a few days, **L** a week or more.
 Items marked *(verify)* come from backlog text that has been stale before -
 confirm against the code before starting.
 
+## Progress since this was written (2026-10-05)
+Done: mock menu buttons, CI off Node 20 (Phase 1), a large share of the Phase 4 and Phase 5
+combat and visual work below (element roles, missiles, status particles, solver and enemy-pool
+work) and the long-run economy (haul, streak bonus). See the README changelog and
+`docs/ENEMY_POOL.md`. Still open from Phase 0: a live playtest of the pool, haul, missile and
+mine behaviours (they are covered by headless checks only), and a release-build launch test.
+Tuning constants for all of the above sit at the top of their scripts.
+
 ## Guiding rules (from the design decisions so far)
 - Performance first (target hardware: i5-3340M / HD 4000). Measure before and after.
 - Procedural visuals and audio by default; no bundled third-party assets.

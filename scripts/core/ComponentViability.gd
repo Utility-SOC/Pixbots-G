@@ -68,6 +68,33 @@ static func reachable(comp, start: HexCoord, goal: HexCoord) -> bool:
 			queue.append(n)
 	return false
 
+# The Accessory Return is an INBOUND injector: head/backpack energy enters the torso there and must
+# be able to go somewhere - the core's region (a conduit can carry it to the hub) or any registered
+# sink it can touch through open hexes (a tiny footprint can legitimately have the return right
+# beside a mount or limb link). Only a return walled in with nothing to deliver to is broken.
+static func return_usable(comp, pos: HexCoord) -> bool:
+	if reachable(comp, HexCoord.new(0, 0), pos):
+		return true
+	var seen = {Vector2i(pos.q, pos.r): true}
+	var queue = [pos]
+	var head = 0
+	while head < queue.size():
+		var curr = queue[head]
+		head += 1
+		for d in range(6):
+			var n = curr.neighbor(d)
+			var key = Vector2i(n.q, n.r)
+			if seen.has(key) or not _in_shape(comp, n.q, n.r):
+				continue
+			if comp.hex_grid.has_tile(n):
+				if comp.is_fixed_sink(n):
+					return true # energy can flow straight into a sink
+				if _is_blocker(comp, n):
+					continue
+			seen[key] = true
+			queue.append(n)
+	return false
+
 static func _tile_at_origin(comp):
 	return comp.hex_grid.get_tile(HexCoord.new(0, 0)) if comp.hex_grid.has_tile(HexCoord.new(0, 0)) else null
 
@@ -107,8 +134,8 @@ static func problems(comp) -> Array:
 		var ret = _first_of_type(comp, "Accessory Return")
 		if ret == null:
 			out.append("no Accessory Return")
-		elif not reachable(comp, origin, ret.grid_position):
-			out.append("Accessory Return is not routable from the core")
+		elif not return_usable(comp, ret.grid_position):
+			out.append("Accessory Return cannot deliver energy anywhere")
 	else:
 		var intake = _tile_at_origin(comp)
 		if intake == null or not (intake.tile_type in POWER_SOURCES):
@@ -232,7 +259,7 @@ static func _ensure_torso(comp) -> void:
 		_register_sink(comp, spot)
 
 	var ret = _first_of_type(comp, "Accessory Return")
-	if ret != null and reachable(comp, origin, ret.grid_position):
+	if ret != null and return_usable(comp, ret.grid_position):
 		return
 	if ret != null:
 		comp.hex_grid.remove_tile(ret.grid_position)

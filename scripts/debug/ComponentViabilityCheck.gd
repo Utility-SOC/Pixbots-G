@@ -51,6 +51,30 @@ func _ready():
 					print("  starter problem: slot %d role '%s' rarity %d: %s" % [p.slot_type, role, rarity, str(ViabilityScript.problems(p))])
 	_check("all starter parts viable (%d bad)" % starter_bad, starter_bad == 0)
 
+	# --- 2b. every enemy-role starter torso (all roles x rarities) is viable, with no tile moved -------
+	var roles = ["sniper", "brawler", "scout", "diver", "ambusher", "flamethrower", "jammer", "support", "commander", "anti_missile", "remediation"]
+	var enemy_bad = 0
+	for role in roles:
+		for rarity in range(5):
+			var et = ComponentEquipmentScript.create_starter_torso(role, rarity)
+			if not ViabilityScript.problems(et).is_empty():
+				enemy_bad += 1
+				print("  enemy torso problem: %s r%d: %s" % [role, rarity, str(ViabilityScript.problems(et))])
+	_check("all %d enemy-role starter torsos are viable (%d bad)" % [roles.size() * 5, enemy_bad], enemy_bad == 0)
+	# a tiny footprint with the return beside a sink is fine; a genuinely isolated return is still caught
+	_check("a Common sniper's return (beside a mount, tiny footprint) counts as usable", ViabilityScript.problems(ComponentEquipmentScript.create_starter_torso("sniper", 0)).is_empty())
+	var iso = ComponentEquipmentScript.create_starter_torso("", HexTile.Rarity.RARE)
+	var ret_i = ViabilityScript._first_of_type(iso, "Accessory Return")
+	for d in range(6):
+		var nb = ret_i.grid_position.neighbor(d)
+		iso._valid_hex_set.erase(iso._hex_key(nb.q, nb.r))
+	var iso_problems = ViabilityScript.problems(iso)
+	var flagged = false
+	for pr in iso_problems:
+		if "cannot deliver" in pr:
+			flagged = true
+	_check("a return with nowhere to deliver is still flagged", flagged)
+
 	# --- 3. repair is idempotent: a viable part is never touched ----------------------------
 	var t = ComponentEquipmentScript.create_starter_torso("brawler", HexTile.Rarity.RARE)
 	var before = _snapshot(t)

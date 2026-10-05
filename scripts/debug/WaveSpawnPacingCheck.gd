@@ -49,8 +49,10 @@ func _ready():
 	m.active_enemies = 40
 	m.garage_timer = 5.0 # below WAVE_SPAWN_SAFETY_MARGIN_SECONDS (8.0)
 	var interval_tail = m._compute_spawn_interval(80, 90.0)
-	_check("inside the safety-margin tail, falls back to the fast 0.12s anti-freeze beat (got %.3fs)" % interval_tail,
-		abs(interval_tail - 0.12) < 0.001)
+	# Replacement squads are paced (was a 0.12 s beat that rebuilt the field as fast as squads could
+	# be built once extraction opened - see Main.POST_EXTRACTION_SPAWN_INTERVAL).
+	_check("inside the safety-margin tail, uses the post-extraction replacement pace (got %.3fs)" % interval_tail,
+		abs(interval_tail - MainScript.POST_EXTRACTION_SPAWN_INTERVAL) < 0.001)
 
 	# --- 4: nothing left to spawn - falls back to the fast beat too (loop
 	# exits on its own condition anyway, but the function itself shouldn't
@@ -58,8 +60,8 @@ func _ready():
 	m.active_enemies = 80
 	m.garage_timer = 90.0
 	var interval_done = m._compute_spawn_interval(80, 90.0)
-	_check("with nothing left to spawn, falls back to the fast beat rather than a nonsensical value (got %.3fs)" % interval_done,
-		abs(interval_done - 0.12) < 0.001)
+	_check("with nothing left to spawn, falls back to the replacement pace rather than a nonsensical value (got %.3fs)" % interval_done,
+		abs(interval_done - MainScript.POST_EXTRACTION_SPAWN_INTERVAL) < 0.001)
 
 	# --- 5: the interval NEVER exceeds what's left of the actual spread
 	# window - i.e. pacing can't overshoot and finish spawning AFTER

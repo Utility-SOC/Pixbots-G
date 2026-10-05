@@ -23,6 +23,19 @@ var _peak_nodes := 0
 var _hist_done := false
 var _seed := 1
 var _garage_at := -1.0
+var _missiles_per_sec := 0.0
+var _missile_acc := 0.0
+var _drawtrace := false
+var _masskill_every := 0.0
+var _masskill_next := 15.0
+var _mk_frames_left := 0
+var _mk_peak_draws := 0
+var _mk_peak_ms := 0.0
+var _mk_nodes_before := 0
+var _mk_killed := 0
+var _mk_gpu_before := 0
+var _drawtrace_next := 12.0
+var _drawtrace_busy := false
 var _extraction := false
 var _swarm := 0
 var _swarm_spawned := 0
@@ -47,6 +60,9 @@ func _ready():
 		elif a.begins_with("--map="): _map_type = a.split("=")[1]
 		elif a.begins_with("--swarm="): _swarm = int(a.split("=")[1])
 		elif a.begins_with("--swarmring="): _swarm_ring = float(a.split("=")[1])
+		elif a.begins_with("--missiles="): _missiles_per_sec = float(a.split("=")[1])
+		elif a == "--drawtrace": _drawtrace = true
+		elif a.begins_with("--masskill="): _masskill_every = float(a.split("=")[1])
 		elif a == "--extraction": _extraction = true
 		elif a.begins_with("--maxsteps="): Engine.max_physics_steps_per_frame = int(a.split("=")[1])
 		elif a.begins_with("--garage="): _garage_at = float(a.split("=")[1])
@@ -85,6 +101,91 @@ func _describe(n: Node) -> String:
 	for k in n.get_children():
 		kids.append((str(k.get_script().resource_path).get_file() if k.get_script() else k.get_class()))
 	return "%s{%s}[%s]" % [n.get_class(), sc, ",".join(kids.slice(0, 5))]
+
+# --- Missile barrage (models mass kills with missiles: shells, puddles, death effects, loot) ---
+const BENCH_MISSILE_MIXES = [
+	{6: 1.0}, {6: 0.5, 1: 0.5}, {3: 1.0}, {5: 0.5, 7: 0.5}, {7: 1.0}, {6: 0.4, 1: 0.3, 5: 0.3},
+]
+
+func _fire_bench_missile() -> void:
+	var enemies = get_tree().get_nodes_in_group("enemy")
+	var tgt = _main.player.global_position + Vector2(randf_range(-500, 500), randf_range(-400, 400))
+	if not enemies.is_empty():
+		var e = enemies[randi() % enemies.size()]
+		if is_instance_valid(e):
+			tgt = e.global_position
+	var mix = BENCH_MISSILE_MIXES[randi() % BENCH_MISSILE_MIXES.size()]
+	var dmg = [600.0, 3000.0, 12000.0][randi() % 3]
+	var syn = {}
+	for k in mix:
+		syn[k] = mix[k] * dmg
+	var shell = load("res://scripts/attacks/MortarShell.gd").acquire()
+	shell.setup(_main.player.global_position, tgt, 0.7, dmg, syn, true, _main.player)
+	_main.world.add_child(shell)
+
+# --- Mass kill: every N seconds kill every live enemy in the same frame and record the worst frame
+# time, peak draw calls and node churn over the next ~8 frames (the "murdering a lot at once" hitch).
+func _masskill_tick(delta: float) -> void:
+	if _mk_frames_left > 0:
+		_mk_frames_left -= 1
+		_mk_peak_draws = max(_mk_peak_draws, _draw_total())
+		_mk_peak_ms = max(_mk_peak_ms, delta * 1000.0)
+		if _mk_frames_left == 0:
+			print("BENCH_MASSKILL killed=%d worst_frame_ms=%.0f peak_draws=%d nodes %d->%d GPUParticles2D %d->%d" % [_mk_killed, _mk_peak_ms, _mk_peak_draws, _mk_nodes_before, get_tree().get_node_count(), _mk_gpu_before, get_tree().root.find_children("*", "GPUParticles2D", true, false).size()])
+		return
+	if _t >= _masskill_next:
+		_masskill_next = _t + _masskill_every
+		var victims = get_tree().get_nodes_in_group("enemy")
+		_mk_killed = 0
+		_mk_nodes_before = get_tree().get_node_count()
+		_mk_gpu_before = get_tree().root.find_children("*", "GPUParticles2D", true, false).size()
+		for e in victims:
+			if is_instance_valid(e) and not e.get("is_dead") and e.has_method("die"):
+				e.die()
+				_mk_killed += 1
+		_mk_frames_left = 8
+		_mk_peak_draws = 0
+		_mk_peak_ms = 0.0
+
+# --- Draw-call trace: census of visible canvas items by script/class, then hide each big category
+# one at a time and measure how many draw calls disappear (windowed runs only - there is no renderer
+# headless, so the monitor reads 0).
+func _draw_total() -> int:
+	return int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+
+func _run_drawtrace() -> void:
+	_drawtrace_busy = true
+	var cats = {}
+	var total_items = 0
+	for n in get_tree().root.find_children("*", "CanvasItem", true, false):
+		if not n.is_visible_in_tree():
+			continue
+		total_items += 1
+		var key = str(n.get_script().resource_path.get_file()) if n.get_script() else n.get_class()
+		if not cats.has(key):
+			cats[key] = []
+		cats[key].append(n)
+	var keys = cats.keys()
+	keys.sort_custom(func(a, b): return cats[a].size() > cats[b].size())
+	var base_a = _draw_total()
+	print("BENCH_DRAWS t=%.1f total_draws=%d visible_canvas_items=%d enemies=%d projectiles(pool)=%d" % [_t, base_a, total_items, get_tree().get_nodes_in_group("enemy").size(), ProjectileManager.live_batch_pool.live_count() if is_instance_valid(ProjectileManager.live_batch_pool) else 0])
+	var lines = []
+	for key in keys.slice(0, 10):
+		var before = _draw_total()
+		for n in cats[key]:
+			if is_instance_valid(n):
+				n.visible = false
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var after = _draw_total()
+		for n in cats[key]:
+			if is_instance_valid(n):
+				n.visible = true
+		await get_tree().process_frame
+		lines.append("  %-34s items=%-5d draws_removed=%d" % [key, cats[key].size(), before - after])
+	for l in lines:
+		print("BENCH_DRAWCAT", l)
+	_drawtrace_busy = false
 
 func _mk_probe(lbl: String) -> Node:
 	var pr = load("res://scripts/debug/TreeProbe.gd").new()
@@ -190,6 +291,16 @@ func _process(delta):
 					print("BENCH_MAIN ", c.name, " ", c.get_class(), " children=", c.get_child_count())
 				for c in _main.world.get_children():
 					print("BENCH_WORLD ", c.name, " ", c.get_class(), " children=", c.get_child_count())
+			if _missiles_per_sec > 0.0 and _t > 4.0:
+				_missile_acc += delta * _missiles_per_sec
+				while _missile_acc >= 1.0:
+					_missile_acc -= 1.0
+					_fire_bench_missile()
+			if _masskill_every > 0.0:
+				_masskill_tick(delta)
+			if _drawtrace and _t >= _drawtrace_next and not _drawtrace_busy:
+				_drawtrace_next = _t + 8.0
+				_run_drawtrace()
 			if _swarm > 0 and _t > 3.0 and _swarm_spawned < _swarm:
 				# Force a crowded field: one squad per frame on a ring around the player.
 				var dsw = _main._ensure_squad_director()

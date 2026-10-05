@@ -166,6 +166,7 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 		for k in synergies:
 			ratios[k] = synergies[k] / total_mag
 	var fm_scale = sqrt(max(1.0, float(frame_multiplier)))
+	_ensure_textures()
 	_ratios = ratios
 	_aoe_bonus = p_aoe_bonus
 	var r_exp = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
@@ -434,6 +435,35 @@ func _dominant_color() -> Color:
 	c.a = 1.0
 	return c
 
+# Shared ring/disc textures: every shell draws from the same two textures, so all missiles' rings and
+# dots merge into one batched draw (a shell in flight was 5 separate draws: 2 arcs + 3 circles).
+static var _fx_atlas: ImageTexture = null # left half: ring, right half: disc - ONE texture so ring and dot quads merge
+const TEX_SIZE = 64
+const RING_THICKNESS = 0.045 # fraction of the diameter
+const RING_REGION = Rect2(0, 0, 64, 64)
+const DISC_REGION = Rect2(64, 0, 64, 64)
+
+static func _ensure_textures() -> void:
+	if _fx_atlas != null:
+		return
+	var img = Image.create(TEX_SIZE * 2, TEX_SIZE, false, Image.FORMAT_RGBA8)
+	var c = (TEX_SIZE - 1) / 2.0
+	for y in range(TEX_SIZE):
+		for x in range(TEX_SIZE):
+			var d = Vector2(x - c, y - c).length() / (TEX_SIZE / 2.0)
+			var disc_a = clamp((1.0 - d) * (TEX_SIZE / 2.0), 0.0, 1.0)
+			var ring_a = clamp(1.0 - abs(d - (1.0 - RING_THICKNESS * 2.0)) / (RING_THICKNESS * 2.0), 0.0, 1.0)
+			ring_a = clamp(ring_a * 1.6, 0.0, 1.0) * (1.0 if d <= 1.0 else 0.0)
+			img.set_pixel(x, y, Color(1, 1, 1, ring_a))
+			img.set_pixel(TEX_SIZE + x, y, Color(1, 1, 1, disc_a))
+	_fx_atlas = ImageTexture.create_from_image(img)
+
+func _quad_disc(center: Vector2, radius: float, col: Color) -> void:
+	draw_texture_rect_region(_fx_atlas, Rect2(center - Vector2(radius, radius), Vector2(radius, radius) * 2.0), DISC_REGION, col)
+
+func _quad_ring(center: Vector2, radius: float, col: Color) -> void:
+	draw_texture_rect_region(_fx_atlas, Rect2(center - Vector2(radius, radius), Vector2(radius, radius) * 2.0), RING_REGION, col)
+
 # Blade length (px) of this sword's star: grows with the damage it carries (200 dmg = 1.0x).
 func sword_length() -> float:
 	return SWORD_LEN_BASE * clamp(pow(max(damage, 1.0) / 200.0, 0.3), SWORD_LEN_MIN_SCALE, SWORD_LEN_MAX_SCALE)
@@ -450,7 +480,7 @@ static func star_points(length: float, rot: float) -> PackedVector2Array:
 func _draw_sword_star(center: Vector2, length: float, rot: float, color: Color, alpha: float):
 	draw_colored_polygon(star_points(length, rot).duplicate(), Color(color.r, color.g, color.b, 0.85 * alpha)) if center == Vector2.ZERO else _draw_star_at(center, length, rot, color, alpha)
 	# bright core
-	draw_circle(center, max(2.0, length * 0.16), Color(1, 1, 1, alpha))
+	_quad_disc(center, max(2.0, length * 0.16), Color(1, 1, 1, alpha))
 
 func _draw_star_at(center: Vector2, length: float, rot: float, color: Color, alpha: float):
 	var pts = star_points(length, rot)
@@ -476,15 +506,15 @@ func _draw():
 		# Impact flash: expanding filled ring.
 		var t = _impact_elapsed / IMPACT_FLASH_TIME
 		var color = _dominant_color()
-		draw_circle(Vector2.ZERO, effective_radius * (0.5 + 0.5 * t), Color(color.r, color.g, color.b, 0.45 * (1.0 - t)))
-		draw_arc(Vector2.ZERO, effective_radius, 0, TAU, 24, Color(color.r, color.g, color.b, 0.9 * (1.0 - t)), 3.0)
+		_quad_disc(Vector2.ZERO, effective_radius * (0.5 + 0.5 * t), Color(color.r, color.g, color.b, 0.45 * (1.0 - t)))
+		_quad_ring(Vector2.ZERO, effective_radius, Color(color.r, color.g, color.b, 0.9 * (1.0 - t)))
 		return
 
 	var t = _elapsed / flight_time
 	# Ground telegraph at the impact point: tightening dashed ring.
 	var warn = Color(1.0, 0.2, 0.2, 0.9) if not fired_by_player else Color(0.2, 1.0, 0.5, 0.9)
-	draw_arc(Vector2.ZERO, effective_radius, 0, TAU, 24, warn, 4.0)
-	draw_arc(Vector2.ZERO, effective_radius * (1.0 - t * 0.85), 0, TAU, 20, Color(warn.r, warn.g, warn.b, 0.9), 4.0)
+	_quad_ring(Vector2.ZERO, effective_radius, warn)
+	_quad_ring(Vector2.ZERO, effective_radius * (1.0 - t * 0.85), Color(warn.r, warn.g, warn.b, 0.9))
 
 	# The physical shell arcing through the air.
 	var shell_pos = start_pos.lerp(target_pos, t)
@@ -495,17 +525,17 @@ func _draw():
 	if _is_sword:
 		# In flight: the spinning star itself, not a round shell.
 		_draw_star_at(shell_pos, sword_length() * 0.7, _elapsed * 7.0, _dominant_color(), 1.0)
-		draw_circle(shell_pos, max(2.0, sword_length() * 0.12), Color(1, 1, 1, 0.95))
+		_quad_disc(shell_pos, max(2.0, sword_length() * 0.12), Color(1, 1, 1, 0.95))
 		return
 	if equal_split_all_victims:
 		var color = _dominant_color()
-		draw_circle(shell_pos, 12.0, color)
-		draw_circle(shell_pos, 6.0, Color(1, 1, 1, 0.9))
+		_quad_disc(shell_pos, 12.0, color)
+		_quad_disc(shell_pos, 6.0, Color(1, 1, 1, 0.9))
 	else:
 		var color = _dominant_color()
-		draw_circle(shell_pos, 10.0, color)
-		draw_circle(shell_pos, 5.0, Color(1, 1, 1, 0.9))
-	draw_circle(shell_pos + Vector2(-1.5, -1.5), 2.0, Color(0.55, 0.58, 0.64))
+		_quad_disc(shell_pos, 10.0, color)
+		_quad_disc(shell_pos, 5.0, Color(1, 1, 1, 0.9))
+	_quad_disc(shell_pos + Vector2(-1.5, -1.5), 2.0, Color(0.55, 0.58, 0.64))
 
 
 # Lightning missiles are a small impact that chains out: from the impact point to the nearest enemy

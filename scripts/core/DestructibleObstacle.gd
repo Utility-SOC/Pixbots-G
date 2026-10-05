@@ -128,4 +128,9 @@ func _collapse():
 	if get_parent():
 		get_parent().add_child(debris)
 		debris.finished.connect(debris.queue_free)
+		# One-shot GPU particles that are off-screen never advance, so `finished` never fires and the
+		# node leaked (hundreds after a long fight). A timer frees it regardless.
+		get_tree().create_timer(1.6).timeout.connect(func():
+			if is_instance_valid(debris):
+				debris.queue_free())
 	queue_free()

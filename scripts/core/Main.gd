@@ -529,11 +529,13 @@ func _update_player_blind_state():
 func _update_hud():
 	if wave_label:
 		var hud_text = "Wave: " + str(current_wave) + "  |  Lives: " + str(player_lives_remaining)
+		# Plain language: loot picked up since the last garage visit is "unbanked" - losing a life
+		# costs 40% of it, game over all of it, extraction banks it.
 		if not _haul.is_empty():
-			hud_text += "  |  Haul at risk: " + str(_haul.size())
+			hud_text += "  |  Unbanked loot: " + str(_haul.size()) + " (lose " + str(int(HAUL_LOSS_PER_LIFE * 100.0)) + "% per death)"
 		var streak_pct = int(round((LootManager.streak_multiplier() - 1.0) * 100.0))
 		if streak_pct > 0:
-			hud_text += "  |  Loot +" + str(streak_pct) + "%"
+			hud_text += "  |  Drop bonus +" + str(streak_pct) + "%"
 		wave_label.text = hud_text
 	if timer_label:
 		if garage_timer > 0:

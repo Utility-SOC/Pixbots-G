@@ -101,6 +101,19 @@ const IMPACT_FLASH_TIME = 0.28
 # struck target gets an equal share of the total damage, each still run
 # through the real hit pipeline" - see _detonate_equal_split() below.
 var radius_mult: float = 1.0
+var _ratios: Dictionary = {}
+var _aoe_bonus: float = 0.0
+var _is_sword: bool = false
+const SWORD_KINETIC_MIN = 0.5
+const SWORD_EXPLOSION_MAX = 0.25
+const SWORD_RADIUS = 32.0
+const SWORD_DIRECT_BONUS = 0.8 # direct-hit damage x (1 + this * kinetic ratio)
+# Hunter-mode salvos scatter shells around the aim point; a sword is precision ordnance and keeps
+# only this share of that scatter (see MissileRackTile._fire_hunter_salvo).
+const SWORD_SCATTER_SHARE = 0.15
+const CHAIN_LIGHTNING_MIN = 0.15
+const CHAIN_RANGE = 260.0
+const CHAIN_DECAY = 0.7
 var equal_split_all_victims: bool = false
 # See _detonate_equal_split's own comment on the fanout cap this gates.
 const MAX_FULL_PIPELINE_VICTIMS_PER_SHELL = 12
@@ -146,7 +159,18 @@ func setup(p_start: Vector2, p_target: Vector2, p_flight_time: float, p_damage: 
 		for k in synergies:
 			ratios[k] = synergies[k] / total_mag
 	var fm_scale = sqrt(max(1.0, float(frame_multiplier)))
-	effective_radius = max(40.0, Projectile.explosion_radius_for(ratios, p_aoe_bonus) * radius_mult) * fm_scale
+	_ratios = ratios
+	_aoe_bonus = p_aoe_bonus
+	var r_exp = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
+	var r_kin = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
+	# Composition decides what kind of missile this is (no named recipes): kinetic-dominant with
+	# little explosive = a "sword" (tiny footprint, no splash, no puddle, a much harder direct hit);
+	# otherwise the blast radius follows the explosive damage carried.
+	_is_sword = r_kin >= SWORD_KINETIC_MIN and r_exp < SWORD_EXPLOSION_MAX
+	if _is_sword:
+		effective_radius = SWORD_RADIUS
+	else:
+		effective_radius = max(40.0, Projectile.explosion_radius_for(ratios, p_aoe_bonus, damage) * radius_mult) * fm_scale
 
 func _process(delta: float):
 	if _landed:
@@ -163,7 +187,9 @@ func _process(delta: float):
 			_crashed_harmlessly = true
 		else:
 			_detonate()
-			_spawn_puddle()
+			if not _is_sword: # a sword leaves no puddle
+				_spawn_puddle()
+			_deploy_poison_turret()
 			_wipe_terrain()
 	queue_redraw()
 
@@ -201,12 +227,17 @@ func _spawn_puddle():
 		# (e.g. 64x frame_multiplier -> ~53 second puddle)
 		var duration = min(60.0, 3.0 + (frame_multiplier - 1) * 0.8)
 		var puddle_radius = effective_radius
+		var fire_ratio = _ratios.get(EnergyPacket.SynergyType.FIRE, 0.0)
+		if fire_ratio >= Puddle.BURNING_GROUND_THRESHOLD:
+			# Area denial: fire leaves burning ground that lasts and covers a little more.
+			duration = min(60.0, duration + 9.0 * fire_ratio)
+			puddle_radius *= 1.0 + 0.3 * fire_ratio
 		
 		# A puddle inherits the shell's damage as a DoT. nuke_scale (0.0 for
 		# a normal missile) tells the puddle to fade toward a scorched-ash
 		# "bombed out" look instead of staying the vibrant synergy color for
 		# its whole life - see ElementalPuddle.setup()'s own comment.
-		puddle.setup(puddle_radius, duration, damage, synergies, fired_by_player, nuke_scale)
+		puddle.setup(puddle_radius, duration, damage, synergies, fired_by_player, nuke_scale, _ratios.get(EnergyPacket.SynergyType.FIRE, 0.0))
 		puddle.global_position = target_pos
 		world.add_child(puddle)
 
@@ -281,7 +312,7 @@ func _detonate():
 	if direct_target and world:
 		var proj = load("res://scripts/entities/Projectile.gd").new()
 		proj.synergies = synergies.duplicate()
-		proj.damage = damage
+		proj.damage = damage * ((1.0 + SWORD_DIRECT_BONUS * _ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)) if _is_sword else 1.0)
 		proj.fired_by_player = fired_by_player
 		proj.source_mech = src
 		proj.source_label = source_label
@@ -297,22 +328,15 @@ func _detonate():
 		proj.set_physics_process(false)
 		proj._handle_hit(direct_target) # the entire direct-fire impact pipeline
 		if not proj.is_queued_for_deletion():
-			if proj._lightning_hops_left > 0 or proj.ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) > 0.05:
-				# Lightning payload survives the impact by design (blink
-				# re-targeting) - RE-ARM it as a live projectile so it
-				# teleport-hops onward from the crater, exactly like
-				# direct-fire lightning would. Already registered with
-				# ProjectileBroadphase since _ready() - only flight-math
-				# registration and physics processing need re-enabling here.
-				proj.set_physics_process(true)
-				ProjectileManager.register(proj)
-			else:
-				proj.queue_free()
+			proj.queue_free() # chain lightning is handled explicitly below (_chain_lightning)
+
+	if _ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) >= CHAIN_LIGHTNING_MIN:
+		_chain_lightning(direct_target, src)
 
 	# Splash ring: falloff damage only - elemental spread (arcs, explosion
 	# radius, residues) already came from the direct hit above.
 	var element = EnergyPacket.element_name(_dominant_synergy())
-	for v in splash:
+	for v in (splash if not _is_sword else []):
 		if not is_instance_valid(v) or not v.has_method("apply_damage"):
 			continue
 		var falloff = 1.0 - 0.5 * (v.global_position.distance_to(target_pos) / effective_radius)
@@ -441,3 +465,89 @@ func _draw():
 		draw_circle(shell_pos, 10.0, color)
 		draw_circle(shell_pos, 5.0, Color(1, 1, 1, 0.9))
 	draw_circle(shell_pos + Vector2(-1.5, -1.5), 2.0, Color(0.55, 0.58, 0.64))
+
+
+# Lightning missiles are a small impact that chains out: from the impact point to the nearest enemy
+# in range, then onward from each to the next nearest, up to 2 + 6*lightning-ratio hops, each hop
+# at CHAIN_DECAY of the last, paralysing what it touches.
+static func is_sword_composition(syn: Dictionary) -> bool:
+	var total = 0.0
+	for k in syn:
+		total += syn[k]
+	if total <= 0.0:
+		return false
+	return syn.get(EnergyPacket.SynergyType.KINETIC, 0.0) / total >= SWORD_KINETIC_MIN \
+		and syn.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) / total < SWORD_EXPLOSION_MAX
+
+func _chain_lightning(direct_target, src) -> void:
+	var r_ltg = _ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
+	var hops = 2 + int(6.0 * r_ltg)
+	var victims: Array = EntityCache.get_group("enemy") if fired_by_player else EntityCache.get_group("player")
+	var hit: Array = []
+	if direct_target != null and is_instance_valid(direct_target):
+		hit.append(direct_target)
+	var points: Array = [target_pos]
+	var from_pos = target_pos
+	var dmg = damage * r_ltg * 0.8
+	for h in range(hops):
+		var best = null
+		var best_d = CHAIN_RANGE
+		for v in victims:
+			if not is_instance_valid(v) or v.get("is_dead") == true or hit.has(v):
+				continue
+			var d = v.global_position.distance_to(from_pos)
+			if d < best_d:
+				best_d = d
+				best = v
+		if best == null:
+			break
+		hit.append(best)
+		points.append(best.global_position)
+		if best.has_method("apply_damage"):
+			best.apply_damage(dmg, "LIGHTNING", src, false, source_label)
+		if is_instance_valid(best) and best.has_method("apply_status"):
+			best.apply_status("paralyzed", 0.6)
+		dmg *= CHAIN_DECAY
+		from_pos = best.global_position
+	if points.size() > 1 and get_parent():
+		var arc = load("res://scripts/visuals/LightningChainVisual.gd").new()
+		get_parent().add_child(arc)
+		arc.setup(points, EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.LIGHTNING) * 1.5)
+
+# Poison missiles turn the impact into a turret: the same emitter the poison mines leave behind
+# (flame from fire, sub-shots from kinetic/pierce/poison), so poison -> turret is the same rule
+# everywhere. A pure-poison missile gets a poison-bolt turret.
+func _deploy_poison_turret() -> void:
+	if _is_sword or _ratios.get(EnergyPacket.SynergyType.POISON, 0.0) < Projectile.MINE_POISON_THRESHOLD:
+		return
+	var emitter_script = load("res://scripts/attacks/MineEmitter.gd")
+	if not emitter_script.can_deploy() or not get_parent():
+		return
+	var profile = Projectile.mine_profile(_ratios)
+	var field_share = float(profile["field_share"])
+	var volley_share = float(profile["volley_share"])
+	if field_share + volley_share <= 0.0:
+		volley_share = 0.6 # no sustain/volley element mixed in: a poison-bolt turret
+	var total_damage = damage * 1.5
+	var sub_ratios = Projectile._sub_shot_ratios(_ratios)
+	var dom = Projectile._dominant_of(sub_ratios)
+	var col = EnergyPacket.get_color_for_synergy(dom) * 1.5
+	col.a = 1.0
+	var pool = _emitter_pool()
+	var emitter = emitter_script.new()
+	emitter.global_position = target_pos
+	get_parent().add_child(emitter)
+	var src = source_mech if (source_mech and is_instance_valid(source_mech)) else null
+	emitter.setup(Projectile.FLAME_TURRET_SECONDS, total_damage * field_share, Projectile.FLAME_TURRET_RANGE * (1.0 + 0.5 * _aoe_bonus), total_damage * volley_share, Projectile.SUB_SHOT_RANGE, 4 if fired_by_player else 8, pool, {
+		"color": col, "dominant": dom, "ratios": sub_ratios, "by_player": fired_by_player, "source": src,
+	})
+
+func _emitter_pool() -> Node:
+	if ProjectileManager.should_use_batch_pool():
+		return ProjectileManager.live_batch_pool
+	if not is_instance_valid(Projectile._fallback_pool) and get_parent():
+		Projectile._fallback_pool = load("res://scripts/entities/ProjectileBatchPool.gd").new()
+		get_parent().add_child(Projectile._fallback_pool)
+	if is_instance_valid(Projectile._fallback_pool):
+		Projectile._fallback_pool.sync_targets_from_groups()
+	return Projectile._fallback_pool

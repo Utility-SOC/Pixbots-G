@@ -13,6 +13,10 @@ const TICK_RATE = 0.25 # Apply damage every 0.25s
 const MAX_RADIUS = 2000.0
 
 var _victims = []
+# Burning ground: a fire share of the payload (not just fire being the DOMINANT element) makes the
+# puddle apply "burning" to everything standing in it and look like flames.
+const BURNING_GROUND_THRESHOLD = 0.15
+var _fire_ratio: float = 0.0
 # Resolved once in setup(), reused by every _apply_tick() call - apply_damage()
 # needs a String element name (e.g. "FIRE"), not the raw synergy Dictionary.
 var _dominant_element: String = "RAW"
@@ -35,7 +39,7 @@ var _vibrant_inner_color: Color
 var _vibrant_outer_color: Color
 const ASH_COLOR = Color(0.16, 0.15, 0.14, 0.85) # scorched ground, not pure black - reads as burnt earth
 
-func setup(radius: float, duration: float, total_damage: float, synergies: Dictionary, by_player: bool, nuke_scale: float = 0.0):
+func setup(radius: float, duration: float, total_damage: float, synergies: Dictionary, by_player: bool, nuke_scale: float = 0.0, fire_ratio: float = 0.0):
 	_radius = min(radius, MAX_RADIUS)
 	_duration = duration
 	_nuke_scale = clamp(nuke_scale, 0.0, 1.0)
@@ -46,6 +50,7 @@ func setup(radius: float, duration: float, total_damage: float, synergies: Dicti
 	for k in _synergies:
 		_synergies[k] /= max(1.0, ticks)
 	_by_player = by_player
+	_fire_ratio = fire_ratio
 
 	# Determine colors based on dominant element
 	var dominant = -1
@@ -112,6 +117,10 @@ func setup(radius: float, duration: float, total_damage: float, synergies: Dicti
 			EnergyPacket.SynergyType.VAMPIRIC:
 				_inner_color = Color(0.8, 0.0, 0.25, 0.7)
 				_outer_color = Color(0.4, 0.0, 0.15, 0.3)
+
+	if _fire_ratio >= BURNING_GROUND_THRESHOLD:
+		_inner_color = Color(1.0, 0.55, 0.08, 0.85)
+		_outer_color = Color(1.0, 0.12, 0.0, 0.5)
 
 	_vibrant_inner_color = _inner_color
 	_vibrant_outer_color = _outer_color
@@ -201,6 +210,8 @@ func _process(delta):
 	# itself (not always reaching full ash by end of life) so a
 	# just-barely-qualifying missile only cools slightly while a 256-frame
 	# one goes nearly to black.
+	if _fire_ratio >= BURNING_GROUND_THRESHOLD:
+		alpha *= 0.8 + 0.2 * sin(_life_timer * 14.0 + _radius) # flames flicker
 	if _duration > 0 and _nuke_scale > 0.0:
 		var cool_t = clamp(_life_timer / _duration, 0.0, 1.0) * _nuke_scale
 		_circle_poly.modulate = Color(
@@ -227,6 +238,9 @@ func _apply_tick():
 	# resolved once in setup(); source is null (a lingering DoT puddle
 	# doesn't have a single clean "shooter" to attribute a tick to, and
 	# null is apply_damage's own default for that param).
+	var burning = _fire_ratio >= BURNING_GROUND_THRESHOLD
 	for v in _victims:
 		if is_instance_valid(v) and v.has_method("apply_damage") and not v.get("is_dead"):
 			v.apply_damage(_base_damage, _dominant_element, null)
+			if burning and is_instance_valid(v) and v.has_method("apply_status"):
+				v.apply_status("burning", 2.0)

@@ -2147,10 +2147,24 @@ func _draw_lightning_arc(from_local: Vector2, to_local: Vector2):
 # Kinetic amplifies an EXISTING explosion (multiplicative, inside the
 # EXPLOSION-ratio term) rather than creating one on its own - a pure-Kinetic
 # packet with zero Explosion still computes a radius of 0.
-static func explosion_radius_for(ratios: Dictionary, aoe_bonus: float) -> float:
+static func explosion_radius_for(ratios: Dictionary, aoe_bonus: float, damage: float = -1.0) -> float:
 	var r_explosion = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
 	var r_kinetic = ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)
-	return 100.0 * r_explosion * (1.0 + 0.5 * aoe_bonus + 0.6 * r_kinetic)
+	var radius = 100.0 * r_explosion * (1.0 + 0.5 * aoe_bonus + 0.6 * r_kinetic)
+	if damage >= 0.0:
+		radius *= blast_scale_for_damage(damage * r_explosion)
+	return radius
+
+# Missile blast size follows the EXPLOSIVE damage it carries (damage x explosion ratio), not just
+# the ratio: 600 explosive = 1.0x, 6,000 = ~2.2x, 60,000 = 5.0x (capped) - a big payload is a
+# daisy-cutter-ish crater, a tiny one a pop. Direct-fire projectiles keep their fixed radius.
+const BLAST_REF_DAMAGE = 600.0
+const BLAST_SCALE_EXPONENT = 0.35
+const BLAST_SCALE_MIN = 0.6
+const BLAST_SCALE_MAX = 5.0
+
+static func blast_scale_for_damage(explosive_damage: float) -> float:
+	return clamp(pow(max(explosive_damage, 0.0) / BLAST_REF_DAMAGE, BLAST_SCALE_EXPONENT), BLAST_SCALE_MIN, BLAST_SCALE_MAX)
 
 # decay: per-hit falloff along a Lightning/Pierce chain (see _handle_hit's
 # hit_decay - "string of pearls," progressively smaller explosions at each

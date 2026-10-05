@@ -303,11 +303,14 @@ func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2,
 	var shell_count = int(TileStatsRegistry.get_stat_by_rarity("MissileRackTile", "shell_count", rarity, SHELL_COUNT_BY_RARITY))
 	var per_shell_damage = (base_damage / float(shell_count)) * PER_SHELL_DAMAGE_FRACTION
 
+	# A kinetic "sword" missile is precision ordnance: it keeps only a fraction of the salvo scatter.
+	var shell_script = load("res://scripts/attacks/MortarShell.gd")
+	var scatter = shell_script.SWORD_SCATTER_SHARE if shell_script.is_sword_composition(packet.synergies) else 1.0
 	for i in range(shell_count):
 		# Ring layout, one jittered slot per shell - reads as a scattered
 		# salvo rather than N shells landing in an identical stack.
 		var angle = (TAU * float(i) / shell_count) + randf_range(-0.2, 0.2)
-		var offset = Vector2(cos(angle), sin(angle)) * SPREAD_RADIUS * randf_range(0.4, 1.0)
+		var offset = Vector2(cos(angle), sin(angle)) * SPREAD_RADIUS * scatter * randf_range(0.4, 1.0)
 		var impact_pos = target_pos + offset
 		var flight_time = clamp(muzzle.distance_to(impact_pos) / effective_speed, 0.12, 2.2)
 		# Small stagger so shells don't all land on the same frame - the

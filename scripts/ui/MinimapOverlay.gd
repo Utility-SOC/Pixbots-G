@@ -77,33 +77,68 @@ class MinimapView:
 		var world_size = Vector2(map.width, map.height) * map.tile_size
 		return min(size.x / world_size.x, size.y / world_size.y)
 
+	# Terrain bytes are baked once per map (cached in _base_bytes, keyed by
+	# _terrain_sig); obstacle specks are re-applied on a copy only when the obstacle
+	# count changes. The old version looped set_pixel over every tile (400x250 =
+	# 100k calls, ~200 ms) every 5 s regardless, a visible periodic hitch.
+	var _base_bytes: PackedByteArray = PackedByteArray()
+	var _base_sig: String = ""
+	var _baked_obstacle_count: int = -1
+
+	func _terrain_sig(map) -> String:
+		return "%d|%s|%d|%d|%d" % [map.get_instance_id(), str(map.map_type), int(map.map_seed), map.width, map.height]
+
 	func bake_map():
 		var map = _get_map()
 		if not map or map.terrain.is_empty():
 			return
-		var img = Image.create(map.width, map.height, false, Image.FORMAT_RGBA8)
-		for y in range(map.height):
-			var row = map.terrain[y]
-			for x in range(map.width):
-				img.set_pixel(x, y, map._get_biome_color(row[x]))
+		var w: int = map.width
+		var h: int = map.height
+		var sig = _terrain_sig(map)
+		if sig != _base_sig:
+			var bytes = PackedByteArray()
+			bytes.resize(w * h * 4)
+			var colors := {}
+			var i := 0
+			for y in range(h):
+				var row = map.terrain[y]
+				for x in range(w):
+					var biome = row[x]
+					var c = colors.get(biome)
+					if c == null:
+						var col: Color = map._get_biome_color(biome)
+						c = [col.r8, col.g8, col.b8]
+						colors[biome] = c
+					bytes[i] = c[0]
+					bytes[i + 1] = c[1]
+					bytes[i + 2] = c[2]
+					bytes[i + 3] = 255
+					i += 4
+			_base_bytes = bytes
+			_base_sig = sig
+		var out = _base_bytes.duplicate()
 		# Obstacles as darker specks so forests/ruins read as cover, not empty ground
 		for pos in map.obstacles:
-			if pos.x >= 0 and pos.y >= 0 and pos.x < map.width and pos.y < map.height:
-				img.set_pixel(pos.x, pos.y, img.get_pixel(pos.x, pos.y).darkened(0.45))
-		map_tex = ImageTexture.create_from_image(img)
+			if pos.x >= 0 and pos.y >= 0 and pos.x < w and pos.y < h:
+				var idx = (pos.y * w + pos.x) * 4
+				out[idx] = int(out[idx] * 0.55)
+				out[idx + 1] = int(out[idx + 1] * 0.55)
+				out[idx + 2] = int(out[idx + 2] * 0.55)
+		map_tex = ImageTexture.create_from_image(Image.create_from_data(w, h, false, Image.FORMAT_RGBA8, out))
 		_baked_map_instance_id = map.get_instance_id()
+		_baked_obstacle_count = map.obstacles.size()
 
 	func _process(delta):
 		if not visible:
 			return
-		# Rebake if the map node changed or periodically (debug-menu map
-		# regeneration reuses the same node, so a timer is the cheap way to
-		# catch biome swaps without MapGenerator needing a signal).
+		# Rebake only when the map actually changed (new node, new seed/type/size via
+		# debug-menu regeneration, or obstacles destroyed) - checked once a second.
 		_rebake_timer -= delta
 		var map = _get_map()
 		if map and (map.get_instance_id() != _baked_map_instance_id or _rebake_timer <= 0.0):
-			bake_map()
-			_rebake_timer = 5.0
+			_rebake_timer = 1.0
+			if _terrain_sig(map) != _base_sig or map.obstacles.size() != _baked_obstacle_count or map_tex == null:
+				bake_map()
 
 	func _world_to_px(world: Vector2, center: Vector2) -> Vector2:
 		return (world - center) * zoom + size / 2.0

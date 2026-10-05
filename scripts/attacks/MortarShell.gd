@@ -111,6 +111,13 @@ const SWORD_DIRECT_BONUS = 0.8 # direct-hit damage x (1 + this * kinetic ratio)
 # Hunter-mode salvos scatter shells around the aim point; a sword is precision ordnance and keeps
 # only this share of that scatter (see MissileRackTile._fire_hunter_salvo).
 const SWORD_SCATTER_SHARE = 0.15
+# Visual: an 8-pointed asterisk - each blade a little thick at the centre, then a quick taper to a
+# spike (one concave star polygon = one draw call). Its size follows the damage in the missile.
+const SWORD_STAR_POINTS = 8
+const SWORD_STAR_INNER = 0.22 # inner/outer radius ratio: blade thickness at the centre
+const SWORD_LEN_BASE = 15.0
+const SWORD_LEN_MIN_SCALE = 0.8
+const SWORD_LEN_MAX_SCALE = 3.5
 const CHAIN_LIGHTNING_MIN = 0.15
 const CHAIN_RANGE = 260.0
 const CHAIN_DECAY = 0.7
@@ -427,7 +434,36 @@ func _dominant_color() -> Color:
 	c.a = 1.0
 	return c
 
+# Blade length (px) of this sword's star: grows with the damage it carries (200 dmg = 1.0x).
+func sword_length() -> float:
+	return SWORD_LEN_BASE * clamp(pow(max(damage, 1.0) / 200.0, 0.3), SWORD_LEN_MIN_SCALE, SWORD_LEN_MAX_SCALE)
+
+static func star_points(length: float, rot: float) -> PackedVector2Array:
+	var pts = PackedVector2Array()
+	var n = SWORD_STAR_POINTS
+	for k in range(n * 2):
+		var a = rot + PI * float(k) / float(n)
+		var r = length if k % 2 == 0 else length * SWORD_STAR_INNER
+		pts.append(Vector2(cos(a), sin(a)) * r)
+	return pts
+
+func _draw_sword_star(center: Vector2, length: float, rot: float, color: Color, alpha: float):
+	draw_colored_polygon(star_points(length, rot).duplicate(), Color(color.r, color.g, color.b, 0.85 * alpha)) if center == Vector2.ZERO else _draw_star_at(center, length, rot, color, alpha)
+	# bright core
+	draw_circle(center, max(2.0, length * 0.16), Color(1, 1, 1, alpha))
+
+func _draw_star_at(center: Vector2, length: float, rot: float, color: Color, alpha: float):
+	var pts = star_points(length, rot)
+	for i in range(pts.size()):
+		pts[i] += center
+	draw_colored_polygon(pts, Color(color.r, color.g, color.b, 0.85 * alpha))
+
 func _draw():
+	if _landed and _is_sword and not _crashed_harmlessly:
+		var ts = _impact_elapsed / IMPACT_FLASH_TIME
+		var cs = _dominant_color()
+		_draw_sword_star(Vector2.ZERO, sword_length() * (1.0 + 0.9 * ts), _elapsed * 4.0 + ts * 0.8, cs, 1.0 - ts)
+		return
 	if _landed:
 		if _crashed_harmlessly:
 			# Neutralized by an anti-missile aura: a small fizzling puff
@@ -456,6 +492,11 @@ func _draw():
 	# Draw relative to the MortarShell's position (which is target_pos)
 	shell_pos -= target_pos
 	
+	if _is_sword:
+		# In flight: the spinning star itself, not a round shell.
+		_draw_star_at(shell_pos, sword_length() * 0.7, _elapsed * 7.0, _dominant_color(), 1.0)
+		draw_circle(shell_pos, max(2.0, sword_length() * 0.12), Color(1, 1, 1, 0.95))
+		return
 	if equal_split_all_victims:
 		var color = _dominant_color()
 		draw_circle(shell_pos, 12.0, color)

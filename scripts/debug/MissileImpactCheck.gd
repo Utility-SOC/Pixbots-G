@@ -76,6 +76,14 @@ func _ready():
 	blast._process(0.0)
 	_check("explosive missile splashes the same bystander (%.0f dmg)" % _dmg(b2), _dmg(b2) > 0.0)
 
+	# sword visual: an 8-pointed star (16 vertices), blades longer for bigger payloads
+	var sw_small = _shell({E.KINETIC: 150.0}, 150.0, Vector2(2500, 300))
+	var sw_big = _shell({E.KINETIC: 60000.0}, 60000.0, Vector2(2600, 300))
+	_check("sword star has 8 blades (%d vertices)" % ShellScript.star_points(20.0, 0.0).size(), ShellScript.star_points(20.0, 0.0).size() == 16)
+	_check("sword blades grow with the payload (%.0f -> %.0f px)" % [sw_small.sword_length(), sw_big.sword_length()], sw_big.sword_length() > sw_small.sword_length() * 2.5)
+	var pts = ShellScript.star_points(20.0, 0.0)
+	_check("blades are thick at the centre then taper (inner/outer %.2f)" % (pts[1].length() / pts[0].length()), pts[1].length() / pts[0].length() < 0.3)
+
 	# --- 3. lightning: small impact + chain ----------------------------------------------------------
 	var lt = _shell({E.LIGHTNING: 4000.0}, 4000.0, Vector2(6000, 0))
 	_check("lightning missile impact stays small (%.0f)" % lt.effective_radius, lt.effective_radius <= 45.0)

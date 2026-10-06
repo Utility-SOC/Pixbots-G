@@ -464,6 +464,10 @@ func _generate_map():
 			_fightshovel_tracks()
 		elif map_type == "Tabletop" or force_ruins:
 			_place_tabletop_ruins()
+		if map_type == "Tabletop":
+			_tabletop_forest_bases()
+		elif map_type == "Open Field":
+			_open_field_cover()
 
 		# Connectivity guarantee (play report: "no meaningful gaps - easy to
 		# get boxed in and unable to advance" on Forest/Volcano). Obstacle
@@ -824,6 +828,67 @@ var force_ruins: bool = false # debug-menu override to spawn ruins on non-Tablet
 # multi-tile and get_valid_spawn_position() will happily wedge the player
 # right up against whatever's nearest if the center itself is blocked.
 const RUIN_CENTER_CLEARANCE_TILES = 6.0
+
+# Cluster placement shared by the Tabletop and Open Field variety passes: centres kept clear of the spawn and
+# of each other, never on water or on an existing obstacle.
+const CLUSTER_SPAWN_CLEARANCE = 14.0
+func _cluster_centres(count: int, min_gap: float) -> Array:
+	var centre = Vector2(width / 2.0, height / 2.0)
+	var out: Array = []
+	var tries = 0
+	while out.size() < count and tries < count * 60:
+		tries += 1
+		var p = Vector2(randf_range(6.0, width - 6.0), randf_range(6.0, height - 6.0))
+		if p.distance_to(centre) < CLUSTER_SPAWN_CLEARANCE:
+			continue
+		var c = Vector2i(int(p.x), int(p.y))
+		if terrain[c.y][c.x] == BiomeType.WATER or obstacles.has(c):
+			continue
+		var ok = true
+		for q in out:
+			if q.distance_to(p) < min_gap:
+				ok = false
+				break
+		if ok:
+			out.append(p)
+	return out
+
+func _free_cell(c: Vector2i) -> bool:
+	return c.x >= 1 and c.y >= 1 and c.x < width - 1 and c.y < height - 1 \
+		and terrain[c.y][c.x] != BiomeType.WATER and not obstacles.has(c)
+
+# Open Field is otherwise bare: scatter small boulder clusters (hard cover to hold or snipe from) so a
+# long-range build has something to play around. Density scales with map area.
+func _open_field_cover() -> int:
+	var scale = sqrt(float(width * height) / 2048.0)
+	var placed = 0
+	for p in _cluster_centres(clampi(int(7 * scale), 6, 30), 16.0):
+		for _i in range(randi_range(2, 5)):
+			var c = Vector2i(int(p.x) + randi_range(-2, 2), int(p.y) + randi_range(-2, 2))
+			if _free_cell(c):
+				obstacles[c] = "Boulder"
+				placed += 1
+	return placed
+
+# Tabletop: the mat gets a few flocked "forest bases" like the scenery kits on a real table, a green disc
+# with a handful of trees on it, in between the ruins.
+func _tabletop_forest_bases() -> int:
+	var scale = sqrt(float(width * height) / 2048.0)
+	var trees = 0
+	for p in _cluster_centres(clampi(int(4 * scale), 3, 16), 20.0):
+		for y in range(int(p.y) - 4, int(p.y) + 5):
+			for x in range(int(p.x) - 4, int(p.x) + 5):
+				var c = Vector2i(x, y)
+				if c.x < 0 or c.y < 0 or c.x >= width or c.y >= height or terrain[y][x] == BiomeType.WATER:
+					continue
+				if Vector2(x - p.x, y - p.y).length() <= 4.0:
+					terrain[y][x] = BiomeType.GRASSLAND
+		for _i in range(randi_range(4, 7)):
+			var c = Vector2i(int(p.x) + randi_range(-3, 3), int(p.y) + randi_range(-3, 3))
+			if _free_cell(c) and Vector2(c.x - p.x, c.y - p.y).length() <= 3.5:
+				obstacles[c] = "Tree"
+				trees += 1
+	return trees
 
 func _place_tabletop_ruins():
 	ruin_specs.clear()

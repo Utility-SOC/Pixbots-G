@@ -66,6 +66,8 @@ enum BiomeType { GRASSLAND, WATER, DESERT, FOREST, TUNDRA, VOLCANO, DUNGEON, ROA
 # chunk textures - those are deliberately baked ONCE at load and never
 # touched again (see _draw_map_to_texture's own comment on that).
 var corn_field_cells: Dictionary = {}
+# Zones from the structure pass: {pos (tiles), kind, r (tiles)}. Forts and villages become objectives.
+var zones: Array = []
 var corn_trail_overlay: Node2D = null
 const CORN_COLOR = Color(0.55, 0.62, 0.18)
 # Threshold against moisture_noise (already computed per-tile for the
@@ -360,6 +362,7 @@ func _generate_map():
 	while not map_valid:
 		terrain.clear()
 		obstacles.clear()
+		zones = []
 		ruin_specs.clear()
 		corn_field_cells.clear()
 		var water_tile_count = 0
@@ -1283,6 +1286,7 @@ func _build_collisions_and_obstacles():
 	_ensure_corn_trail_overlay()
 	_scatter_oil_slicks()
 	_scatter_lava_vents()
+	_spawn_zone_objectives()
 
 # Sparse, walkable environmental hazard - dark puddles scattered on
 # DESERT/VOLCANO ground (oil-field/wasteland flavor) that do nothing until a
@@ -1335,6 +1339,20 @@ func _scatter_lava_vents() -> int:
 				add_child(vent)
 				placed += 1
 	return placed
+
+# Forts get a hold point, villages a loot cache (see ZoneObjective.gd).
+func _spawn_zone_objectives() -> int:
+	var made = 0
+	for z in zones:
+		if z.kind != "fort" and z.kind != "village":
+			continue
+		var obj = load("res://scripts/hazards/ZoneObjective.gd").new()
+		obj.kind = "hold" if z.kind == "fort" else "cache"
+		obj.radius = tile_size * 5.0
+		obj.global_position = Vector2(z.pos.x * tile_size, z.pos.y * tile_size)
+		add_child(obj)
+		made += 1
+	return made
 
 func _create_wall_collision(pos: Vector2, size: Vector2):
 	var body = StaticBody2D.new()

@@ -102,6 +102,7 @@ static func build_regions(m) -> void:
 
 	for z in zones:
 		_stamp_zone(m, z)
+	m.zones = zones # kept so MapGenerator can turn forts/villages into objectives
 
 	# The spawn area is always a small readable clearing with a few boulders for cover.
 	_stamp_spawn_clearing(m)

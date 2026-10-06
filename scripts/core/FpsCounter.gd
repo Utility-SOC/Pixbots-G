@@ -396,7 +396,7 @@ func _process(delta: float):
 	var draw_calls = Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
 	var objects = Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)
 	var primitives = Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
-	render_label.text = "%d draws  %d objs  %.0fk verts" % [draw_calls, objects, primitives / 1000.0]
+	render_label.text = "%d draws  %d objs  %.0fk verts\n%s" % [draw_calls, objects, primitives / 1000.0, gpu_summary()]
 
 	# Sampled every PERF_SAMPLE_INTERVAL (not every frame) - these are
 	# CUMULATIVE microsecond totals across however many physics ticks land

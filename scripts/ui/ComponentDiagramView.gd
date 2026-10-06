@@ -117,7 +117,7 @@ func _ready():
 	_preview_viewport = SubViewport.new()
 	_preview_viewport.size = PREVIEW_VIEWPORT_SIZE
 	_preview_viewport.transparent_bg = true
-	_preview_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_preview_viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE # no GPU work while its tab is hidden
 	add_child(_preview_viewport)
 
 	_preview_context = PreviewMechContext.new()

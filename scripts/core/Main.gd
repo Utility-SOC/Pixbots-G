@@ -2492,6 +2492,18 @@ func _repair_component_viability() -> void:
 	if fixed > 0:
 		print("[REPAIR] repaired %d part(s) with broken construction" % fixed)
 
+# While the Garage is open the game is paused and the full-screen Garage UI covers the battlefield, so
+# stop re-rendering the world viewport (bloom and all) behind it. Two playtest crashes (Vulkan device
+# lost on an Intel HD 4000) happened with the Garage open over a busy battlefield; this removes that load.
+func _set_world_rendering(on: bool) -> void:
+	if world == null or not is_instance_valid(world):
+		return
+	if not on and OS.get_environment("PIXBOTS_KEEP_WORLD_RENDER") == "1":
+		return # A/B switch for crash hunting: old behaviour, world keeps rendering under the Garage
+	var vp = world.get_viewport()
+	if vp is SubViewport:
+		vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
+
 func _open_garage():
 	# Idempotent: never stack a second Garage on top of an existing one.
 	# _open_garage has multiple callers (the new-game start, the tutorial's
@@ -2533,6 +2545,7 @@ func _open_garage():
 	if GarageMenuClass:
 		garage_ui = GarageMenuClass.new()
 		add_child(garage_ui)
+		_set_world_rendering(false)
 	else:
 		print("Failed to load GarageMenu!")
 	
@@ -2541,6 +2554,7 @@ func _open_garage():
 var last_deploy_timings: Dictionary = {}
 
 func _close_garage():
+	_set_world_rendering(true)
 	print("Deploying from Garage...")
 	get_tree().paused = false
 	var _dt0 = Time.get_ticks_usec()

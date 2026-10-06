@@ -23,6 +23,18 @@ var _peak_nodes := 0
 var _hist_done := false
 var _seed := 1
 var _garage_at := -1.0
+# --swaparm=legendary|mythic [--swapat=SEC] [--swaps=N]: at SEC, open the Garage over the live battlefield and
+# swap the player's LEFT ARM for a fresh arm of that rarity N times (each swap = what the Garage's "Swap
+# Component" does: unequip, equip, rebuild the component tabs), a few frames apart. Reproduces the
+# "Vulkan device lost when equipping a different arm" crash path in a real window.
+var _swap_rarity := -1
+var _swap_at := -1.0
+var _swaps := 12
+var _swap_state := 0
+var _swap_procedural := false
+var _swap_n := 0
+var _swap_frames := 0
+var _swap_ms: Array = []
 var _missiles_per_sec := 0.0
 var _missile_acc := 0.0
 var _drawtrace := false
@@ -66,6 +78,13 @@ func _ready():
 		elif a == "--extraction": _extraction = true
 		elif a.begins_with("--maxsteps="): Engine.max_physics_steps_per_frame = int(a.split("=")[1])
 		elif a.begins_with("--garage="): _garage_at = float(a.split("=")[1])
+		elif a.begins_with("--swaparm="):
+			_swap_rarity = {"legendary": HexTile.Rarity.LEGENDARY, "mythic": HexTile.Rarity.MYTHIC, "rare": HexTile.Rarity.RARE}.get(a.split("=")[1], HexTile.Rarity.LEGENDARY)
+			process_mode = Node.PROCESS_MODE_ALWAYS # keep ticking while the Garage pauses the tree
+			if _swap_at < 0.0: _swap_at = 10.0
+		elif a == "--swapshape=procedural": _swap_procedural = true
+		elif a.begins_with("--swapat="): _swap_at = float(a.split("=")[1])
+		elif a.begins_with("--swaps="): _swaps = int(a.split("=")[1])
 		elif a == "--notrees": _notrees = true
 		elif a == "--nomusic": _nomusic = true
 		elif a == "--presolve": _presolve = true
@@ -228,6 +247,8 @@ func _plant_main_probes():
 
 func _process(delta):
 	_t += delta
+	if _swap_rarity >= 0 and _main != null and _phase == 1:
+		_swap_tick()
 	if _phase >= 1 and is_instance_valid(_main.player) and not OS.get_cmdline_user_args().has("--nogod"):
 		_main.player.hp = _main.player.max_hp
 		_main.player_lives_remaining = 99999
@@ -325,6 +346,76 @@ func _process(delta):
 			if _t >= _seconds:
 				_report()
 				get_tree().quit()
+
+# Drives the --swaparm scenario one step per call (a call per frame).
+func _swap_tick() -> void:
+	if _swap_state == 0:
+		if _t < _swap_at:
+			return
+		_swap_state = 1
+		print("BENCH_SWAP opening the Garage over %d live enemies" % get_tree().get_nodes_in_group("enemy").size())
+		_main._open_garage()
+		_swap_frames = 0
+		return
+	if _swap_state == 1:
+		_swap_frames += 1
+		if _swap_frames < 30 or _swap_frames % 15 != 0:
+			return # let the Garage UI settle, then one swap every 15 frames
+		var gui = _main.garage_ui
+		if gui == null or not is_instance_valid(gui):
+			print("BENCH_SWAP no garage UI")
+			_swap_state = 2
+			return
+		var t0 = Time.get_ticks_usec()
+		_swap_left_arm(gui)
+		_swap_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+		_swap_n += 1
+		if _swap_n >= _swaps:
+			_swap_state = 2
+		return
+	if _swap_state == 2:
+		_swap_state = 3
+		var total = 0.0
+		for m in _swap_ms:
+			total += m
+		print("BENCH_SWAP done swaps=%d avg_ms=%.1f max_ms=%.1f (no device loss if you can read this)" % [_swap_n, total / max(_swap_ms.size(), 1), _swap_ms.max() if _swap_ms.size() > 0 else 0.0])
+		get_tree().quit()
+
+# Same sequence the Garage's Swap Component handler runs, with a freshly built arm of the chosen rarity.
+func _swap_left_arm(gui) -> void:
+	var player = _main.player
+	# A real-sized arm (starter arm grid of that rarity), filled by the Auto-Equip solver from a rich
+	# inventory so it carries a full set of conditioners, like a late-game arm would.
+	var CompScript = load("res://scripts/core/ComponentEquipment.gd")
+	var arm = null
+	if _swap_procedural:
+		# Odd-shaped boss-drop style arm (what the Garage actually hands out), not the neat starter grid.
+		for _i in range(60):
+			var cand = LootManager._create_procedural_component(_swap_rarity, player, "Bench")
+			if cand.slot_type == HexTile.BodySlot.ARM_L:
+				arm = cand
+				break
+	if arm == null:
+		arm = CompScript.create_starter_arm(true, "", _swap_rarity)
+	arm.component_name = "Bench Arm"
+	var inv: Array = []
+	for _i in range(6):
+		for path in ["res://scripts/tiles/CatalystTile.gd", "res://scripts/tiles/AmplifierTile.gd", "res://scripts/tiles/InfuserTile.gd"]:
+			var tile = load(path).new()
+			tile.rarity = _swap_rarity
+			inv.append(tile)
+	load("res://scripts/core/AutoEquipSolver.gd").new().solve(arm, inv)
+	load("res://scripts/core/SolverRefiner.gd").new().refine(arm, inv)
+	var old = player.components.get(HexTile.BodySlot.ARM_L)
+	if old != null:
+		player.remove_child(old)
+		player.components.erase(HexTile.BodySlot.ARM_L)
+		_main.player_component_inventory.append(old)
+	player.equip_component(arm)
+	gui.mech_components = player.components
+	gui.active_component = arm
+	gui._populate_component_tabs()
+	print("BENCH_SWAP #%d left arm -> %s (rarity %d, %d tiles)" % [_swap_n + 1, arm.component_name, arm.rarity, arm.hex_grid.get_all_tiles().size()])
 
 func _record(delta):
 	var ms = delta * 1000.0

@@ -216,7 +216,7 @@ func _ready():
 	# A fresh World2D = a private physics space: test shots (and their AoE)
 	# can never touch the real battlefield behind the garage.
 	viewport.world_2d = World2D.new()
-	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE # idle when the Test Range tab is hidden
 	vp_container.add_child(viewport)
 
 	_world_root = Node2D.new()

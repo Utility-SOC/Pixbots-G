@@ -145,7 +145,7 @@ static func render_preview(map, out_w: int = 200) -> Image:
 		MapScript.BiomeType.DESERT: Color(0.78, 0.68, 0.4), MapScript.BiomeType.FOREST: Color(0.12, 0.38, 0.15),
 		MapScript.BiomeType.TUNDRA: Color(0.82, 0.88, 0.92), MapScript.BiomeType.VOLCANO: Color(0.4, 0.2, 0.15),
 		MapScript.BiomeType.DUNGEON: Color(0.3, 0.3, 0.34),
-		MapScript.BiomeType.ROAD: Color(0.58, 0.47, 0.33), MapScript.BiomeType.FLOOR: Color(0.4, 0.37, 0.38),
+		MapScript.BiomeType.ROAD: Color(0.58, 0.47, 0.33), MapScript.BiomeType.FLOOR: Color(0.4, 0.37, 0.38), MapScript.BiomeType.SHALLOW: Color(0.45, 0.7, 0.9),
 	}
 	for oy in range(out_h):
 		for ox in range(out_w):

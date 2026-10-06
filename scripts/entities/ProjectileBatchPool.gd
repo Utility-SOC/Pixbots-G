@@ -1900,7 +1900,7 @@ func _apply_biome_triggers(i: int, _target: Node):
 	if maps.size() > 0 and is_instance_valid(maps[0]) and maps[0].has_method("get_biome_at_world_pos"):
 		var map = maps[0]
 		var biome = map.get_biome_at_world_pos(_position[i])
-		if _r_ltg[i] > 0.1 and biome == map.BiomeType.WATER:
+		if _r_ltg[i] > 0.1 and (biome == map.BiomeType.WATER or biome == map.BiomeType.SHALLOW):
 			_apply_area_burst(i, 400.0, _damage[i] * 2.0, "")
 		if _r_fire[i] > 0.1 and biome == map.BiomeType.FOREST:
 			_apply_area_burst(i, 200.0, _damage[i] * 1.5, "burning")

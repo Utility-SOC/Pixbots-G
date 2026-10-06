@@ -2,7 +2,7 @@ extends RefCounted
 
 # What the ground does to a walking mech. Pure lookups so the player controller, the AI movement and the
 # tests share one table. Biome ints are MapGenerator.BiomeType:
-#   GRASSLAND 0, WATER 1, DESERT 2, FOREST 3, TUNDRA 4, VOLCANO 5, DUNGEON 6, ROAD 7, FLOOR 8
+#   GRASSLAND 0, WATER 1, DESERT 2, FOREST 3, TUNDRA 4, VOLCANO 5, DUNGEON 6, ROAD 7, FLOOR 8, SHALLOW 9
 #
 #   speed   multiplier on walking speed (roads reward routes; ash and undergrowth cost a little)
 #   traction how fast velocity can change: 1.0 = normal, low = ice, where you keep sliding the way you
@@ -13,15 +13,20 @@ const ROAD_SPEED = 1.25
 const ASH_SPEED = 0.9
 const UNDERGROWTH_SPEED = 0.92
 const ICE_TRACTION = 0.18
+const SHALLOW_SPEED = 0.6
+const SHALLOW_TRACTION = 0.75
 
 static func speed(biome: int) -> float:
 	match biome:
 		7: return ROAD_SPEED
 		5: return ASH_SPEED
 		3: return UNDERGROWTH_SPEED
+		9: return SHALLOW_SPEED
 	return 1.0
 
 static func traction(biome: int) -> float:
+	if biome == 9:
+		return SHALLOW_TRACTION
 	return ICE_TRACTION if biome == 4 else 1.0
 
 # Velocity step toward `target` under `accel` (px/s^2) on a surface with `traction`.

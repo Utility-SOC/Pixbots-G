@@ -2067,7 +2067,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 			var biome = map.get_biome_at_world_pos(global_position)
 			
 			# Lightning + Water = Massive AoE
-			if ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) > 0.1 and biome == map.BiomeType.WATER:
+			if ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) > 0.1 and (biome == map.BiomeType.WATER or biome == map.BiomeType.SHALLOW):
 				_trigger_biome_explosion(400.0, damage * 2.0, "lightning")
 				
 			# Fire + Forest = Burn Trees

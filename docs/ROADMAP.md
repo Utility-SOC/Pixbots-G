@@ -17,8 +17,9 @@ Also done since: Phase 3 (crossfaded, seeded, evolving music; procedural sound e
 ducking; scorch decals; hitstop, camera kick and bloom were already in), the smarter Auto-Equip
 (simulation-scored refinement), War Room evidence labels, absorbing hard-cover obstacles, and the
 Phase 2 so far: terrain movement effects (road speed-up, ice slide, ash and undergrowth drag), lava
-vents on volcano ground, and zone gameplay (fort hold points, village loot caches).
-Still open in Phase 2: shallows, ambush spots and enemy chokepoint use, minimap markers for
+vents on volcano ground, shallows (a walkable, slower one-tile band along every shoreline), and zone
+gameplay (fort hold points, village loot caches).
+Still open in Phase 2: ambush spots and enemy chokepoint use, minimap markers for
 objectives, per-biome props and weather, FightShovel/Tabletop/Open Field variety, set pieces.
 Tuning constants for all of the above sit at the top of their scripts.
 

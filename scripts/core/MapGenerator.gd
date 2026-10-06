@@ -56,7 +56,7 @@ const MOSTLY_WATER_THRESHOLD = 0.5
 func is_mostly_water() -> bool:
 	return water_fraction > MOSTLY_WATER_THRESHOLD
 
-enum BiomeType { GRASSLAND, WATER, DESERT, FOREST, TUNDRA, VOLCANO, DUNGEON, ROAD, FLOOR }
+enum BiomeType { GRASSLAND, WATER, DESERT, FOREST, TUNDRA, VOLCANO, DUNGEON, ROAD, FLOOR, SHALLOW }
 
 # --- FightShovel 1920: corn fields + trampled trails (Utility-SOC) --------
 # Vector2i -> true for every tile marked as corn during generation (see the
@@ -468,6 +468,7 @@ func _generate_map():
 		# tendrils can seal walkable pockets off entirely; carve corridors
 		# from every meaningful pocket back to the main continent BEFORE
 		# collision/nav/spawn data are built from the obstacles dict.
+		_mark_shallows()
 		_carve_pocket_corridors()
 
 		main_continent_tiles = _analyze_connectivity()
@@ -1130,7 +1131,7 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 			for tx in range(tile_x0, tile_x1):
 				var idx = (ty - tile_y0) * chunk_w_tiles + (tx - tile_x0)
 				var pos = Vector2i(tx, ty)
-				biomes[idx] = terrain[ty][tx]
+				biomes[idx] = BiomeType.WATER if terrain[ty][tx] == BiomeType.SHALLOW else terrain[ty][tx] # the native rasterizer paints shallows as water; the overlay lightens them
 				obstacle_names[idx] = obstacles.get(pos, "")
 				corn_mask[idx] = 1 if corn_field_cells.has(pos) else 0
 		var bytes = _terrain_rasterizer.rasterize_chunk(biomes, obstacle_names, corn_mask, chunk_w_tiles, chunk_h_tiles, tile_size, map_type, randi())
@@ -1287,6 +1288,7 @@ func _build_collisions_and_obstacles():
 	_scatter_oil_slicks()
 	_scatter_lava_vents()
 	_spawn_zone_objectives()
+	_build_shallow_overlay()
 
 # Sparse, walkable environmental hazard - dark puddles scattered on
 # DESERT/VOLCANO ground (oil-field/wasteland flavor) that do nothing until a
@@ -1339,6 +1341,52 @@ func _scatter_lava_vents() -> int:
 				add_child(vent)
 				placed += 1
 	return placed
+
+# Shallows: the one-tile band of water along every shoreline becomes walkable, slower ground
+# (BiomeType.SHALLOW) instead of a hard wall. Everything keyed on WATER (collision, nav solids,
+# drowning) therefore treats it as land with no further changes; TerrainEffects supplies the slowdown.
+# Decided against a snapshot so the band stays exactly one tile thick.
+func _mark_shallows() -> int:
+	var edge: Array = []
+	for y in range(height):
+		for x in range(width):
+			if terrain[y][x] != BiomeType.WATER:
+				continue
+			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var nx = x + d.x
+				var ny = y + d.y
+				if nx >= 0 and ny >= 0 and nx < width and ny < height and terrain[ny][nx] != BiomeType.WATER:
+					edge.append(Vector2i(x, y))
+					break
+	for c in edge:
+		terrain[c.y][c.x] = BiomeType.SHALLOW
+	return edge.size()
+
+# One MultiMesh of pale quads over every shallow tile (a single draw call) so the walkable band reads
+# as lighter water over the baked terrain texture.
+func _build_shallow_overlay() -> int:
+	var cells: Array = []
+	for y in range(height):
+		for x in range(width):
+			if terrain[y][x] == BiomeType.SHALLOW:
+				cells.append(Vector2i(x, y))
+	if cells.is_empty():
+		return 0
+	var mmi = MultiMeshInstance2D.new()
+	mmi.name = "ShallowOverlay"
+	mmi.z_index = -9
+	var mm = MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_2D
+	var quad = QuadMesh.new()
+	quad.size = Vector2(tile_size, tile_size)
+	mm.mesh = quad
+	mm.instance_count = cells.size()
+	for i in range(cells.size()):
+		mm.set_instance_transform_2d(i, Transform2D(0.0, Vector2((cells[i].x + 0.5) * tile_size, (cells[i].y + 0.5) * tile_size)))
+	mmi.multimesh = mm
+	mmi.modulate = Color(0.75, 0.95, 1.0, 0.42)
+	add_child(mmi)
+	return cells.size()
 
 # Forts get a hold point, villages a loot cache (see ZoneObjective.gd).
 func _spawn_zone_objectives() -> int:
@@ -1452,6 +1500,7 @@ func _get_biome_color(biome: BiomeType) -> Color:
 		BiomeType.DUNGEON: return Color(0.15, 0.1, 0.2)
 		BiomeType.ROAD: return Color(0.58, 0.47, 0.33)
 		BiomeType.FLOOR: return Color(0.4, 0.37, 0.38)
+		BiomeType.SHALLOW: return Color(0.45, 0.7, 0.9)
 	return Color.BLACK
 
 # Chunky "fat pixel" size for the ground texture, in real pixels. tile_size

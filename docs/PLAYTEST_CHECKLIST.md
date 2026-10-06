@@ -31,3 +31,8 @@ Launcher flags: `--safe` (optional visuals off), `--full-fx` (force them on), `-
 - [ ] War Room doctrine rows show evidence (LOW/MEDIUM/HIGH) and "AT RISK" labels.
 - [ ] Waves no longer restart every 10 s or log "stalled" warnings.
 - [ ] Pool, haul-at-risk and streak-bonus behaviours from the earlier sessions (headless-tested only).
+
+## Visual identity (Phase 5)
+- [ ] Sponsor popup (Garage, SPONSOR button): each brand banner shows its emblem on the left with the name beside it, nothing overlapping.
+- [ ] Brand tiles in the Garage grid carry a small emblem in their top-right corner.
+- [ ] Your mech's crest, chest vents and visor change colour with your build's main element (orange fire, cyan ice, purple vortex, green poison...). Does it read at a glance, and is it too loud or too subtle?

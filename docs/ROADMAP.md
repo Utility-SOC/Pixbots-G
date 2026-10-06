@@ -91,6 +91,13 @@ Maps now have structure; they do not yet change tactics.
   and plan stats; solver-profile genome follow-ups.
 
 ## Phase 5 - Visual identity (L, needs eyes on screen)
+*Progress 2026-10-06:* procedural brand emblems (seven glyphs, on sponsor banners and Garage brand tiles) and the
+player's build identity (hero crest, vents and visor take the colour of the build's dominant element) are done
+and were checked with rendered screenshots (`BrandEmblemShot`, `SponsorBannerShot`, `PlayerIdentityShot`,
+`MechGalleryShot`). Conduit glows by element already existed. Not done: silhouette-driven proportions beyond
+the existing bulk/sleek factors, hitbox-size changes, grunt visual LOD, and the leg-shaped scout torso (it
+conflicts with the six-spoke link guarantee that `ComponentViability` enforces; needs a design decision).
+
 - Component visuals: silhouette-driven proportions, energy colour and width
   from the grid, hitbox changes within a cap, LOD for grunts.
 - Scout torso as a leg-shaped silhouette.

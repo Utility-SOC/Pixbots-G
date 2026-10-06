@@ -12,9 +12,17 @@ var body_slot: int = -1
 # about broadphase_radius at all.
 var broadphase_radius: float = 0.0
 
+var _owner_syncs := false
+
 func _ready():
 	add_to_group("part_hitbox")
 	monitoring = false
+	# A real Mech re-syncs our collision layer for us (Mech.sync_hitbox_layers); only fall back to polling
+	# each tick when the owner is something else (a preview stub).
+	if is_instance_valid(mech) and mech.has_method("register_hitbox"):
+		mech.register_hitbox(self)
+		_owner_syncs = true
+	set_physics_process(not _owner_syncs)
 	for c in get_children():
 		if c is CollisionPolygon2D and c.polygon.size() > 0:
 			var centroid = Vector2.ZERO

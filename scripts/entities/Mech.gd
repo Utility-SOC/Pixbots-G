@@ -1013,8 +1013,29 @@ var _diag_skip_far_branch_body: bool = false
 var _diag_skip_separation: bool = false
 var _diag_skip_shoot: bool = false
 
+# Part hitboxes (Area2D) mirror this body's collision layer. Each one used to poll it every physics tick
+# (~480 script calls a step at wave 35); they now register here and the body re-syncs them every
+# HITBOX_SYNC_TICKS ticks (staggered per instance), plus immediately when activated from the bot pool.
+const HITBOX_SYNC_TICKS = 10
+var _hitboxes: Array = []
+
+func register_hitbox(h: Node) -> void:
+	_hitboxes.append(h)
+
+func sync_hitbox_layers() -> void:
+	var stale = false
+	for h in _hitboxes:
+		if not is_instance_valid(h):
+			stale = true
+		elif h.collision_layer != collision_layer:
+			h.collision_layer = collision_layer
+	if stale:
+		_hitboxes = _hitboxes.filter(func(x): return is_instance_valid(x))
+
 func _physics_process(delta: float):
 	_own_time_alive += delta
+	if (Engine.get_physics_frames() + get_instance_id()) % HITBOX_SYNC_TICKS == 0:
+		sync_hitbox_layers()
 	current_jammer_debuff = 1.0 # Reset every frame, JammerMech will re-apply it before we shoot if near
 	_refresh_water_state()
 	_update_obstacle_phasing()

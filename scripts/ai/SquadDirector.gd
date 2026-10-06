@@ -1740,6 +1740,8 @@ func _activate_parked(bot: Node) -> void:
 	bot.add_to_group("enemy")
 	bot.collision_layer = 4
 	bot.collision_mask = 1 | 2 | 8 | 32
+	if bot.has_method("sync_hitbox_layers"):
+		bot.sync_hitbox_layers()
 	for pair in bot.get_meta("parked_area_layers", []):
 		if is_instance_valid(pair[0]):
 			pair[0].collision_layer = pair[1]

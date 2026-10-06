@@ -1453,6 +1453,7 @@ func _build_collisions_and_obstacles():
 	_scatter_oil_slicks()
 	_scatter_lava_vents()
 	_spawn_zone_objectives()
+	_place_crash_sites()
 	_build_shallow_overlay()
 	_build_biome_props()
 
@@ -1548,6 +1549,48 @@ func _build_shallow_overlay() -> int:
 	overlay.setup(cells, tile_size)
 	add_child(overlay)
 	return cells.size()
+
+# Authored set piece: a crash site. A ring of boulder wreckage with gaps, a leaking oil slick or two (one
+# fire hit and it burns), and a supply cache in the middle. One or two per map on land maps, far from the spawn.
+const CRASH_SITE_MAX = 2
+const CRASH_SITE_MAPS = ["Normal", "Open Field", "Desert", "Forest", "Tundra", "Volcano"]
+const CRASH_SITE_RING = 4.0
+func _place_crash_sites() -> int:
+	if not (map_type in CRASH_SITE_MAPS):
+		return 0
+	var made = 0
+	var sites = _cluster_centres(CRASH_SITE_MAX, 60.0)
+	for p in sites:
+		var centre = Vector2(int(p.x), int(p.y))
+		if Vector2(centre).distance_to(Vector2(width / 2.0, height / 2.0)) < 30.0:
+			continue
+		# wreckage ring: 8 spots, every third one left open so the cache is reachable from several sides
+		for i in range(8):
+			if i % 3 == 2:
+				continue
+			var a = TAU * float(i) / 8.0
+			var c = Vector2i(int(round(centre.x + cos(a) * CRASH_SITE_RING)), int(round(centre.y + sin(a) * CRASH_SITE_RING)))
+			if _free_cell(c):
+				obstacles[c] = "Boulder"
+				# This runs after the physics/visual nodes for the obstacles dict were built, so the boulder
+				# needs its node made by hand (navigation is built later, from the dict, and sees it).
+				_spawn_destructible_obstacle(Vector2(c.x * tile_size, c.y * tile_size), "Boulder")
+		# the cell the cache stands on and its neighbours stay clear
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				obstacles.erase(Vector2i(int(centre.x) + dx, int(centre.y) + dy))
+		var cache = load("res://scripts/hazards/ZoneObjective.gd").new()
+		cache.kind = "cache"
+		cache.global_position = Vector2(centre.x * tile_size + tile_size / 2.0, centre.y * tile_size + tile_size / 2.0)
+		add_child(cache)
+		for k in range(randi_range(1, 2)):
+			var slick = load("res://scripts/hazards/OilSlickHazard.gd").new()
+			var ang = randf() * TAU
+			slick.global_position = cache.global_position + Vector2(cos(ang), sin(ang)) * tile_size * randf_range(2.0, 3.0)
+			slick.radius = tile_size * randf_range(0.9, 1.3)
+			add_child(slick)
+		made += 1
+	return made
 
 # Ambient props (tufts, bones, shards, ash...) for the biome identity pass; see BiomeProps.gd.
 const BiomePropsScript = preload("res://scripts/visuals/BiomeProps.gd")

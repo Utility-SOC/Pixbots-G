@@ -1454,6 +1454,7 @@ func _build_collisions_and_obstacles():
 	_scatter_lava_vents()
 	_spawn_zone_objectives()
 	_build_shallow_overlay()
+	_build_biome_props()
 
 # Sparse, walkable environmental hazard - dark puddles scattered on
 # DESERT/VOLCANO ground (oil-field/wasteland flavor) that do nothing until a
@@ -1547,6 +1548,14 @@ func _build_shallow_overlay() -> int:
 	overlay.setup(cells, tile_size)
 	add_child(overlay)
 	return cells.size()
+
+# Ambient props (tufts, bones, shards, ash...) for the biome identity pass; see BiomeProps.gd.
+const BiomePropsScript = preload("res://scripts/visuals/BiomeProps.gd")
+func _build_biome_props() -> int:
+	var props = BiomePropsScript.new()
+	props.name = "BiomeProps"
+	add_child(props)
+	return props.build(self, map_seed)
 
 # Forts get a hold point, villages a loot cache (see ZoneObjective.gd).
 func _spawn_zone_objectives() -> int:

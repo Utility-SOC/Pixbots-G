@@ -173,6 +173,9 @@ func _tick(squad: Node, player: Node2D) -> void:
 	if members.is_empty():
 		return
 	var P: Vector2 = player.global_position
+	var defend = objective_focus(squad, P)
+	if defend != Vector2.INF:
+		P = defend # contest the fort the player is working on instead of chasing them
 
 	var director = squad.get_parent()
 	if director and "player_model" in director and director.player_model:
@@ -212,6 +215,29 @@ func _tick(squad: Node, player: Node2D) -> void:
 		_set_member_goal(m, _assign[m.get_instance_id()], P, cfg, map, ring_n)
 	if _phase == "stage":
 		_stage_goal_ticks += 1
+
+# Zone-objective awareness: a squad (one in three, picked by instance id so the whole field does not camp)
+# within DEFEND_RANGE of a fort hold point that the player has started filling (progress >= DEFEND_PROGRESS)
+# but is NOT currently standing in goes to hold that ring instead of chasing, so returning to finish the
+# capture means a fight. Returns Vector2.INF when there is nothing to defend.
+const DEFEND_PROGRESS = 0.25
+const DEFEND_RANGE = 1400.0
+static func objective_focus(squad: Node, player_pos: Vector2) -> Vector2:
+	if squad.get_instance_id() % 3 != 0 or not squad.is_inside_tree():
+		return Vector2.INF
+	var here: Vector2 = squad.get_center_position()
+	var best = Vector2.INF
+	var best_d = DEFEND_RANGE
+	for obj in squad.get_tree().get_nodes_in_group("zone_objective"):
+		if not is_instance_valid(obj) or obj.kind != "hold" or obj.done or obj.progress < DEFEND_PROGRESS:
+			continue
+		if player_pos.distance_to(obj.global_position) <= obj.radius:
+			continue # the player is inside: the normal chase already brings the squad to them
+		var d = here.distance_to(obj.global_position)
+		if d < best_d:
+			best_d = d
+			best = obj.global_position
+	return best
 
 func _say(squad: Node, director: Node, kind: String, plan: String) -> void:
 	if director and "orders" in director:

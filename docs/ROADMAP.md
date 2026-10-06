@@ -16,11 +16,18 @@ mine behaviours (they are covered by headless checks only), and a release-build 
 Also done since: Phase 3 (crossfaded, seeded, evolving music; procedural sound effects with music
 ducking; scorch decals; hitstop, camera kick and bloom were already in), the smarter Auto-Equip
 (simulation-scored refinement), War Room evidence labels, absorbing hard-cover obstacles, and the
-Phase 2 so far (per-biome weather: snow, embers, dust, leaves; FightShovel ponds and farm tracks; boss fights now raise a ring of hard-cover pillars, removed when the boss dies): terrain movement effects (road speed-up, ice slide, ash and undergrowth drag), lava
-vents on volcano ground, shallows (a walkable, slower one-tile band along every shoreline), and zone
-gameplay (fort hold points, village loot caches).
-Tabletop gets flocked forest bases and Open Field boulder cover. Still open in Phase 2: ambush spots and enemy chokepoint use, minimap markers for
-objectives, per-biome props, more authored set pieces.
+Phase 2 (maps that change how you play) is now largely done: terrain movement effects (road speed-up,
+ice slide, ash and undergrowth drag), lava vents, shallows, fort hold points with squads that defend them,
+village and crash-site caches (all on the minimap), the boss arena, per-biome weather and ambient props,
+FightShovel ponds and tracks, Tabletop forest bases and Open Field boulder cover. Still open: enemy use of
+chokepoints and ambush spots (flank-route precompute), and more authored set pieces beyond the boss arena
+and crash sites.
+
+Phase 8 (optimization) first slice, started 2026-10-06 after three Vulkan device losses on the HD 4000:
+ground textures uploaded at 1/4 size (404 -> 40 MB), `[GPU]` memory logging, obstacle nodes drawn by one
+canvas item each, an automatic safe-visuals tier after an unclean exit, F3 overlay reset (Shift+F3). Also
+fixed on the way: the ground drew over every negative-z effect (decals, vents, rings, shallow tint), and a
+spawn watchdog that restarted long waves every 10 s.
 Tuning constants for all of the above sit at the top of their scripts.
 
 ## Guiding rules (from the design decisions so far)

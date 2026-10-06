@@ -63,6 +63,11 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 - Maps: boulders and stone walls absorb non-weak hits and stop piercing shots; cacti, ice and lava rock stay destructible.
 - Status visuals (frozen tint, paralysis jolts), sword asterisk visual, bench draw-call tracing, physics catch-up cap.
 
+### 2026-10-06 additions
+- Stability: three Vulkan device losses (HD 4000, Garage open at waves 28-37) led to a 410 MB ground texture being cut to ~40 MB, GPU memory logging, an auto safe-visuals tier after unclean exits, and Phase 8 (optimization) on the roadmap. Not proven to be the crash cause; watch the next logs.
+- Fixed: spawn watchdog restarting waves every 10 s; ground z-order hiding decals/vents/rings/shallow tint.
+- Maps: Phase 2 mostly landed (see docs/ROADMAP.md).
+
 ### Queued (agreed with the user, in order)
 1. Smarter AutoEquipSolver (priority; enemy builds use its output too). 2. War Room upgrades, including confidence display for the AI's build culling (it culls builds after about 3 trials, so luck can delete good ones). 3. Phase 2 maps (terrain effects, zone gameplay, biome identity, more map types, set pieces). 4. Phase 3 audio and feel (ducking, pooled weapon audio, hitstop/camera audit, scorch decals). 5. Phase 5 visual identity. 6. Elemental balance options write-up (describe first, Heat on hold).
 

@@ -196,6 +196,17 @@ class MinimapView:
 				if is_instance_valid(loot):
 					draw_circle(_world_to_px(loot.global_position, center), 2.0, Color(1.0, 0.85, 0.2))
 
+			# Zone objectives: a diamond for a fort hold point, a square for a village cache. Done ones vanish.
+			for obj in EntityCache.get_group("zone_objective"):
+				if not is_instance_valid(obj) or obj.done:
+					continue
+				var op = _world_to_px(obj.global_position, center)
+				if obj.kind == "cache":
+					draw_rect(Rect2(op - Vector2(3, 3), Vector2(6, 6)), Color(0.95, 0.75, 0.3))
+				else:
+					var oc = Color(1.0, 0.45, 0.35) if obj.contested else Color(0.4, 0.9, 0.5)
+					draw_colored_polygon(PackedVector2Array([op + Vector2(0, -5), op + Vector2(5, 0), op + Vector2(0, 5), op + Vector2(-5, 0)]), oc)
+
 			# Smoke Grenade concealment: unlike a hostile jammer field (which
 			# only hides enemies from the player), smoke hides ANY pixbot,
 			# friend or foe - see SmokeCloud.gd's header. Gathered once here

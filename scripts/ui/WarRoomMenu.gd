@@ -34,6 +34,7 @@ var _boss_expanded: Dictionary = {}
 
 const SYNERGY_NAMES = EnergyPacket.SYNERGY_NAMES # canonical table lives there
 const SquadTemplateMutator = preload("res://scripts/ai/SquadTemplateMutator.gd")
+const ProfileEvolution = preload("res://scripts/ai/ProfileEvolution.gd")
 const ChampionCard = preload("res://scripts/pvp/ChampionCard.gd")
 
 const COL_TITLE = Color(1.0, 0.85, 0.4)
@@ -263,6 +264,21 @@ func _format_roles(roles: Dictionary) -> String:
 		parts.append(str(int(roles[r])) + "x " + str(r))
 	return ", ".join(parts)
 
+# How much to trust an average fitness: build luck averages out over trials, so a verdict on 1-2 games
+# is mostly noise. Experimental entries are culled once they pass `min_trials` below the cull line,
+# so surface both the sample size and whether the next review would cull.
+func _evidence_text(n: int, avg: float, experimental: bool, min_trials: int = 0, cull_below: float = 60.0) -> String:
+	if n <= 0:
+		return "no evidence yet"
+	var tier = "LOW" if n < 3 else ("MEDIUM" if n < 8 else "HIGH")
+	var txt = "evidence %s (%d %s)" % [tier, n, "trial" if n == 1 else "trials"]
+	if experimental and min_trials > 0:
+		if n < min_trials:
+			txt += ", safe until %d trials" % min_trials
+		elif avg < cull_below:
+			txt += ", AT RISK of culling (avg %.0f < %.0f)" % [avg, cull_below]
+	return txt
+
 func _fitness_color(avg: float, deployed: int) -> Color:
 	if deployed == 0: return COL_DIM
 	if avg >= 110.0: return COL_GOOD
@@ -437,7 +453,7 @@ func _build_doctrines(director):
 		var avg = t.get_average_fitness()
 		var fit_str = ("%.0f" % avg) if t.times_deployed > 0 else "-"
 		_lbl(doctrine_vbox, "%s  [%s]" % [t.template_name, "TRIAL" if t.is_experimental else "CORE"], COL_TRIAL if t.is_experimental else COL_CORE, 14)
-		_lbl(doctrine_vbox, "   %s | weight %.0f | deployed %d | avg %s" % [_format_roles(t.required_roles), t.spawn_weight, t.times_deployed, fit_str], _fitness_color(avg, t.times_deployed), 12)
+		_lbl(doctrine_vbox, "   %s | weight %.0f | deployed %d | avg %s | %s" % [_format_roles(t.required_roles), t.spawn_weight, t.times_deployed, fit_str, _evidence_text(t.times_deployed, avg, t.is_experimental)], _fitness_color(avg, t.times_deployed), 12)
 
 	_lbl(doctrine_vbox, "\nLOADOUT DOCTRINES (solver profiles, by role)", COL_SECTION, 15)
 	_lbl(doctrine_vbox, "Each role evolves its own lineage - a sniper doctrine no longer competes with a brawler doctrine for the same rotation.", COL_DIM, 11)
@@ -474,7 +490,7 @@ func _build_doctrines(director):
 				syn += " + %s %.0f%%" % [SYNERGY_NAMES[p.secondary_synergy], p.secondary_mix * 100.0]
 			var fit_str = ("%.0f" % avg) if p.times_used > 0 else "-"
 			_lbl(doctrine_vbox, "  %s  [%s]" % [p.profile_name, "TRIAL" if p.is_experimental else "CORE"], COL_TRIAL if p.is_experimental else COL_CORE, 14)
-			_lbl(doctrine_vbox, "     element %s | pierce %.2f / amp %.2f | range x%.2f | weight %.0f | used %d | avg %s" % [syn, p.pierce_priority, p.amplify_priority, p.engage_scale, p.spawn_weight, p.times_used, fit_str], _fitness_color(avg, p.times_used), 12)
+			_lbl(doctrine_vbox, "     element %s | pierce %.2f / amp %.2f | range x%.2f | weight %.0f | used %d | avg %s | %s" % [syn, p.pierce_priority, p.amplify_priority, p.engage_scale, p.spawn_weight, p.times_used, fit_str, _evidence_text(p.times_used, avg, p.is_experimental, ProfileEvolution.MIN_PROFILE_TRIALS_BEFORE_CULL, ProfileEvolution.PROFILE_CULL_THRESHOLD)], _fitness_color(avg, p.times_used), 12)
 
 	var share_bar = HBoxContainer.new()
 	doctrine_vbox.add_child(share_bar)

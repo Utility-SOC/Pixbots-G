@@ -1322,6 +1322,7 @@ static func downscale_chunk(img: Image, factor: int = TEXTURE_DOWNSCALE) -> Imag
 # device losses came right after long runs). Chunks are uploaded at 1/TEXTURE_DOWNSCALE size and drawn
 # scaled back up with nearest filtering, which reproduces the same hard-edged blocks for ~1/16 the memory.
 const TEXTURE_DOWNSCALE = 4
+const GROUND_Z = -100
 # Dungeon masonry has 1-2 px mortar lines, finer than the 8 px blocks everything else is painted in (measured: even x2 loses 4% of pixels), so Dungeon stays full size.
 func texture_downscale() -> int:
 	return DUNGEON_TEXTURE_DOWNSCALE if map_type == "Dungeon" else TEXTURE_DOWNSCALE
@@ -1339,6 +1340,9 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 	var sprite = Sprite2D.new()
 	sprite.texture = tex
 	sprite.centered = false
+	# The baked ground must be the lowest thing on the canvas: decals (-10), oil slicks and vents (-3),
+	# objective rings (-2) and the shallow tint (-9) all use negative z and were hidden under a z=0 ground.
+	sprite.z_index = GROUND_Z
 	sprite.scale = Vector2(factor, factor)
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	sprite.position = Vector2(tile_x0 * tile_size, tile_y0 * tile_size)

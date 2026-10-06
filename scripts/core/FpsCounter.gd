@@ -558,6 +558,15 @@ func _save_position(path_override: String = ""):
 	config.set_value(SETTINGS_SECTION, "y", panel.position.y)
 	config.save(settings_path)
 
+# Keep the whole panel inside the window (a saved position from a bigger window or monitor could
+# otherwise park it off-screen).
+func _clamp_into_view() -> void:
+	var win = get_viewport().get_visible_rect().size
+	var size_now = panel.size
+	panel.position = Vector2(
+		clampf(panel.position.x, 0.0, maxf(win.x - size_now.x, 0.0)),
+		clampf(panel.position.y, 0.0, maxf(win.y - size_now.y, 0.0)))
+
 func _unhandled_input(event: InputEvent):
 	# F3: the common cross-game convention for a debug/perf overlay toggle.
 	# Deliberately a raw physical-keycode check, not a new InputMap action -
@@ -565,7 +574,16 @@ func _unhandled_input(event: InputEvent):
 	# show up in a future "remap controls" list.
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_F3:
-			visible = not visible
+			if event.shift_pressed:
+				# Shift+F3: bring the overlay back to its default top-left spot (it persists wherever it
+				# was last dragged, which can leave it somewhere unexpected or off the window).
+				panel.position = DEFAULT_POSITION
+				_save_position()
+				visible = true
+			else:
+				visible = not visible
+				if visible:
+					_clamp_into_view()
 			get_viewport().set_input_as_handled()
 			return
 

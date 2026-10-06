@@ -3,6 +3,7 @@ extends Node2D
 
 
 const Trail2D = preload("res://scripts/visuals/Trail2D.gd")
+const ScorchDecals = preload("res://scripts/visuals/ScorchDecals.gd")
 const FireTrail2D = preload("res://scripts/visuals/FireTrail2D.gd")
 const PulseRingVisual = preload("res://scripts/attacks/PulseRingVisual.gd")
 
@@ -1647,6 +1648,7 @@ func _emitter_pool() -> Node:
 func _deploy_mine_emitter(flame_total: float, volley_total: float):
 	if not get_parent():
 		return
+	Sfx.mine_deploy(global_position)
 	var sub_ratios = _sub_shot_ratios(ratios)
 	var dom = _dominant_of(sub_ratios)
 	var col = EnergyPacket.get_color_for_synergy(dom) * 1.5
@@ -2181,6 +2183,7 @@ func _trigger_explosion(decay: float = 1.0):
 	var shape = CircleShape2D.new()
 	shape.radius = explosion_radius_for(ratios, aoe_bonus) * decay
 	Sfx.explosion(shape.radius, global_position)
+	ScorchDecals.mark(get_tree(), global_position, shape.radius * 0.7)
 	query.shape = shape
 	query.transform = global_transform
 	query.collision_mask = collision_mask

@@ -26,6 +26,7 @@ const DEFAULT_CAPACITY = 2048
 # comment on why: a fresh checkout/fresh class-cache headless run can fail
 # to resolve a bare global class_name reference).
 const _ProjectileScript = preload("res://scripts/entities/Projectile.gd")
+const ScorchDecals = preload("res://scripts/visuals/ScorchDecals.gd")
 
 var capacity: int = DEFAULT_CAPACITY
 var _free_indices: Array[int] = []
@@ -1793,6 +1794,7 @@ func _apply_explosion_aoe(i: int, primary_target: Node, hit_decay: float):
 	var ratios_for_radius = {EnergyPacket.SynergyType.EXPLOSION: _r_exp[i], EnergyPacket.SynergyType.KINETIC: _r_kin[i]}
 	var radius = _ProjectileScript.explosion_radius_for(ratios_for_radius, _aoe_bonus[i]) * hit_decay
 	Sfx.explosion(radius, _position[i])
+	ScorchDecals.mark(get_tree(), _position[i], radius * 0.7)
 	var fired_by_player = _fired_by_player[i] == 1
 	for t in _targets:
 		if not is_instance_valid(t) or t == primary_target or t.get("is_dead") == true:
@@ -1859,6 +1861,7 @@ func _trigger_poison_mine_detonation(i: int):
 func _deploy_mine_emitter(i: int, flame_total: float, volley_total: float):
 	if not get_parent():
 		return
+	Sfx.mine_deploy(_position[i])
 	var sub_ratios = _ProjectileScript._sub_shot_ratios({
 		EnergyPacket.SynergyType.POISON: _r_psn[i], EnergyPacket.SynergyType.KINETIC: _r_kin[i],
 		EnergyPacket.SynergyType.PIERCE: _r_prc[i], EnergyPacket.SynergyType.LIGHTNING: _r_ltg[i],

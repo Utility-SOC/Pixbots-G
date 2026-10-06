@@ -1,6 +1,8 @@
 class_name MortarShell
 extends Node2D
 
+const ScorchDecals = preload("res://scripts/visuals/ScorchDecals.gd")
+
 # Remote-payload delivery (fourth-review ruling / Mythic Weapon Mount
 # "Mortar" pattern): a lobbed shell that travels to the AIM POINT rather
 # than along a firing line - a ground telegraph ring marks the impact zone
@@ -281,6 +283,8 @@ func _wipe_terrain():
 # already reach them the same way direct fire would).
 func _detonate():
 	var world = get_parent()
+	Sfx.play("boom" if _blast_radius_hint() >= 120.0 else "boom_small", global_position)
+	ScorchDecals.mark(get_tree(), global_position, _blast_radius_hint() * 0.7)
 
 	# Feed the director's mortar counter-doctrine (cloaks/jammers answer
 	# artillery) - player shots only; the AI countering itself is silly.
@@ -588,6 +592,10 @@ func _chain_lightning(direct_target, src) -> void:
 # Poison missiles turn the impact into a turret: the same emitter the poison mines leave behind
 # (flame from fire, sub-shots from kinetic/pierce/poison), so poison -> turret is the same rule
 # everywhere. A pure-poison missile gets a poison-bolt turret.
+# Rough blast size for choosing the boom variant (the shell's own radius when it has one).
+func _blast_radius_hint() -> float:
+	return effective_radius * radius_mult
+
 func _deploy_poison_turret() -> void:
 	if _is_sword or _ratios.get(EnergyPacket.SynergyType.POISON, 0.0) < Projectile.MINE_POISON_THRESHOLD:
 		return

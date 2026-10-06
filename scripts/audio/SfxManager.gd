@@ -44,6 +44,7 @@ func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_rng.randomize()
 	_ensure_buses()
+	apply_saved_volumes()
 	for i in range(POOL_SIZE):
 		var p = AudioStreamPlayer.new()
 		p.bus = "SFX"
@@ -106,6 +107,21 @@ func _ensure_buses():
 	comp.release_ms = 320.0
 	comp.gain = 0.0
 	AudioServer.add_bus_effect(music, comp)
+
+# The Settings menu only applied the saved Master/Music/SFX volumes when it was opened, so every launch
+# started at full volume until then. Apply them at boot.
+func apply_saved_volumes() -> void:
+	var cfg = ConfigFile.new()
+	if cfg.load(SaveManager.SETTINGS_PATH) != OK:
+		return
+	for bus_name in ["Master", "Music", "SFX"]:
+		var idx = _bus_index(bus_name)
+		if idx < 0:
+			continue
+		var v = float(cfg.get_value("Audio", bus_name, 0.0))
+		AudioServer.set_bus_mute(idx, v <= -40.0)
+		if v > -40.0:
+			AudioServer.set_bus_volume_db(idx, v)
 
 # ---- Playback -----------------------------------------------------------------------------------
 
@@ -185,6 +201,12 @@ func impact(on_mech: bool, pos = null, hard_cover: bool = false) -> void:
 
 func explosion(radius: float, pos = null) -> void:
 	play("boom" if radius >= 120.0 else "boom_small", pos)
+
+func mine_deploy(pos = null) -> void:
+	play("mine_blip", pos)
+
+func charge(pos = null) -> void:
+	play("charge", pos)
 
 func death(is_boss: bool, pos = null) -> void:
 	play("death_boss" if is_boss else "death", pos)

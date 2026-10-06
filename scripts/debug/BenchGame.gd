@@ -328,6 +328,21 @@ func _process(delta):
 					if e is CollisionObject2D:
 						e.collision_layer = 0
 						e.collision_mask = 0
+			if OS.get_cmdline_user_args().has("--staticstats") and not _nostatic_done and _t > 6.0:
+				_nostatic_done = true
+				var hist := {}
+				for n in get_tree().root.find_children("*", "StaticBody2D", true, false):
+					var sc = n.get_script().resource_path.get_file() if n.get_script() else "StaticBody2D"
+					var k = "%s layer=%d shapes=%d" % [sc, n.collision_layer, n.get_child_count()]
+					hist[k] = hist.get(k, 0) + 1
+				for k in hist: print("BENCH_STATICS %5d  %s" % [hist[k], k])
+			if Engine.get_physics_frames() % 300 == 0:
+				var ms = _main.world.get_node_or_null("GameMap")
+				print("BENCH_STREAMDBG map=", ms, " streamer=", (ms.obstacle_streamer if ms else null))
+				if ms and ms.obstacle_streamer:
+					var st = ms.obstacle_streamer
+					print("BENCH_STREAMDBG in_tree=%s can_process=%s phys=%s mode=%d parent_mode=%d paused=%s" % [st.is_inside_tree(), st.can_process(), st.is_physics_processing(), st.process_mode, ms.process_mode, get_tree().paused])
+					print("BENCH_STREAM t=%.0f awake=%d asleep=%d toggles=%d" % [_t, ms.obstacle_streamer.last_awake, ms.obstacle_streamer.last_asleep, ms.obstacle_streamer.toggles])
 			if _nostatic and not _nostatic_done and _t > 1.0:
 				_nostatic_done = true
 				var cnt := 0

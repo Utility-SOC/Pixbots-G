@@ -95,8 +95,16 @@ func trample_corn(cell: Vector2i):
 	if corn_trail_overlay:
 		corn_trail_overlay.trample(cell)
 
+const ObstacleStreamerScript = preload("res://scripts/core/ObstacleCollisionStreamer.gd")
+var obstacle_streamer: Node = null
+
 func _ready():
 	add_to_group("map_generator")
+	# Physics LOD: obstacles far from every mech/projectile leave the physics broadphase (see the script).
+	obstacle_streamer = ObstacleStreamerScript.new()
+	obstacle_streamer.name = "ObstacleCollisionStreamer"
+	obstacle_streamer.enabled = OS.get_cmdline_user_args().has("--stream") # opt-in: A/B showed no measurable gain yet
+	add_child(obstacle_streamer)
 	
 	# "Normal" map type gets larger-scale terrain/obstacle features than the
 	# other types (per the user: bigger island/biome patches, wider gaps
@@ -1201,6 +1209,8 @@ func _draw_map_to_texture():
 	# while all maps were the same size, glaring once Tabletop (64x32)
 	# painted its little sheet in the corner of the stale 400x250 map.
 	for child in get_children():
+		if child == obstacle_streamer:
+			continue # long-lived helper, not generated output (it re-buckets itself when obstacles change)
 		child.queue_free()
 
 	var wall_thickness = 20

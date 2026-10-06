@@ -61,6 +61,9 @@ var _nomusic := false
 var _presolve := false
 var _presolve_state := 0
 var _off: PackedStringArray = PackedStringArray()
+# --noslide: enemies skip move_and_slide; --hidevis: enemies hidden (render-side CPU cost isolation).
+var _noslide := false
+var _hidevis := false
 
 func _ready():
 	for a in OS.get_cmdline_user_args():
@@ -88,6 +91,8 @@ func _ready():
 		elif a == "--notrees": _notrees = true
 		elif a == "--nomusic": _nomusic = true
 		elif a == "--presolve": _presolve = true
+		elif a == "--noslide": _noslide = true
+		elif a == "--hidevis": _hidevis = true
 		elif a.begins_with("--off="): _off = a.split("=")[1].split(",")
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = _cap
@@ -310,6 +315,10 @@ func _process(delta):
 		1:
 			if not _main_probed:
 				_plant_main_probes()
+			if _noslide or _hidevis:
+				for e in get_tree().get_nodes_in_group("enemy"):
+					if _noslide: e._diag_skip_move_and_slide = true
+					if _hidevis and e is CanvasItem: e.visible = false
 			_record(delta)
 			if OS.get_cmdline_user_args().has("--listnodes") and _t < 0.2 and not _hist_done:
 				_hist_done = true

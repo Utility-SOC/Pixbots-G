@@ -141,6 +141,12 @@ each item gets a budget and a headless or windowed check that fails when it is e
   hitboxes, 3 physics steps of 20-40 ms each), not AI, bloom (no clear effect) or the GPU. Next steps: cull or
   simplify off-screen and far mechs (render LOD, stop hitbox syncing), then re-measure. Done already: idle
   tile-durability loops and idle oil slicks no longer tick every frame.
+- **Crowd bench 2026-10-06 (`MechScaleBench`, windowed):** 80 idle enemy mechs with no map run at 60 fps and
+  hiding them, disabling their processing or removing their 480 hitboxes changes nothing, so static mech scene
+  cost is not the problem. `BenchGame --swarm=45 --wave=35` runs about 21 fps; the same run with the map freed
+  ran 66-120 fps but had no enemies left, so that A/B is inconclusive (two variants aborted the engine and need a
+  look). Next: bisect activity, not presence (firing, projectile pool, status auras, physics against the map's
+  3k static bodies) with enemies kept alive.
 - **Per-frame cost at high waves:** `proc` spikes of 100-200 ms at wave 28+ with 60 enemies and 1100+
   draw calls. Profile with the in-game probes, then attack the top three: enemy simulation LOD beyond
   the screen, projectile and status-aura draw consolidation, separation and sight batching.

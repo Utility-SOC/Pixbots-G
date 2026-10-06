@@ -314,6 +314,16 @@ func _tier_of(mech) -> String:
 		return "boss"
 	return "grunt"
 
+# Hero trim (crest, vents, visor) in the colour of the element the player's build is built around; falls back
+# to `fallback` for RAW builds or when there is no weapon yet. `lighten` brightens it for glowing parts.
+func _hero_trim_color(fallback: Color, lighten: float = 0.0) -> Color:
+	var m = get_parent()
+	var syn = int(m.identity_synergy) if m != null and "identity_synergy" in m else -1
+	if syn <= 0:
+		return fallback
+	var col: Color = EnergyPacket.get_color_for_synergy(syn)
+	return col.lightened(maxf(lighten, 0.2)) # a touch lighter so reds stay visible on a red hull
+
 func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = "", is_boss: bool = false, glow_comp = null):
 	var body_slot = tile.body_slot if tile else HexTile.BodySlot.TORSO
 	var part: PartHandle
@@ -343,7 +353,7 @@ func _draw_torso(tile, color, rng, scale_mult, rarity, accent: String = "", is_b
 	# roster reads as one family of chassis before role-specific accents on
 	# top. The player's hero unit skips this in favor of chest vents.
 	if accent == "hero":
-		var vent_color = Color(0.9, 0.85, 0.2)
+		var vent_color = _hero_trim_color(Color(0.9, 0.85, 0.2))
 		for side in [-1.0, 1.0]:
 			var vx = 6.0 * side * scale_mult
 			part.renderer.add_fill(PackedVector2Array([
@@ -533,7 +543,7 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 	elif accent == "diver":
 		visor_color = Color(0.3, 0.9, 0.95) # bright aqua, reads as a diving mask/goggle
 	elif accent == "hero":
-		visor_color = Color(0.3, 0.8, 1.0) # cool cyan "hero visor", not just a tinted mono-eye
+		visor_color = _hero_trim_color(Color(0.3, 0.8, 1.0), 0.45) # cool cyan "hero visor", not just a tinted mono-eye
 	elif accent == "commander":
 		visor_color = Color(0.9, 0.7, 0.2) # imperial gold, reads as "the one giving orders"
 
@@ -569,7 +579,7 @@ func _draw_head(tile, color, rng, scale_mult, rarity, accent: String = "", is_bo
 		part.renderer.add_fill(PackedVector2Array([
 			Vector2(-w * 0.85, -h), Vector2(w * 0.85, -h),
 			Vector2(w * 0.55, -crest_h), Vector2(-w * 0.55, -crest_h)
-		]), Color(0.9, 0.85, 0.2))
+		]), _hero_trim_color(Color(0.9, 0.85, 0.2)))
 		for side in [-1.0, 1.0]:
 			part.renderer.add_fill(PackedVector2Array([
 				Vector2(w * 0.85 * side, -h * 0.55), Vector2(w * 1.25 * side, -h * 0.7), Vector2(w * 0.85 * side, -h * 0.85)

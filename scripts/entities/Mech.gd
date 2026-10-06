@@ -2000,6 +2000,35 @@ static var _perf_phase_usec: Array = [0, 0, 0, 0, 0]
 static var _perf_sim_rust_calls: int = 0
 static var _perf_sim_gd_calls: int = 0
 
+# The player's build identity: the element that dominates their armed weapons. MechRenderer tints the hero
+# crest, chest vents and visor with it (RAW / no weapons = the default gold and cyan), so a glance at the
+# mech says what it is built around. Re-renders only when the dominant element actually changes.
+var identity_synergy: int = -1
+
+func compute_identity_synergy() -> int:
+	var totals: Dictionary = {}
+	for data in precalculated_weapons:
+		var pkt = data.get("packet")
+		if pkt == null:
+			continue
+		for k in pkt.synergies:
+			if int(k) == EnergyPacket.SynergyType.RAW:
+				continue
+			totals[k] = totals.get(k, 0.0) + float(pkt.synergies[k])
+	var best = -1
+	var best_v = 0.0
+	for k in totals:
+		if totals[k] > best_v:
+			best_v = totals[k]
+			best = int(k)
+	return best
+
+func _update_identity_synergy() -> void:
+	var now = compute_identity_synergy()
+	if now != identity_synergy:
+		identity_synergy = now
+		call_deferred("refresh_visuals")
+
 func _recalculate_grid():
 	var _t_recalc = Time.get_ticks_usec()
 	_reset_grid_state()
@@ -2017,6 +2046,8 @@ func _recalculate_grid():
 	var _tp4 = Time.get_ticks_usec()
 	_finalize_grid_state()
 	var _tp5 = Time.get_ticks_usec()
+	if is_player:
+		_update_identity_synergy()
 	_perf_phase_usec[0] += _tp1 - _t_recalc
 	_perf_phase_usec[1] += _tp2 - _tp1
 	_perf_phase_usec[2] += _tp3 - _tp2

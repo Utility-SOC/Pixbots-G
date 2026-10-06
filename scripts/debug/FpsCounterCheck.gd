@@ -28,7 +28,9 @@ func _ready():
 		return
 
 	_check("FpsCounter draws above every other layer (999)", counter.layer == 999)
-	_check("FpsCounter is visible by default", counter.visible)
+	# The overlay starts hidden (F3 shows it, or launch with --perf-overlay); show it the way F3 would.
+	_check("FpsCounter starts hidden by default", not counter.visible or "--perf-overlay" in OS.get_cmdline_user_args())
+	counter.visible = true
 	_check("FpsCounter has a real Label child", counter.label != null and counter.label is Label)
 	_check("FpsCounter has a real breakdown_label child", counter.breakdown_label != null and counter.breakdown_label is Label)
 	_check("FpsCounter has a real render_label child", counter.render_label != null and counter.render_label is Label)
@@ -104,7 +106,7 @@ func _ready():
 
 	# --- Position persistence: round-trip against a SCRATCH file, never
 	# the real SaveManager.SETTINGS_PATH (user:// is the real save dir). ---
-	var scratch_path = "C:/Users/Utility/AppData/Local/Temp/claude/fps_overlay_test_scratch.cfg"
+	var scratch_path = "user://fps_overlay_test_scratch.cfg"
 	if FileAccess.file_exists(scratch_path):
 		DirAccess.remove_absolute(scratch_path)
 	counter.panel.position = Vector2(321, 654)

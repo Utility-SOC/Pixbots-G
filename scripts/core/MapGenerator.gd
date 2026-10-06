@@ -1236,7 +1236,8 @@ var _terrain_rasterizer_checked: bool = false
 # Draws one chunk's worth of terrain (+ obstacle squares + any outer-wall
 # strip it touches) into its own small Image/Sprite2D. Purely visual - no
 # collision is created here (see _build_collisions_and_obstacles).
-func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Color):
+# Paints one chunk of ground at full resolution (CPU image, no GPU resources).
+func _render_chunk_image(cx: int, cy: int, wall_thickness: int, blue_color: Color) -> Image:
 	var tile_x0 = cx * CHUNK_TILES
 	var tile_y0 = cy * CHUNK_TILES
 	var tile_x1 = min(tile_x0 + CHUNK_TILES, width)
@@ -1244,7 +1245,7 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 	var chunk_w_tiles = tile_x1 - tile_x0
 	var chunk_h_tiles = tile_y1 - tile_y0
 	if chunk_w_tiles <= 0 or chunk_h_tiles <= 0:
-		return
+		return null
 
 	if not _terrain_rasterizer_checked:
 		_terrain_rasterizer_checked = true
@@ -1308,10 +1309,38 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 	if tile_x1 == width:
 		img.fill_rect(Rect2i(img.get_width() - wall_thickness, 0, wall_thickness, img.get_height()), blue_color)
 
+	return img
+
+static func downscale_chunk(img: Image, factor: int = TEXTURE_DOWNSCALE) -> Image:
+	var out = Image.new()
+	out.copy_from(img)
+	out.resize(maxi(1, img.get_width() / factor), maxi(1, img.get_height() / factor), Image.INTERPOLATE_NEAREST)
+	return out
+
+# The ground is painted in 8-px 'fat pixels', so uploading it at full resolution wastes GPU memory: the
+# 400x250-tile map was ~410 MB of texture (about the whole budget of an Intel HD 4000, whose two Vulkan
+# device losses came right after long runs). Chunks are uploaded at 1/TEXTURE_DOWNSCALE size and drawn
+# scaled back up with nearest filtering, which reproduces the same hard-edged blocks for ~1/16 the memory.
+const TEXTURE_DOWNSCALE = 4
+# Dungeon masonry has 1-2 px mortar lines, finer than the 8 px blocks everything else is painted in (measured: even x2 loses 4% of pixels), so Dungeon stays full size.
+func texture_downscale() -> int:
+	return DUNGEON_TEXTURE_DOWNSCALE if map_type == "Dungeon" else TEXTURE_DOWNSCALE
+const DUNGEON_TEXTURE_DOWNSCALE = 1
+func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Color):
+	var tile_x0 = cx * CHUNK_TILES
+	var tile_y0 = cy * CHUNK_TILES
+	var img = _render_chunk_image(cx, cy, wall_thickness, blue_color)
+	if img == null:
+		return
+	var factor = texture_downscale()
+	if factor > 1:
+		img = downscale_chunk(img, factor)
 	var tex = ImageTexture.create_from_image(img)
 	var sprite = Sprite2D.new()
 	sprite.texture = tex
 	sprite.centered = false
+	sprite.scale = Vector2(factor, factor)
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	sprite.position = Vector2(tile_x0 * tile_size, tile_y0 * tile_size)
 	var ckey = Vector2i(cx, cy)
 	if _chunk_sprites.has(ckey) and is_instance_valid(_chunk_sprites[ckey]):

@@ -47,7 +47,7 @@ func _ready():
 	await get_tree().process_frame
 	var covers = 0
 	for ch in map.get_children():
-		if ch is StaticBody2D and not ch.is_queued_for_deletion() and ch.collision_layer == 32:
+		if ch is StaticBody2D and not ch.is_queued_for_deletion() and ch.collision_layer == 32 and ch.get_child_count() > 0 and ch.get_child(0) is CollisionShape2D:
 			var half = ch.get_child(0).shape.size.x / 64.0
 			var mid = ch.position.x / 32.0
 			if int(ch.position.y / 32) == 100 and mid - half < 36.0 and mid + half > 35.0:

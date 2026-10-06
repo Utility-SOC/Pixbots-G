@@ -2538,7 +2538,7 @@ func _open_garage():
 	# game"). One live garage, always.
 	if garage_ui and is_instance_valid(garage_ui):
 		return
-	print("Opening Garage Menu...")
+	print("Opening Garage Menu... [", load("res://scripts/core/FpsCounter.gd").gpu_summary(), "]")
 	_secure_haul()
 	_repair_component_viability()
 	get_tree().paused = true

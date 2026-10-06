@@ -439,6 +439,7 @@ func _record(delta):
 		var w := 0.0
 		for x in _sec_frames:
 			w = max(w, x)
+		print("BENCH_GPU ", load("res://scripts/core/FpsCounter.gd").gpu_summary())
 		print("BENCH_LIVE enemy_group=%d" % get_tree().get_nodes_in_group("enemy").size())
 		print("BENCH_SEC t=%02d fps=%d worst_ms=%.0f enemies=%d nodes=%d draws=%d proc_ms=%.1f phys_ms=%.1f projectiles=%d" % [
 			int(_t), _sec_frames.size(), w, _main.active_enemies, get_tree().get_node_count(),

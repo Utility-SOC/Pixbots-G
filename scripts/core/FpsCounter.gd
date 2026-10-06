@@ -293,7 +293,26 @@ func _pool_summary() -> String:
 		return "-"
 	return "%d/%d stock%d" % [d.pool_hits, d.pool_hits + d.pool_misses, d.pool_stock()]
 
+# GPU memory and object counts from the renderer (crash hunting: a Vulkan device loss after a long run may be
+# a slow resource leak, which this makes visible in every log). Textures/buffers in MB.
+static func gpu_summary() -> String:
+	var mb = 1.0 / 1048576.0
+	return "gpu tex=%.0fMB buf=%.0fMB vid=%.0fMB nodes=%d res=%d orphans=%d" % [
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TEXTURE_MEM_USED) * mb,
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_BUFFER_MEM_USED) * mb,
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_VIDEO_MEM_USED) * mb,
+		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
+		int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))]
+
+var _gpu_log_t := 0.0
+const GPU_LOG_INTERVAL = 30.0
+
 func _log_spike_if_any() -> void:
+	_gpu_log_t += get_process_delta_time()
+	if _gpu_log_t >= GPU_LOG_INTERVAL and not get_tree().paused:
+		_gpu_log_t = 0.0
+		print("[GPU] ", gpu_summary())
 	var now = Time.get_ticks_usec()
 	var real_ms = (now - _last_frame_usec) / 1000.0 if _last_frame_usec > 0 else 0.0
 	_last_frame_usec = now
@@ -309,7 +328,7 @@ func _log_spike_if_any() -> void:
 	if is_instance_valid(ProjectileManager.live_batch_pool):
 		batch_live = ProjectileManager.live_batch_pool.live_count()
 	var built = Mech._perf_bots_built
-	print("[PERF] spike %.0fms (x%d since last) wave=%s | enemies=%d drones=%d | proj legacy=%d batch=%d emitters=%d | bots_built+%d pool=%s | nodes=%d phys2d active=%d pairs=%d | draws=%d | proc=%.0fms phys=%.0fms" % [
+	print("[PERF] spike %.0fms (x%d since last) wave=%s | enemies=%d drones=%d | proj legacy=%d batch=%d emitters=%d | bots_built+%d pool=%s | nodes=%d phys2d active=%d pairs=%d | draws=%d | proc=%.0fms phys=%.0fms | %s" % [
 		real_ms, _spikes_since_log, str(wave),
 		get_tree().get_nodes_in_group("enemy").size(), get_tree().get_nodes_in_group("drone").size(),
 		ProjectileManager.live_count(), batch_live, load("res://scripts/attacks/MineEmitter.gd").live_count,
@@ -317,7 +336,8 @@ func _log_spike_if_any() -> void:
 		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		int(Performance.get_monitor(Performance.PHYSICS_2D_ACTIVE_OBJECTS)), int(Performance.get_monitor(Performance.PHYSICS_2D_COLLISION_PAIRS)),
 		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
-		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0])
+		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+		gpu_summary()])
 	_spikes_since_log = 0
 	_bots_built_at_last_log = built
 

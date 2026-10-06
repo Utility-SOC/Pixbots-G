@@ -17,9 +17,9 @@ func _ready():
 	await get_tree().process_frame
 	for i in range(Scorch.MAX_MARKS + 40):
 		d.add_mark(Vector2(i * 10, 0), 40.0 + (i % 5) * 20.0, Color(0.05, 0.04, 0.04))
-	_check("ring buffer caps visible instances at %d" % Scorch.MAX_MARKS, d.multimesh.visible_instance_count == Scorch.MAX_MARKS)
+	_check("ring buffer caps visible instances at %d" % Scorch.MAX_MARKS, d.visible_marks() == Scorch.MAX_MARKS)
 	_check("counter keeps counting past the cap", d._count == Scorch.MAX_MARKS + 40)
-	_check("one multimesh = one draw (single instance node)", d.multimesh.instance_count == Scorch.MAX_MARKS)
+	_check("storage is a fixed ring, not growing", d._pos.size() == Scorch.MAX_MARKS)
 	d._born[0] -= Scorch.LIFETIME * 2.0
 	d._tick = 99.0
 	d._process(0.0)

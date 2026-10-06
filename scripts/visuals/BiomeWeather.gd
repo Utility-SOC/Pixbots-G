@@ -21,6 +21,9 @@ var _candidate: String = ""
 var _timer := 0.0
 
 func _ready():
+	if OS.get_environment("PIXBOTS_SAFE_FX") == "1":
+		set_process(false)
+		return
 	z_index = 40 # above the terrain and mechs, below UI (which is on its own canvas layer)
 	local_coords = false
 	emitting = false

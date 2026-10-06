@@ -16,11 +16,11 @@ mine behaviours (they are covered by headless checks only), and a release-build 
 Also done since: Phase 3 (crossfaded, seeded, evolving music; procedural sound effects with music
 ducking; scorch decals; hitstop, camera kick and bloom were already in), the smarter Auto-Equip
 (simulation-scored refinement), War Room evidence labels, absorbing hard-cover obstacles, and the
-Phase 2 so far (per-biome weather: snow, embers, dust, leaves; boss fights now raise a ring of hard-cover pillars, removed when the boss dies): terrain movement effects (road speed-up, ice slide, ash and undergrowth drag), lava
+Phase 2 so far (per-biome weather: snow, embers, dust, leaves; FightShovel ponds and farm tracks; boss fights now raise a ring of hard-cover pillars, removed when the boss dies): terrain movement effects (road speed-up, ice slide, ash and undergrowth drag), lava
 vents on volcano ground, shallows (a walkable, slower one-tile band along every shoreline), and zone
 gameplay (fort hold points, village loot caches).
 Still open in Phase 2: ambush spots and enemy chokepoint use, minimap markers for
-objectives, per-biome props, FightShovel/Tabletop/Open Field variety, more authored set pieces.
+objectives, per-biome props, Tabletop and Open Field variety, more authored set pieces.
 Tuning constants for all of the above sit at the top of their scripts.
 
 ## Guiding rules (from the design decisions so far)

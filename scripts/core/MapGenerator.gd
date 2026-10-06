@@ -459,7 +459,9 @@ func _generate_map():
 		# notes - grey plastic ruins on a flocked mat). Also available on
 		# any other map type via force_ruins (debug menu toggle).
 		if map_type == "FightShovel":
+			water_tile_count += _fightshovel_ponds()
 			_place_fightshovel_structures()
+			_fightshovel_tracks()
 		elif map_type == "Tabletop" or force_ruins:
 			_place_tabletop_ruins()
 
@@ -896,6 +898,71 @@ func _place_tabletop_ruins():
 # a "type" tag so RuinObstacle._draw() paints a farm building instead of a
 # grey ruin shell, and smaller farm-scale footprints instead of a ruined
 # cathedral.
+# FightShovel farmland variety: a few irrigation ponds (their rim becomes shallows) kept well away from
+# the spawn, and dirt tracks joining the spawn and every farm building (roads, so they are quicker to
+# cross). Ponds go in BEFORE the buildings so those avoid them; tracks go in after and must not erase
+# the buildings they lead to.
+const FARM_POND_SPAWN_CLEARANCE = 28.0
+func _fightshovel_ponds() -> int:
+	var scale = sqrt(float(width * height) / 2048.0)
+	var count = clampi(int((2 + randi() % 3) * scale * 0.6), 2, 6)
+	var centre = Vector2(width / 2.0, height / 2.0)
+	var made = 0
+	var placed = 0
+	var tries = 0
+	while placed < count and tries < count * 40:
+		tries += 1
+		var rx = randf_range(4.0, 7.0)
+		var ry = randf_range(3.0, 5.0)
+		var c = Vector2(randf_range(rx + 6.0, width - rx - 6.0), randf_range(ry + 6.0, height - ry - 6.0))
+		if c.distance_to(centre) < FARM_POND_SPAWN_CLEARANCE:
+			continue
+		for y in range(int(c.y - ry) - 1, int(c.y + ry) + 2):
+			for x in range(int(c.x - rx) - 1, int(c.x + rx) + 2):
+				if x < 0 or y < 0 or x >= width or y >= height:
+					continue
+				var dx = (x - c.x) / rx
+				var dy = (y - c.y) / ry
+				if dx * dx + dy * dy <= 1.0 and terrain[y][x] != BiomeType.WATER:
+					terrain[y][x] = BiomeType.WATER
+					obstacles.erase(Vector2i(x, y))
+					corn_field_cells.erase(Vector2i(x, y))
+					made += 1
+		placed += 1
+	return made
+
+func _fightshovel_tracks() -> int:
+	if ruin_specs.is_empty():
+		return 0
+	var nodes: Array = [Vector2(width / 2.0, height / 2.0)]
+	for spec in ruin_specs:
+		nodes.append(Vector2(spec.x + spec.w / 2.0, spec.y + spec.h / 2.0))
+	var kept: Dictionary = {}
+	for k in obstacles:
+		if obstacles[k] == "RuinPart":
+			kept[k] = true
+	var connected: Array = [0]
+	var rest: Array = range(1, nodes.size())
+	var roads = 0
+	while not rest.is_empty():
+		var best_i = 0
+		var best_from = 0
+		var best_d = 1.0e12
+		for ri in range(rest.size()):
+			for ci in connected:
+				var d = nodes[rest[ri]].distance_to(nodes[ci])
+				if d < best_d:
+					best_d = d
+					best_i = ri
+					best_from = ci
+		MapStructure._carve_road(self, nodes[best_from], nodes[rest[best_i]])
+		connected.append(rest[best_i])
+		rest.remove_at(best_i)
+		roads += 1
+	for k in kept:
+		obstacles[k] = "RuinPart" # the tracks lead to the buildings, they do not demolish them
+	return roads
+
 func _place_fightshovel_structures():
 	ruin_specs.clear()
 	var density_scale = sqrt(float(width * height) / 2048.0)
@@ -1362,9 +1429,13 @@ func _mark_shallows() -> int:
 		terrain[c.y][c.x] = BiomeType.SHALLOW
 	return edge.size()
 
-# One MultiMesh of pale quads over every shallow tile (a single draw call) so the walkable band reads
-# as lighter water over the baked terrain texture.
+# Pale quads over every shallow tile so the walkable band reads as lighter water over the baked texture.
+# A plain canvas item drawing same-colour rects (the canvas batcher merges them); it was a MultiMesh until a
+# player's Ivy Bridge GPU lost its Vulkan device after a long session, so it stays on the well-trodden path.
+const ShallowOverlayScript = preload("res://scripts/visuals/ShallowOverlay.gd")
 func _build_shallow_overlay() -> int:
+	if OS.get_environment("PIXBOTS_SAFE_FX") == "1":
+		return 0
 	var cells: Array = []
 	for y in range(height):
 		for x in range(width):
@@ -1372,20 +1443,10 @@ func _build_shallow_overlay() -> int:
 				cells.append(Vector2i(x, y))
 	if cells.is_empty():
 		return 0
-	var mmi = MultiMeshInstance2D.new()
-	mmi.name = "ShallowOverlay"
-	mmi.z_index = -9
-	var mm = MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_2D
-	var quad = QuadMesh.new()
-	quad.size = Vector2(tile_size, tile_size)
-	mm.mesh = quad
-	mm.instance_count = cells.size()
-	for i in range(cells.size()):
-		mm.set_instance_transform_2d(i, Transform2D(0.0, Vector2((cells[i].x + 0.5) * tile_size, (cells[i].y + 0.5) * tile_size)))
-	mmi.multimesh = mm
-	mmi.modulate = Color(0.75, 0.95, 1.0, 0.42)
-	add_child(mmi)
+	var overlay = ShallowOverlayScript.new()
+	overlay.name = "ShallowOverlay"
+	overlay.setup(cells, tile_size)
+	add_child(overlay)
 	return cells.size()
 
 # Forts get a hold point, villages a loot cache (see ZoneObjective.gd).

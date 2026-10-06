@@ -49,7 +49,7 @@ func _ready():
 	_check("no deep water touches land", _deep_touches_land(map) == 0)
 	_check("marking twice changes nothing more on a 4x4 core", map._mark_shallows() == 12)
 	var overlay_cells = map._build_shallow_overlay()
-	_check("overlay covers every shallow tile in one MultiMesh", overlay_cells > 0 and map.get_node_or_null("ShallowOverlay") != null)
+	_check("overlay covers every shallow tile as one canvas overlay", overlay_cells > 0 and map.get_node_or_null("ShallowOverlay") != null)
 	_check("shallows slow movement but less than they grip (%.2f, traction %.2f)" % [TE.speed(9), TE.traction(9)], TE.speed(9) < 1.0 and TE.traction(9) < 1.0 and TE.speed(9) < TE.speed(5))
 	# a mech standing in shallows is slowed and does not count as over water
 	map.add_to_group("map_generator")

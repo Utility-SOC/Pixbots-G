@@ -73,9 +73,10 @@ static func generate_level_loop(synergy: EnergyPacket.SynergyType, is_combat: bo
 
 # cancel_check: polled between notes so the caller's worker thread can bail
 # promptly at app quit - returns null when cancelled.
-static func generate_track(ctx: int, synergy: int, wave: int, cancel_check: Callable = Callable(), biome: String = "", throttle: bool = false) -> AudioStreamWAV:
+static func generate_track(ctx: int, synergy: int, wave: int, cancel_check: Callable = Callable(), biome: String = "", throttle: bool = false, genome: Dictionary = {}) -> AudioStreamWAV:
 	var s = ProceduralSynth.new()
 	s._throttle = throttle
+	s._genome = genome
 	return s._render(ctx, synergy, wave, cancel_check, biome)
 
 
@@ -106,6 +107,7 @@ func _midi(m: float) -> float:
 # Worker-thread pacing: when rendering in the background, sleep briefly every few ms so the render
 # never monopolises a core on a dual-core machine (a full render is seconds of tight GDScript).
 var _throttle := false
+var _genome: Dictionary = {} # MusicGenome.to_params(); empty = unseeded legacy behaviour
 var _slice_start_usec := 0
 const THROTTLE_SLICE_USEC = 4000
 const THROTTLE_SLEEP_USEC = 3000
@@ -127,7 +129,13 @@ func _is_cancelled() -> bool:
 
 func _render(ctx: int, synergy: int, wave: int, cancel_check: Callable, biome: String = "") -> AudioStreamWAV:
 	_cancel = cancel_check
-	_rng.randomize()
+	var gen := 0
+	if _genome.is_empty():
+		_rng.randomize()
+	else:
+		# Deterministic: same genome + same mood = same track, so it can be cached and re-rendered.
+		_rng.seed = hash([int(_genome["seed"]), ctx, synergy, wave, biome])
+		gen = int(_genome["gen"])
 	var voice = voice_for_biome(biome) if ctx == Ctx.COMBAT else ""
 	var bpm = _bpm_for(ctx, wave, voice)
 	_step = int(round(60.0 / bpm / 4.0 * SAMPLE_RATE))
@@ -147,7 +155,7 @@ func _render(ctx: int, synergy: int, wave: int, cancel_check: Callable, biome: S
 		scale = VOICE_SCALE[voice]
 	var root_midi: float = 33.0 + float((absi(synergy) * 5) % 12) # A1..G#2, element picks the key
 	var progs: Array = BOSS_PROGRESSIONS if ctx == Ctx.BOSS else PROGRESSIONS
-	var prog: Array = progs[_rng.randi() % progs.size()]
+	var prog: Array = progs[(_rng.randi() if _genome.is_empty() else int(_genome["prog"])) % progs.size()]
 
 	# Chord tones as semitone offsets from the key root, one entry per chord.
 	var chords: Array = []
@@ -163,6 +171,7 @@ func _render(ctx: int, synergy: int, wave: int, cancel_check: Callable, biome: S
 
 	if voice != "":
 		_voice_layers(voice, chords, root_midi, scale, wave)
+		_symphonic_layers(gen, ctx, chords, root_midi, scale)
 		if _is_cancelled(): return null
 		return _mix_to_stream(ctx)
 
@@ -219,10 +228,49 @@ func _render(ctx: int, synergy: int, wave: int, cancel_check: Callable, biome: S
 	# --- Drums ---
 	if ctx != Ctx.GARAGE:
 		_drum_pattern(ctx, wave)
+	_symphonic_layers(gen, ctx, chords, root_midi, scale)
 
 	if _is_cancelled(): return null
 
 	return _mix_to_stream(ctx)
+
+
+# Orchestral layers that accumulate with the music's generation. Each reuses the existing progression, so a
+# later generation is the earlier score with more instruments playing it.
+#   1: counter-melody (soft square an octave above the chord third, one note per chord, offset)
+#   2: strings (slow detuned saw swell on chord tones, bar-long attack)
+#   3: brass (chord root + fifth stabs on the strong beats, combat/boss only)
+#   4: choir (high sine "ah" triad that holds across the whole chord)
+func _symphonic_layers(gen: int, ctx: int, chords: Array, root_midi: float, scale: Array) -> void:
+	if gen <= 0:
+		return
+	var chord_steps = STEPS_PER_BAR * 2
+	var quiet = 0.6 if ctx == Ctx.GARAGE else 1.0
+	for c in range(chords.size()):
+		var start = c * chord_steps * _step
+		var tones: Array = chords[c].tones
+		if _is_cancelled(): return
+		if gen >= 1:
+			var t: int = tones[1]
+			var f = _midi(root_midi + 24.0 + t)
+			_add_tone(_mel, start + _step * 4, _step * 12, f, 2, 0.025 * quiet, 0.08, 0.4, 0.4, 0.35)
+			_add_tone(_mel, start + _step * 20, _step * 10, _midi(root_midi + 24.0 + tones[2]), 2, 0.02 * quiet, 0.08, 0.4, 0.4, 0.35)
+		if gen >= 2:
+			for off in tones:
+				var fs = _midi(root_midi + 12.0 + off)
+				_add_tone(_pad, start, chord_steps * _step + _step * 6, fs * 0.996, 1, 0.012 * quiet, 1.2, 1.0, 0.0, 0.5)
+				_add_tone(_pad, start, chord_steps * _step + _step * 6, fs * 1.004, 1, 0.012 * quiet, 1.2, 1.0, 0.0, 0.5)
+		if gen >= 3 and ctx != Ctx.GARAGE:
+			var r: float = root_midi + chords[c].root
+			for beat in [0, 8, 16, 24]:
+				var st = start + beat * _step
+				_add_tone(_mel, st, _step * 5, _midi(r + 12.0), 1, 0.03, 0.02, 0.2, 2.0, 0.5)
+				_add_tone(_mel, st, _step * 5, _midi(r + 19.0), 1, 0.02, 0.02, 0.2, 2.0, 0.5)
+		if gen >= 4:
+			for off in tones:
+				_add_tone(_pad, start, chord_steps * _step + _step * 8, _midi(root_midi + 36.0 + off), 0, 0.012 * quiet, 1.6, 1.4, 0.0, 0.5)
+	if gen >= 2:
+		_lowpass(_pad, 1400.0 if ctx != Ctx.GARAGE else 900.0)
 
 
 func _mix_to_stream(ctx: int) -> AudioStreamWAV:

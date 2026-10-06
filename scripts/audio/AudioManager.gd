@@ -9,10 +9,14 @@ extends Node
 # (and, via MusicGenome / the disk cache, across sessions - see MusicLibrary).
 
 const ProceduralSynth = preload("res://scripts/audio/ProceduralSynth.gd")
+const Genome = preload("res://scripts/audio/MusicGenome.gd")
 
 const CROSSFADE_SECONDS = 1.8
 const PREBAKE_DELAY_SECONDS = 4.0
 const MEMORY_CACHE_MAX = 40
+const DISK_CACHE_DIR = "user://music_cache"
+const DISK_CACHE_MAX_FILES = 40
+const SAMPLE_RATE = 22050
 # Representative wave per tier: the composer's wave-dependent features (tempo creep, lead from wave 4,
 # denser hats from wave 12, ...) only change at these boundaries, so one render serves the whole tier.
 const WAVE_TIERS = [1, 4, 12, 30]
@@ -26,6 +30,7 @@ var current_biome: String = ""
 # What the currently-playing (or fading-in) loop was rendered for.
 var current_ctx: int = ProceduralSynth.Ctx.GARAGE
 
+var genome
 var _players: Array = []
 var _active: int = 0
 var _current_key: String = ""
@@ -60,6 +65,7 @@ func _ready():
 		add_child(p)
 		_players.append(p)
 	current_player = _players[0]
+	genome = Genome.load_or_create()
 	_apply_want()
 
 func _exit_tree():
@@ -74,6 +80,9 @@ func _exit_tree():
 func set_combat_state(combat: bool, wave: int = -1):
 	if wave >= 0:
 		current_wave = wave
+		if genome != null and genome.note_wave(wave):
+			genome.save()
+			print("[Audio] Music evolved to generation %d" % genome.generation)
 	if not combat:
 		is_boss = false
 	is_combat = combat
@@ -117,7 +126,7 @@ func _make_job(ctx: int, syn: int, wave: int, biome: String) -> Dictionary:
 	var tier_wave = wave_tier_wave(wave) if ctx == ProceduralSynth.Ctx.COMBAT else 1
 	var voice = _voice_for(ctx, biome)
 	return {
-		"key": "%d|%d|%d|%s" % [ctx, syn, tier_wave, voice],
+		"key": "%s|%d|%d|%d|%s" % [genome.tag() if genome != null else "0", ctx, syn, tier_wave, voice],
 		"ctx": ctx, "syn": syn, "wave": tier_wave, "biome": biome,
 	}
 
@@ -133,6 +142,10 @@ func _apply_want():
 	var key: String = job["key"]
 	if key == _current_key and not _xf_active:
 		return
+	if not _tracks.has(key):
+		var cached = _disk_load(key)
+		if cached != null:
+			_remember(key, cached)
 	if _tracks.has(key):
 		_swap_to(key, int(job["ctx"]))
 	else:
@@ -219,7 +232,7 @@ func _enqueue(job: Dictionary, urgent: bool):
 				_jobs.erase(j)
 				_jobs.push_front(j)
 			break
-	if not dup and not _tracks.has(job["key"]):
+	if not dup and not _tracks.has(job["key"]) and not (not urgent and _disk_has(job["key"])):
 		if urgent:
 			_jobs.push_front(job)
 		else:
@@ -252,13 +265,14 @@ func _worker_loop():
 		if job == null:
 			return
 		print("[Audio] Rendering %s" % job["key"])
-		var stream = ProceduralSynth.generate_track(int(job["ctx"]), int(job["syn"]), int(job["wave"]), func(): return _quitting, str(job["biome"]), true)
+		var stream = ProceduralSynth.generate_track(int(job["ctx"]), int(job["syn"]), int(job["wave"]), func(): return _quitting, str(job["biome"]), true, genome.to_params())
 		if stream == null or _quitting:
 			return
 		call_deferred("_on_render_done", job["key"], stream)
 
 func _on_render_done(key: String, stream: AudioStreamWAV):
 	_remember(key, stream)
+	_disk_save(key, stream)
 	# Only swap if this is still what the current state wants (it may have moved while baking).
 	var want = _want_job()
 	if want["key"] == key:
@@ -283,3 +297,50 @@ func _schedule_prebake():
 			_enqueue(_make_job(ProceduralSynth.Ctx.BOSS, syn, wave, current_biome), false)
 		# the next wave tier, so the tempo/lead change lands without a wait
 		_enqueue(_make_job(ProceduralSynth.Ctx.COMBAT, syn, wave + 8, current_biome), false)
+
+# ---- Disk cache (raw 16-bit PCM, keyed by genome + mood) ------------------------------------------
+
+func _disk_path(key: String) -> String:
+	return "%s/%s.pcm" % [DISK_CACHE_DIR, key.md5_text()]
+
+func _disk_has(key: String) -> bool:
+	return FileAccess.file_exists(_disk_path(key))
+
+func _disk_load(key: String) -> AudioStreamWAV:
+	if not _disk_has(key):
+		return null
+	var data = FileAccess.get_file_as_bytes(_disk_path(key))
+	if data.size() < SAMPLE_RATE: # corrupt/truncated
+		return null
+	return pcm_to_stream(data)
+
+func _disk_save(key: String, stream: AudioStreamWAV) -> void:
+	DirAccess.make_dir_recursive_absolute(DISK_CACHE_DIR)
+	var f = FileAccess.open(_disk_path(key), FileAccess.WRITE)
+	if f:
+		f.store_buffer(stream.data)
+		f.close()
+	_disk_trim()
+
+# Oldest files go first once the cache is over its cap (stale generations age out this way).
+func _disk_trim() -> void:
+	var files: Array = []
+	for fn in DirAccess.get_files_at(DISK_CACHE_DIR):
+		var path = DISK_CACHE_DIR + "/" + fn
+		files.append({"path": path, "t": FileAccess.get_modified_time(path)})
+	if files.size() <= DISK_CACHE_MAX_FILES:
+		return
+	files.sort_custom(func(a, b): return a["t"] < b["t"])
+	for i in range(files.size() - DISK_CACHE_MAX_FILES):
+		DirAccess.remove_absolute(files[i]["path"])
+
+static func pcm_to_stream(data: PackedByteArray) -> AudioStreamWAV:
+	var stream = AudioStreamWAV.new()
+	stream.data = data
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = SAMPLE_RATE
+	stream.stereo = false
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = data.size() / 2
+	return stream

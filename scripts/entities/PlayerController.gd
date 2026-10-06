@@ -1,6 +1,8 @@
 extends RefCounted
 class_name PlayerController
 
+const TerrainEffects = preload("res://scripts/core/TerrainEffects.gd")
+
 # Player-only input/movement/firing, split out of Mech.gd (see that file's
 # _physics_process for the lazy-construction call site). Composed, not a
 # Node - see Mech.gd's boss_brain/status_runner/player_controller fields for
@@ -80,7 +82,7 @@ func handle_input(delta: float):
 	total_mult = min(total_mult, 3.8) # User requested max 3.8x for both combined
 
 	var actual_move_speed = mech.current_move_speed * total_mult
-	var target_vel = input_dir * actual_move_speed
+	var target_vel = input_dir * actual_move_speed * mech.terrain_speed_mult
 
 	# Scale acceleration much slower to give a feeling of weight
 	var accel = 600.0
@@ -89,10 +91,8 @@ func handle_input(delta: float):
 	if mech.thruster_accel_bonus >= 0:
 		accel += (mech.thruster_accel_bonus * 200.0)
 
-	if target_vel == Vector2.ZERO:
-		mech.velocity = mech.velocity.move_toward(Vector2.ZERO, accel * delta)
-	else:
-		mech.velocity = mech.velocity.move_toward(target_vel, accel * delta)
+	# Ice: traction < 1 stretches both speeding up and braking, so you slide.
+	mech.velocity = TerrainEffects.steer(mech.velocity, target_vel, accel, mech.terrain_traction, delta)
 
 	# JumpJets automatically hover over Water (Mask 2) and some obstacles
 	if mech.jumpjet_rarity >= 0:

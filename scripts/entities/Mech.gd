@@ -1,6 +1,8 @@
 class_name Mech
 extends CharacterBody2D
 
+const TerrainEffects = preload("res://scripts/core/TerrainEffects.gd")
+
 const CoreTile = preload("res://scripts/tiles/CoreTile.gd")
 const ComponentEquipment = preload("res://scripts/core/ComponentEquipment.gd")
 const ComponentLinkTile = preload("res://scripts/tiles/ComponentLinkTile.gd")
@@ -1240,6 +1242,7 @@ func _physics_process(delta: float):
 			# move_and_slide runs every frame so they slide properly
 			if not _diag_skip_far_branch_body:
 				velocity += external_force
+				_apply_terrain_to_ai_velocity(delta)
 				velocity = _avoid_water_in_velocity(velocity, delta)
 				var _t_move = Time.get_ticks_usec()
 				if _diag_skip_move_and_slide:
@@ -1255,6 +1258,7 @@ func _physics_process(delta: float):
 			_perf_ai_tactics_usec += _ai2_elapsed
 			_perf_diag_ai_tactics_usec += _ai2_elapsed
 			velocity += external_force
+			_apply_terrain_to_ai_velocity(delta)
 			velocity = _avoid_water_in_velocity(velocity, delta)
 			var _t_move2 = Time.get_ticks_usec()
 			if _diag_skip_move_and_slide:
@@ -1498,13 +1502,33 @@ func pull_towards(target_pos: Vector2, delta: float, strength: float = 600.0):
 # (a one-frame lag on entering/exiting water). Splitting the terrain lookup
 # out and moving it earlier fixes the ordering; _check_drowning() below now
 # just reuses the already-current _in_water instead of recomputing it.
+# Ground effects from the biome underfoot (see TerrainEffects); refreshed with the water state each tick.
+var terrain_speed_mult: float = 1.0
+var terrain_traction: float = 1.0
+var _slide_velocity: Vector2 = Vector2.ZERO
+
+# AI branches set velocity outright; scale it by the ground and, on ice, let the old heading bleed off.
+func _apply_terrain_to_ai_velocity(delta: float) -> void:
+	if terrain_speed_mult != 1.0:
+		velocity *= terrain_speed_mult
+	if terrain_traction < 1.0:
+		velocity = TerrainEffects.slide(_slide_velocity, velocity, terrain_traction, delta)
+	_slide_velocity = velocity
+
 func _refresh_water_state():
 	var is_over_water = false
 	var map = _get_map_ref()
 	if map and "terrain" in map:
 		var grid_pos = Vector2i(int(floor(global_position.x / map.tile_size)), int(floor(global_position.y / map.tile_size)))
 		if grid_pos.x >= 0 and grid_pos.x < map.width and grid_pos.y >= 0 and grid_pos.y < map.height:
-			is_over_water = map.terrain[grid_pos.y][grid_pos.x] == map.BiomeType.WATER
+			var biome_here: int = map.terrain[grid_pos.y][grid_pos.x]
+			is_over_water = biome_here == map.BiomeType.WATER
+			if _has_jumpjets() or is_amphibious:
+				terrain_speed_mult = 1.0
+				terrain_traction = 1.0
+			else:
+				terrain_speed_mult = TerrainEffects.speed(biome_here)
+				terrain_traction = TerrainEffects.traction(biome_here)
 		# FightShovel corn trampling (Utility-SOC: "corn-fields that leave
 		# trails when walked through") - same per-mech-per-tick terrain
 		# lookup this function already does, one dictionary check further.

@@ -258,6 +258,7 @@ Understanding the operational flow of Pixbots-G is essential for sustained succe
 
 ## 9. RECENT SYSTEM UPDATES (CHANGELOG)
 
+- **2026-10-05 (audio, feel, maps, solver):** music crossfades with no silence and evolves with a saved seed (extra orchestral layers every 8 waves); procedural sound effects (shots, hits, booms, deaths, pickups) with pooled voices and the music ducking under heavy impacts; scorch decals; saved volumes now apply at launch; boulders and stone walls absorb hits while cacti, ice and lava rock stay destructible; Auto-Equip now simulates and tunes elements and spares; War Room shows how much evidence backs each doctrine; terrain changes movement (roads faster, ice slippery, ash and undergrowth slower).
 - **2026-10-05 (performance, element roles, long runs, parts):**
   - **Projectiles:** the batch renderer draws shots from one baked texture atlas (about 9x cheaper per mixed-element shot on the HD 4000) and is on by default; Pie, Shape Blend, Starburst and Rings keep their looks. Elements beyond a shot's dominant one and two orbiting echoes show as a ring of small coloured dots.
   - **Element roles (no named recipes):** Poison is the gateway to mines and turrets. A mine's other elements each add a trait: Vortex pulls, Ice freezes, Lightning paralyzes, Explosion widens the blast and leaves a poison or fire cloud, Fire leaves a flame emitter, Kinetic and Pierce leave an emitter that fires one-generation sub-shots carrying the mix. Pure Fire stays a melee weapon. Combinations are meant to be discovered, so nothing in-game names them.

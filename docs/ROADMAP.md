@@ -12,6 +12,13 @@ combat and visual work below (element roles, missiles, status particles, solver 
 work) and the long-run economy (haul, streak bonus). See the README changelog and
 `docs/ENEMY_POOL.md`. Still open from Phase 0: a live playtest of the pool, haul, missile and
 mine behaviours (they are covered by headless checks only), and a release-build launch test.
+
+Also done since: Phase 3 (crossfaded, seeded, evolving music; procedural sound effects with music
+ducking; scorch decals; hitstop, camera kick and bloom were already in), the smarter Auto-Equip
+(simulation-scored refinement), War Room evidence labels, absorbing hard-cover obstacles, and the
+first Phase 2 item (terrain movement effects: road speed-up, ice slide, ash and undergrowth drag).
+Still open in Phase 2: shallows, lava/ash hazards, zone gameplay, per-biome props and weather,
+FightShovel/Tabletop/Open Field variety, set pieces.
 Tuning constants for all of the above sit at the top of their scripts.
 
 ## Guiding rules (from the design decisions so far)

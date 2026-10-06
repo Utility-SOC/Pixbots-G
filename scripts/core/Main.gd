@@ -591,8 +591,8 @@ func _process(delta: float):
 	# our own instead. Self-limiting: _start_wave() sets _spawning_wave (and
 	# its timestamp) true again almost immediately, so this can't refire
 	# faster than once per stuck 10s window.
-	if _spawning_wave and Time.get_ticks_msec() - _spawning_wave_started_at >= 10000:
-		push_warning("[Main] _spawning_wave wedged for 10s+ (wave %d, active_enemies %d) - self-healing without a Garage cycle" % [current_wave, active_enemies])
+	if _spawn_loop_stalled():
+		push_warning("[Main] spawn loop stalled (no progress for %ds past its planned wait; wave %d, active_enemies %d) - self-healing without a Garage cycle" % [SPAWN_STALL_SLACK_MS / 1000, current_wave, active_enemies])
 		_spawning_wave = false
 		_clear_stale_wave_enemies()
 		_start_wave()
@@ -1169,9 +1169,9 @@ func _start_wave():
 		# across it, not a 2-3s burst), so the old 10s "must be stuck"
 		# assumption would false-positive on every normal wave. Generous
 		# headroom over WAVE_SPAWN_SPREAD_SECONDS + the safety margin.
-		if Time.get_ticks_msec() - _spawning_wave_started_at < int((WAVE_SPAWN_SPREAD_SECONDS + 20.0) * 1000.0):
+		if not _spawn_loop_stalled():
 			return
-		push_warning("[Main] _spawning_wave was stuck true for %ds+ (wave %d) - forcing recovery" % [int(WAVE_SPAWN_SPREAD_SECONDS + 20.0), current_wave])
+		push_warning("[Main] spawn loop stalled (wave %d) - forcing recovery" % current_wave)
 		_spawning_wave = false
 		_clear_stale_wave_enemies()
 	_update_hud()
@@ -1344,6 +1344,24 @@ var _spawning_wave: bool = false
 # spawning" apart from "stuck forever" without needing to know why it's
 # stuck, just how long.
 var _spawning_wave_started_at: int = 0
+# Deadline (ticks_msec) by which the spawn loop must make its next bit of progress. Refreshed on every loop
+# iteration with that iteration's own planned wait plus slack, so a legitimately long, spread-out spawn (up to
+# WAVE_SPAWN_SPREAD_SECONDS) never looks stuck, while a loop that stops advancing is caught quickly.
+const SPAWN_STALL_SLACK_MS = 25000
+var _spawn_progress_deadline: int = 0
+
+func _spawn_loop_stalled() -> bool:
+	return _spawning_wave and Time.get_ticks_msec() > _spawn_progress_deadline
+
+# The tree pausing (Garage, pause menu) freezes the spawn loop's timers but not the wall clock, so shift the
+# deadline by however long we were paused or every pause longer than the slack would read as a stall.
+var _paused_at_msec: int = 0
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PAUSED:
+		_paused_at_msec = Time.get_ticks_msec()
+	elif what == NOTIFICATION_UNPAUSED and _paused_at_msec > 0:
+		_spawn_progress_deadline += Time.get_ticks_msec() - _paused_at_msec
+		_paused_at_msec = 0
 var _wave_spawned_any: bool = false
 # How long active_enemies > 0 has read against a truly-empty "enemy" group -
 # see _process()'s reconciliation self-heal.
@@ -1386,6 +1404,7 @@ func _compute_spawn_interval(target_enemy_count: int, wave_start_garage_timer: f
 func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Array = []) -> void:
 	_spawning_wave = true
 	_spawning_wave_started_at = Time.get_ticks_msec()
+	_spawn_progress_deadline = Time.get_ticks_msec() + SPAWN_STALL_SLACK_MS
 	# Captured once, rather than assuming garage_timer always starts at
 	# exactly 90.0 - it's whatever garage_timer actually reads the moment
 	# this wave's spawning begins, so elapsed-time math below stays correct
@@ -1430,7 +1449,9 @@ func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Arr
 
 		# Adaptive pacing - see _compute_spawn_interval's own comment.
 		var interval = _compute_spawn_interval(target_enemy_count, wave_start_garage_timer)
+		_spawn_progress_deadline = Time.get_ticks_msec() + int(interval * 1000.0) + SPAWN_STALL_SLACK_MS
 		await get_tree().create_timer(interval).timeout
+		_spawn_progress_deadline = Time.get_ticks_msec() + SPAWN_STALL_SLACK_MS # the next squad build must finish within the slack
 
 	_spawning_wave = false
 

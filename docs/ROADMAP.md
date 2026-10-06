@@ -128,6 +128,12 @@ each item gets a budget and a headless or windowed check that fails when it is e
 - **Node and canvas-item diet:** about 23k nodes at wave 35 and about 12k canvas items from roughly
   2.8k destructible obstacles at four nodes each. Render obstacles from one batched layer (as
   `TreeRenderLayer` already does for trees) and keep per-obstacle nodes only for collision and hp.
+- **Measured 2026-10-06 (windowed bench, wave 35, 45-swarm, HD 4000):** about 20-25 fps with 55-85 enemies
+  and about 50 fps with 20, whether or not the AI runs (disabling `SquadDirector` left fps unchanged at 21), and
+  GPU render time is only 6-12 ms. So the cost is per-mech scene cost (about 70 nodes per bot, 484 part
+  hitboxes, 3 physics steps of 20-40 ms each), not AI, bloom (no clear effect) or the GPU. Next steps: cull or
+  simplify off-screen and far mechs (render LOD, stop hitbox syncing), then re-measure. Done already: idle
+  tile-durability loops and idle oil slicks no longer tick every frame.
 - **Per-frame cost at high waves:** `proc` spikes of 100-200 ms at wave 28+ with 60 enemies and 1100+
   draw calls. Profile with the in-game probes, then attack the top three: enemy simulation LOD beyond
   the screen, projectile and status-aura draw consolidation, separation and sight batching.

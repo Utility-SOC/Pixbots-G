@@ -56,9 +56,23 @@ func is_powered(key: Vector2i) -> bool:
 # called tile.has_method("process_durability") here on every tile, every
 # frame, for every mech on the field. has_method() is a reflective lookup
 # and was pure overhead since the check could never be false; call directly.
+# Idle until a tile reports activity (a hit or going offline): 400+ grids x ~25 tiles of per-frame
+# process_durability calls were ~10 ms a frame at wave 35 and almost always did nothing.
+func _ready():
+	set_process(false)
+
+func _wake() -> void:
+	set_process(true)
+
 func _process(delta: float):
+	var settled = true
 	for key in grid:
-		grid[key].process_durability(delta)
+		var tile = grid[key]
+		tile.process_durability(delta)
+		if tile.is_disabled or tile.times_disabled > 0:
+			settled = false
+	if settled:
+		set_process(false) # nothing left to count down; the next hit wakes us
 
 func has_tile(coord) -> bool:
 	if typeof(coord) == TYPE_OBJECT and coord is HexCoord:
@@ -85,6 +99,8 @@ func get_tile(arg1, arg2 = null) -> HexTile:
 # for the single-cell case that's been true all along.
 func add_tile(coord: HexCoord, tile: HexTile):
 	tile.grid_position = coord
+	if not tile.activity.is_connected(_wake):
+		tile.activity.connect(_wake)
 	var anchor = Vector2i(coord.q, coord.r)
 	grid[anchor] = tile
 	for off in tile.footprint_offsets:

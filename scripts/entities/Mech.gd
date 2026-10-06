@@ -4102,6 +4102,7 @@ func _roll_component_disable(comp, amount: float, element: String):
 
 	target.hp = 0
 	target.is_disabled = true
+	target.notify_activity() # wake the grid's durability countdown
 	_on_tile_went_offline(target)
 	if severity * pierce_bonus >= GRAVE_HIT_RATIO:
 		# Catastrophic overkill - the tile is fried, not just knocked

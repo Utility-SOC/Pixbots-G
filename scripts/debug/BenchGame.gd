@@ -275,6 +275,11 @@ func _process(delta):
 					print("BENCH_OFF ", nm, " -> ", nd)
 					if nd: nd.process_mode = Node.PROCESS_MODE_DISABLED
 				_main.current_wave = _wave
+				if OS.get_cmdline_user_args().has("--noglow"):
+					var we = get_tree().root.find_child("PixelViewportEnvironment", true, false)
+					if we and we.environment:
+						we.environment.glow_enabled = false
+						print("BENCH_NOGLOW glow disabled")
 				if _notrees:
 					for n in get_tree().root.find_children("*", "StaticBody2D", true, false):
 						if n.get_script() and n.get_script().resource_path.ends_with("TreeObstacle.gd"):
@@ -439,7 +444,16 @@ func _record(delta):
 		var w := 0.0
 		for x in _sec_frames:
 			w = max(w, x)
-		print("BENCH_GPU ", load("res://scripts/core/FpsCounter.gd").gpu_summary())
+		var rvp = get_tree().root.get_viewport_rid()
+		RenderingServer.viewport_set_measure_render_time(rvp, true)
+		var pxvp = _main.world.get_viewport().get_viewport_rid() if _main != null and _main.world != null else rvp
+		RenderingServer.viewport_set_measure_render_time(pxvp, true)
+		var spl = load("res://scripts/debug/FrameSplitProbe.gd").last_split
+		print("BENCH_FRAME split gap_pre=%.1f phys=%.1f (steps=%d) gap_post=%.1f proc=%.1f" % [spl.get("gap_pre", 0.0), spl.get("phys", 0.0), spl.get("steps", 0), spl.get("gap_post", 0.0), spl.get("proc", 0.0)])
+		print("BENCH_GPU ", load("res://scripts/core/FpsCounter.gd").gpu_summary(), " | render ms: root cpu=%.1f gpu=%.1f, world cpu=%.1f gpu=%.1f setup=%.1f" % [
+			RenderingServer.viewport_get_measured_render_time_cpu(rvp), RenderingServer.viewport_get_measured_render_time_gpu(rvp),
+			RenderingServer.viewport_get_measured_render_time_cpu(pxvp), RenderingServer.viewport_get_measured_render_time_gpu(pxvp),
+			RenderingServer.get_frame_setup_time_cpu()])
 		print("BENCH_LIVE enemy_group=%d" % get_tree().get_nodes_in_group("enemy").size())
 		print("BENCH_SEC t=%02d fps=%d worst_ms=%.0f enemies=%d nodes=%d draws=%d proc_ms=%.1f phys_ms=%.1f projectiles=%d" % [
 			int(_t), _sec_frames.size(), w, _main.active_enemies, get_tree().get_node_count(),

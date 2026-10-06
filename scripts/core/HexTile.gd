@@ -91,9 +91,17 @@ var time_since_last_hit: float = 0.0
 # timer so a routine knockout doesn't accidentally become permanent.
 var power_lost: bool = false
 
+# Emitted whenever the tile's durability state may need ticking (it was hit or knocked offline); the owning
+# HexGridComponent only runs its per-frame durability loop while something has emitted and not yet settled.
+signal activity
+
+func notify_activity() -> void:
+	activity.emit()
+
 func take_damage(amount: float):
 	hp -= amount
 	time_since_last_hit = 0.0
+	activity.emit()
 	if hp <= 0 and not is_disabled:
 		is_disabled = true
 		var base_cooldown = 3.0

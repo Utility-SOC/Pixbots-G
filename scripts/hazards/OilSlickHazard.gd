@@ -37,12 +37,17 @@ var _visual_seed: int = 0
 # FPS collapsing to single digits after a Poison Orbiting Array had been
 # firing for a while, well after combat/enemies were gone - the accumulated
 # un-freed slicks, not anything currently happening, were the actual cost).
-var lifetime: float = 0.0
+var lifetime: float = 0.0 :
+	set(v):
+		lifetime = v
+		if v > 0.0:
+			set_process(true)
 var _life_timer: float = 0.0
 const FADE_DURATION = 1.0
 
 func _ready():
 	add_to_group("oil_slick")
+	set_process(lifetime > 0.0) # permanent slicks only need ticking while burning or cooling down
 	z_index = -3 # sits under mechs/obstacles, above bare ground
 	_visual_seed = randi()
 
@@ -60,6 +65,8 @@ func _process(delta: float):
 				return
 
 	if not is_burning:
+		if _cooldown_timer <= 0.0 and lifetime <= 0.0:
+			set_process(false) # dormant until the next ignite()
 		return # modulate.a (the fade above) applies automatically - no redraw needed
 
 	_burn_timer -= delta
@@ -76,6 +83,7 @@ func _process(delta: float):
 func ignite():
 	if is_burning or _cooldown_timer > 0.0:
 		return
+	set_process(true)
 	is_burning = true
 	_burn_timer = BURN_DURATION
 	_tick_timer = 0.0 # first tick fires immediately

@@ -1656,6 +1656,7 @@ func _step_hit_test():
 				if t.has_method("apply_damage") or t.has_method("apply_part_damage"):
 					var src = _source_mech[i] if is_instance_valid(_source_mech[i]) else null
 					_apply_damage_to_target(t, _damage[i], _dominant_synergy_name[i], src, "Batch Test Shot")
+					Sfx.impact(t.has_method("apply_part_damage") or "is_dead" in t, t.global_position, t.get("blocks_pierce") == true)
 
 				# hit_decay computed BEFORE any hop/pierce decrement below,
 				# mirroring Projectile._handle_hit's own ordering exactly
@@ -1791,6 +1792,7 @@ func _apply_explosion_aoe(i: int, primary_target: Node, hit_decay: float):
 		return
 	var ratios_for_radius = {EnergyPacket.SynergyType.EXPLOSION: _r_exp[i], EnergyPacket.SynergyType.KINETIC: _r_kin[i]}
 	var radius = _ProjectileScript.explosion_radius_for(ratios_for_radius, _aoe_bonus[i]) * hit_decay
+	Sfx.explosion(radius, _position[i])
 	var fired_by_player = _fired_by_player[i] == 1
 	for t in _targets:
 		if not is_instance_valid(t) or t == primary_target or t.get("is_dead") == true:

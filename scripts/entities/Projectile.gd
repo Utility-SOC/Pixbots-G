@@ -1921,6 +1921,7 @@ func _handle_hit(target: Node2D):
 	if _handled_targets.has(target_id):
 		return
 	_handled_targets[target_id] = true
+	Sfx.impact("is_dead" in target, target.global_position, target.get("blocks_pierce") == true)
 
 	var dominant_str = "RAW"
 	var max_ratio = 0.0
@@ -2179,6 +2180,7 @@ func _trigger_explosion(decay: float = 1.0):
 	var query = PhysicsShapeQueryParameters2D.new()
 	var shape = CircleShape2D.new()
 	shape.radius = explosion_radius_for(ratios, aoe_bonus) * decay
+	Sfx.explosion(shape.radius, global_position)
 	query.shape = shape
 	query.transform = global_transform
 	query.collision_mask = collision_mask

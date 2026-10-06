@@ -684,6 +684,7 @@ func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, d
 					new_base_dir = Vector2(0, -1)
 				var new_dir = new_base_dir.rotated(angle_offset)
 				pool.spawn(new_muzzle_pos, new_dir, fire_speed, fire_damage, LIVE_BATCH_RADIUS, -1.0, color, scale_mult, mech.is_player, mech, dominant, ratios, proc_synergies, packet.aoe_bonus, stat_modifiers, packet.range_mult, is_beam)
+				Sfx.shot(dominant, mech.is_player, new_muzzle_pos)
 			timer.queue_free()
 		)
 		mech.add_child(timer)
@@ -691,6 +692,7 @@ func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, d
 	else:
 		if is_instance_valid(pool):
 			pool.spawn(muzzle_pos, direction, fire_speed, fire_damage, LIVE_BATCH_RADIUS, -1.0, color, scale_mult, mech.is_player, mech, dominant, ratios, proc_synergies, packet.aoe_bonus, stat_modifiers, packet.range_mult, is_beam)
+			Sfx.shot(dominant, mech.is_player, muzzle_pos)
 
 # Mortar pattern: the payload is delivered AT the aim position (travel
 # time + ground telegraph + elemental AoE) instead of fired along a line.

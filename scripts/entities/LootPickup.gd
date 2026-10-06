@@ -108,6 +108,7 @@ func get_rarity() -> int:
 
 func _on_body_entered(body: Node2D):
 	if body.has_method("equip_component") and "is_player" in body and body.is_player:
+		Sfx.play("pickup")
 		# NOTE: was body.get_parent() - that broke when the player mech moved
 		# from being a direct child of Main to a child of Main.world (the
 		# pixel-viewport game world). current_scene still resolves to Main

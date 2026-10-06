@@ -4451,6 +4451,7 @@ func die():
 	if is_dead or is_queued_for_deletion():
 		return
 	is_dead = true
+	Sfx.death(is_boss, global_position)
 
 	# AAA roadmap Hitstop: a boss going down deserves more weight than a
 	# regular kill - slightly longer freeze than the Pierce-execution one

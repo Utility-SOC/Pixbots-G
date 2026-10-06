@@ -1,5 +1,6 @@
 extends Node2D
 const MapGenerator = preload("res://scripts/core/MapGenerator.gd")
+const BossArenaScript = preload("res://scripts/core/BossArena.gd")
 const Mech = preload("res://scripts/entities/Mech.gd")
 
 const WeaponMountTile = preload("res://scripts/tiles/WeaponMountTile.gd")
@@ -1567,6 +1568,9 @@ func _spawn_boss(director, is_mega: bool):
 	boss.global_position = map.get_valid_spawn_position(center_spawn)
 	boss.target = player
 	boss.died.connect(_on_boss_died.bind(boss))
+	var arena = BossArenaScript.build(map, boss.global_position, player.global_position, is_mega)
+	if not arena.is_empty():
+		boss.set_meta("arena", arena) # taken down again in _on_boss_died
 	boss.collision_layer = 4
 	boss.collision_mask = 1 | 2 | 8 | 32
 	active_enemies += 1
@@ -1616,6 +1620,8 @@ func _equip_enemy_chips(mech: Node):
 
 func _on_boss_died(boss):
 	MetaProgressScript.note_boss_kill()
+	if boss.has_meta("arena"):
+		BossArenaScript.dismantle(boss.get_meta("arena"))
 	# Feed the fight's outcome back into the boss profile's fitness (same
 	# reinforcement loop as squad templates/solver profiles) BEFORE the
 	# fixed loot-drop handling below, since that part is unrelated and

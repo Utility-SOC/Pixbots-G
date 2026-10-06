@@ -856,6 +856,11 @@ func _setup_player():
 	camera.set("base_zoom", 1.5 / PIXEL_SHRINK_FACTOR) # CameraShake owns zoom from here
 	camera.add_to_group("camera")
 	player.add_child(camera)
+
+	# Per-biome ambient weather (snow / embers / dust / leaves) follows the player.
+	var weather = load("res://scripts/visuals/BiomeWeather.gd").new()
+	weather.name = "BiomeWeather"
+	player.add_child(weather)
 	
 	# Pre-calculate weapons so the first shot doesn't freeze the game
 	player._recalculate_grid()

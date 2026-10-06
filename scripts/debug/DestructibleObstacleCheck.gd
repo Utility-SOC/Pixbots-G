@@ -62,6 +62,10 @@ func _ready():
 		var non_weak = "KINETIC" if weak_element != "KINETIC" else "POISON"
 		obs.apply_damage(max_hp * 0.4, non_weak)
 		_check("%s survives a sub-lethal non-weak hit (hp %.1f)" % [obs_name, obs.hp], is_instance_valid(obs) and obs.hp > 0)
+		# Hard cover soaks non-weak hits entirely (no hp loss) and blocks piercing; soft cover chips.
+		var hard = obs_name in DestructibleObstacleScript.ABSORBERS
+		_check("%s %s (hp %.1f)" % [obs_name, "absorbs a non-weak hit with no damage" if hard else "loses hp to a non-weak hit", obs.hp], (obs.hp == max_hp) if hard else (obs.hp < max_hp))
+		_check("%s blocks_pierce is %s" % [obs_name, str(hard)], obs.blocks_pierce == hard)
 
 		# A hit that's lethal ONLY with the weak-element multiplier applied.
 		var pre_hp = obs.hp

@@ -1688,6 +1688,8 @@ func _step_hit_test():
 					_blink_timer[i] = 0.0
 					break
 
+				if t.get("blocks_pierce") == true:
+					_pierce_count[i] = 0 # hard cover absorbs even piercing shots
 				_pierce_count[i] -= 1
 				if _pierce_count[i] <= 0:
 					despawn(i)

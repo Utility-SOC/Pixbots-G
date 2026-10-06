@@ -2104,6 +2104,8 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 		_blink_timer = 0.0
 		return
 
+	if is_instance_valid(target) and target.get("blocks_pierce") == true:
+		pierce_count = 0 # hard cover absorbs the shot even if it could pierce
 	pierce_count -= 1
 	if pierce_count <= 0:
 		_release_or_free()

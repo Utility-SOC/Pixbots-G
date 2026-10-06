@@ -21,7 +21,15 @@ const OBSTACLE_STATS = {
 	"StoneWall": [90.0, Color(0.5, 0.48, 0.46), "EXPLOSION", 2.0],
 }
 
+# Hard cover: soaks up every hit that is not its weak element (no hp loss) and stops piercing shots
+# dead; only a weakness hit (explosives) can crack it. Everything else in OBSTACLE_STATS is soft
+# cover that chips away under any damage. Map variety: walls and boulders shape the fight, cacti,
+# ice and lava rock are there to be shot through.
+const ABSORBERS = ["Boulder", "StoneWall"]
+
 var obstacle_name: String = "Boulder"
+var absorbs: bool = false
+var blocks_pierce: bool = false # read by Projectile / ProjectileBatchPool after a hit
 var hp: float = 80.0
 var max_hp: float = 80.0
 var map_ref: Node = null
@@ -44,6 +52,8 @@ func _ready():
 	_base_color = stats[1]
 	_weak_element = stats[2]
 	_weak_mult = stats[3]
+	absorbs = obstacle_name in ABSORBERS
+	blocks_pierce = absorbs
 
 	var poly = Polygon2D.new()
 	poly.color = _base_color
@@ -94,9 +104,23 @@ func _shape_for(name: String) -> PackedVector2Array:
 func apply_damage(amount: float, element: String = "RAW", source: Node = null, was_reflected: bool = false, source_label_override: String = ""):
 	if element == _weak_element:
 		amount *= _weak_mult
+	elif absorbs:
+		_spark()
+		return
 	hp -= amount
 	if hp <= 0:
 		_collapse()
+
+# Visible "that did nothing" feedback for absorbed hits: a brief light flash on the rock.
+func _spark():
+	for c in get_children():
+		if c is Polygon2D:
+			var base: Color = _base_color
+			c.color = base.lightened(0.45)
+			get_tree().create_timer(0.06).timeout.connect(func():
+				if is_instance_valid(c):
+					c.color = base)
+			break
 
 func _collapse():
 	if map_ref and is_instance_valid(map_ref) and cell.x >= 0:

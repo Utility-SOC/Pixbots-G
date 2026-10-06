@@ -95,6 +95,7 @@ func _make_banner(main: Node, brand_id: String, is_current: bool, popup: PopupPa
 	var banner = Button.new()
 	banner.custom_minimum_size = Vector2(300, 110)
 	banner.clip_text = true
+	banner.clip_contents = true # the pattern backdrop must not spill outside the banner
 
 	var style = StyleBoxFlat.new()
 	style.bg_color = Color(accent.r * 0.22, accent.g * 0.22, accent.b * 0.22, 1.0)
@@ -120,8 +121,17 @@ func _make_banner(main: Node, brand_id: String, is_current: bool, popup: PopupPa
 	pattern.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	banner.add_child(pattern)
 
+	var emblem = load("res://scripts/ui/BrandEmblemControl.gd").new()
+	emblem.brand_id = brand_id
+	emblem.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+	emblem.offset_left = 8
+	emblem.offset_right = 88
+	emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	banner.add_child(emblem)
+
 	var overlay = VBoxContainer.new()
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.offset_left = 92 # leave the left strip to the emblem
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.alignment = BoxContainer.ALIGNMENT_CENTER
 	banner.add_child(overlay)

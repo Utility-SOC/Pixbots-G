@@ -39,7 +39,7 @@ const BRAND_NAMES = {
 	"power": "Gridwork Distribution",
 }
 
-# One-letter placeholder "logo" mark drawn on brand tiles until real sprite
+# (Superseded by BrandEmblem.gd - kept for any text-only fallback.) One-letter placeholder "logo" mark drawn on brand tiles until real sprite
 # art lands - see MechRenderer/GarageGridRenderer's tile-drawing code.
 const BRAND_LOGO_LETTER = {
 	"sniper": "F",

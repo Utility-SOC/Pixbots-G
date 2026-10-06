@@ -1,6 +1,9 @@
 class_name GarageGridRenderer
 extends Control
 
+const BrandEmblemScript = preload("res://scripts/ui/BrandEmblem.gd")
+const BrandRegistryScript = preload("res://scripts/core/BrandRegistry.gd")
+
 
 
 
@@ -419,6 +422,9 @@ func _draw_tile(tile: HexTile):
 	var center = _hex_to_pixel(tile.grid_position)
 
 	_draw_descriptive_icon(tile, center)
+	# Sponsor-brand tiles carry their brand's emblem in the corner (was an unused one-letter placeholder).
+	if tile.brand_id != "" and BrandEmblemScript.has_emblem(tile.brand_id):
+		BrandEmblemScript.draw(self, tile.brand_id, center + Vector2(hex_size, -hex_size) * zoom * 0.5, hex_size * zoom * 0.26, BrandRegistryScript.accent_color(tile.brand_id))
 
 	if show_static_paths:
 		_draw_static_paths(tile, center)

@@ -1282,6 +1282,7 @@ func _build_collisions_and_obstacles():
 
 	_ensure_corn_trail_overlay()
 	_scatter_oil_slicks()
+	_scatter_lava_vents()
 
 # Sparse, walkable environmental hazard - dark puddles scattered on
 # DESERT/VOLCANO ground (oil-field/wasteland flavor) that do nothing until a
@@ -1307,6 +1308,33 @@ func _scatter_oil_slicks():
 				slick.global_position = Vector2(x * tile_size + tile_size / 2.0, y * tile_size + tile_size / 2.0)
 				slick.radius = tile_size * (0.9 + randf() * 0.5)
 				add_child(slick)
+
+# Volcano biome identity: eruption vents (see LavaVent.gd). Placed per tile like the oil slicks but
+# rarer, capped per map, and never within VENT_SPAWN_CLEAR tiles of the player spawn.
+const LAVA_VENT_CHANCE = 0.004
+const LAVA_VENT_MAX = 24
+const VENT_SPAWN_CLEAR = 10
+func _scatter_lava_vents() -> int:
+	if map_type in ["Arena", "Open Field", "Tabletop", "Dungeon"]:
+		return 0
+	var placed = 0
+	var centre = Vector2i(width / 2, height / 2)
+	for y in range(height):
+		for x in range(width):
+			if placed >= LAVA_VENT_MAX:
+				return placed
+			if terrain[y][x] != BiomeType.VOLCANO:
+				continue
+			var pos = Vector2i(x, y)
+			if obstacles.has(pos) or absi(x - centre.x) + absi(y - centre.y) < VENT_SPAWN_CLEAR:
+				continue
+			if randf() < LAVA_VENT_CHANCE:
+				var vent = load("res://scripts/hazards/LavaVent.gd").new()
+				vent.global_position = Vector2(x * tile_size + tile_size / 2.0, y * tile_size + tile_size / 2.0)
+				vent.radius = tile_size * (1.1 + randf() * 0.5)
+				add_child(vent)
+				placed += 1
+	return placed
 
 func _create_wall_collision(pos: Vector2, size: Vector2):
 	var body = StaticBody2D.new()

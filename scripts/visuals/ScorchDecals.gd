@@ -1,5 +1,7 @@
 extends Node2D
 
+const FxTierScript = preload("res://scripts/core/FxTier.gd")
+
 # Burn marks left by explosions: a ring buffer of MAX_MARKS decals drawn from ONE canvas item with a shared
 # texture, which the canvas batcher merges into a handful of draws (the per-mark Polygon2D crater this
 # complements is one draw each). Marks fade slowly: redrawn once a second, not per frame.
@@ -23,7 +25,7 @@ var _tick := 0.0
 # Entry point: safe to call from anywhere, does nothing when there is no world to draw into
 # (headless checks, menus).
 static func mark(tree: SceneTree, pos: Vector2, radius: float, tint: Color = Color(0.05, 0.04, 0.04)) -> void:
-	if tree == null or tree.current_scene == null or OS.get_environment("PIXBOTS_SAFE_FX") == "1":
+	if tree == null or tree.current_scene == null or FxTierScript.safe():
 		return
 	if _instance == null or not is_instance_valid(_instance):
 		var scene = tree.current_scene

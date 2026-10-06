@@ -1,5 +1,7 @@
 extends GPUParticles2D
 
+const FxTierScript = preload("res://scripts/core/FxTier.gd")
+
 # Ambient weather that follows the player and changes with the ground underfoot: snow on tundra, rising
 # embers over volcano, drifting dust on desert, loose leaves in forest. One GPU particle system for the
 # whole game (particles are world-space, so they stay put as you move), re-pointed at a new preset when
@@ -21,7 +23,7 @@ var _candidate: String = ""
 var _timer := 0.0
 
 func _ready():
-	if OS.get_environment("PIXBOTS_SAFE_FX") == "1":
+	if FxTierScript.safe():
 		set_process(false)
 		return
 	z_index = 40 # above the terrain and mechs, below UI (which is on its own canvas layer)

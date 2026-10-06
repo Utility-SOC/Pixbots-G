@@ -1527,8 +1527,9 @@ func _mark_shallows() -> int:
 # A plain canvas item drawing same-colour rects (the canvas batcher merges them); it was a MultiMesh until a
 # player's Ivy Bridge GPU lost its Vulkan device after a long session, so it stays on the well-trodden path.
 const ShallowOverlayScript = preload("res://scripts/visuals/ShallowOverlay.gd")
+const FxTierScript = preload("res://scripts/core/FxTier.gd")
 func _build_shallow_overlay() -> int:
-	if OS.get_environment("PIXBOTS_SAFE_FX") == "1":
+	if FxTierScript.safe():
 		return 0
 	var cells: Array = []
 	for y in range(height):

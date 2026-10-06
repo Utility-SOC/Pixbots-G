@@ -28,6 +28,9 @@ const OBSTACLE_STATS = {
 const ABSORBERS = ["Boulder", "StoneWall"]
 
 var obstacle_name: String = "Boulder"
+var _shape_pts: PackedVector2Array = PackedVector2Array()
+var _outline_color: Color = Color.BLACK
+var _flash_t: float = 0.0 # >0 while the 'absorbed a hit' flash is showing
 var absorbs: bool = false
 var blocks_pierce: bool = false # read by Projectile / ProjectileBatchPool after a hit
 var hp: float = 80.0
@@ -55,24 +58,17 @@ func _ready():
 	absorbs = obstacle_name in ABSORBERS
 	blocks_pierce = absorbs
 
-	var poly = Polygon2D.new()
-	poly.color = _base_color
-	var shape_pts = _shape_for(obstacle_name)
-	poly.polygon = shape_pts
-	add_child(poly)
-
+	# One canvas item per obstacle (this node draws itself) instead of a Polygon2D + Line2D child pair:
+	# ~2.8k destructibles on a big map were ~5.6k extra canvas items (a node diet, see ROADMAP Phase 8).
+	_shape_pts = _shape_for(obstacle_name)
 	# Accessibility (user report, 2026-08-03: obstacles were "NOT accessible"
 	# - too close in color to their own terrain). A luminance-contrasted
 	# outline (dark border on a light fill, light border on a dark fill)
 	# reads against any biome's palette without per-biome color-matching -
 	# same fix as TreeObstacle.gd.
 	var luminance = 0.299 * _base_color.r + 0.587 * _base_color.g + 0.114 * _base_color.b
-	var outline = Line2D.new()
-	outline.points = shape_pts + PackedVector2Array([shape_pts[0]])
-	outline.width = 2.0
-	outline.default_color = Color(0.05, 0.05, 0.05, 0.95) if luminance > 0.5 else Color(0.95, 0.95, 0.9, 0.9)
-	outline.joint_mode = Line2D.LINE_JOINT_ROUND
-	add_child(outline)
+	_outline_color = Color(0.05, 0.05, 0.05, 0.95) if luminance > 0.5 else Color(0.95, 0.95, 0.9, 0.9)
+	queue_redraw()
 
 	var shape = CollisionShape2D.new()
 	var rect = RectangleShape2D.new()
@@ -113,14 +109,49 @@ func apply_damage(amount: float, element: String = "RAW", source: Node = null, w
 
 # Visible "that did nothing" feedback for absorbed hits: a brief light flash on the rock.
 func _spark():
-	for c in get_children():
-		if c is Polygon2D:
-			var base: Color = _base_color
-			c.color = base.lightened(0.45)
-			get_tree().create_timer(0.06).timeout.connect(func():
-				if is_instance_valid(c):
-					c.color = base)
-			break
+	if _flash_t > 0.0:
+		return
+	_flash_t = 0.06
+	queue_redraw()
+	get_tree().create_timer(0.06).timeout.connect(func():
+		if is_instance_valid(self):
+			_flash_t = 0.0
+			queue_redraw())
+
+func _draw():
+	var fill = _base_color.lightened(0.45) if _flash_t > 0.0 else _base_color
+	var parts = _draw_parts()
+	if obstacle_name == "Cactus":
+		# Outlines of all boxes first (grown by 1 px), fills on top, so overlapping boxes read as ONE
+		# silhouette with a clean outer outline instead of crossing lines.
+		for pts in parts:
+			draw_colored_polygon(_grow(pts, 1.5), _outline_color)
+		for pts in parts:
+			draw_colored_polygon(pts, fill)
+		return
+	for pts in parts:
+		draw_colored_polygon(pts, fill)
+		draw_polyline(pts + PackedVector2Array([pts[0]]), _outline_color, 2.0, true)
+
+static func _grow(pts: PackedVector2Array, by: float) -> PackedVector2Array:
+	var c = Vector2.ZERO
+	for p in pts:
+		c += p
+	c /= float(pts.size())
+	var out = PackedVector2Array()
+	for p in pts:
+		out.append(p + (p - c).sign() * by)
+	return out
+
+# The cactus silhouette overlaps itself (trunk and arms share edges), which the polygon filler rejects,
+# so it is drawn as three plain boxes; every other type is one simple polygon.
+func _draw_parts() -> Array:
+	if obstacle_name == "Cactus":
+		return [_box(-2, -12, 2, 6), _box(2, -2, 8, 2), _box(-8, -2, -2, 2)]
+	return [_shape_pts] if _shape_pts.size() >= 3 else []
+
+static func _box(x0: float, y0: float, x1: float, y1: float) -> PackedVector2Array:
+	return PackedVector2Array([Vector2(x0, y0), Vector2(x1, y0), Vector2(x1, y1), Vector2(x0, y1)])
 
 func _collapse():
 	if map_ref and is_instance_valid(map_ref) and cell.x >= 0:

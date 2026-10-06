@@ -63,6 +63,10 @@ var _presolve_state := 0
 var _off: PackedStringArray = PackedStringArray()
 # --noslide: enemies skip move_and_slide; --hidevis: enemies hidden (render-side CPU cost isolation).
 var _noslide := false
+var _nocollide_enemy := false # --nocollide: enemy layer/mask 0 (physics-pair cost)
+var _nostatic := false # --nostatic: all StaticBody2D layers 0 (map broadphase cost)
+var _nostatic_done := false
+var _nostatic_r := 0.0 # --nostatic=R keeps static bodies within R px of the player
 var _hidevis := false
 
 func _ready():
@@ -92,6 +96,10 @@ func _ready():
 		elif a == "--nomusic": _nomusic = true
 		elif a == "--presolve": _presolve = true
 		elif a == "--noslide": _noslide = true
+		elif a == "--nocollide": _nocollide_enemy = true
+		elif a.begins_with("--nostatic"):
+			_nostatic = true
+			if a.contains("="): _nostatic_r = float(a.split("=")[1])
 		elif a == "--hidevis": _hidevis = true
 		elif a.begins_with("--off="): _off = a.split("=")[1].split(",")
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -315,6 +323,22 @@ func _process(delta):
 		1:
 			if not _main_probed:
 				_plant_main_probes()
+			if _nocollide_enemy and Engine.get_physics_frames() % 15 == 0:
+				for e in get_tree().get_nodes_in_group("enemy"):
+					if e is CollisionObject2D:
+						e.collision_layer = 0
+						e.collision_mask = 0
+			if _nostatic and not _nostatic_done and _t > 1.0:
+				_nostatic_done = true
+				var cnt := 0
+				var pp: Vector2 = _main.player.global_position
+				for n in get_tree().root.find_children("*", "StaticBody2D", true, false):
+					if _nostatic_r > 0.0 and n.global_position.distance_to(pp) < _nostatic_r:
+						continue # keep nearby walls so bots can't leave the arena
+					n.collision_layer = 0
+					n.collision_mask = 0
+					cnt += 1
+				print("BENCH_NOSTATIC disabled=", cnt)
 			if _noslide or _hidevis:
 				for e in get_tree().get_nodes_in_group("enemy"):
 					if _noslide: e._diag_skip_move_and_slide = true

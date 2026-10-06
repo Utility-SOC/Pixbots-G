@@ -14,6 +14,7 @@ func _gen(type: String, layout: String, seed_v: int):
 	m.map_type = type
 	m.map_layout = layout
 	m.map_seed = seed_v
+	m.extra_scenery_enabled = false # these checks are about the macro layouts alone
 	add_child(m)
 	return m
 

@@ -859,7 +859,10 @@ func _free_cell(c: Vector2i) -> bool:
 
 # Open Field is otherwise bare: scatter small boulder clusters (hard cover to hold or snipe from) so a
 # long-range build has something to play around. Density scales with map area.
+var extra_scenery_enabled: bool = true # Open Field cover and crash sites; tests that isolate macro layouts turn them off
 func _open_field_cover() -> int:
+	if not extra_scenery_enabled:
+		return 0
 	var scale = sqrt(float(width * height) / 2048.0)
 	var placed = 0
 	for p in _cluster_centres(clampi(int(7 * scale), 6, 30), 16.0):
@@ -1556,7 +1559,7 @@ const CRASH_SITE_MAX = 2
 const CRASH_SITE_MAPS = ["Normal", "Open Field", "Desert", "Forest", "Tundra", "Volcano"]
 const CRASH_SITE_RING = 4.0
 func _place_crash_sites() -> int:
-	if not (map_type in CRASH_SITE_MAPS):
+	if not extra_scenery_enabled or not (map_type in CRASH_SITE_MAPS):
 		return 0
 	var made = 0
 	var sites = _cluster_centres(CRASH_SITE_MAX, 60.0)

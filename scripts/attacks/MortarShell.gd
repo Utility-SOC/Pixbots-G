@@ -482,15 +482,19 @@ static func star_points(length: float, rot: float) -> PackedVector2Array:
 	return pts
 
 func _draw_sword_star(center: Vector2, length: float, rot: float, color: Color, alpha: float):
-	draw_colored_polygon(star_points(length, rot).duplicate(), Color(color.r, color.g, color.b, 0.85 * alpha)) if center == Vector2.ZERO else _draw_star_at(center, length, rot, color, alpha)
+	_draw_star_at(center, length, rot, color, alpha)
 	# bright core
 	_quad_disc(center, max(2.0, length * 0.16), Color(1, 1, 1, alpha))
 
 func _draw_star_at(center: Vector2, length: float, rot: float, color: Color, alpha: float):
+	# Triangle fan, not draw_colored_polygon: the concave star intermittently failed
+	# triangulation ("Invalid polygon data") in live runs; a fan needs none.
 	var pts = star_points(length, rot)
-	for i in range(pts.size()):
-		pts[i] += center
-	draw_colored_polygon(pts, Color(color.r, color.g, color.b, 0.85 * alpha))
+	var col = Color(color.r, color.g, color.b, 0.85 * alpha)
+	var cols = PackedColorArray([col, col, col])
+	var n = pts.size()
+	for i in range(n):
+		draw_primitive(PackedVector2Array([center, center + pts[i], center + pts[(i + 1) % n]]), cols, PackedVector2Array())
 
 func _draw():
 	if _landed and _is_sword and not _crashed_harmlessly:

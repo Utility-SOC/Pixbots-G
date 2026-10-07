@@ -548,6 +548,17 @@ func _run_micro() -> void:
 		if is_instance_valid(e) and e.has_method("_tick_weapon_charges") and not e.get("is_dead"):
 			enemies.append(e)
 	var res := {"enemies": enemies.size()}
+	var wsum := 0
+	var bank := 0
+	var offline := 0
+	for e in enemies:
+		wsum += e.precalculated_weapons.size()
+		for w in e.precalculated_weapons:
+			if w.get("bank_mode", "") == "bank": bank += 1
+			if e._weapon_offline(w): offline += 1
+	res["avg_weapons_per_enemy"] = snappedf(float(wsum) / max(enemies.size(), 1), 0.01)
+	res["avg_bank_weapons"] = snappedf(float(bank) / max(enemies.size(), 1), 0.01)
+	res["avg_offline_weapons"] = snappedf(float(offline) / max(enemies.size(), 1), 0.01)
 	# Overhead of the dynamic call itself, subtracted from every figure.
 	var oh := _time_calls(enemies, "is_queued_for_deletion", [])
 	res["callv_overhead_us"] = snappedf(oh, 0.001)
@@ -560,6 +571,17 @@ func _run_micro() -> void:
 		res[c[0]] = snappedf(us, 0.01)
 		if c[0] != "move_and_slide" and c[0] != "_ai_aim_point":
 			total += us
+	# Same-process interleaved A/B for the weapon-charge early-out: fast (default) vs the original loop.
+	var best_fast := INF
+	var best_slow := INF
+	for rep in range(6):
+		Mech.diag_slow_charges = false
+		best_fast = minf(best_fast, _time_calls(enemies, "_tick_weapon_charges", [0.016]))
+		Mech.diag_slow_charges = true
+		best_slow = minf(best_slow, _time_calls(enemies, "_tick_weapon_charges", [0.016]))
+	Mech.diag_slow_charges = false
+	res["charges_fast_us"] = snappedf(maxf(best_fast - oh, 0.0), 0.01)
+	res["charges_slow_us"] = snappedf(maxf(best_slow - oh, 0.0), 0.01)
 	# cloak system tick is an object call, not a Mech method
 	var cs: Array = []
 	for e in enemies:

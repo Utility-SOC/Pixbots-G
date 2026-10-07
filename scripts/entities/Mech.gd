@@ -1768,12 +1768,30 @@ func _weapon_offline(data) -> bool:
 	var slot = data.get("slot_type", HexTile.BodySlot.NONE)
 	return components.has(slot) and components[slot].is_broken
 
+# Diagnostic A/B toggle (DebugRoom --micro, MechChargeTickParityCheck): true = the original loop without the
+# full-charge early-out below.
+static var diag_slow_charges: bool = false
+
+# True while every weapon is a full, non-bank, online-or-full mount and there are no lances: the whole tick is then a
+# no-op, so it is skipped until something changes a charge (_shoot_impl consuming one, the grid being rebuilt, spawn
+# priming). Writers of current_charge: this function, _shoot_impl (resets this), spawn priming (resets this).
+var _charges_idle: bool = false
+
 func _tick_weapon_charges(delta: float):
+	if _charges_idle and not diag_slow_charges:
+		return
+	var _any_active := false
 	for data in precalculated_weapons:
-		if _weapon_offline(data):
-			continue
 		var mount = data.mount
 		var required = data.packet.charge_required
+		# Early-out: a normal (non-bank) weapon that is already fully charged has nothing to accumulate and, since
+		# the offline check below only ever causes a `continue`, skipping it first is behaviour-identical. At wave
+		# 34 every enemy carries ~7 weapons, mostly full, and the offline check + rarity lookup cost ~4 us each.
+		if not diag_slow_charges and mount.current_charge >= required and data.get("bank_mode", "") != "bank":
+			continue
+		_any_active = true # charging, bank, or offline (may come back online): keep ticking
+		if _weapon_offline(data):
+			continue
 		var r_mult = _get_rarity_charge_multiplier(mount)
 		if data.get("bank_mode", "") == "bank":
 			if is_boss:
@@ -1821,6 +1839,7 @@ func _tick_weapon_charges(delta: float):
 	# Lance mounts fire themselves - no mouse/key trigger, see
 	# LanceMountTile.gd's own header comment.
 	for lance in lance_mounts:
+		_any_active = true
 		if lance.is_disabled or lance.power_lost:
 			continue
 		var r_mult = _get_rarity_charge_multiplier(lance)
@@ -1828,6 +1847,7 @@ func _tick_weapon_charges(delta: float):
 			lance.cooldown_timer -= delta * r_mult
 		elif lance.ready_to_fire:
 			lance.fire(self)
+	_charges_idle = not _any_active and not is_boss
 
 # Thin timing wrapper (see the perf-instrumentation block above
 # _physics_process) - renamed the real body to _shoot_impl rather than
@@ -1914,6 +1934,7 @@ func _shoot_impl(target_pos: Vector2, is_outward: bool, fire_left_arm: bool = tr
 
 		mount._fire_combined_projectile(self, packet_to_fire, data.step)
 		mount.current_charge -= required_charge
+		_charges_idle = false
 		# Thermal venting: firing sheds heat proportional to the volley
 		heat = max(0.0, heat - required_charge * 0.6)
 		fired_a_shot = true
@@ -2326,6 +2347,7 @@ static func generate_deviation_candidate(evo, template_name: String, role: Strin
 func _reset_grid_state():
 	_ai_shot_speed_cache = -1.0
 	precalculated_weapons.clear()
+	_charges_idle = false
 	lance_mounts.clear()
 	max_shield_hp = 0.0 # Reset shield HP
 	has_shield_generator = false
@@ -2921,6 +2943,7 @@ func _finalize_grid_state():
 				data.mount.bank_current_charge = data.packet.charge_required * frac
 			else:
 				data.mount.current_charge = data.packet.charge_required * frac
+		_charges_idle = false # priming left weapons partly charged: they have to recharge
 
 	for comp in components.values():
 		_sync_contiguous_accumulator_shortcuts(comp.hex_grid)

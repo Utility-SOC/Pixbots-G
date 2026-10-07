@@ -80,7 +80,7 @@ func _repair_stat(key: String, default_value: float) -> float:
 	return TileStatsRegistry.get_stat("HealBeaconTile", key, default_value)
 
 func _tick_field_repair(delta: float) -> void:
-	var cost: float = _repair_stat("repair_pulse_cost", 60000.0)
+	var cost: float = _repair_stat("repair_pulse_cost", 240000.0)
 	mech.repair_cooldown = maxf(0.0, mech.repair_cooldown - delta)
 	mech.repair_charge = minf(mech.repair_charge + mech.repair_energy_flow * delta, cost)
 	if mech.repair_charge >= cost and mech.repair_cooldown <= 0.0:

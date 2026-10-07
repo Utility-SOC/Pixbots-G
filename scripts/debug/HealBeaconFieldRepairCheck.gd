@@ -25,7 +25,7 @@ func _ready():
 	b.rarity = HexTile.Rarity.MYTHIC
 	_check("a mythic beacon is", b.is_field_repair())
 
-	var cost: float = TileStatsRegistry.get_stat("HealBeaconTile", "repair_pulse_cost", 60000.0)
+	var cost: float = TileStatsRegistry.get_stat("HealBeaconTile", "repair_pulse_cost", 240000.0)
 	var cooldown: float = TileStatsRegistry.get_stat("HealBeaconTile", "repair_min_interval", 8.0)
 	_check("the energy cost is a huge number (%.0f)" % cost, cost >= 10000.0)
 

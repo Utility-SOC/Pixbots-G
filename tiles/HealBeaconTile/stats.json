@@ -5,7 +5,7 @@
 	"pulse_interval_base": 5.0,
 	"pulse_interval_rarity_coeff": 0.7,
 	"pulse_interval_min": 2.0,
-	"repair_pulse_cost": 60000.0,
+	"repair_pulse_cost": 240000.0,
 	"repair_min_interval": 8.0,
 	"repair_points_per_pulse": 3
 }

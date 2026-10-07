@@ -261,7 +261,7 @@ func _draw_vitals(player: Mech, rect: Rect2) -> void:
 	_label("REBOOT %d" % offline, rect.position + Vector2(2, 41), GREEN if offline == 0 else GREEN_DIM)
 	# MYTHIC heal beacon Field Repair: how close the next repair pulse is (full bar = ready, fires when something breaks).
 	if player.has_field_repair:
-		var cost: float = TileStatsRegistry.get_stat("HealBeaconTile", "repair_pulse_cost", 60000.0)
+		var cost: float = TileStatsRegistry.get_stat("HealBeaconTile", "repair_pulse_cost", 240000.0)
 		var charge := clampf(player.repair_charge / maxf(cost, 1.0), 0.0, 1.0)
 		_label("RPR", rect.position + Vector2(2, 49), GREEN, 7)
 		var rbar := Rect2(rect.position + Vector2(20, 43), Vector2(rect.size.x - 22, 5))

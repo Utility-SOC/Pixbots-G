@@ -56,6 +56,9 @@ const ARGS := {
 	"nosep": [0, "enemies skip the separation query (Mech._diag_skip_separation)"],
 	"nofar": [0, "enemies skip the far-branch body (Mech._diag_skip_far_branch_body)"],
 	"perf": [0, "add Mech per-section script timers (ms/s: ai, shoot, move, sight, flow, sep, status, charges, abilities, ...) to each ROOM_SEC row"],
+	"stage": [99, "enemies return from Mech._physics_process after section N: 0 top, 1 preamble, 2 status, 3 charges, 5 abilities, 6 AI, 7 move (truncation bisect)"],
+	"hitgrid": [1, "ProjectileBatchPool hit-test spatial grid (1) vs the old brute-force scan (0) for A/B"],
+	"crowdlod": [0, "Mech crowd LOD (stagger per-tick systems when many enemies); default off (no measured gain)"],
 	"procs": [0, "print a census of nodes with _process/_physics_process enabled, by script, at warmup"],
 	# --- output ---
 	"report": ["", "write the JSON summary to this path"],
@@ -110,6 +113,9 @@ func _ready() -> void:
 		"safe": OS.set_environment("PIXBOTS_SAFE_FX", "1")
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = int(_a["rate"])
+	Mech.crowd_lod_enabled = int(_a["crowdlod"]) != 0
+	ProjectileBatchPool.use_hit_grid = int(_a["hitgrid"]) != 0
+	Mech.diag_stage_limit = int(_a["stage"])
 	if int(_a["perf"]) != 0:
 		FpsCounter.set_process(false) # it resets the same Mech._perf_* counters on its own timer
 	if int(_a["music"]) == 0:
@@ -390,10 +396,14 @@ func _record(delta: float) -> void:
 	if steady: _enemy_sum += enemies
 	_peak["nodes"] = max(_peak["nodes"], get_tree().get_node_count())
 	if _sec_t >= 1.0:
+		var cal_ms := _cpu_canary_ms()
+		if steady:
+			_cal_sum += cal_ms
+			_cal_n += 1
 		var proj := _projectile_count()
 		_peak["projectiles"] = max(_peak["projectiles"], proj)
 		var row := {
-			"t": int(_t), "fps": _sec_frames, "worst_ms": snappedf(_sec_worst, 0.1), "enemies": enemies,
+			"t": int(_t), "cal_ms": snappedf(cal_ms, 0.01), "fps": _sec_frames, "worst_ms": snappedf(_sec_worst, 0.1), "enemies": enemies,
 			"projectiles": proj, "nodes": get_tree().get_node_count(),
 			"draws": int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
 			"phys_active": int(Performance.get_monitor(Performance.PHYSICS_2D_ACTIVE_OBJECTS)),
@@ -422,9 +432,35 @@ func _take_perf() -> Dictionary:
 		"abilities": Mech._perf_ability_systems_usec, "orbit_ray": Mech._perf_orbit_raycast_usec,
 		"flee": Mech._perf_flee_check_usec, "search": Mech._perf_execute_search_usec,
 		"shoot_fired": Mech._perf_shoot_fired_usec, "shoot_checked": Mech._perf_shoot_checked_only_usec,
+		"proj_phys": Projectile._perf_physics_usec, "homing_q": Projectile._perf_homing_query_usec,
+		"vortex_q": Projectile._perf_vortex_query_usec, "blink_q": Projectile._perf_blink_query_usec,
+		"broadphase": ProjectileBroadphase._perf_physics_usec, "mgr_collect": ProjectileManager._perf_collect_usec,
+		"mgr_rust": ProjectileManager._perf_rust_call_usec, "apply_damage": Mech._perf_apply_damage_usec,
 	}
+	out["pool_sim"] = ProjectileBatchPool._perf_sim_usec
+	out["pool_hit"] = ProjectileBatchPool._perf_hit_usec
+	out["pool_draw"] = ProjectileBatchPool._perf_draw_usec
+	out["pool_spawn"] = ProjectileBatchPool._perf_spawn_usec
 	for k in out:
 		out[k] = snappedf(out[k] / 1000.0, 0.1)
+	out["pool_spawns"] = ProjectileBatchPool._perf_spawn_count
+	out["pool_hits"] = ProjectileBatchPool._perf_hit_count
+	out["shots_fired"] = Mech._perf_diag_shots_fired_count
+	ProjectileBatchPool._perf_sim_usec = 0
+	ProjectileBatchPool._perf_hit_usec = 0
+	ProjectileBatchPool._perf_draw_usec = 0
+	ProjectileBatchPool._perf_spawn_usec = 0
+	ProjectileBatchPool._perf_spawn_count = 0
+	ProjectileBatchPool._perf_hit_count = 0
+	Projectile._perf_physics_usec = 0
+	Projectile._perf_homing_query_usec = 0
+	Projectile._perf_vortex_query_usec = 0
+	Projectile._perf_blink_query_usec = 0
+	ProjectileBroadphase._perf_physics_usec = 0
+	ProjectileManager._perf_collect_usec = 0
+	ProjectileManager._perf_rust_call_usec = 0
+	Mech._perf_apply_damage_usec = 0
+	Mech._perf_diag_shots_fired_count = 0
 	Mech._perf_ai_tactics_usec = 0
 	Mech._perf_shoot_usec = 0
 	Mech._perf_move_usec = 0
@@ -446,6 +482,23 @@ func _projectile_count() -> int:
 	if is_instance_valid(ProjectileManager.live_batch_pool):
 		n += ProjectileManager.live_batch_pool.live_count()
 	return n
+
+# CPU-speed canary. This machine thermally throttles (kidle_inj idle injection at ~93 C) and shares the CPU
+# with other apps, so identical runs can differ by 30-50%. A fixed pure-compute workload timed once a second
+# tells us how fast the CPU was running; the summary reports norm_fps = avg_fps * mean_cal_ms / CAL_REF_MS
+# (a slow CPU, longer canary, scales fps UP), which makes A/B runs comparable.
+const CAL_ITERS := 60000
+const CAL_REF_MS := 4.0
+var _cal_sum := 0.0
+var _cal_n := 0
+func _cpu_canary_ms() -> float:
+	var t0 := Time.get_ticks_usec()
+	var x := 0.0
+	for k in range(CAL_ITERS):
+		x += sqrt(float(k)) * 0.5
+	if x < 0.0:
+		print(x) # keep the loop from being optimised away
+	return (Time.get_ticks_usec() - t0) / 1000.0
 
 func _summary() -> Dictionary:
 	var s := _frames.duplicate()
@@ -472,6 +525,11 @@ func _summary() -> Dictionary:
 		out["frames_over_50ms"] = o50
 		out["frames_over_100ms"] = o100
 		out["mean_enemies"] = snappedf(_enemy_sum / n, 0.1)
+		if _cal_n > 0:
+			var cal := _cal_sum / _cal_n
+			out["mean_cal_ms"] = snappedf(cal, 0.01)
+			out["norm_fps"] = snappedf(out["avg_fps"] * cal / CAL_REF_MS, 0.1)
+			out["norm_p50_ms"] = snappedf(out["p50_ms"] * CAL_REF_MS / cal, 0.1)
 	if _split_n > 0:
 		var sp := {}
 		for k in _split_sum:

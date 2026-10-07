@@ -661,6 +661,13 @@ func sync_targets_from_groups():
 	_targets = EntityCache.get_group("player") + EntityCache.get_group("enemy") + EntityCache.get_group("drone")
 
 func spawn(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}, proc_synergies: Dictionary = {}, aoe_bonus: float = 0.0, stat_modifiers: Dictionary = {}, range_mult: float = 1.0, is_beam: bool = false, no_mine: bool = false) -> int:
+	var _ts = Time.get_ticks_usec()
+	var _r = _spawn_impl(pos, dir, speed, dmg, radius, lifetime, color, scale_mult, by_player, source, dominant_synergy, ratios, proc_synergies, aoe_bonus, stat_modifiers, range_mult, is_beam, no_mine)
+	_perf_spawn_usec += Time.get_ticks_usec() - _ts
+	_perf_spawn_count += 1
+	return _r
+
+func _spawn_impl(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: float, lifetime: float, color: Color, scale_mult: float, by_player: bool, source: Node, dominant_synergy: int = 0, ratios: Dictionary = {}, proc_synergies: Dictionary = {}, aoe_bonus: float = 0.0, stat_modifiers: Dictionary = {}, range_mult: float = 1.0, is_beam: bool = false, no_mine: bool = false) -> int:
 	if _free_indices.is_empty():
 		return -1
 	var i = _free_indices.pop_back()
@@ -867,9 +874,21 @@ func despawn(i: int):
 func live_count() -> int:
 	return capacity - _free_indices.size()
 
+# Perf telemetry (DebugRoom --perf=1 reads and resets these once a second).
+static var _perf_sim_usec: int = 0
+static var _perf_hit_usec: int = 0
+static var _perf_draw_usec: int = 0
+static var _perf_spawn_usec: int = 0
+static var _perf_spawn_count: int = 0
+static var _perf_hit_count: int = 0
+
 func _process(delta):
+	var _t0 = Time.get_ticks_usec()
 	_step_simulate(delta)
+	var _t1 = Time.get_ticks_usec()
 	_step_hit_test()
+	_perf_sim_usec += _t1 - _t0
+	_perf_hit_usec += Time.get_ticks_usec() - _t1
 	queue_redraw()
 
 # Renders every live shot directly via CanvasItem draw calls instead of
@@ -1224,6 +1243,11 @@ func _emit_rings(ratios: Dictionary, xf: Transform2D, alpha: float):
 			po = no
 
 func _draw():
+	var _td = Time.get_ticks_usec()
+	_draw_impl()
+	_perf_draw_usec += Time.get_ticks_usec() - _td
+
+func _draw_impl():
 	if use_atlas and _atlas_tex != null:
 		_draw_atlas()
 		return
@@ -1616,6 +1640,7 @@ func _find_nearest_target(pos: Vector2, max_dist: float, slot_idx: int) -> Node:
 # internal apply_damage(amount*0.2, element) call passes neither), so
 # dropping them here isn't a new simplification, it matches real behavior.
 func _apply_damage_to_target(target: Node, amount: float, element: String, src: Node = null, source_label: String = "Batch Test Shot"):
+	_perf_hit_count += 1
 	if target.has_method("apply_part_damage") and "components" in target and not target.components.is_empty():
 		var slots = target.components.keys()
 		var slot = slots[randi() % slots.size()]
@@ -1623,8 +1648,94 @@ func _apply_damage_to_target(target: Node, amount: float, element: String, src: 
 	elif target.has_method("apply_damage"):
 		target.apply_damage(amount, element, src, false, source_label)
 
+# --- Hit-test target grid (2026-10-06) ---------------------------------------
+# The hit test used to test EVERY live shot against EVERY target in GDScript (~600 shots x ~150 targets =
+# ~70k checks a frame, 459 ms of every second at wave 34 in the DebugRoom, for ~7 real hits a second).
+# Targets are now snapshotted once per call (valid, alive, position, radius, side) into a uniform grid,
+# and each shot only visits the targets whose cells its swept segment (inflated by the shot radius)
+# touches. Superset-exact: a target within shot_radius + target_radius of the segment always shares a
+# cell with the inflated segment box, so no hit is missed. Candidates are visited in the original
+# _targets order so first-hit-wins behaviour is unchanged.
+static var use_hit_grid: bool = true
+const HT_CELL := 160.0
+const HT_MAX_CELLS := 36 # a segment spanning more cells than this just scans every target
+var _ht_nodes: Array = []
+var _ht_pos: PackedVector2Array = PackedVector2Array()
+var _ht_rad: PackedFloat32Array = PackedFloat32Array()
+var _ht_is_player: PackedByteArray = PackedByteArray()
+var _ht_all: PackedInt32Array = PackedInt32Array()
+var _ht_stamp: PackedInt32Array = PackedInt32Array()
+var _ht_stamp_gen: int = 0
+var _ht_grid: Dictionary = {}
+
+func _ht_build() -> void:
+	_ht_nodes.clear()
+	_ht_pos.clear()
+	_ht_rad.clear()
+	_ht_is_player.clear()
+	_ht_grid.clear()
+	for t in _targets:
+		if not is_instance_valid(t) or t.get("is_dead") == true:
+			continue
+		_ht_nodes.append(t)
+		_ht_pos.append(t.global_position)
+		_ht_rad.append(float(t.get("broadphase_radius")) if "broadphase_radius" in t else 20.0)
+		_ht_is_player.append(1 if t.get("is_player") == true else 0)
+	var n := _ht_nodes.size()
+	_ht_all.resize(n)
+	_ht_stamp.resize(n)
+	for k in range(n):
+		_ht_all[k] = k
+		_ht_stamp[k] = 0
+		var p: Vector2 = _ht_pos[k]
+		var r: float = _ht_rad[k]
+		var cx0 := floori((p.x - r) / HT_CELL)
+		var cx1 := floori((p.x + r) / HT_CELL)
+		var cy0 := floori((p.y - r) / HT_CELL)
+		var cy1 := floori((p.y + r) / HT_CELL)
+		for cx in range(cx0, cx1 + 1):
+			for cy in range(cy0, cy1 + 1):
+				var key := Vector2i(cx, cy)
+				var lst = _ht_grid.get(key)
+				if lst == null:
+					_ht_grid[key] = PackedInt32Array([k])
+				else:
+					lst.append(k)
+					_ht_grid[key] = lst
+
+# Target indices (ascending) whose cells the shot's swept segment, inflated by its radius, touches.
+func _ht_candidates(i: int) -> PackedInt32Array:
+	if not use_hit_grid:
+		return _ht_all
+	var a: Vector2 = _prev_position[i]
+	var b: Vector2 = _position[i]
+	var pad: float = _radius[i]
+	var x0 := floori((minf(a.x, b.x) - pad) / HT_CELL)
+	var x1 := floori((maxf(a.x, b.x) + pad) / HT_CELL)
+	var y0 := floori((minf(a.y, b.y) - pad) / HT_CELL)
+	var y1 := floori((maxf(a.y, b.y) + pad) / HT_CELL)
+	if (x1 - x0 + 1) * (y1 - y0 + 1) > HT_MAX_CELLS:
+		return _ht_all
+	_ht_stamp_gen += 1
+	var out := PackedInt32Array()
+	for cx in range(x0, x1 + 1):
+		for cy in range(y0, y1 + 1):
+			var lst = _ht_grid.get(Vector2i(cx, cy))
+			if lst == null:
+				continue
+			for ti in lst:
+				if _ht_stamp[ti] != _ht_stamp_gen:
+					_ht_stamp[ti] = _ht_stamp_gen
+					out.append(ti)
+	if out.size() > 1:
+		out.sort()
+	return out
+
 func _step_hit_test():
 	if _targets.is_empty():
+		return
+	_ht_build()
+	if _ht_nodes.is_empty():
 		return
 	for i in range(_highest_active + 1):
 		if _alive[i] == 0:
@@ -1637,16 +1748,18 @@ func _step_hit_test():
 		# Vortex-ratio shot missed a stationary target entirely at a normal
 		# 60fps tick rate before this fix - see this session's own repro).
 		var fired_by_player = _fired_by_player[i] == 1
-		for t in _targets:
+		for ti in _ht_candidates(i):
+			var t = _ht_nodes[ti]
 			if not is_instance_valid(t):
 				continue
 			if t.get("is_dead") == true:
-				continue
-			if not _is_valid_target_side(t, fired_by_player):
-				continue
-			var t_radius = t.get("broadphase_radius") if "broadphase_radius" in t else 20.0
-			var nearest_on_path = Geometry2D.get_closest_point_to_segment(t.global_position, _prev_position[i], _position[i])
-			if nearest_on_path.distance_to(t.global_position) <= _radius[i] + t_radius:
+				continue # killed by an earlier shot this same tick
+			if (_ht_is_player[ti] == 1) == fired_by_player:
+				continue # same side (the old _is_valid_target_side)
+			var t_radius: float = _ht_rad[ti]
+			var t_pos: Vector2 = _ht_pos[ti]
+			var nearest_on_path = Geometry2D.get_closest_point_to_segment(t_pos, _prev_position[i], _position[i])
+			if nearest_on_path.distance_to(t_pos) <= _radius[i] + t_radius:
 				# Dedup (mirrors Projectile.gd's _handled_targets guard) - a
 				# pierce shot re-checking the same still-in-range target on a
 				# later tick must not double-hit it.

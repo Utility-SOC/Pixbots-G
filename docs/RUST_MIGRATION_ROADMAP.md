@@ -131,7 +131,7 @@ Pixelbots 2 (see `PIXELBOTS_2_HEX_TO_CUBE_MAPPING.md`).
    evidence; the cheap Godot-side wins are banked (hit-test grid, charge/water caches, Rust projectile geometry).
 2. Phase 1 starts now, as thin vertical slices that each ship and each leave a `cargo test`-able pure-Rust core:
    a. Workspace: `pixbots_core` (no Godot types, pure `std`) + `rust_ext` (the Godot binding, depends on core).
-   b. First slice: move the projectile geometry builder's maths into `pixbots_core` (it is already slice-in, vec-out) with
+   b. **DONE (2026-10-07):** first slice: the projectile geometry builder's maths now lives in `pixbots_core::geometry` (it is already slice-in, vec-out) with
       native unit tests; `rust_ext` keeps only the Godot marshalling.
    c. Then, in this order: hexmath, flow_field / solid_grid, hexgrid_sim (the energy simulation, the heart of PB2),
       separation, projectile flight/broadphase.

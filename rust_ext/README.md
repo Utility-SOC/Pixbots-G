@@ -120,3 +120,15 @@ routing steps) were both traced during the same investigation and found to
 be smaller, more linear workloads than the rasterizer — real but not the
 dominant cost. Candidates for a future pass if the rasterizer port alone
 doesn't fully resolve the spawn stutter in practice, but not done here.
+
+
+## Workspace layout (2026-10-07, Rust migration Phase 1)
+
+- `pixbots_core/` - the engine-agnostic crate: pure `std`, **no Godot types**, no dependencies. Anything that has to
+  survive a change of engine or shell (Pixelbots 2, a Rust-native renderer) lives here. Test it natively and fast,
+  without Godot: `cargo test -p pixbots_core`.
+- `src/` (the `rust_ext` crate) - the GDExtension. It depends on `pixbots_core` and only converts Godot packed arrays to
+  core slices and back. `cargo build` at this directory builds both.
+- First slice moved so far: `pixbots_core::geometry` (the projectile quad builder; `src/projectile_geometry.rs` is now just
+  its binding). Next per `docs/RUST_MIGRATION_ROADMAP.md`: hexmath, flow_field / solid_grid, hexgrid_sim, separation,
+  projectile flight and broadphase.

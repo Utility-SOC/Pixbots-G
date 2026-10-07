@@ -594,6 +594,48 @@ func _run_micro() -> void:
 		Mech.diag_no_water_cache = false
 		res[fn[0] + "_cached_us"] = snappedf(maxf(b_on - oh, 0.0), 0.01)
 		res[fn[0] + "_original_us"] = snappedf(maxf(b_off - oh, 0.0), 0.01)
+	# HEADLINE: the whole enemy tick (_physics_process) with every optimisation ON vs OFF, interleaved in this
+	# process (sim paused, so state evolves only through these calls).
+	var t_new := INF
+	var t_old := INF
+	for rep in range(6):
+		Mech.diag_slow_charges = false
+		Mech.diag_no_water_cache = false
+		Mech.diag_no_ability_gate = false
+		t_new = minf(t_new, _time_calls(enemies, "_physics_process", [0.016]))
+		Mech.diag_slow_charges = true
+		Mech.diag_no_water_cache = true
+		Mech.diag_no_ability_gate = true
+		t_old = minf(t_old, _time_calls(enemies, "_physics_process", [0.016]))
+	Mech.diag_slow_charges = false
+	Mech.diag_no_water_cache = false
+	Mech.diag_no_ability_gate = false
+	res["WHOLE_TICK_new_us"] = snappedf(maxf(t_new - oh, 0.0), 0.01)
+	res["WHOLE_TICK_old_us"] = snappedf(maxf(t_old - oh, 0.0), 0.01)
+	# Renderer calls the enemy tick makes every physics step (visual-only work).
+	var rends: Array = []
+	for e in enemies:
+		if e._renderer and e._renderer.has_method("rotate_arms") and "drawn_parts" in e._renderer:
+			rends.append(e._renderer)
+	if not rends.is_empty():
+		var br := INF
+		var bl := INF
+		for rep in range(4):
+			br = minf(br, _time_calls(rends, "rotate_arms", [Vector2(300, 0), Vector2.ZERO]))
+			bl = minf(bl, _time_calls(rends, "animate_legs", [Vector2(60, 0), 1.0]))
+		res["renderer.rotate_arms_us"] = snappedf(maxf(br - oh, 0.0), 0.01)
+		res["renderer.animate_legs_us"] = snappedf(maxf(bl - oh, 0.0), 0.01)
+		res["renderers"] = rends.size()
+		# Direct (no callv) cost of the pair, for reference: ~7.5 us at wave 34.
+		var pair_b := INF
+		for rep in range(6):
+			var t0 := Time.get_ticks_usec()
+			for r in rends:
+				r.rotate_arms(Vector2(300, 0), Vector2.ZERO)
+				r.animate_legs(Vector2(60, 0), 1.0)
+			pair_b = minf(pair_b, float(Time.get_ticks_usec() - t0) / rends.size())
+		res["renderer_pair_direct_us"] = snappedf(pair_b, 0.01)
+
 	# cloak system tick is an object call, not a Mech method
 	var cs: Array = []
 	for e in enemies:

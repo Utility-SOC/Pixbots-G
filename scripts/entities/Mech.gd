@@ -1038,6 +1038,9 @@ func sync_hitbox_layers() -> void:
 # passing the ACCUMULATED elapsed time so charge/DoT totals stay exact (same trade as the far-mech 4 Hz
 # throttle below, just applied to near mechs when the crowd is large). Measured at wave 34 (~120 enemies):
 # these systems were ~250 ms of every second; see docs/DEBUG_ROOM.md and the 2026-10-06 bisect.
+# Diagnostic A/B toggle: true = call the jammer/healer/shield-pulse ticks every tick even when the mech has none
+# (their early exits are no-ops, so skipping the calls is behaviour-identical - see the call sites).
+static var diag_no_ability_gate: bool = false
 static var crowd_lod_enabled: bool = false # off: A/B at wave 34 showed no fps gain (5.8 vs 6.2), see DebugRoom --crowdlod
 # Diagnostic (DebugRoom --stage=N): enemies return from _physics_process after section N (99 = run it all).
 # 0 top, 1 hitbox/water preamble, 2 status, 3 weapon charges, 5 ability systems, 6 AI tactics, 7 move.
@@ -1239,7 +1242,7 @@ func _physics_process(delta: float):
 	elif _lod_jammer_elapsed > 0.0:
 		_update_jammer_module(_lod_jammer_elapsed + delta)
 		_lod_jammer_elapsed = 0.0
-	elif not _crowd_skip:
+	elif not _crowd_skip and (diag_no_ability_gate or has_jammer_module or jammer_field != null or not _jammer_tiles.is_empty()):
 		_update_jammer_module(_sys_delta)
 
 	if _is_far_for_lod:
@@ -1252,7 +1255,7 @@ func _physics_process(delta: float):
 	elif _lod_healer_elapsed > 0.0:
 		_update_healer(_lod_healer_elapsed + delta)
 		_lod_healer_elapsed = 0.0
-	elif not _crowd_skip:
+	elif not _crowd_skip and (diag_no_ability_gate or has_healer):
 		_update_healer(_sys_delta)
 
 	if _is_far_for_lod:
@@ -1265,7 +1268,7 @@ func _physics_process(delta: float):
 	elif _lod_shieldpulse_elapsed > 0.0:
 		_update_shield_pulse(_lod_shieldpulse_elapsed + delta)
 		_lod_shieldpulse_elapsed = 0.0
-	elif not _crowd_skip:
+	elif not _crowd_skip and (diag_no_ability_gate or has_shield_pulse):
 		_update_shield_pulse(_sys_delta)
 	_perf_ability_systems_usec += Time.get_ticks_usec() - _t_abilities
 	if diag_stage_limit < 6 and not is_player:

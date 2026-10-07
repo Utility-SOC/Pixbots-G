@@ -195,6 +195,9 @@ Share your trained AI as clipboard JSON or as a **Style Card** (your champion's 
 ### Bosses (updated)
 Bosses now have **11 telegraphed abilities** (new: meteor rain, minefield, gravity well, triple rail, charge), **6 enrage styles** (new: relentless, phase shift) and **5 position styles** (new: teleporter, lurker), all of which evolve. Bosses never summon adds, and every ability is telegraphed on the ground.
 
+### Fullscreen
+Press **`F11`** (or **`Alt+Enter`**) anywhere to toggle borderless fullscreen for extra screen space; there is also a checkbox in Settings > Visuals. The choice is remembered, and the battlefield simply shows more of the map in a bigger window.
+
 ### The War Room Interface
 Press **`TAB`** in-game to access the War Room. 
 - **Lineage Graphs & Fitness Logs**: View a visual log of the AI's evolving lineage, the current fitness scores of its Squad Templates, and what compositions it is favoring.

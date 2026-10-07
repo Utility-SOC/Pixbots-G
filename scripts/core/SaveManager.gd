@@ -251,6 +251,40 @@ func set_pilot_name(name: String):
 	config.set_value("Game", "PilotName", pilot_name)
 	config.save(SETTINGS_PATH)
 
+# --- Fullscreen (borderless "windowed fullscreen") ---------------------------------------------------
+# F11 or Alt+Enter toggles it anywhere (menus included); Settings > Visuals has a checkbox. Godot's
+# WINDOW_MODE_FULLSCREEN is the borderless desktop-resolution mode (not exclusive), so alt-tab stays instant.
+# Leaving fullscreen returns to the project default (maximized). The pixel viewport follows the window size on
+# its own (stretch + shrink), so a bigger window simply shows more of the map. Saved in settings.cfg [Display].
+signal fullscreen_changed(on: bool)
+var fullscreen: bool = false
+
+func _apply_window_mode() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_MAXIMIZED)
+
+func set_fullscreen(on: bool, persist: bool = true) -> void:
+	fullscreen = on
+	_apply_window_mode()
+	if persist:
+		var config = ConfigFile.new()
+		config.load(SETTINGS_PATH) # keep existing sections if present
+		config.set_value("Display", "Fullscreen", fullscreen)
+		config.save(SETTINGS_PATH)
+	fullscreen_changed.emit(fullscreen)
+
+func toggle_fullscreen() -> void:
+	set_fullscreen(not fullscreen)
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		var is_f11: bool = event.keycode == KEY_F11
+		var is_alt_enter: bool = event.alt_pressed and (event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER)
+		if is_f11 or is_alt_enter:
+			get_viewport().set_input_as_handled()
+			toggle_fullscreen()
+
 # Settings live at user:// (writable in exported builds - res:// is
 # READ-ONLY once exported, so the old res://settings.cfg writes silently
 # failed for players). SETTINGS_PATH is the single source of truth;
@@ -371,6 +405,9 @@ func _ready():
 		batch_renderer_in_combat = bool(config.get_value("Rendering", "BatchInCombat", true))
 		projectile_size_mode = clamp(int(config.get_value("Rendering", "ProjectileSizeMode", 1)), 0, 2)
 		broken_limb_style = clamp(int(config.get_value("Rendering", "BrokenLimbStyle", 0)), 0, 1)
+		fullscreen = bool(config.get_value("Display", "Fullscreen", false))
+		if fullscreen:
+			_apply_window_mode() # saved preference; the default (maximized) is the project setting
 
 # SAVE FORMAT VERSION LOG (bump on any schema change; loaders are
 # has()-guarded so old saves keep working, this is for humans + future

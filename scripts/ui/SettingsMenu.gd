@@ -145,6 +145,21 @@ func _setup_ui():
 	check_batch_combat.toggled.connect(func(pressed): SaveManager.set_batch_renderer_in_combat(pressed))
 	visuals_tab.add_child(check_batch_combat)
 
+	# Fullscreen (borderless). Also bound to F11 / Alt+Enter anywhere in the game.
+	var fullscreen_hint = Label.new()
+	fullscreen_hint.text = "Borderless fullscreen for extra screen space. Also toggled anywhere with F11 or Alt+Enter."
+	fullscreen_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	fullscreen_hint.modulate = Color(0.7, 0.7, 0.7)
+	visuals_tab.add_child(fullscreen_hint)
+
+	var check_fullscreen = CheckButton.new()
+	check_fullscreen.text = "Fullscreen (F11)"
+	check_fullscreen.button_pressed = SaveManager.fullscreen
+	check_fullscreen.toggled.connect(func(pressed): SaveManager.set_fullscreen(pressed))
+	# Keep the checkbox honest when F11 flips it while this menu is open.
+	SaveManager.fullscreen_changed.connect(check_fullscreen.set_pressed_no_signal) # method Callable: auto-disconnects when freed
+	visuals_tab.add_child(check_fullscreen)
+
 	# PROFILE TAB
 	var profile_tab = VBoxContainer.new()
 	profile_tab.name = "Profile"

@@ -61,6 +61,7 @@ const ARGS := {
 	"hitgrid": [1, "ProjectileBatchPool hit-test spatial grid (1) vs the old brute-force scan (0) for A/B"],
 	"adaptive": [0, "AdaptiveTick (lower the physics rate under load); default off, 1 = on for A/B"],
 	"micro": [0, "after warm-up, pause the sim and time each per-tick Mech function directly on the live enemies (us/call), write it to the report and quit"],
+	"legacy": [0, "turn OFF every performance optimisation made on 2026-10-06 (hit grid, charge early-out, water cache, ability gating) for an end-to-end before/after A/B"],
 	"crowdlod": [0, "Mech crowd LOD (stagger per-tick systems when many enemies); default off (no measured gain)"],
 	"procs": [0, "print a census of nodes with _process/_physics_process enabled, by script, at warmup"],
 	# --- output ---
@@ -119,7 +120,11 @@ func _ready() -> void:
 	Engine.max_fps = int(_a["rate"])
 	Mech.crowd_lod_enabled = int(_a["crowdlod"]) != 0
 	preload("res://scripts/core/AdaptiveTick.gd").enabled = int(_a["adaptive"]) != 0
-	ProjectileBatchPool.use_hit_grid = int(_a["hitgrid"]) != 0
+	ProjectileBatchPool.use_hit_grid = int(_a["hitgrid"]) != 0 and int(_a["legacy"]) == 0
+	if int(_a["legacy"]) != 0:
+		Mech.diag_slow_charges = true
+		Mech.diag_no_water_cache = true
+		Mech.diag_no_ability_gate = true
 	Mech.diag_stage_limit = int(_a["stage"])
 	if int(_a["perf"]) != 0:
 		FpsCounter.set_process(false) # it resets the same Mech._perf_* counters on its own timer

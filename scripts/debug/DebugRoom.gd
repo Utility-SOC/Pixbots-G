@@ -49,6 +49,14 @@ const ARGS := {
 	"hidevis": [0, "hide enemy visuals"],
 	"nocollide": [0, "enemy collision layer/mask 0"],
 	"stream": [0, "enable ObstacleCollisionStreamer"],
+	"freeze": [0, "disable ALL processing on enemies (cost of the nodes themselves vs their scripts)"],
+	"nobars": [0, "stop MechStatusBars _process on every mech"],
+	"nomechphys": [0, "stop Mech _physics_process on enemies (no AI/move/shoot) but keep everything else processing"],
+	"noshoot": [0, "enemies skip _shoot (Mech._diag_skip_shoot)"],
+	"nosep": [0, "enemies skip the separation query (Mech._diag_skip_separation)"],
+	"nofar": [0, "enemies skip the far-branch body (Mech._diag_skip_far_branch_body)"],
+	"perf": [0, "add Mech per-section script timers (ms/s: ai, shoot, move, sight, flow, sep, status, charges, abilities, ...) to each ROOM_SEC row"],
+	"procs": [0, "print a census of nodes with _process/_physics_process enabled, by script, at warmup"],
 	# --- output ---
 	"report": ["", "write the JSON summary to this path"],
 	"series": [1, "print one ROOM_SEC line per second"],
@@ -102,6 +110,8 @@ func _ready() -> void:
 		"safe": OS.set_environment("PIXBOTS_SAFE_FX", "1")
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = int(_a["rate"])
+	if int(_a["perf"]) != 0:
+		FpsCounter.set_process(false) # it resets the same Mech._perf_* counters on its own timer
 	if int(_a["music"]) == 0:
 		ProceduralMusic.set_process(false)
 		ProceduralMusic.stop()
@@ -227,6 +237,9 @@ func _tick_running(delta: float) -> void:
 		var ev = _timeline.pop_front()
 		_run_cmd(ev[1], ev[2])
 	_apply_world_tweaks()
+	if int(_a["procs"]) != 0 and not _procs_done and _t >= float(_a["warmup"]):
+		_procs_done = true
+		_print_proc_census()
 	_drive_spawn(delta)
 	_drive_player_fire(delta)
 	if float(_a["missiles"]) > 0.0:
@@ -247,6 +260,24 @@ func _tick_running(delta: float) -> void:
 	var secs := float(_a["seconds"])
 	if secs > 0.0 and _t >= secs:
 		_finish()
+
+var _procs_done := false
+func _print_proc_census() -> void:
+	var cnt := {}
+	var total := 0
+	for n in get_tree().root.find_children("*", "", true, false):
+		var p: bool = n.is_processing()
+		var pp: bool = n.is_physics_processing()
+		if not (p or pp):
+			continue
+		var k := "%s %s%s" % [n.get_script().resource_path.get_file() if n.get_script() else n.get_class(), "P" if p else "-", "p" if pp else "-"]
+		cnt[k] = cnt.get(k, 0) + 1
+		total += 1
+	var keys := cnt.keys()
+	keys.sort_custom(func(a, b): return cnt[a] > cnt[b])
+	print("ROOM_PROCS total=%d of %d nodes" % [total, get_tree().get_node_count()])
+	for k in keys.slice(0, 25):
+		print("ROOM_PROCS %5d  %s" % [cnt[k], k])
 
 func _drive_spawn(delta: float) -> void:
 	if _spawn_left <= 0 or _t < float(_a["spawn_at"]):
@@ -318,9 +349,21 @@ func _apply_world_tweaks() -> void:
 	# Per-enemy tweaks apply to new spawns too, so re-run every few frames.
 	if Engine.get_physics_frames() % 10 != 0:
 		return
-	if int(_a["noslide"]) + int(_a["hidevis"]) + int(_a["nocollide"]) == 0:
+	if int(_a["nobars"]) != 0:
+		for b in get_tree().root.find_children("*", "Node2D", true, false):
+			if b.get_script() and b.get_script().resource_path.ends_with("MechStatusBars.gd") and b.is_processing():
+				b.set_process(false)
+	if int(_a["noslide"]) + int(_a["hidevis"]) + int(_a["nocollide"]) + int(_a["freeze"]) \
+			+ int(_a["nomechphys"]) + int(_a["noshoot"]) + int(_a["nosep"]) + int(_a["nofar"]) == 0:
 		return
 	for e in get_tree().get_nodes_in_group("enemy"):
+		if int(_a["nomechphys"]) != 0 and e.is_physics_processing():
+			e.set_physics_process(false)
+		if int(_a["noshoot"]) != 0: e._diag_skip_shoot = true
+		if int(_a["nosep"]) != 0: e._diag_skip_separation = true
+		if int(_a["nofar"]) != 0: e._diag_skip_far_branch_body = true
+		if int(_a["freeze"]) != 0 and e.process_mode != Node.PROCESS_MODE_DISABLED:
+			e.process_mode = Node.PROCESS_MODE_DISABLED
 		if int(_a["noslide"]) != 0: e._diag_skip_move_and_slide = true
 		if int(_a["hidevis"]) != 0 and e is CanvasItem: e.visible = false
 		if int(_a["nocollide"]) != 0 and e is CollisionObject2D:
@@ -358,6 +401,8 @@ func _record(delta: float) -> void:
 			"proc_ms": snappedf(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, 0.1),
 			"phys_ms": snappedf(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, 0.1),
 		}
+		if int(_a["perf"]) != 0:
+			row["perf_ms"] = _take_perf()
 		_series.append(row)
 		if int(_a["series"]) != 0:
 			print("ROOM_SEC ", JSON.stringify(row))
@@ -367,6 +412,34 @@ func _record(delta: float) -> void:
 	if _label:
 		_label.text = "t=%.0f  fps=%d  enemies=%d  proj=%d  nodes=%d\nF1 spawn5  F2 masskill  F3 fire=%s  F4 god=%s  F5 missiles  F12 quit" % [
 			_t, Engine.get_frames_per_second(), enemies, _projectile_count(), get_tree().get_node_count(), _fire, _god]
+
+# Mech's per-section script timers (usec accumulated over the last second); read and reset here.
+func _take_perf() -> Dictionary:
+	var out := {
+		"ai": Mech._perf_ai_tactics_usec, "shoot": Mech._perf_shoot_usec, "move": Mech._perf_move_usec,
+		"sight": Mech._perf_sight_usec, "flow": Mech._perf_flow_field_usec, "sep": Mech._perf_separation_usec,
+		"status": Mech._perf_status_effects_usec, "charges": Mech._perf_weapon_charges_usec,
+		"abilities": Mech._perf_ability_systems_usec, "orbit_ray": Mech._perf_orbit_raycast_usec,
+		"flee": Mech._perf_flee_check_usec, "search": Mech._perf_execute_search_usec,
+		"shoot_fired": Mech._perf_shoot_fired_usec, "shoot_checked": Mech._perf_shoot_checked_only_usec,
+	}
+	for k in out:
+		out[k] = snappedf(out[k] / 1000.0, 0.1)
+	Mech._perf_ai_tactics_usec = 0
+	Mech._perf_shoot_usec = 0
+	Mech._perf_move_usec = 0
+	Mech._perf_sight_usec = 0
+	Mech._perf_flow_field_usec = 0
+	Mech._perf_separation_usec = 0
+	Mech._perf_status_effects_usec = 0
+	Mech._perf_weapon_charges_usec = 0
+	Mech._perf_ability_systems_usec = 0
+	Mech._perf_orbit_raycast_usec = 0
+	Mech._perf_flee_check_usec = 0
+	Mech._perf_execute_search_usec = 0
+	Mech._perf_shoot_fired_usec = 0
+	Mech._perf_shoot_checked_only_usec = 0
+	return out
 
 func _projectile_count() -> int:
 	var n := get_tree().get_nodes_in_group("projectile").size()

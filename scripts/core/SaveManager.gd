@@ -378,6 +378,7 @@ func set_batch_renderer_in_combat(enabled: bool):
 const MAX_PHYSICS_STEPS_PER_FRAME = 3
 
 const FxTierScript = preload("res://scripts/core/FxTier.gd")
+const AdaptiveTickScript = preload("res://scripts/core/AdaptiveTick.gd")
 
 # A clean quit removes the crash marker; a GPU crash never gets here and leaves it for the next launch.
 func _exit_tree() -> void:
@@ -386,6 +387,8 @@ func _exit_tree() -> void:
 func _ready():
 	FxTierScript.safe() # starts the clean-exit marker (see FxTier.gd)
 	Engine.max_physics_steps_per_frame = MAX_PHYSICS_STEPS_PER_FRAME
+	# Lowers the physics rate under load so slow frames take ~1 larger step instead of 3 catch-up ticks.
+	add_child(AdaptiveTickScript.new())
 	var dir = DirAccess.open("user://")
 	if not dir.dir_exists("saves"):
 		dir.make_dir("saves")

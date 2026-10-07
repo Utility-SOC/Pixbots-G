@@ -36,6 +36,7 @@ const ARGS := {
 	"missiles": [0.0, "missile volleys per second at random enemies"],
 	"masskill": [0.0, "kill every enemy in one frame every N seconds (death-burst hitch test)"],
 	"garage_at": [-1.0, "re-deploy from the Garage mid-run at this time"],
+	"keep": [0, "keep at least this many enemies alive (spawns squads at ~4/s when below); 0 = off"],
 	"events": ["", "timeline 't:cmd;t:cmd' - cmds: spawn=N ring=R masskill missiles=R fire=on|off god=on|off print=msg quit"],
 	# --- environment ---
 	"music": [0, "enable procedural music (off by default: a real CPU hog on this machine)"],
@@ -58,6 +59,8 @@ const ARGS := {
 	"perf": [0, "add Mech per-section script timers (ms/s: ai, shoot, move, sight, flow, sep, status, charges, abilities, ...) to each ROOM_SEC row"],
 	"stage": [99, "enemies return from Mech._physics_process after section N: 0 top, 1 preamble, 2 status, 3 charges, 5 abilities, 6 AI, 7 move (truncation bisect)"],
 	"hitgrid": [1, "ProjectileBatchPool hit-test spatial grid (1) vs the old brute-force scan (0) for A/B"],
+	"adaptive": [0, "AdaptiveTick (lower the physics rate under load); default off, 1 = on for A/B"],
+	"micro": [0, "after warm-up, pause the sim and time each per-tick Mech function directly on the live enemies (us/call), write it to the report and quit"],
 	"crowdlod": [0, "Mech crowd LOD (stagger per-tick systems when many enemies); default off (no measured gain)"],
 	"procs": [0, "print a census of nodes with _process/_physics_process enabled, by script, at warmup"],
 	# --- output ---
@@ -94,6 +97,7 @@ var _quit_requested := false
 var _wake_probe := 0.0
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_parse_args()
 	if _a.get("help", 0):
 		_print_help()
@@ -114,6 +118,7 @@ func _ready() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = int(_a["rate"])
 	Mech.crowd_lod_enabled = int(_a["crowdlod"]) != 0
+	preload("res://scripts/core/AdaptiveTick.gd").enabled = int(_a["adaptive"]) != 0
 	ProjectileBatchPool.use_hit_grid = int(_a["hitgrid"]) != 0
 	Mech.diag_stage_limit = int(_a["stage"])
 	if int(_a["perf"]) != 0:
@@ -186,6 +191,14 @@ func _run_cmd(cmd: String, arg: String) -> void:
 # ---------------------------------------------------------------- main loop
 
 var _wall_last_us := 0
+var _frames0 := 0
+var _sim_at_sec := 0.0
+var _phys_at_sec := 0
+var _speed_sum := 0.0
+var _tpf_sum := 0.0
+var _speed_n := 0
+var _sim_t := 0.0 # simulated seconds since running (sum of physics step deltas)
+var _phys0 := 0
 func _process(game_delta: float) -> void:
 	# Engine clamps the delta it hands to _process to max_physics_steps_per_frame ticks (50 ms), so on slow
 	# frames it under-reports and 'fps' saturates near 20. Everything here runs on wall-clock time instead.
@@ -209,6 +222,8 @@ func _process(game_delta: float) -> void:
 			if _main.current_wave >= 1 and _main.get("active_enemies") != null and _wave_started():
 				_phase = 2
 				_t = 0.0
+				_frames0 = Engine.get_frames_drawn()
+				_phys0 = Engine.get_physics_frames()
 				print("ROOM running (wave %d)" % _main.current_wave)
 		2:
 			_t += delta
@@ -229,6 +244,10 @@ func _skip_countdown() -> void:
 			_countdown_fired = true
 			return
 
+func _physics_process(_d: float) -> void:
+	if _phase == 2:
+		_sim_t += get_physics_process_delta_time()
+
 func _tick_running(delta: float) -> void:
 	if _god and is_instance_valid(_main.player):
 		_main.player.hp = _main.player.max_hp
@@ -243,6 +262,12 @@ func _tick_running(delta: float) -> void:
 		var ev = _timeline.pop_front()
 		_run_cmd(ev[1], ev[2])
 	_apply_world_tweaks()
+	# A wave that gets cleared ends in the Garage (paused, ~100 fps): never let that contaminate a run.
+	if is_instance_valid(_main.garage_ui) and ("garage_at" not in _a or float(_a["garage_at"]) < 0.0 or _garage_done):
+		_garage_autoclosed += 1
+		print("ROOM garage opened by the game at t=%.1f - closing it (enemies=%d)" % [_t, EntityCache.get_group(&"enemy").size()])
+		_main._close_garage()
+	_keep_crowd(delta)
 	if int(_a["procs"]) != 0 and not _procs_done and _t >= float(_a["warmup"]):
 		_procs_done = true
 		_print_proc_census()
@@ -262,6 +287,9 @@ func _tick_running(delta: float) -> void:
 		var t0 := Time.get_ticks_usec()
 		_main._close_garage()
 		print("ROOM garage_return t=%.1f sync_ms=%.1f" % [_t, (Time.get_ticks_usec() - t0) / 1000.0])
+	if int(_a["micro"]) != 0 and _t >= float(_a["warmup"]) + 1.0:
+		_run_micro()
+		return
 	_record(delta)
 	var secs := float(_a["seconds"])
 	if secs > 0.0 and _t >= secs:
@@ -284,6 +312,22 @@ func _print_proc_census() -> void:
 	print("ROOM_PROCS total=%d of %d nodes" % [total, get_tree().get_node_count()])
 	for k in keys.slice(0, 25):
 		print("ROOM_PROCS %5d  %s" % [cnt[k], k])
+
+var _garage_autoclosed := 0
+var _keep_acc := 0.0
+func _keep_crowd(delta: float) -> void:
+	var want := int(_a["keep"])
+	if want <= 0:
+		return
+	if EntityCache.get_group(&"enemy").size() >= want:
+		return
+	_keep_acc += delta * 4.0
+	var d = _main._ensure_squad_director()
+	while _keep_acc >= 1.0 and d.templates.size() > 0:
+		_keep_acc -= 1.0
+		var ang := randf() * TAU
+		var pos: Vector2 = _main.player.global_position + Vector2(cos(ang), sin(ang)) * float(_a["ring"])
+		d.spawn_specific_squad(d.templates[randi() % d.templates.size()], pos)
 
 func _drive_spawn(delta: float) -> void:
 	if _spawn_left <= 0 or _t < float(_a["spawn_at"]):
@@ -396,6 +440,16 @@ func _record(delta: float) -> void:
 	if steady: _enemy_sum += enemies
 	_peak["nodes"] = max(_peak["nodes"], get_tree().get_node_count())
 	if _sec_t >= 1.0:
+		var sim_dt := _sim_t - _sim_at_sec
+		var phys_dt := Engine.get_physics_frames() - _phys_at_sec
+		var sim_speed := sim_dt / _sec_t
+		var tpf: float = float(phys_dt) / float(maxi(_sec_frames, 1))
+		_sim_at_sec = _sim_t
+		_phys_at_sec = Engine.get_physics_frames()
+		if steady:
+			_speed_sum += sim_speed
+			_tpf_sum += tpf
+			_speed_n += 1
 		var cal_ms := _cpu_canary_ms()
 		if steady:
 			_cal_sum += cal_ms
@@ -403,7 +457,8 @@ func _record(delta: float) -> void:
 		var proj := _projectile_count()
 		_peak["projectiles"] = max(_peak["projectiles"], proj)
 		var row := {
-			"t": int(_t), "cal_ms": snappedf(cal_ms, 0.01), "fps": _sec_frames, "worst_ms": snappedf(_sec_worst, 0.1), "enemies": enemies,
+			"t": int(_t), "cal_ms": snappedf(cal_ms, 0.01), "fps": _sec_frames,
+			"sim_speed": snappedf(sim_speed, 0.01), "ticks_per_frame": snappedf(tpf, 0.1), "hz": Engine.physics_ticks_per_second, "worst_ms": snappedf(_sec_worst, 0.1), "enemies": enemies,
 			"projectiles": proj, "nodes": get_tree().get_node_count(),
 			"draws": int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
 			"phys_active": int(Performance.get_monitor(Performance.PHYSICS_2D_ACTIVE_OBJECTS)),
@@ -477,6 +532,68 @@ func _take_perf() -> Dictionary:
 	Mech._perf_shoot_checked_only_usec = 0
 	return out
 
+# --- micro: direct per-call timing of the per-tick Mech functions on the live, realistic enemies.
+const MICRO_CALLS := [
+	["_tick_weapon_charges", [0.016]], ["update_status_effects", [0.016]], ["_update_jammer_module", [0.016]],
+	["_update_healer", [0.016]], ["_update_shield_pulse", [0.016]], ["_execute_ai_tactics", [0.016]],
+	["_update_flee_state", [0.016]], ["_refresh_water_state", []], ["_update_obstacle_phasing", []],
+	["sync_hitbox_layers", []], ["_check_drowning", []], ["_process_ramming", [0.016]],
+	["_process_reactive_plating_cooldowns", [0.016]], ["_apply_terrain_to_ai_velocity", [0.016]],
+	["_avoid_water_in_velocity", [Vector2(100, 0), 0.016]], ["move_and_slide", []], ["_ai_aim_point", [Vector2(300, 0), 300.0]],
+]
+func _run_micro() -> void:
+	get_tree().paused = true # freeze the sim; this node keeps running (PROCESS_MODE_ALWAYS below)
+	var enemies: Array = []
+	for e in get_tree().get_nodes_in_group("enemy"):
+		if is_instance_valid(e) and e.has_method("_tick_weapon_charges") and not e.get("is_dead"):
+			enemies.append(e)
+	var res := {"enemies": enemies.size()}
+	# Overhead of the dynamic call itself, subtracted from every figure.
+	var oh := _time_calls(enemies, "is_queued_for_deletion", [])
+	res["callv_overhead_us"] = snappedf(oh, 0.001)
+	var total := 0.0
+	for c in MICRO_CALLS:
+		var best := INF
+		for rep in range(4):
+			best = minf(best, _time_calls(enemies, c[0], c[1]))
+		var us := maxf(best - oh, 0.0)
+		res[c[0]] = snappedf(us, 0.01)
+		if c[0] != "move_and_slide" and c[0] != "_ai_aim_point":
+			total += us
+	# cloak system tick is an object call, not a Mech method
+	var cs: Array = []
+	for e in enemies:
+		if e.cloak_system: cs.append(e.cloak_system)
+	if not cs.is_empty():
+		var best := INF
+		for rep in range(4):
+			best = minf(best, _time_calls(cs, "tick", [0.016]))
+		res["cloak_system.tick"] = snappedf(maxf(best - oh, 0.0), 0.01)
+		total += res["cloak_system.tick"]
+	res["sum_us_per_mech_tick"] = snappedf(total, 0.01)
+	res["est_ms_per_tick_all_enemies"] = snappedf(total * enemies.size() / 1000.0, 0.1)
+	print("ROOM_MICRO ", JSON.stringify(res))
+	var path := str(_a["report"])
+	if path != "":
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		if f:
+			f.store_string(JSON.stringify(res, "  "))
+			f.close()
+	get_tree().paused = false
+	_quit_requested = true
+	preload("res://scripts/core/FxTier.gd").end_session()
+	get_tree().quit()
+
+# Best per-call time in microseconds for method `name` over `objs` (one pass).
+func _time_calls(objs: Array, name: String, args: Array) -> float:
+	var n := 0
+	var t0 := Time.get_ticks_usec()
+	for o in objs:
+		if is_instance_valid(o):
+			o.callv(name, args)
+			n += 1
+	return float(Time.get_ticks_usec() - t0) / max(n, 1)
+
 func _projectile_count() -> int:
 	var n := get_tree().get_nodes_in_group("projectile").size()
 	if is_instance_valid(ProjectileManager.live_batch_pool):
@@ -514,7 +631,8 @@ func _summary() -> Dictionary:
 	var out := {
 		"wave": int(_a["wave"]), "renderer": RenderingServer.get_current_rendering_method(),
 		"steady_frames": n, "warmup_s": float(_a["warmup"]), "args": _a,
-		"peak_enemies": _peak["enemies"], "peak_projectiles": _peak["projectiles"], "peak_nodes": _peak["nodes"],
+		"sim_s": _sim_t, "frames_total": Engine.get_frames_drawn() - _frames0, "phys_frames_total": Engine.get_physics_frames() - _phys0,
+		"garage_autoclosed": _garage_autoclosed, "peak_enemies": _peak["enemies"], "peak_projectiles": _peak["projectiles"], "peak_nodes": _peak["nodes"],
 	}
 	if n > 0:
 		out["avg_fps"] = snappedf(1000.0 * n / max(sum, 0.001), 0.1)
@@ -525,6 +643,9 @@ func _summary() -> Dictionary:
 		out["frames_over_50ms"] = o50
 		out["frames_over_100ms"] = o100
 		out["mean_enemies"] = snappedf(_enemy_sum / n, 0.1)
+		if _speed_n > 0:
+			out["mean_sim_speed"] = snappedf(_speed_sum / _speed_n, 0.01)
+			out["mean_ticks_per_frame"] = snappedf(_tpf_sum / _speed_n, 0.1)
 		if _cal_n > 0:
 			var cal := _cal_sum / _cal_n
 			out["mean_cal_ms"] = snappedf(cal, 0.01)

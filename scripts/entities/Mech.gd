@@ -1032,13 +1032,42 @@ func sync_hitbox_layers() -> void:
 	if stale:
 		_hitboxes = _hitboxes.filter(func(x): return is_instance_valid(x))
 
+# Crowd LOD: with many enemies alive, mechs that are not in the player's face run the per-tick systems
+# (weapon charges, status, ability systems, AI tactics) every 2nd/3rd physics tick, staggered by instance id,
+# passing the ACCUMULATED elapsed time so charge/DoT totals stay exact (same trade as the far-mech 4 Hz
+# throttle below, just applied to near mechs when the crowd is large). Measured at wave 34 (~120 enemies):
+# these systems were ~250 ms of every second; see docs/DEBUG_ROOM.md and the 2026-10-06 bisect.
+static var crowd_lod_enabled: bool = false # off: A/B at wave 34 showed no fps gain (5.8 vs 6.2), see DebugRoom --crowdlod
+# Diagnostic (DebugRoom --stage=N): enemies return from _physics_process after section N (99 = run it all).
+# 0 top, 1 hitbox/water preamble, 2 status, 3 weapon charges, 5 ability systems, 6 AI tactics, 7 move.
+static var diag_stage_limit: int = 99
+const CROWD_LOD_MID := 30 # live enemies at/above which divisor 2 applies
+const CROWD_LOD_HIGH := 60 # ... divisor 3
+const CROWD_LOD_CLOSE_SQ := 350.0 * 350.0 # inside this range of the target a mech always ticks every frame
+static var _crowd_frame: int = -1
+static var _crowd_n: int = 0
+var _lod_mid_elapsed: float = 0.0
+
+static func crowd_divisor(crowd: int, dist_sq: float) -> int:
+	if dist_sq < CROWD_LOD_CLOSE_SQ:
+		return 1
+	if crowd >= CROWD_LOD_HIGH:
+		return 3
+	if crowd >= CROWD_LOD_MID:
+		return 2
+	return 1
+
 func _physics_process(delta: float):
+	if diag_stage_limit < 1 and not is_player:
+		return
 	_own_time_alive += delta
 	if (Engine.get_physics_frames() + get_instance_id()) % HITBOX_SYNC_TICKS == 0:
 		sync_hitbox_layers()
 	current_jammer_debuff = 1.0 # Reset every frame, JammerMech will re-apply it before we shoot if near
 	_refresh_water_state()
 	_update_obstacle_phasing()
+	if diag_stage_limit < 2 and not is_player:
+		return
 
 	if is_drowning:
 		drown_timer -= delta
@@ -1061,6 +1090,30 @@ func _physics_process(delta: float):
 	# engagement range.
 	var _is_far_for_lod = not is_player and not is_boss and target and is_instance_valid(target) and global_position.distance_squared_to(target.global_position) > 1400.0 * 1400.0
 
+	# Crowd LOD gate (see crowd_divisor). _crowd_skip = skip the throttled systems this tick;
+	# _sys_delta = the elapsed time they should be advanced by when they do run.
+	var _crowd_skip := false
+	var _sys_delta := delta
+	if crowd_lod_enabled and not is_player and not is_boss and not _is_far_for_lod and target and is_instance_valid(target):
+		var _pf := Engine.get_physics_frames()
+		if _crowd_frame != _pf:
+			_crowd_frame = _pf
+			_crowd_n = EntityCache.get_group(&"enemy").size()
+		var _div := crowd_divisor(_crowd_n, global_position.distance_squared_to(target.global_position))
+		if _div > 1:
+			_lod_mid_elapsed += delta
+			if (_pf + get_instance_id()) % _div != 0:
+				_crowd_skip = true
+			else:
+				_sys_delta = _lod_mid_elapsed
+				_lod_mid_elapsed = 0.0
+		elif _lod_mid_elapsed > 0.0:
+			_sys_delta = _lod_mid_elapsed + delta
+			_lod_mid_elapsed = 0.0
+	elif _lod_mid_elapsed > 0.0:
+		_sys_delta = _lod_mid_elapsed + delta
+		_lod_mid_elapsed = 0.0
+
 	var _t_status = Time.get_ticks_usec()
 	# update_status_effects recomputes current_move_speed AND runs the real
 	# per-effect DoT/duration tick (status_runner.tick, delta-scaled damage)
@@ -1081,9 +1134,11 @@ func _physics_process(delta: float):
 	elif _lod_status_elapsed > 0.0:
 		update_status_effects(_lod_status_elapsed + delta)
 		_lod_status_elapsed = 0.0
-	else:
-		update_status_effects(delta)
+	elif not _crowd_skip:
+		update_status_effects(_sys_delta)
 	_perf_status_effects_usec += Time.get_ticks_usec() - _t_status
+	if diag_stage_limit < 3 and not is_player:
+		return
 
 	if fire_cooldown > 0:
 		fire_cooldown -= delta
@@ -1109,9 +1164,11 @@ func _physics_process(delta: float):
 		# "earned" while far.
 		_tick_weapon_charges(_lod_weapon_charge_elapsed + delta)
 		_lod_weapon_charge_elapsed = 0.0
-	else:
-		_tick_weapon_charges(delta)
+	elif not _crowd_skip:
+		_tick_weapon_charges(_sys_delta)
 	_perf_weapon_charges_usec += Time.get_ticks_usec() - _t_weapon_charges
+	if diag_stage_limit < 4 and not is_player:
+		return
 	# _update_heat(delta) # Thermal system commented out per the user - see the
 	# heat block near HEAT_CAPACITY below for the rest of what's disabled.
 
@@ -1154,8 +1211,8 @@ func _physics_process(delta: float):
 	elif _lod_cloak_elapsed > 0.0:
 		cloak_system.tick(_lod_cloak_elapsed + delta)
 		_lod_cloak_elapsed = 0.0
-	else:
-		cloak_system.tick(delta)
+	elif not _crowd_skip:
+		cloak_system.tick(_sys_delta)
 
 	# Smoke Grenade charge regen - a single min()/add, not worth the same
 	# LOD-throttling apparatus as the four systems above (their own
@@ -1181,8 +1238,8 @@ func _physics_process(delta: float):
 	elif _lod_jammer_elapsed > 0.0:
 		_update_jammer_module(_lod_jammer_elapsed + delta)
 		_lod_jammer_elapsed = 0.0
-	else:
-		_update_jammer_module(delta)
+	elif not _crowd_skip:
+		_update_jammer_module(_sys_delta)
 
 	if _is_far_for_lod:
 		_lod_healer_timer -= delta
@@ -1194,8 +1251,8 @@ func _physics_process(delta: float):
 	elif _lod_healer_elapsed > 0.0:
 		_update_healer(_lod_healer_elapsed + delta)
 		_lod_healer_elapsed = 0.0
-	else:
-		_update_healer(delta)
+	elif not _crowd_skip:
+		_update_healer(_sys_delta)
 
 	if _is_far_for_lod:
 		_lod_shieldpulse_timer -= delta
@@ -1207,9 +1264,11 @@ func _physics_process(delta: float):
 	elif _lod_shieldpulse_elapsed > 0.0:
 		_update_shield_pulse(_lod_shieldpulse_elapsed + delta)
 		_lod_shieldpulse_elapsed = 0.0
-	else:
-		_update_shield_pulse(delta)
+	elif not _crowd_skip:
+		_update_shield_pulse(_sys_delta)
 	_perf_ability_systems_usec += Time.get_ticks_usec() - _t_abilities
+	if diag_stage_limit < 6 and not is_player:
+		return
 
 	if is_player:
 		if not player_controller:
@@ -1274,10 +1333,13 @@ func _physics_process(delta: float):
 			# Skipped: _process_ramming(delta) and visual updates when far
 		else:
 			var _t_ai2 = Time.get_ticks_usec()
-			_execute_ai_tactics(delta)
+			if not _crowd_skip:
+				_execute_ai_tactics(_sys_delta)
 			var _ai2_elapsed = Time.get_ticks_usec() - _t_ai2
 			_perf_ai_tactics_usec += _ai2_elapsed
 			_perf_diag_ai_tactics_usec += _ai2_elapsed
+			if diag_stage_limit < 7:
+				return
 			velocity += external_force
 			_apply_terrain_to_ai_velocity(delta)
 			velocity = _avoid_water_in_velocity(velocity, delta)

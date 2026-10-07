@@ -64,6 +64,8 @@ const ARGS := {
 	"legacy": [0, "turn OFF every performance optimisation made on 2026-10-06 (hit grid, charge early-out, water cache, ability gating) for an end-to-end before/after A/B"],
 	"shot": ["", "save a PNG screenshot of the game window to this path once the warm-up is over, then quit"],
 	"hurt": [0, "damage the player's tiles for a visual demo: some at low HP, some rebooting, some fried (use with --god=0)"],
+	"rustgeom": [1, "ProjectileBatchPool Rust geometry builder (1) or the GDScript atlas draw path (0)"],
+	"geomab": [0, "flip the Rust/GDScript projectile draw path every 2 s inside one run (rows carry a rustgeom flag) for a drift-proof A/B"],
 	"crowdlod": [0, "Mech crowd LOD (stagger per-tick systems when many enemies); default off (no measured gain)"],
 	"procs": [0, "print a census of nodes with _process/_physics_process enabled, by script, at warmup"],
 	# --- output ---
@@ -124,6 +126,7 @@ func _ready() -> void:
 	Mech.crowd_lod_enabled = int(_a["crowdlod"]) != 0
 	preload("res://scripts/core/AdaptiveTick.gd").enabled = int(_a["adaptive"]) != 0
 	ProjectileBatchPool.use_hit_grid = int(_a["hitgrid"]) != 0 and int(_a["legacy"]) == 0
+	ProjectileBatchPool.use_rust_geometry = int(_a["rustgeom"]) != 0 and int(_a["legacy"]) == 0
 	if int(_a["legacy"]) != 0:
 		Mech.diag_slow_charges = true
 		Mech.diag_no_water_cache = true
@@ -270,6 +273,8 @@ func _tick_running(delta: float) -> void:
 		var ev = _timeline.pop_front()
 		_run_cmd(ev[1], ev[2])
 	_apply_world_tweaks()
+	if int(_a["geomab"]) != 0:
+		ProjectileBatchPool.use_rust_geometry = int(_t / 2.0) % 2 == 0
 	# A wave that gets cleared ends in the Garage (paused, ~100 fps): never let that contaminate a run.
 	if is_instance_valid(_main.garage_ui) and ("garage_at" not in _a or float(_a["garage_at"]) < 0.0 or _garage_done):
 		_garage_autoclosed += 1
@@ -496,7 +501,7 @@ func _record(delta: float) -> void:
 		_peak["projectiles"] = max(_peak["projectiles"], proj)
 		var row := {
 			"t": int(_t), "cal_ms": snappedf(cal_ms, 0.01), "fps": _sec_frames,
-			"sim_speed": snappedf(sim_speed, 0.01), "ticks_per_frame": snappedf(tpf, 0.1), "hz": Engine.physics_ticks_per_second, "worst_ms": snappedf(_sec_worst, 0.1), "enemies": enemies,
+			"sim_speed": snappedf(sim_speed, 0.01), "ticks_per_frame": snappedf(tpf, 0.1), "hz": Engine.physics_ticks_per_second, "rustgeom": ProjectileBatchPool.use_rust_geometry, "worst_ms": snappedf(_sec_worst, 0.1), "enemies": enemies,
 			"projectiles": proj, "nodes": get_tree().get_node_count(),
 			"draws": int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
 			"phys_active": int(Performance.get_monitor(Performance.PHYSICS_2D_ACTIVE_OBJECTS)),

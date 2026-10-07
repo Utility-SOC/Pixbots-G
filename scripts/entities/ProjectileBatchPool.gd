@@ -147,6 +147,8 @@ var _mine_detonated: PackedByteArray
 # see projectile_flight.rs) the exact same jaggedness pattern every time a
 # slot gets reused; a monotonic counter avoids that for free.
 var _spawn_gen: PackedInt64Array
+var _spark_hash: PackedInt64Array # int(hash(_spawn_gen[i])) computed once at spawn (the Rust geometry builder cannot reproduce Godot's hash())
+var _color_pk: PackedColorArray # packed mirror of _color for the Rust geometry builder (an Array of Colors is slow to read from Rust)
 var _next_spawn_gen: int = 1
 
 # --- Hit-pipeline state (mirrors Projectile.gd's pierce_count/
@@ -387,6 +389,8 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_is_mine.resize(capacity)
 	_mine_detonated.resize(capacity)
 	_spawn_gen.resize(capacity)
+	_spark_hash.resize(capacity)
+	_color_pk.resize(capacity)
 	_pierce_count.resize(capacity)
 	_pierce_count_max.resize(capacity)
 	_handled_targets.resize(capacity)
@@ -397,6 +401,7 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	for i in range(capacity):
 		_free_indices.append(i)
 		_color[i] = Color.WHITE
+		_color_pk[i] = Color.WHITE
 		_dominant_synergy_name[i] = "RAW"
 		_handled_targets[i] = {}
 		_proc_synergies[i] = {}
@@ -704,6 +709,7 @@ func _spawn_impl(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: f
 	_max_range[i] = _compute_max_range(r_kin_for_life) * beam_range_mult * range_mult
 	_distance_traveled[i] = 0.0
 	_color[i] = color
+	_color_pk[i] = color
 	_scale[i] = scale_mult
 	_fired_by_player[i] = 1 if by_player else 0
 	_source_mech[i] = source
@@ -744,6 +750,7 @@ func _spawn_impl(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: f
 	_hops_left[i] = int(round(4.0 * _r_ltg[i])) if _r_ltg[i] > _ProjectileScript.LIGHTNING_BLINK_MIN else 0
 	_hops_max[i] = _hops_left[i]
 	_spawn_gen[i] = _next_spawn_gen
+	_spark_hash[i] = int(hash(_next_spawn_gen))
 	_next_spawn_gen += 1
 
 	var secondaries = _compute_secondary_synergies(ratios, _dominant_synergy[i])
@@ -1033,10 +1040,66 @@ func _setup_atlas_colors():
 	_vortex_color = EnergyPacket.get_color_for_synergy(EnergyPacket.SynergyType.VORTEX)
 
 func _dq(cell: int, pos: Vector2, rot: float, sx: float, sy: float, col: Color):
+	if _record_quads:
+		_quad_log.append([cell, pos, rot, sx, sy, col])
 	draw_set_transform(pos, rot, Vector2(sx, sy))
 	draw_texture_rect_region(_atlas_tex, _atlas_units[cell], _atlas_px[cell], col)
 
+# --- Rust geometry builder (2026-10-07) -------------------------------------------------------------------------
+# FLAT mode used to queue 10-15 draw_texture_rect_region calls per shot from GDScript (~100 ms/s at ~600 shots on the
+# HD 4000). rust_ext's ProjectileGeometry builds the same quads (same transforms, colours, atlas cells) in one pass
+# and the pool submits them as a few triangle arrays. Falls back to the GDScript path below when the extension lacks
+# the class, when use_rust_geometry is off, or for the cosmetic non-FLAT render modes.
+static var use_rust_geometry: bool = true
+var _geom = null
+var _geom_checked: bool = false
+var _record_quads: bool = false # tests: log every GDScript-path _dq call as [cell, pos, rot, sx, sy, colour]
+var _quad_log: Array = []
+
+func _ensure_geometry() -> bool:
+	if not use_rust_geometry:
+		return false
+	if not _geom_checked:
+		_geom_checked = true
+		if ClassDB.class_exists("ProjectileGeometry") and _atlas_tex != null:
+			var g = ClassDB.instantiate("ProjectileGeometry")
+			var units := PackedFloat32Array()
+			var px := PackedFloat32Array()
+			for r in _atlas_units:
+				units.append_array(PackedFloat32Array([r.position.x, r.position.y, r.size.x, r.size.y]))
+			for r in _atlas_px:
+				px.append_array(PackedFloat32Array([r.position.x, r.position.y, r.size.x, r.size.y]))
+			var consts := {
+				"glow_base_radius": GLOW_BASE_RADIUS, "glow_scale_mult": GLOW_SCALE_MULT, "glow_alpha_mult": GLOW_ALPHA_MULT,
+				"trail_offset_px": TRAIL_OFFSET_PX, "trail_scale_mult": TRAIL_SCALE_MULT, "trail_alpha_mult": TRAIL_ALPHA_MULT,
+				"echo_orbit_radius": ECHO_ORBIT_RADIUS, "echo_orbit_speed": ECHO_ORBIT_SPEED, "echo_scale_mult": ECHO_SCALE_MULT,
+				"vortex_helix_speed": VORTEX_HELIX_SPEED, "vortex_helix_radius": VORTEX_HELIX_RADIUS,
+				"extra_ring_units": EXTRA_RING_UNITS, "spark_count": SPARK_COUNT, "spark_min_dist": SPARK_MIN_TRAIL_DIST,
+				"spark_max_dist": SPARK_MAX_TRAIL_DIST, "spark_jitter_perp": SPARK_JITTER_PERP, "spark_base_radius": SPARK_BASE_RADIUS,
+				"spark_alpha_mult": SPARK_ALPHA_MULT, "spark_refresh": SPARK_REFRESH_INTERVAL,
+				"cell_beam": CELL_BEAM, "cell_disc": CELL_DISC, "cell_comet_fire": CELL_COMET_FIRE, "cell_comet_kinetic": CELL_COMET_KINETIC,
+				"syn_fire": EnergyPacket.SynergyType.FIRE, "syn_kinetic": EnergyPacket.SynergyType.KINETIC,
+				"syn_vortex": EnergyPacket.SynergyType.VORTEX, "syn_pierce": EnergyPacket.SynergyType.PIERCE,
+				"no_synergy": NO_SYNERGY, "helix0": VORTEX_HELIX_CHANNELS[0], "helix1": VORTEX_HELIX_CHANNELS[1], "helix2": VORTEX_HELIX_CHANNELS[2],
+			}
+			g.configure(consts, units, px, Vector2(_atlas_tex.get_width(), _atlas_tex.get_height()), PackedColorArray(_echo_colors), _vortex_color)
+			_geom = g
+	return _geom != null
+
+func _draw_atlas_rust() -> void:
+	_geom.set_count(_highest_active + 1)
+	_geom.load_a(_alive, _dominant_synergy, _direction, _position, _visual_offset, _scale, _color_pk)
+	_geom.build(_elapsed, _lifetime, _is_beam, _speed, _secondary_synergy_1, _secondary_synergy_2, _extra_mask, _spark_hash)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE) # the last per-shot transform would otherwise apply to the arrays
+	var tex_rid: RID = _atlas_tex.get_rid()
+	for k in range(_geom.chunk_count()):
+		RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), _geom.chunk_indices(k), _geom.chunk_points(k),
+			_geom.chunk_colors(k), _geom.chunk_uvs(k), PackedInt32Array(), PackedFloat32Array(), tex_rid)
+
 func _draw_atlas():
+	if render_mode == RenderMode.FLAT and _ensure_geometry():
+		_draw_atlas_rust()
+		return
 	_gv.clear()
 	_gc.clear()
 	_gi.clear()

@@ -586,6 +586,11 @@ func _run_micro() -> void:
 		if is_instance_valid(e) and e.has_method("_tick_weapon_charges") and not e.get("is_dead"):
 			enemies.append(e)
 	var res := {"enemies": enemies.size()}
+	var heal_powers: Array = []
+	for e in enemies:
+		if e.has_healer:
+			heal_powers.append([snappedf(e.heal_pulse_power, 0.1), snappedf(e.heal_pulse_interval, 0.1), snappedf(e.heal_pulse_radius, 1.0), snappedf(e.max_hp, 1.0)])
+	res["healers"] = heal_powers
 	var wsum := 0
 	var bank := 0
 	var offline := 0

@@ -37,3 +37,9 @@ func get_pulse_interval() -> float:
 	var base = TileStatsRegistry.get_stat("HealBeaconTile", "pulse_interval_base", 5.0)
 	var coeff = TileStatsRegistry.get_stat("HealBeaconTile", "pulse_interval_rarity_coeff", 0.7)
 	return max(floor_val, base - rarity * coeff)
+
+# MYTHIC "Field Repair": a mythic beacon also banks the energy routed into it and, each time it has collected
+# `repair_pulse_cost` (a huge number on purpose: only a heavily fed beacon gets there), fires a repair pulse that
+# mends the PLAYER's own mech in the field (see HealBeaconSystem._tick_field_repair). Below Mythic it only heals HP.
+func is_field_repair() -> bool:
+	return rarity >= HexTile.Rarity.MYTHIC

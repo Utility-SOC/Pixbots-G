@@ -252,6 +252,13 @@ var jammer_pulse_timer: float = 0.0
 
 # --- Heal Beacon (Support backpack ability) ---
 var has_healer: bool = false
+# MYTHIC heal beacon "Field Repair" (see HealBeaconTile.is_field_repair / HealBeaconSystem._tick_field_repair):
+# repair_energy_flow is the beacon energy per second routed into mythic beacons by the last grid recalculation,
+# repair_charge banks it between pulses (survives recalculations), repair_cooldown spaces consecutive pulses.
+var has_field_repair: bool = false
+var repair_energy_flow: float = 0.0
+var repair_charge: float = 0.0
+var repair_cooldown: float = 0.0
 var heal_pulse_power: float = 0.0
 var heal_pulse_radius: float = 0.0
 var heal_pulse_interval: float = 4.0
@@ -2421,6 +2428,8 @@ func _reset_grid_state():
 	_jammer_tiles.clear()
 	has_healer = false
 	heal_pulse_power = 0.0
+	has_field_repair = false
+	repair_energy_flow = 0.0
 
 	total_magnetic_power = 0.0
 	min_loot_attract_rarity = -1
@@ -2873,7 +2882,11 @@ func _collect_weapon_mounts_and_tile_capabilities():
 
 			if tile.tile_type == "Heal Beacon" and tile.has_method("get_heal_energy"):
 				has_healer = true
-				heal_pulse_power += tile.get_heal_energy() * 0.1
+				var _heal_e: float = tile.get_heal_energy()
+				heal_pulse_power += _heal_e * 0.1
+				if tile.has_method("is_field_repair") and tile.is_field_repair():
+					has_field_repair = true
+					repair_energy_flow += _heal_e
 				heal_pulse_radius = tile.get_pulse_radius()
 				heal_pulse_interval = tile.get_pulse_interval()
 

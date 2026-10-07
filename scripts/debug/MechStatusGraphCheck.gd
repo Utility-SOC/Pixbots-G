@@ -97,6 +97,8 @@ func _ready():
 	var broken_leg = ComponentEquipmentScript.new(HexTile.BodySlot.LEG_L, HexTile.Rarity.COMMON)
 	broken_leg.is_broken = true
 	mech.components[HexTile.BodySlot.LEG_L] = broken_leg
+	mech.has_field_repair = true # draws the RPR charge bar too
+	mech.repair_charge = 30000.0
 	var main_stub = Node.new()
 	main_stub.set_script(load("res://scripts/debug/StatusGraphMainStub.gd"))
 	main_stub.player = mech

@@ -11,6 +11,7 @@ extends Control
 #   states   bright = fine,  dim = damaged (under 60% HP),  blinking = knocked offline, rebooting,
 #            X = fried (power lost; only a Garage repair fixes it).
 #   limbs    the box outline dims at under 50% integrity; a destroyed limb is dashed with a slash through it.
+#   RPR bar  (only with a MYTHIC heal beacon) how charged the beacon's Field Repair pulse is.
 #
 # Toggle with F10 or Settings > Visuals. Purely a read-only view of Mech state; redraws ~5x a second.
 
@@ -258,6 +259,14 @@ func _draw_vitals(player: Mech, rect: Rect2) -> void:
 				offline += 1
 	_label("LOST %d" % (fried + broken), rect.position + Vector2(2, 31), GREEN if fried + broken == 0 else GREEN_DIM)
 	_label("REBOOT %d" % offline, rect.position + Vector2(2, 41), GREEN if offline == 0 else GREEN_DIM)
+	# MYTHIC heal beacon Field Repair: how close the next repair pulse is (full bar = ready, fires when something breaks).
+	if player.has_field_repair:
+		var cost: float = TileStatsRegistry.get_stat("HealBeaconTile", "repair_pulse_cost", 60000.0)
+		var charge := clampf(player.repair_charge / maxf(cost, 1.0), 0.0, 1.0)
+		_label("RPR", rect.position + Vector2(2, 49), GREEN, 7)
+		var rbar := Rect2(rect.position + Vector2(20, 43), Vector2(rect.size.x - 22, 5))
+		draw_rect(rbar, GREEN_DIM, false, 1.0)
+		draw_rect(Rect2(rbar.position + Vector2(1, 1), Vector2((rbar.size.x - 2) * charge, rbar.size.y - 2)), GREEN if charge >= 1.0 else GREEN_DIM, true)
 
 func _draw_legend(rect: Rect2) -> void:
 	var entries := [[Kind.ACTUATOR, "ACT"], [Kind.JUMPJET, "JET"], [Kind.WEAPON, "GUN"], [Kind.LINK, "LNK"], [Kind.MODULE, "MOD"]]

@@ -201,6 +201,9 @@ Press **`F11`** (or **`Alt+Enter`**) anywhere to toggle borderless fullscreen fo
 ### Systems status graph
 A small black-and-green schematic sits in the bottom-right corner so you can see at a glance what still works when deciding whether to return to the Garage. Your mech is drawn as a paper doll (head, pack, arms, torso, legs) and each important tile appears as a tiny line glyph at its real position: **○ actuator, ◇ jumpjet/thruster, △ weapon, □ component link, ✚ other module** (shield, heal beacon, jammer, cloak, drone bay). Bright means fine, dim means damaged (under 60% HP), blinking means knocked offline and rebooting, and an **X means fried** (only a Garage repair fixes it). A limb box dims under half integrity, and a destroyed limb is dashed with a slash through it. The top-left corner shows your HP bar plus how many systems are lost or rebooting. Toggle it with **`F10`** or in Settings > Visuals.
 
+### Mythic Heal Beacon: Field Repair
+A normal Heal Beacon heals mech HP only (yours and your drones'); it never touches tiles or limbs. A **Mythic** Heal Beacon also banks the energy routed into it and, each time it has collected a huge amount (60,000 by default, tunable as `repair_pulse_cost` in `tiles/HealBeaconTile/stats.json`), fires a **Field Repair** pulse on **your** mech. Each pulse has 3 repair points, spent in order: revive a destroyed limb (3 points, back at half integrity), restore fried tiles (1 each), top up damaged tile HP (1), top up hurt limbs (1). It banks at most one pulse while nothing needs fixing, so it fires the moment something breaks, and pulses are at least 8 seconds apart. Enemy beacons never get this. The status graph shows the charge as an **RPR** bar.
+
 ### The War Room Interface
 Press **`TAB`** in-game to access the War Room. 
 - **Lineage Graphs & Fitness Logs**: View a visual log of the AI's evolving lineage, the current fitness scores of its Squad Templates, and what compositions it is favoring.

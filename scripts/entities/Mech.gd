@@ -73,6 +73,7 @@ func _get_map_ref() -> Node:
 	if not is_instance_valid(_cached_map_ref):
 		var maps = get_tree().get_nodes_in_group("map_generator")
 		_cached_map_ref = maps[0] if maps.size() > 0 else null
+		_wcache_cx = -1000000 # new map: the per-tile water cache no longer applies
 	return _cached_map_ref
 
 func _get_player_ref() -> Node:
@@ -1598,11 +1599,26 @@ func _apply_terrain_to_ai_velocity(delta: float) -> void:
 		velocity = TerrainEffects.slide(_slide_velocity, velocity, terrain_traction, delta)
 	_slide_velocity = velocity
 
+# Diagnostic A/B toggle (DebugRoom --micro, MechWaterCacheParityCheck): true = recompute every tick.
+static var diag_no_water_cache: bool = false
+var _wcache_cx: int = -1000000
+var _wcache_cy: int = -1000000
+var _wcache_ver: int = -1
+
 func _refresh_water_state():
 	var is_over_water = false
 	var map = _get_map_ref()
 	if map and "terrain" in map:
-		var grid_pos = Vector2i(int(floor(global_position.x / map.tile_size)), int(floor(global_position.y / map.tile_size)))
+		var ts: float = map.tile_size
+		var cx := int(floor(global_position.x / ts))
+		var cy := int(floor(global_position.y / ts))
+		# Same tile as last tick on the same terrain: _in_water / terrain_speed_mult / terrain_traction are
+		# already current, so skip the lookups (a mech changes tile every ~10-20 ticks). The player and
+		# FightShovel (corn trampling runs every tick) keep the full path.
+		if not diag_no_water_cache and not is_player and cx == _wcache_cx and cy == _wcache_cy \
+				and map.terrain_version == _wcache_ver:
+			return
+		var grid_pos = Vector2i(cx, cy)
 		if grid_pos.x >= 0 and grid_pos.x < map.width and grid_pos.y >= 0 and grid_pos.y < map.height:
 			var biome_here: int = map.terrain[grid_pos.y][grid_pos.x]
 			is_over_water = biome_here == map.BiomeType.WATER
@@ -1617,8 +1633,13 @@ func _refresh_water_state():
 		# lookup this function already does, one dictionary check further.
 		# No-ops instantly on any map without corn (see MapGenerator.
 		# trample_corn's own guard).
-		if map.map_type == "FightShovel" and map.has_method("trample_corn"):
+		var is_corn_map: bool = map.map_type == "FightShovel"
+		if is_corn_map and map.has_method("trample_corn"):
 			map.trample_corn(grid_pos)
+		if not is_player and not is_corn_map:
+			_wcache_cx = cx
+			_wcache_cy = cy
+			_wcache_ver = map.terrain_version
 	_in_water = is_over_water
 
 # Prevents enemies from just walking straight into water and drowning.
@@ -1638,6 +1659,8 @@ func _avoid_water_in_velocity(vel: Vector2, delta: float) -> Vector2:
 	var map = _get_map_ref()
 	if not map or not ("terrain" in map):
 		return vel
+	if not diag_no_water_cache and not map.any_water():
+		return vel # no water tile anywhere on this map: nothing to avoid
 	var lookahead = global_position + vel * max(delta, 0.15) # a beat ahead, not just this tick
 	var grid_pos = Vector2i(int(floor(lookahead.x / map.tile_size)), int(floor(lookahead.y / map.tile_size)))
 	if grid_pos.x < 0 or grid_pos.x >= map.width or grid_pos.y < 0 or grid_pos.y >= map.height:

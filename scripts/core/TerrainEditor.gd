@@ -271,6 +271,7 @@ func revert_pending() -> void:
 # ---- physical sync -------------------------------------------------------------
 
 func _sync_solid(c: Vector2i) -> void:
+	map.terrain_version += 1 # every runtime terrain write ends here: per-mech terrain caches must refresh
 	var solid = int(map.terrain[c.y][c.x]) == MapScript.BiomeType.WATER or map.obstacles.has(c)
 	map.astar_grid.set_point_solid(c, solid)
 

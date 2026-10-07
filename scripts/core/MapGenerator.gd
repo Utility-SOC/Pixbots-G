@@ -18,6 +18,22 @@ var moisture_noise: FastNoiseLite
 var obstacle_noise: FastNoiseLite
 
 var terrain: Array = []
+# Bumped whenever the biome grid changes after generation (regeneration, TerrainEditor.set_biome) so per-mech
+# terrain caches (Mech._refresh_water_state) know to refresh. any_water() is a per-version cached scan.
+var terrain_version: int = 0
+var _any_water_ver: int = -1
+var _any_water: bool = true
+
+func any_water() -> bool:
+	if _any_water_ver != terrain_version:
+		_any_water_ver = terrain_version
+		_any_water = false
+		for row in terrain:
+			if row.has(BiomeType.WATER):
+				_any_water = true
+				break
+	return _any_water
+
 var obstacles: Dictionary = {}
 
 var main_continent_tiles: Dictionary = {}
@@ -1200,6 +1216,7 @@ var _chunk_sprites: Dictionary = {}
 var _runs: Dictionary = {}
 
 func _draw_map_to_texture():
+	terrain_version += 1
 	_chunk_sprites.clear()
 	_runs.clear()
 	# CRITICAL for regeneration: every child of MapGenerator is generated

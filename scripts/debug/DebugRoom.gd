@@ -582,6 +582,18 @@ func _run_micro() -> void:
 	Mech.diag_slow_charges = false
 	res["charges_fast_us"] = snappedf(maxf(best_fast - oh, 0.0), 0.01)
 	res["charges_slow_us"] = snappedf(maxf(best_slow - oh, 0.0), 0.01)
+	# Same-process interleaved A/B for the water-state cache and the any_water() skip.
+	for fn in [["_refresh_water_state", []], ["_avoid_water_in_velocity", [Vector2(100, 0), 0.016]]]:
+		var b_on := INF
+		var b_off := INF
+		for rep in range(6):
+			Mech.diag_no_water_cache = false
+			b_on = minf(b_on, _time_calls(enemies, fn[0], fn[1]))
+			Mech.diag_no_water_cache = true
+			b_off = minf(b_off, _time_calls(enemies, fn[0], fn[1]))
+		Mech.diag_no_water_cache = false
+		res[fn[0] + "_cached_us"] = snappedf(maxf(b_on - oh, 0.0), 0.01)
+		res[fn[0] + "_original_us"] = snappedf(maxf(b_off - oh, 0.0), 0.01)
 	# cloak system tick is an object call, not a Mech method
 	var cs: Array = []
 	for e in enemies:

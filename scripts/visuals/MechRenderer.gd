@@ -755,7 +755,7 @@ func _decor_kind(t) -> String:
 		return "lcd"
 	match t.tile_type:
 		"Amplifier", "Catalyst", "Resonator": return "lcd"
-		"Shield Generator", "Reactive Plating", "Anchor", "Structural Strut": return "plate"
+		"Shield Generator", "Reactive Plating", "Anchor", "Structural Strut", "Stun Guard", "Shock Guard", "Freeze Guard": return "plate"
 		"Jumpjet", "Maneuvering Thruster", "Actuator": return "vent"
 		"Weapon Mount", "Missile Rack", "Lance Mount", "Orbiting Array": return "barrel"
 		"Accumulator", "Buffer Cell", "Microcore": return "cell"

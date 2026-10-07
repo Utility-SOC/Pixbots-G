@@ -2435,6 +2435,8 @@ func _reset_grid_state():
 	min_loot_attract_rarity = -1
 	stat_modifiers.clear()
 	elemental_resistances.clear() # rebuilt below from equipped Structural Struts (elemental armor)
+	status_duration_mult.clear() # rebuilt below from equipped Stun/Shock/Freeze Guards
+	_status_resist_sum.clear()
 	has_reactive_plating = false
 	reactive_plating_reflect_pct = 0.0
 
@@ -2923,6 +2925,16 @@ func _collect_weapon_mounts_and_tile_capabilities():
 						+ (tile.rarity * TileStatsRegistry.get_stat("StructuralStrutTile", "armor_reduction_rarity_coeff", 0.02)),
 					0.0, 0.5)
 				elemental_resistances[armor_element] = elemental_resistances.get(armor_element, 1.0) * (1.0 - per_strut_reduction)
+
+			# Stun / Shock / Freeze Guards: passive, unconditional from presence. Stack multiplicatively with a floor
+			# (the tile's max_resist), so piling on cells has diminishing returns and never reaches full immunity.
+			if tile.has_method("get_guard_energy") and tile.resisted_status != "":
+				# Resistance is proportional to the energy fed in (see StatusResistTile.gd); several Guards of one
+				# kind add up, capped at the tile's max_resist, so nobody is ever fully immune.
+				var guard_resist: float = tile.resist_for_energy(tile.get_guard_energy())
+				var total_resist: float = minf(_status_resist_sum.get(tile.resisted_status, 0.0) + guard_resist, tile.get_max_resist())
+				_status_resist_sum[tile.resisted_status] = total_resist
+				status_duration_mult[tile.resisted_status] = 1.0 - total_resist
 
 			# Reactive Plating (design request: "reactive armor options
 			# which melee mechs will abuse" - see the field comment on
@@ -3798,6 +3810,10 @@ func _execute_ai_tactics(delta):
 
 
 var elemental_resistances: Dictionary = {}
+# Stun/Shock/Freeze Guard tiles (see StatusResistTile.gd): status name -> fraction of an incoming status duration that
+# still gets through (1.0 = unprotected). Rebuilt on every grid recalculation; read by apply_status().
+var status_duration_mult: Dictionary = {}
+var _status_resist_sum: Dictionary = {} # scratch for the recalculation: status -> summed Guard resistance
 
 # Reactive Plating (design request: "reactive armor options which melee
 # mechs will abuse"). Passive/unconditional from mere presence, same as
@@ -4394,6 +4410,10 @@ func _find_disable_priority_tile(comp):
 	return null
 
 func apply_status(effect_name: String, duration: float):
+	if not status_duration_mult.is_empty() and status_duration_mult.has(effect_name):
+		duration *= status_duration_mult[effect_name] # Stun/Shock/Freeze Guard
+		if duration < 0.03:
+			return # shrugged off entirely
 	status_effects[effect_name] = duration
 	if effect_name == "burning" or effect_name == "poisoned" or effect_name == "frozen" or effect_name == "paralyzed":
 		load("res://scripts/visuals/StatusAura.gd").ensure_on(self)

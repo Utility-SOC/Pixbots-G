@@ -291,6 +291,37 @@ func _build_component_d():
 
 	return comp
 
+# --- Grid E: passive tiles added 2026-10-07 --------------------------------------
+#   Core(0,0) fires E, SE, SW.
+#   E : Structural Strut(1,0) -> Freeze Guard(2,0)   (the Strut is pure pass-through, the Guard a store sink)
+#   SE: Stun Guard(0,1)
+#   SW: Shock Guard(-1,1)
+func _build_component_e():
+	var comp = ComponentEquipmentScript.new(HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON)
+	var hexes: Array[HexCoord] = [HexCoord.new(0, 0), HexCoord.new(1, 0), HexCoord.new(2, 0), HexCoord.new(0, 1), HexCoord.new(-1, 1)]
+	comp.valid_hexes = hexes
+	comp._rebuild_valid_hex_set()
+	var core = CoreTileScript.new()
+	core.active_faces.clear()
+	core.active_faces.append(0)
+	core.active_faces.append(1)
+	core.active_faces.append(2)
+	core.set_face_output(0, EnergyPacket.SynergyType.ICE)
+	core.set_face_output(1, EnergyPacket.SynergyType.EXPLOSION)
+	core.set_face_output(2, EnergyPacket.SynergyType.LIGHTNING)
+	comp.hex_grid.add_tile(HexCoord.new(0, 0), core)
+	comp.hex_grid.add_tile(HexCoord.new(1, 0), load("res://scripts/tiles/StructuralStrutTile.gd").new())
+	var fg = load("res://scripts/tiles/FreezeGuardTile.gd").new()
+	fg.rarity = HexTile.Rarity.RARE
+	comp.hex_grid.add_tile(HexCoord.new(2, 0), fg)
+	var sg = load("res://scripts/tiles/StunGuardTile.gd").new()
+	sg.rarity = HexTile.Rarity.UNCOMMON
+	comp.hex_grid.add_tile(HexCoord.new(0, 1), sg)
+	var hg = load("res://scripts/tiles/ShockGuardTile.gd").new()
+	hg.rarity = HexTile.Rarity.MYTHIC
+	comp.hex_grid.add_tile(HexCoord.new(-1, 1), hg)
+	return comp
+
 func _gen_packets(comp) -> Array:
 	var core = comp.hex_grid.get_tile(HexCoord.new(0, 0))
 	var pkts = core.generate_energy(comp.hex_grid)
@@ -452,6 +483,7 @@ func _ready():
 	_run_grid("stateful", _build_component_b)
 	_run_grid("mythic", _build_component_c)
 	_run_grid("catalyst_prime_cloak", _build_component_d)
+	_run_grid("passive_and_guards", _build_component_e)
 
 	# Fallback correctness: every real tile type in the game is now routed
 	# (gated/inverted Catalyst, Prime Circuit, and Cloak Generator/AllyCloak

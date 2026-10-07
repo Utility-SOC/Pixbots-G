@@ -71,6 +71,14 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 ### Queued (agreed with the user, in order)
 1. Smarter AutoEquipSolver (priority; enemy builds use its output too). 2. War Room upgrades, including confidence display for the AI's build culling (it culls builds after about 3 trials, so luck can delete good ones). 3. Phase 2 maps (terrain effects, zone gameplay, biome identity, more map types, set pieces). 4. Phase 3 audio and feel (ducking, pooled weapon audio, hitstop/camera audit, scorch decals). 5. Phase 5 visual identity. 6. Elemental balance options write-up (describe first, Heat on hold).
 
+### Owner decisions (2026-10-07), details in docs/OPEN_QUESTIONS.md
+- **Resistance tiles shipped:** Stun Guard (concussed), Shock Guard (paralyzed), Freeze Guard (frozen). Energy-fed sinks; strength is proportional to the energy routed in (cap 90%); the cost is a cell, mass and that energy. Freeze Guard later becomes a heat sink.
+- **Ice rework (agreed, not built): Shatter + Frost field.** Enough accumulated cold makes a unit leave an icy trail, move slowly and become embrittled (extra damage taken); on death it throws ice shrapnel.
+- **Vortex rework (agreed, not built): gravity well that carries enemies along at the heart of the vortex** (Kinetic flings them across the map; Poison clumps them for culling).
+- **Rust migration takes precedence over most feature work** (speed on weak hardware and Pixelbots 2 reuse; ideally leave Godot for the 3D sequel): see docs/RUST_MIGRATION_ROADMAP.md.
+- **Balance before Heat.** Weak-GPU visuals tier switches on automatically but is switchable in Settings. Garage overload marking: mark only the chokepoints. Enemy use of terrain is the next map step. Pixelbots 2 tile columns: porcupine.
+- **Story thread (cutscenes to author, spread across the game):** strange men dressed all in black, hexagon bodies like Frank's but with different proportions, come in and demand data.
+
 ### Gameplay & Balance
 - **Kinetic firing-mechanics enhancement (2026-07-27, deferred):** the user disagrees it needs work ("Kinetic owns range"). Not an active want; do not build unless re-raised.
 - **Heat as a system (2026-07-26, on hold as of 2026-10-05):** candidate cost axis for the calcified meta; zero design done. Explicitly held.

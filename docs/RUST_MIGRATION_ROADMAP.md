@@ -117,9 +117,24 @@ Pixelbots 2 (see `PIXELBOTS_2_HEX_TO_CUBE_MAPPING.md`).
 3. Prototype the Rust spatial index replacing static `StaticBody2D`s for enemy movement, and compare
    against the `--nostatic` numbers.
 
-## Open questions for the owner
+## Owner decisions (2026-10-07) - these answer the questions that used to be here
 
-- Is the goal speed on weak hardware, independence from Godot, or Pixelbots 2 reuse? They weight the
-  phases differently.
-- Acceptable timeline, and is feature work paused during any phase?
-- Is dropping the Godot editor for level/UI authoring acceptable?
+- **Goal:** speed on weak hardware, and Pixelbots 2 reuse. (Not independence from Godot for its own sake.)
+- **Timeline:** sooner is better. The migration takes precedence over most feature work: "the game has to feel fluid to
+  be fun". Feature work is not frozen, but a Rust slice outranks a new feature when they compete.
+- **Godot editor:** dropping it for authoring is fine (it is not used).
+- **The 3D sequel:** ideally NOT on Godot. This pushes the shell decision (Phase 3) away from "keep Godot forever" and
+  toward a Rust-native renderer, with the simulation core engine-agnostic from the start.
+
+### What this changes in the plan
+1. Phase 0 is satisfied: the profile (79% of main-thread CPU inside the engine, 2026-10-06) and the DebugRoom data are the
+   evidence; the cheap Godot-side wins are banked (hit-test grid, charge/water caches, Rust projectile geometry).
+2. Phase 1 starts now, as thin vertical slices that each ship and each leave a `cargo test`-able pure-Rust core:
+   a. Workspace: `pixbots_core` (no Godot types, pure `std`) + `rust_ext` (the Godot binding, depends on core).
+   b. First slice: move the projectile geometry builder's maths into `pixbots_core` (it is already slice-in, vec-out) with
+      native unit tests; `rust_ext` keeps only the Godot marshalling.
+   c. Then, in this order: hexmath, flow_field / solid_grid, hexgrid_sim (the energy simulation, the heart of PB2),
+      separation, projectile flight/broadphase.
+3. Phase 2 (mechs/AI/movement in Rust) is unchanged in shape but now has a deadline-driven order: movement and per-tick
+   systems first (that is where the measured per-enemy cost is), AI tactics after.
+4. Phase 3 (the shell): evaluate a wgpu GL-backend spike early, since the target is a non-Godot 3D sequel and weak GPUs.

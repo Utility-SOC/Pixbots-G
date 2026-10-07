@@ -1,0 +1,6 @@
+{
+	"weight": 3.0,
+	"energy_for_max": 1500.0,
+	"max_resist": 0.9,
+	"description": "Freeze Guard: shortens the frozen status on you in proportion to the energy routed into it (full protection cap 90%). Costs a cell, mass and that energy."
+}

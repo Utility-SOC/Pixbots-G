@@ -42,6 +42,7 @@ const KIND_BY_FILE := {
 	"JammerModuleTile.gd": Kind.MODULE,
 	"CloakTile.gd": Kind.MODULE,
 	"DroneBayTile.gd": Kind.MODULE,
+	"StatusResistTile.gd": Kind.MODULE, # Stun / Shock / Freeze Guards (found via the inheritance chain)
 }
 
 # Body slot -> [grid column, grid row, label]. Column widths and row heights are fixed below.

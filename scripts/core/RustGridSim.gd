@@ -169,6 +169,9 @@ static func _describe_tile(tile) -> Dictionary:
 	elif t == "Heal Beacon":
 		d["kind"] = KIND_STORE_SINK
 		d["store_coef"] = 1.0 + tile.rarity * 0.5
+	elif t == "Stun Guard" or t == "Shock Guard" or t == "Freeze Guard":
+		d["kind"] = KIND_STORE_SINK # energy-fed status resistance: same intake as the Heal Beacon
+		d["store_coef"] = 1.0 + tile.rarity * 0.5
 	elif t == "Jammer Module":
 		d["kind"] = KIND_STORE_SINK
 		d["store_coef"] = 1.0 + tile.rarity * TileStatsRegistry.get_stat("JammerModuleTile", "energy_storage_rarity_coeff", 0.5)
@@ -288,7 +291,7 @@ static func _describe_tile(tile) -> Dictionary:
 			extra.append(off.x)
 			extra.append(off.y)
 		d["extra_cells"] = extra
-	elif t == "Sensor Array" or t == "Mobility Core" or t == "Anchor":
+	elif t == "Sensor Array" or t == "Mobility Core" or t == "Anchor" or t == "Structural Strut":
 		d["kind"] = KIND_PASS # pure pass-through tiles
 	else:
 		return {} # anything else: unsupported, whole grid falls back

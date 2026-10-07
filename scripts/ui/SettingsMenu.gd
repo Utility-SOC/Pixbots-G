@@ -160,6 +160,20 @@ func _setup_ui():
 	SaveManager.fullscreen_changed.connect(check_fullscreen.set_pressed_no_signal) # method Callable: auto-disconnects when freed
 	visuals_tab.add_child(check_fullscreen)
 
+	# Systems status graph (bottom-right schematic of weapons, actuators, jumpjets, links). F10 toggles it too.
+	var graph_hint = Label.new()
+	graph_hint.text = "Small green schematic in the bottom-right showing which of your weapons, actuators, jumpjets and links are working. Also toggled with F10."
+	graph_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	graph_hint.modulate = Color(0.7, 0.7, 0.7)
+	visuals_tab.add_child(graph_hint)
+
+	var check_graph = CheckButton.new()
+	check_graph.text = "Show systems status graph (F10)"
+	check_graph.button_pressed = SaveManager.show_status_graph
+	check_graph.toggled.connect(func(pressed): SaveManager.set_status_graph(pressed))
+	SaveManager.status_graph_changed.connect(check_graph.set_pressed_no_signal) # method Callable: auto-disconnects when freed
+	visuals_tab.add_child(check_graph)
+
 	# PROFILE TAB
 	var profile_tab = VBoxContainer.new()
 	profile_tab.name = "Profile"

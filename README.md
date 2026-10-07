@@ -198,6 +198,9 @@ Bosses now have **11 telegraphed abilities** (new: meteor rain, minefield, gravi
 ### Fullscreen
 Press **`F11`** (or **`Alt+Enter`**) anywhere to toggle borderless fullscreen for extra screen space; there is also a checkbox in Settings > Visuals. The choice is remembered, and the battlefield simply shows more of the map in a bigger window.
 
+### Systems status graph
+A small black-and-green schematic sits in the bottom-right corner so you can see at a glance what still works when deciding whether to return to the Garage. Your mech is drawn as a paper doll (head, pack, arms, torso, legs) and each important tile appears as a tiny line glyph at its real position: **○ actuator, ◇ jumpjet/thruster, △ weapon, □ component link, ✚ other module** (shield, heal beacon, jammer, cloak, drone bay). Bright means fine, dim means damaged (under 60% HP), blinking means knocked offline and rebooting, and an **X means fried** (only a Garage repair fixes it). A limb box dims under half integrity, and a destroyed limb is dashed with a slash through it. The top-left corner shows your HP bar plus how many systems are lost or rebooting. Toggle it with **`F10`** or in Settings > Visuals.
+
 ### The War Room Interface
 Press **`TAB`** in-game to access the War Room. 
 - **Lineage Graphs & Fitness Logs**: View a visual log of the AI's evolving lineage, the current fitness scores of its Squad Templates, and what compositions it is favoring.

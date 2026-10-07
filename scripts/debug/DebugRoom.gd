@@ -62,6 +62,8 @@ const ARGS := {
 	"adaptive": [0, "AdaptiveTick (lower the physics rate under load); default off, 1 = on for A/B"],
 	"micro": [0, "after warm-up, pause the sim and time each per-tick Mech function directly on the live enemies (us/call), write it to the report and quit"],
 	"legacy": [0, "turn OFF every performance optimisation made on 2026-10-06 (hit grid, charge early-out, water cache, ability gating) for an end-to-end before/after A/B"],
+	"shot": ["", "save a PNG screenshot of the game window to this path once the warm-up is over, then quit"],
+	"hurt": [0, "damage the player's tiles for a visual demo: some at low HP, some rebooting, some fried (use with --god=0)"],
 	"crowdlod": [0, "Mech crowd LOD (stagger per-tick systems when many enemies); default off (no measured gain)"],
 	"procs": [0, "print a census of nodes with _process/_physics_process enabled, by script, at warmup"],
 	# --- output ---
@@ -104,6 +106,7 @@ func _ready() -> void:
 		_print_help()
 		get_tree().quit()
 		return
+	SaveManager.tutorial_completed = true # skip Frank's onboarding cinematic (in memory only, never saved)
 	seed(int(_a["seed"]))
 	_fire = str(_a["fire"]) != "off"
 	_god = int(_a["god"]) != 0
@@ -292,6 +295,17 @@ func _tick_running(delta: float) -> void:
 		var t0 := Time.get_ticks_usec()
 		_main._close_garage()
 		print("ROOM garage_return t=%.1f sync_ms=%.1f" % [_t, (Time.get_ticks_usec() - t0) / 1000.0])
+	if int(_a["hurt"]) != 0 and not _hurt_done and _t >= 1.0:
+		_hurt_done = true
+		_apply_hurt()
+	if str(_a["shot"]) != "" and _t >= float(_a["warmup"]) and not _shot_done:
+		_shot_done = true
+		await RenderingServer.frame_post_draw
+		var img := get_viewport().get_texture().get_image()
+		img.save_png(str(_a["shot"]))
+		print("ROOM screenshot saved: ", _a["shot"], " ", img.get_size())
+		_finish()
+		return
 	if int(_a["micro"]) != 0 and _t >= float(_a["warmup"]) + 1.0:
 		_run_micro()
 		return
@@ -320,6 +334,25 @@ func _print_proc_census() -> void:
 
 var _garage_autoclosed := 0
 var _keep_acc := 0.0
+var _hurt_done := false
+var _shot_done := false
+func _apply_hurt() -> void:
+	var i := 0
+	for comp in _main.player.components.values():
+		for t in comp.hex_grid.get_all_tiles():
+			match i % 5:
+				1: t.hp = t.max_hp * 0.3
+				2: t.is_disabled = true
+				3: t.power_lost = true
+			i += 1
+	var legs = _main.player.components.get(HexTile.BodySlot.LEG_R)
+	if legs: legs.is_broken = true
+	var arm = _main.player.components.get(HexTile.BodySlot.ARM_L)
+	if arm:
+		arm.max_integrity = 100.0
+		arm.integrity = 30.0
+	print("ROOM hurt applied to the player's tiles")
+
 func _keep_crowd(delta: float) -> void:
 	var want := int(_a["keep"])
 	if want <= 0:

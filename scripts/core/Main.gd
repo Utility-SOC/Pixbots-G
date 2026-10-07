@@ -474,6 +474,11 @@ func _setup_hud():
 	orders_panel.position = Vector2(20, 520)
 	hud_canvas.add_child(orders_panel)
 
+	# Bottom-right systems schematic (weapons / actuators / jumpjets / links), toggled with F10.
+	var status_graph = load("res://scripts/ui/MechStatusGraph.gd").new()
+	status_graph.main = self
+	hud_canvas.add_child(status_graph)
+
 	add_child(hud_canvas)
 	_update_hud()
 

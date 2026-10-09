@@ -160,11 +160,16 @@ func _replay_plan(component: Node, inventory: Array, profile: SolverProfile, pla
 			tile = inventory[idx]
 			inventory.remove_at(idx)
 		else:
-			# Defensive only - shouldn't happen since the cache key encodes the
-			# exact inventory type+rarity signature, but never silently leave a
-			# hex unfilled if it somehow doesn't.
-			tile = load("res://scripts/tiles/DirectionalConduitTile.gd").new()
-			tile.rarity = component.rarity
+			# The fresh solve synthesizes Splitters (and conduit filler) at the component's rarity when the
+			# inventory has none (see _solve_impl), and the cache key only encodes the inventory, so a hit
+			# can legitimately need a tile the inventory lacks. Rebuild what the plan recorded; anything
+			# else falls back to a conduit so a hex is never left unfilled. (Before 2026-10-09 this always
+			# built a conduit, which silently dropped the Splitter on every cache hit.)
+			if rec["tile_type"] == "Splitter":
+				tile = load("res://scripts/tiles/SplitterTile.gd").new()
+			else:
+				tile = load("res://scripts/tiles/DirectionalConduitTile.gd").new()
+			tile.rarity = rec["rarity"] if rec["tile_type"] == "Splitter" else component.rarity
 		if "active_faces" in tile:
 			tile.active_faces = rec["active_faces"].duplicate()
 		if "rotation_steps" in tile:

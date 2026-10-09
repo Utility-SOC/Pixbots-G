@@ -86,11 +86,11 @@ func _ready():
 		var comp2 = cases[name][0].call()
 		SolverScript.new().solve(comp2, _inv(), cases[name][1])
 		_check("%s: fresh solve is deterministic under SimRng" % name, JSON.stringify(_snapshot(comp2)) == JSON.stringify(produced[name]))
-		# Cache replay of the plan just stored (no clear) - report only, see Status.md.
+		# Cache replay of the plan just stored (no clear) must equal the fresh solve. Regression guard: replay used
+		# to swap a synthesized Splitter for a Directional Conduit (fixed 2026-10-09).
 		var comp3 = cases[name][0].call()
 		SolverScript.new().solve(comp3, _inv(), cases[name][1])
-		if JSON.stringify(_snapshot(comp3)) != JSON.stringify(produced[name]):
-			print("NOTE: %s: cached-plan replay differs from the fresh solve" % name)
+		_check("%s: cached-plan replay equals the fresh solve" % name, JSON.stringify(_snapshot(comp3)) == JSON.stringify(produced[name]))
 		_check("%s: produced a non-trivial grid (%d tiles)" % [name, produced[name].size()], produced[name].size() >= 2)
 	SimRng.unseed()
 

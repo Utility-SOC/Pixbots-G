@@ -91,6 +91,9 @@ var range_mult: float = 1.0
 # scaled to the charge actually banked) - see Mech._tick_weapon_charges.
 var auto_dump_threshold: float = 0.0
 var traversal_steps: int = 0
+# True for the excess a non-Mythic tile bounced back (overload reflection); keeps the Garage overload
+# marker on the choke tile instead of the tile the excess flows back into.
+var reflected: bool = false
 # Chopper split factor (see ReverseAccumulatorTile.gd's "Chopper" and
 # Mech._get_adjacent_chopper_split_factor) - how many equal shares
 # HexTile._fire_combined_projectile/MissileRackTile._fire_combined_

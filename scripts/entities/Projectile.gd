@@ -2163,10 +2163,12 @@ static func explosion_radius_for(ratios: Dictionary, aoe_bonus: float, damage: f
 # Missile blast size follows the EXPLOSIVE damage it carries (damage x explosion ratio), not just
 # the ratio: 600 explosive = 1.0x, 6,000 = ~2.2x, 60,000 = 5.0x (capped) - a big payload is a
 # daisy-cutter-ish crater, a tiny one a pop. Direct-fire projectiles keep their fixed radius.
+# The cap was 5.0 until 2026-10-09 (owner: allow 4x the old max diameter); the curve is unchanged, so
+# the new top end (20.0x) only opens up around ~3.1M explosive damage.
 const BLAST_REF_DAMAGE = 600.0
 const BLAST_SCALE_EXPONENT = 0.35
 const BLAST_SCALE_MIN = 0.6
-const BLAST_SCALE_MAX = 5.0
+const BLAST_SCALE_MAX = 20.0
 
 static func blast_scale_for_damage(explosive_damage: float) -> float:
 	return clamp(pow(max(explosive_damage, 0.0) / BLAST_REF_DAMAGE, BLAST_SCALE_EXPONENT), BLAST_SCALE_MIN, BLAST_SCALE_MAX)

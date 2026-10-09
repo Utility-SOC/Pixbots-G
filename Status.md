@@ -42,13 +42,53 @@ This is the actual long-term destination the `pixbots_core` split above is aimed
 
 ---
 
-## 2. Execution Queue (in order)
+## 2. Execution Queue (reconciled 2026-10-09)
 
-Garage QoL first (felt immediately), then small gameplay wins, then progression systems, then the big engine lift, then the feature batch.
-1. **Data-driven tiles, late-game progression (Overclocking, Chip Splicing, Nemesis Bounties), Rust projectile/AI-tactics ports** - all shipped, reverted after measurement, or closed. Full write-ups in `docs/STATUS_ARCHIVE.md` section A.
-2. **Feature batch (greenfield, verified 2026-10-05: no code exists):** Bot League auto-pilot spectating (via Frank's exhibition table), Tactical Puzzle Challenges (chess-style JSON scenarios), Wager Waves, Shop Cat, shop-framing UI pass. Champion Card art compositing is shipped.
-   - **Possible RTS spinoff seed (2026-08-05, speculative):** the Bot League auto-pilot AI could be the foundation of a separate RTS on the same combat sim. Not a commitment.
-3. **Data-driven Map/Campaign Editor + Multiplayer** (2026-07-27, design-only): a standalone editor that reads the game's own schema live (as `TileStatsRegistry` and `res://tiles/<TileType>/stats.json` already decouple balance data) rather than hardcoding a duplicate. Multiplayer (GodotSteam) is tracked under Future Expansions.
+**Rule:** Rust ports outrank features. Lanes (Gameplay G, Polish P, Architecture A) run round-robin, one item per lane per round. **Engine-coupling cut comes first** so every later port and rework lands on clean seams. Each A item ends playable with a bench number (wave 12 / wave 34 / 60 swarm, HD 4000) and a `cargo test`-able core (`docs/RUST_MIGRATION_ROADMAP.md`). Design detail lives in specs, not here: `docs/ELEMENTAL_REWORK_SPEC.md`.
+
+### Prerequisites (A lane, do before any port or Ice/Vortex build)
+1. **Golden fixtures:** seeded wave runs, hex-grid energy results, solver outputs, gene-card/save exports captured as checked-in JSON from the GDScript build. Record the bench table first.
+2. **Engine-coupling cut:** split `Mech.gd` (4,945 lines) so sim state and per-tick logic are node-free; route the ~25 files that call physics/collision APIs through one thin interface (this is also the future spatial-index seam); keep presentation/audio out of sim code.
+3. **RNG policy (see below):** one injected seeded RNG with named streams for sim; sim clock instead of wall-clock ticks (~36 files).
+4. Pin and version the save / gene-card / run-card / `stats.json` schemas.
+
+**RNG policy:** gameplay-affecting randomness (~58 files use unseeded `randf/randi/shuffle/pick_random`; ~23 use `RandomNumberGenerator`) all moves to one injected seeded source, split into named streams (combat, loot, AI, map, vortex-wander) so adding a roll in one place does not shift the others. Purely cosmetic randomness (particles, jitter, audio variation) may stay unseeded and cheap. Fewer approaches = fewer error paths; the only reason to keep a second approach is that it is visual-only.
+
+### Round 0: low-hanging fruit (started 2026-10-09)
+- **A:** prerequisites 1-2 above. *In progress.* Done 2026-10-09: `scripts/core/SimPhysics.gd` (move / segment_blocked / circle_colliders, pass-through to Godot) and `Mech.gd` routed through it (5 call sites; mech checks pass). Still to route: Drone, Projectile (36 refs), OrbitingProjectile, LootPickup, hazards, SightAndSearch. Not started: golden fixtures, `Mech.gd` split, RNG unification, schema versioning.
+  - **Bench baseline (2026-10-09, i5-3340M/HD 4000, windowed, 40 s, forward_plus):** wave 12: 122.6 fps avg (p95 11.9 ms); wave 34: 63.9 fps avg (p95 49.3 ms, 48 enemies). **Noise warning:** later wave-12 reruns of the same code ranged 57-76 fps (load/thermal on a dual-core), with or without the facade. Compare only interleaved A/B runs, several repeats, never a single number against an older one.
+- **G:** DONE 2026-10-09: Explosive blast scale cap 5.0 -> 20.0 (4x max diameter; `Projectile.BLAST_SCALE_MAX`, puddle cap raised to match). The Elite Four unlock gate was already built (`SquadDirector._eligible_rival_pool_keys`), so it is not a task.
+- **P:** DONE 2026-10-09: overload marking now flags only the choke tile (reflected excess no longer marks the tile it flows back into; `Packet.reflected` in Rust and `EnergyPacket.reflected`). Not yet covered by a dedicated regression check (existing Mythic overcharge check passes). BGM ducking, pooled weapon SFX and scorch decals were already shipped 2026-10-05 (`SfxManager.gd`), so they are removed from the Polish lane.
+
+### Lane contents (top item per lane each round)
+**A (Rust):** (after prerequisites)
+1. `hexmath`, `solid_grid`, `flow_field` into `pixbots_core`.
+2. Rust spatial index replacing ~3,069 `StaticBody2D`s (A/B: +9 to +21 fps).
+3. Per-tick mech movement/steering, status effects, hazards (the measured per-enemy cost).
+4. `hexgrid_sim`, `separation`, projectile flight/broadphase into core; deterministic `step(dt)` + headless bench.
+5. AI tactics port with golden-file tests; AutoEquipSolver port after its G rework.
+6. wgpu GL spike on the HD 4000; data-driven Map/Campaign Editor (design-only).
+
+**G:**
+1. Smarter AutoEquipSolver: loops, mixed synergies, head/backpack as reactor boosters/conditioners (spec).
+2. War Room upgrades incl. confidence display for build culling (culls after ~3 trials).
+3. Ice embrittlement + shatter (spec), built on the decoupled status/movement code.
+4. Vortex pin / gravity-well mine / bezier wander (spec); Mythic remediation tile (spec).
+5. Enemy use of terrain; remaining map scope (set pieces, map types, biome identity).
+6. Elemental balance pass (`docs/ELEMENTAL_BALANCE_OPTIONS.md`), Guard `energy_for_max` calibration. Heat stays on hold.
+7. Feature batch after the Rust ports: Bot League spectating, Tactical Puzzles, Wager Waves, Shop Cat, shop-framing UI.
+
+**P:**
+1. Tween panel transitions; garage conduit shader; drop-pod overlay.
+2. Synergy Codex for biome interactions.
+3. Phase 5 visual identity (build-driven player mech look).
+4. Menu diorama (art); cutscene authoring (men in black) when the owner supplies beats.
+
+### Watch items
+Vulkan device-lost crashes on HD 4000 (resolved after 3 clean long sessions); near-peer difficulty (evolution rewards player/ally damage and kills).
+
+### Parked (do not build unless re-raised)
+Heat; Kinetic firing enhancement; transparent filler / circuit-logic tiles; Frank's Challenge modifiers ("The Eye"); VORTEX/VAMPIRIC corpse statues; Mythic Anchor; Pilot Skill Tree; superweapons; Modding 3-4; Expedition Map and niche tables; RTS spinoff; Multiplayer (GodotSteam); Pixelbots 2 (section 1a).
 
 ---
 
@@ -68,13 +108,13 @@ Garage QoL first (felt immediately), then small gameplay wins, then progression 
 - Fixed: spawn watchdog restarting waves every 10 s; ground z-order hiding decals/vents/rings/shallow tint.
 - Maps: Phase 2 mostly landed (see docs/ROADMAP.md).
 
-### Queued (agreed with the user, in order)
-1. Smarter AutoEquipSolver (priority; enemy builds use its output too). 2. War Room upgrades, including confidence display for the AI's build culling (it culls builds after about 3 trials, so luck can delete good ones). 3. Phase 2 maps (terrain effects, zone gameplay, biome identity, more map types, set pieces). 4. Phase 3 audio and feel (ducking, pooled weapon audio, hitstop/camera audit, scorch decals). 5. Phase 5 visual identity. 6. Elemental balance options write-up (describe first, Heat on hold).
+### Queued
+Superseded by the lane-based queue in Section 2 (reconciled 2026-10-08). Phase 2 maps is mostly landed; only enemy terrain use, set pieces, more map types and biome identity remain.
 
 ### Owner decisions (2026-10-07), details in docs/OPEN_QUESTIONS.md
 - **Resistance tiles shipped:** Stun Guard (concussed), Shock Guard (paralyzed), Freeze Guard (frozen). Energy-fed sinks; strength is proportional to the energy routed in (cap 90%); the cost is a cell, mass and that energy. Freeze Guard later becomes a heat sink.
-- **Ice rework (agreed, not built): Shatter + Frost field.** Enough accumulated cold makes a unit leave an icy trail, move slowly and become embrittled (extra damage taken); on death it throws ice shrapnel.
-- **Vortex rework (agreed, not built): gravity well that carries enemies along at the heart of the vortex** (Kinetic flings them across the map; Poison clumps them for culling).
+- **Ice rework: superseded 2026-10-09 by embrittlement + shatter; see `docs/ELEMENTAL_REWORK_SPEC.md`.**
+- **Vortex rework: superseded 2026-10-09 by pin / gravity-well mine / bezier wander; see `docs/ELEMENTAL_REWORK_SPEC.md`.**
 - **Rust migration takes precedence over most feature work** (speed on weak hardware and Pixelbots 2 reuse; ideally leave Godot for the 3D sequel): see docs/RUST_MIGRATION_ROADMAP.md.
 - **Balance before Heat.** Weak-GPU visuals tier switches on automatically but is switchable in Settings. Garage overload marking: mark only the chokepoints. Enemy use of terrain is the next map step. Pixelbots 2 tile columns: porcupine.
 - **Story thread (cutscenes to author, spread across the game):** strange men dressed all in black, hexagon bodies like Frank's but with different proportions, come in and demand data.

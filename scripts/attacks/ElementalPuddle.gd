@@ -10,7 +10,7 @@ var _tick_timer: float = 0.0
 var _life_timer: float = 0.0
 
 const TICK_RATE = 0.25 # Apply damage every 0.25s
-const MAX_RADIUS = 2000.0
+const MAX_RADIUS = 8000.0 # 4x the old 2000 cap so 4x-diameter blasts (Projectile.BLAST_SCALE_MAX) keep their puddle
 
 var _victims = []
 # Burning ground: a fire share of the payload (not just fire being the DOMINANT element) makes the

@@ -119,6 +119,9 @@ struct Packet {
     range_mult: f64,
     auto_dump_threshold: f64,
     trigger: i64, // 0 = "None", 1..3 = keys (EnergyPacket.trigger_key)
+    // True for the excess a non-Mythic tile bounced back (overload reflection). Used only so the
+    // overload marker lands on the choke tile and not on the tile the excess flows back into.
+    reflected: bool,
 }
 
 impl Packet {
@@ -201,6 +204,7 @@ impl Packet {
         self.acc_damage_mult = self.acc_damage_mult.max(other.acc_damage_mult);
         self.range_mult = self.range_mult.max(other.range_mult);
         self.auto_dump_threshold = self.auto_dump_threshold.max(other.auto_dump_threshold);
+        self.reflected = self.reflected && other.reflected;
         for i in 0..SYN_COUNT {
             if other.syn_present[i] {
                 self.syn[i] += other.syn[i];
@@ -476,6 +480,7 @@ fn parse_packet(d: &VDict) -> Packet {
         range_mult: get_f_or(d, "range_mult", 1.0),
         auto_dump_threshold: get_f(d, "auto_dump_threshold"),
         trigger: get_i(d, "trigger"),
+        reflected: false,
     }
 }
 
@@ -1003,14 +1008,18 @@ impl HexGridSim {
 
                     let mut entering = p.clone();
                     if descs[tidx].rarity != MYTHIC_RARITY && p.magnitude > NORMAL_MAGNITUDE_CAP {
-                        if p.magnitude > overload_peak[tidx] {
+                        // Mark only the choke tile: excess already reflected back is not a new fault
+                        // for the tile it flows back into (owner ruling 2026-10-07).
+                        if !p.reflected && p.magnitude > overload_peak[tidx] {
                             overload_peak[tidx] = p.magnitude;
                         }
                         entering = p.split(NORMAL_MAGNITUDE_CAP / p.magnitude);
                         entering.steps = p.steps;
                         p.dir = (dir + 3).rem_euclid(6);
+                        p.reflected = true;
                         next.push(p.clone());
                     }
+                    entering.reflected = false;
 
                     let entry = (dir + 3).rem_euclid(6);
                     flow_visits[tidx] += 1.0;

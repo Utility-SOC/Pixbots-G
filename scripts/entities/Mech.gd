@@ -1286,7 +1286,7 @@ func _physics_process(delta: float):
 			player_controller = PlayerController.new(self)
 		player_controller.handle_input(delta)
 		velocity += external_force
-		move_and_slide()
+		SimPhysics.move(self)
 		_process_ramming(delta)
 		_process_reactive_plating_cooldowns(delta)
 		var lerp_weight = 10.0 * delta
@@ -1339,7 +1339,7 @@ func _physics_process(delta: float):
 				if _diag_skip_move_and_slide:
 					position += velocity * delta
 				else:
-					move_and_slide()
+					SimPhysics.move(self)
 				_perf_move_usec += Time.get_ticks_usec() - _t_move
 			# Skipped: _process_ramming(delta) and visual updates when far
 		else:
@@ -1358,7 +1358,7 @@ func _physics_process(delta: float):
 			if _diag_skip_move_and_slide:
 				position += velocity * delta
 			else:
-				move_and_slide()
+				SimPhysics.move(self)
 			_perf_move_usec += Time.get_ticks_usec() - _t_move2
 			_process_ramming(delta)
 			_process_reactive_plating_cooldowns(delta)
@@ -3257,11 +3257,14 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscr
 				# lesser tile - only NORMAL_MAGNITUDE_CAP worth enters, the
 				# rest reflects back into the loop it came from.
 				if tile.rarity != HexTile.Rarity.MYTHIC and p.magnitude > EnergyPacket.NORMAL_MAGNITUDE_CAP:
-					if tile.grid_position and grid.has_method("record_overload"):
+					if not p.reflected and tile.grid_position and grid.has_method("record_overload"):
 						grid.record_overload(Vector2i(tile.grid_position.q, tile.grid_position.r), p.magnitude)
 					entering = p.split(EnergyPacket.NORMAL_MAGNITUDE_CAP / p.magnitude)
 					p.direction = (dir + 3) % 6
+					p.reflected = true
 					next_packets.append(p)
+				else:
+					p.reflected = false
 
 				grid.record_flow(Vector2i(tile.grid_position.q, tile.grid_position.r) if tile.grid_position else Vector2i(next_pos.q, next_pos.r), 1.0, entering.magnitude, -1, false)
 				var out_pkts = tile.process_energy(entering, (dir + 3) % 6, grid, next_pos)
@@ -3774,9 +3777,7 @@ func _execute_ai_tactics(delta):
 			var tangent = Vector2(-dir.y, dir.x) * rotational_direction
 			# Raycast to prevent strafing into walls
 			var _t_orbit = Time.get_ticks_usec()
-			var space_state = get_world_2d().direct_space_state
-			var query = PhysicsRayQueryParameters2D.create(global_position, global_position + tangent * 50.0, 1)
-			if space_state.intersect_ray(query):
+			if SimPhysics.segment_blocked(self, global_position, global_position + tangent * 50.0, SimPhysics.LAYER_ENV):
 				rotational_direction *= -1 # Reverse orbit
 				tangent = Vector2(-dir.y, dir.x) * rotational_direction
 			_perf_orbit_raycast_usec += Time.get_ticks_usec() - _t_orbit
@@ -3918,16 +3919,9 @@ const ELEMENTAL_SYNERGY_NAMES = ["FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON",
 # in a radius."
 func _deflect_overflow(amount: float):
 	var burst_dir = Vector2.RIGHT.rotated(randf() * TAU)
-	var space_state = get_world_2d().direct_space_state
-	var query = PhysicsShapeQueryParameters2D.new()
-	var shape = CircleShape2D.new()
-	shape.radius = DEFLECTOR_BURST_RADIUS
-	query.shape = shape
-	query.transform = Transform2D(0.0, global_position + burst_dir * (DEFLECTOR_BURST_RADIUS * 0.5))
-	query.collision_mask = 4 | 8 # enemy + player layers, same convention as OilSlickHazard._tick_damage
-	var results = space_state.intersect_shape(query)
-	for res in results:
-		var col = res["collider"]
+	# enemy + player layers, same convention as OilSlickHazard._tick_damage
+	var colliders = SimPhysics.circle_colliders(self, global_position + burst_dir * (DEFLECTOR_BURST_RADIUS * 0.5), DEFLECTOR_BURST_RADIUS, SimPhysics.LAYER_ENEMY | SimPhysics.LAYER_PLAYER)
+	for col in colliders:
 		if col != self and col.has_method("apply_damage"):
 			col.apply_damage(amount, "RAW")
 	if get_parent():

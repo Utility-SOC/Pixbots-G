@@ -720,13 +720,13 @@ func _straight_tile_priority(profile: SolverProfile, slot_type: int = -1) -> Arr
 # by amplify_priority vs pierce_priority. A profile with no favored_synergy
 # set (pure -1) just leans on Pierce/Kinetic as a safe default.
 func _pick_profile_synergy(profile: SolverProfile) -> int:
-	if profile.secondary_synergy >= 0 and profile.secondary_mix > 0.0 and randf() < profile.secondary_mix:
+	if profile.secondary_synergy >= 0 and profile.secondary_mix > 0.0 and SimRng.stream("solver").randf() < profile.secondary_mix:
 		return profile.secondary_synergy
 	if profile.favored_synergy < 0:
-		return EnergyPacket.SynergyType.PIERCE if randf() < profile.pierce_priority else EnergyPacket.SynergyType.KINETIC
+		return EnergyPacket.SynergyType.PIERCE if SimRng.stream("solver").randf() < profile.pierce_priority else EnergyPacket.SynergyType.KINETIC
 
 	var total = max(0.01, profile.pierce_priority + profile.amplify_priority)
-	if randf() < profile.pierce_priority / total:
+	if SimRng.stream("solver").randf() < profile.pierce_priority / total:
 		return EnergyPacket.SynergyType.PIERCE
 	return profile.favored_synergy
 
@@ -996,7 +996,7 @@ func _lengthen_path_body(path: Array, valid_map: Dictionary, max_length: int) ->
 						candidates.append(nv)
 						
 			if candidates.size() > 0:
-				var chosen = candidates[randi() % candidates.size()]
+				var chosen = candidates[SimRng.stream("solver").randi() % candidates.size()]
 				current_path.insert(i + 1, chosen)
 				improved = true
 				break # Restart loop because indices changed

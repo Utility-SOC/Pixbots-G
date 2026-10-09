@@ -1,0 +1,870 @@
+{
+	"arm_rare_default": [
+		{
+			"q": -8,
+			"r": -1,
+			"rarity": 2,
+			"type": "Weapon Mount"
+		},
+		{
+			"faces": [
+				4
+			],
+			"q": -8,
+			"r": 0,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"q": -7,
+			"r": 0,
+			"rarity": 0,
+			"type": "Amplifier"
+		},
+		{
+			"q": -6,
+			"r": 0,
+			"rarity": 1,
+			"type": "Amplifier"
+		},
+		{
+			"q": -5,
+			"r": 0,
+			"rarity": 2,
+			"type": "Amplifier"
+		},
+		{
+			"q": -4,
+			"r": 0,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"q": -3,
+			"r": 0,
+			"rarity": 2,
+			"type": "Catalyst"
+		},
+		{
+			"q": -2,
+			"r": 0,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"q": -1,
+			"r": 0,
+			"rarity": 1,
+			"type": "Elemental Infuser"
+		},
+		{
+			"faces": [
+				3
+			],
+			"q": 0,
+			"r": 0,
+			"rarity": 2,
+			"type": "Energy Intake"
+		}
+	],
+	"arm_rare_fire_profile": [
+		{
+			"q": -8,
+			"r": -1,
+			"rarity": 2,
+			"type": "Weapon Mount"
+		},
+		{
+			"faces": [
+				4
+			],
+			"q": -8,
+			"r": 0,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"q": -7,
+			"r": 0,
+			"rarity": 1,
+			"type": "Elemental Infuser"
+		},
+		{
+			"q": -6,
+			"r": 0,
+			"rarity": 1,
+			"type": "Elemental Infuser"
+		},
+		{
+			"q": -5,
+			"r": 0,
+			"rarity": 1,
+			"type": "Elemental Infuser"
+		},
+		{
+			"q": -4,
+			"r": 0,
+			"rarity": 0,
+			"type": "Amplifier"
+		},
+		{
+			"q": -3,
+			"r": 0,
+			"rarity": 1,
+			"type": "Amplifier"
+		},
+		{
+			"q": -2,
+			"r": 0,
+			"rarity": 2,
+			"type": "Amplifier"
+		},
+		{
+			"q": -1,
+			"r": 0,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"faces": [
+				3
+			],
+			"q": 0,
+			"r": 0,
+			"rarity": 2,
+			"type": "Energy Intake"
+		}
+	],
+	"arm_uncommon_default": [
+		{
+			"q": -8,
+			"r": -1,
+			"rarity": 1,
+			"type": "Weapon Mount"
+		},
+		{
+			"faces": [
+				4
+			],
+			"q": -8,
+			"r": 0,
+			"rarity": 1,
+			"type": "Splitter"
+		},
+		{
+			"q": -7,
+			"r": 0,
+			"rarity": 0,
+			"type": "Amplifier"
+		},
+		{
+			"q": -6,
+			"r": 0,
+			"rarity": 1,
+			"type": "Amplifier"
+		},
+		{
+			"q": -5,
+			"r": 0,
+			"rarity": 2,
+			"type": "Amplifier"
+		},
+		{
+			"q": -4,
+			"r": 0,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"q": -3,
+			"r": 0,
+			"rarity": 2,
+			"type": "Catalyst"
+		},
+		{
+			"q": -2,
+			"r": 0,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"q": -1,
+			"r": 0,
+			"rarity": 1,
+			"type": "Elemental Infuser"
+		},
+		{
+			"faces": [
+				3
+			],
+			"q": 0,
+			"r": 0,
+			"rarity": 1,
+			"type": "Energy Intake"
+		}
+	],
+	"backpack_rare_default": [
+		{
+			"faces": [
+				0
+			],
+			"q": -2,
+			"r": 2,
+			"rarity": 2,
+			"type": "Torso Return"
+		},
+		{
+			"faces": [
+				1
+			],
+			"q": -1,
+			"r": 0,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				2
+			],
+			"q": -1,
+			"r": 1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": -1,
+			"r": 2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				2
+			],
+			"q": 0,
+			"r": -1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				1
+			],
+			"q": 0,
+			"r": 0,
+			"rarity": 2,
+			"type": "Microcore"
+		},
+		{
+			"faces": [
+				2
+			],
+			"q": 0,
+			"r": 1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"q": 0,
+			"r": 2,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"faces": [
+				3
+			],
+			"q": 1,
+			"r": -1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"q": 1,
+			"r": 0,
+			"rarity": 2,
+			"type": "Catalyst"
+		},
+		{
+			"q": 1,
+			"r": 1,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"faces": [
+				4
+			],
+			"q": 1,
+			"r": 2,
+			"rarity": 2,
+			"type": "Splitter"
+		}
+	],
+	"head_rare_default": [
+		{
+			"faces": [
+				5
+			],
+			"q": 0,
+			"r": -2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"q": 0,
+			"r": -1,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"faces": [
+				4
+			],
+			"q": 0,
+			"r": 0,
+			"rarity": 2,
+			"type": "Energy Intake"
+		},
+		{
+			"q": 1,
+			"r": -3,
+			"rarity": 2,
+			"type": "Catalyst"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 2,
+			"r": -4,
+			"rarity": 2,
+			"type": "Torso Return"
+		}
+	],
+	"leg_rare_default": [
+		{
+			"q": -5,
+			"r": 6,
+			"rarity": 2,
+			"type": "Actuator"
+		},
+		{
+			"q": -4,
+			"r": 5,
+			"rarity": 0,
+			"type": "Amplifier"
+		},
+		{
+			"q": -3,
+			"r": 4,
+			"rarity": 1,
+			"type": "Amplifier"
+		},
+		{
+			"q": -2,
+			"r": 3,
+			"rarity": 2,
+			"type": "Amplifier"
+		},
+		{
+			"q": -1,
+			"r": 2,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"faces": [
+				1
+			],
+			"q": 0,
+			"r": 0,
+			"rarity": 2,
+			"type": "Energy Intake"
+		},
+		{
+			"faces": [
+				2
+			],
+			"q": 0,
+			"r": 1,
+			"rarity": 2,
+			"type": "Splitter"
+		}
+	],
+	"torso_rare_default": [
+		{
+			"faces": [
+				0
+			],
+			"q": -4,
+			"r": 0,
+			"rarity": 2,
+			"type": "Left Arm Link"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": -4,
+			"r": 4,
+			"rarity": 2,
+			"type": "Left Leg Link"
+		},
+		{
+			"q": -3,
+			"r": 0,
+			"rarity": 0,
+			"type": "Amplifier"
+		},
+		{
+			"q": -3,
+			"r": 3,
+			"rarity": 1,
+			"type": "Amplifier"
+		},
+		{
+			"faces": [
+				3,
+				1
+			],
+			"q": -2,
+			"r": 0,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0,
+				1,
+				4
+			],
+			"q": -2,
+			"r": 1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				2,
+				0
+			],
+			"q": -2,
+			"r": 2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				2,
+				5
+			],
+			"q": -1,
+			"r": -1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				1
+			],
+			"q": -1,
+			"r": 0,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": -1,
+			"r": 1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0,
+				3
+			],
+			"q": -1,
+			"r": 2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 0,
+			"r": -3,
+			"rarity": 2,
+			"type": "Head Link"
+		},
+		{
+			"faces": [
+				4,
+				2
+			],
+			"q": 0,
+			"r": -2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				2
+			],
+			"q": 0,
+			"r": -1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				4,
+				5
+			],
+			"q": 0,
+			"r": 0,
+			"rarity": 2,
+			"type": "Core Reactor"
+		},
+		{
+			"faces": [
+				5
+			],
+			"q": 0,
+			"r": 1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				1
+			],
+			"q": 0,
+			"r": 2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"q": 0,
+			"r": 3,
+			"rarity": 2,
+			"type": "Amplifier"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 0,
+			"r": 4,
+			"rarity": 2,
+			"type": "Right Leg Link"
+		},
+		{
+			"faces": [
+				3
+			],
+			"q": 1,
+			"r": -2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				5,
+				4
+			],
+			"q": 1,
+			"r": -1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 1,
+			"r": 0,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"q": 2,
+			"r": -2,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"q": 2,
+			"r": 0,
+			"rarity": 2,
+			"type": "Catalyst"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 3,
+			"r": -3,
+			"rarity": 2,
+			"type": "Backpack Link"
+		},
+		{
+			"q": 3,
+			"r": 0,
+			"rarity": 1,
+			"type": "Catalyst"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 4,
+			"r": 0,
+			"rarity": 2,
+			"type": "Right Arm Link"
+		}
+	],
+	"torso_rare_pierce_profile": [
+		{
+			"faces": [
+				0
+			],
+			"q": -4,
+			"r": 0,
+			"rarity": 2,
+			"type": "Left Arm Link"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": -4,
+			"r": 4,
+			"rarity": 2,
+			"type": "Left Leg Link"
+		},
+		{
+			"q": -3,
+			"r": 0,
+			"rarity": 1,
+			"type": "Elemental Infuser"
+		},
+		{
+			"q": -3,
+			"r": 3,
+			"rarity": 1,
+			"type": "Elemental Infuser"
+		},
+		{
+			"faces": [
+				3,
+				1
+			],
+			"q": -2,
+			"r": 0,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0,
+				1,
+				4
+			],
+			"q": -2,
+			"r": 1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				2,
+				0
+			],
+			"q": -2,
+			"r": 2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				2,
+				5
+			],
+			"q": -1,
+			"r": -1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				1
+			],
+			"q": -1,
+			"r": 0,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": -1,
+			"r": 1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0,
+				3
+			],
+			"q": -1,
+			"r": 2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 0,
+			"r": -3,
+			"rarity": 2,
+			"type": "Head Link"
+		},
+		{
+			"faces": [
+				4,
+				2
+			],
+			"q": 0,
+			"r": -2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				2
+			],
+			"q": 0,
+			"r": -1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				4,
+				5
+			],
+			"q": 0,
+			"r": 0,
+			"rarity": 2,
+			"type": "Core Reactor"
+		},
+		{
+			"faces": [
+				5
+			],
+			"q": 0,
+			"r": 1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				1
+			],
+			"q": 0,
+			"r": 2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"q": 0,
+			"r": 3,
+			"rarity": 1,
+			"type": "Elemental Infuser"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 0,
+			"r": 4,
+			"rarity": 2,
+			"type": "Right Leg Link"
+		},
+		{
+			"faces": [
+				3
+			],
+			"q": 1,
+			"r": -2,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				5,
+				4
+			],
+			"q": 1,
+			"r": -1,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 1,
+			"r": 0,
+			"rarity": 2,
+			"type": "Splitter"
+		},
+		{
+			"q": 2,
+			"r": -2,
+			"rarity": 0,
+			"type": "Amplifier"
+		},
+		{
+			"q": 2,
+			"r": 0,
+			"rarity": 1,
+			"type": "Amplifier"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 3,
+			"r": -3,
+			"rarity": 2,
+			"type": "Backpack Link"
+		},
+		{
+			"q": 3,
+			"r": 0,
+			"rarity": 2,
+			"type": "Amplifier"
+		},
+		{
+			"faces": [
+				0
+			],
+			"q": 4,
+			"r": 0,
+			"rarity": 2,
+			"type": "Right Arm Link"
+		}
+	]
+}

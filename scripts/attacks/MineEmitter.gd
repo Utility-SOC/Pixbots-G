@@ -115,16 +115,8 @@ func _tick() -> void:
 	var reach = max(_flame_range if flame_on else 0.0, _volley_range if volley_on else 0.0)
 	if reach <= 0.0:
 		return
-	var space = get_world_2d().direct_space_state
-	var q = PhysicsShapeQueryParameters2D.new()
-	var shape = CircleShape2D.new()
-	shape.radius = reach
-	q.shape = shape
-	q.transform = global_transform
-	q.collision_mask = _mask
 	var found: Array = []
-	for res in space.intersect_shape(q, 32):
-		var col = res.get("collider")
+	for col in SimPhysics.circle_colliders(self, global_transform, reach, _mask, 32):
 		if col != null and is_instance_valid(col) and col.has_method("apply_damage") and col.get("is_dead") != true and not found.has(col):
 			found.append(col)
 	found.sort_custom(func(a, b): return a.global_position.distance_squared_to(global_position) < b.global_position.distance_squared_to(global_position))

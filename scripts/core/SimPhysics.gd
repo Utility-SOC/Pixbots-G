@@ -26,17 +26,24 @@ static func segment_blocked(from_body: Node2D, from: Vector2, to: Vector2, mask:
 	var query = PhysicsRayQueryParameters2D.create(from, to, mask)
 	return not space_state.intersect_ray(query).is_empty()
 
-# Colliders overlapping a circle on `mask` (same shape query Projectile._trigger_biome_explosion and
-# OilSlickHazard use). Returns the colliders, not the raw result dictionaries.
-static func circle_colliders(from_body: Node2D, center: Vector2, radius: float, mask: int) -> Array:
+# Distance from `from` along the segment to the first thing on `mask`, or the full segment length when clear.
+static func segment_clearance(from_body: Node2D, from: Vector2, to: Vector2, mask: int) -> float:
+	var space_state = from_body.get_world_2d().direct_space_state
+	var result = space_state.intersect_ray(PhysicsRayQueryParameters2D.create(from, to, mask))
+	return from.distance_to(to) if result.is_empty() else from.distance_to(result.position)
+
+# Colliders overlapping a circle on `mask` (the shape query Projectile, hazards and mines all use). `xform`
+# is passed through unchanged so callers keep their exact old behaviour (some used global_transform, some a
+# bare position). Returns the colliders, not the raw result dictionaries.
+static func circle_colliders(from_body: Node2D, xform: Transform2D, radius: float, mask: int, max_results: int = 32) -> Array:
 	var space_state = from_body.get_world_2d().direct_space_state
 	var query = PhysicsShapeQueryParameters2D.new()
 	var shape = CircleShape2D.new()
 	shape.radius = radius
 	query.shape = shape
-	query.transform = Transform2D(0.0, center)
+	query.transform = xform
 	query.collision_mask = mask
 	var out: Array = []
-	for res in space_state.intersect_shape(query):
+	for res in space_state.intersect_shape(query, max_results):
 		out.append(res["collider"])
 	return out

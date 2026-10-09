@@ -90,16 +90,8 @@ func ignite():
 	queue_redraw()
 
 func _tick_damage():
-	var space_state = get_world_2d().direct_space_state
-	var query = PhysicsShapeQueryParameters2D.new()
-	var shape = CircleShape2D.new()
-	shape.radius = radius
-	query.shape = shape
-	query.transform = global_transform
-	query.collision_mask = 4 | 8 # enemy + player layers only
-	var results = space_state.intersect_shape(query)
-	for res in results:
-		var col = res["collider"]
+	# enemy + player layers only
+	for col in SimPhysics.circle_colliders(self, global_transform, radius, SimPhysics.LAYER_ENEMY | SimPhysics.LAYER_PLAYER):
 		if col.has_method("apply_damage"):
 			col.apply_damage(BURN_TICK_DAMAGE, "FIRE")
 			if col.has_method("apply_status"):

@@ -1707,18 +1707,10 @@ func _trigger_poison_mine_detonation():
 	if profile["lead"] >= 0:
 		ring_color = EnergyPacket.get_color_for_synergy(profile["lead"])
 	if profile["burst_share"] > 0.001:
-		var space_state = get_world_2d().direct_space_state
-		var query = PhysicsShapeQueryParameters2D.new()
-		var shape = CircleShape2D.new()
-		shape.radius = radius
-		query.shape = shape
-		query.transform = global_transform
-		query.collision_mask = collision_mask
-		var results = space_state.intersect_shape(query)
+		var results = SimPhysics.circle_colliders(self, global_transform, radius, collision_mask)
 		var dmg_mult = 0.6 if elements == [EnergyPacket.SynergyType.ICE] else 1.0
 		var has_ltg = elements.has(EnergyPacket.SynergyType.LIGHTNING)
-		for res in results:
-			var col = res["collider"]
+		for col in results:
 			if not col.has_method("apply_damage"):
 				continue
 			if elements.has(EnergyPacket.SynergyType.VORTEX):
@@ -1873,21 +1865,11 @@ func _apply_vortex_pull_to_target(col: Node, delta: float):
 # same FFI/marshalling cost). This real per-projectile
 # PhysicsShapeQueryParameters2D shape query stays the live implementation.
 func _pull_nearby_items(delta: float):
-	var space_state = get_world_2d().direct_space_state
-	var query = PhysicsShapeQueryParameters2D.new()
-	var shape = CircleShape2D.new()
 	var magnitude_pull_mult = _get_vortex_magnitude_pull_mult()
-
-	shape.radius = (150.0 + 100.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)) * magnitude_pull_mult
-	query.shape = shape
-	query.transform = global_transform
-
+	var pull_radius = (150.0 + 100.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)) * magnitude_pull_mult
 	# Always pull Loot (16), Enemies (4), and Player (8)
-	query.collision_mask = 16 | 4 | 8
-
-	var results = space_state.intersect_shape(query)
-	for res in results:
-		_apply_vortex_pull_to_target(res["collider"], delta)
+	for col in SimPhysics.circle_colliders(self, global_transform, pull_radius, SimPhysics.LAYER_LOOT | SimPhysics.LAYER_ENEMY | SimPhysics.LAYER_PLAYER):
+		_apply_vortex_pull_to_target(col, delta)
 
 # Per-hit decay (per the user: Explosion and Vampiric don't have their own
 # way of reaching more than one target - they "ride along" whichever
@@ -2180,32 +2162,15 @@ static func blast_scale_for_damage(explosive_damage: float) -> float:
 # visibly and functionally shrink, not just hit softer at the same size.
 # 1.0 (default) for a normal single-hit shot - unchanged from before.
 func _trigger_explosion(decay: float = 1.0):
-	var space_state = get_world_2d().direct_space_state
-	var query = PhysicsShapeQueryParameters2D.new()
-	var shape = CircleShape2D.new()
-	shape.radius = explosion_radius_for(ratios, aoe_bonus) * decay
-	Sfx.explosion(shape.radius, global_position)
-	ScorchDecals.mark(get_tree(), global_position, shape.radius * 0.7)
-	query.shape = shape
-	query.transform = global_transform
-	query.collision_mask = collision_mask
-	var results = space_state.intersect_shape(query)
-	for res in results:
-		var col = res["collider"]
+	var blast_radius = explosion_radius_for(ratios, aoe_bonus) * decay
+	Sfx.explosion(blast_radius, global_position)
+	ScorchDecals.mark(get_tree(), global_position, blast_radius * 0.7)
+	for col in SimPhysics.circle_colliders(self, global_transform, blast_radius, collision_mask):
 		if col.has_method("apply_damage"):
 			col.apply_damage(damage * 0.5 * decay)
 
 func _trigger_biome_explosion(radius: float, dmg: float, type: String):
-	var space_state = get_world_2d().direct_space_state
-	var query = PhysicsShapeQueryParameters2D.new()
-	var shape = CircleShape2D.new()
-	shape.radius = radius
-	query.shape = shape
-	query.transform = global_transform
-	query.collision_mask = collision_mask
-	var results = space_state.intersect_shape(query)
-	for res in results:
-		var col = res["collider"]
+	for col in SimPhysics.circle_colliders(self, global_transform, radius, collision_mask):
 		if col.has_method("apply_damage"):
 			col.apply_damage(dmg)
 			if type == "fire" and col.has_method("apply_status"):

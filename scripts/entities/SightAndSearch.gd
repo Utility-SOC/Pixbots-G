@@ -72,12 +72,10 @@ func _update_player_sight(delta: float):
 	var sight_range = _effective_sight_range()
 	if dist_sq <= sight_range * sight_range:
 		var _t_sight_ray = Time.get_ticks_usec()
-		var space_state = mech.get_world_2d().direct_space_state
 		# Collision mask 1 = World/obstacles only (same convention as the
 		# strafe-into-walls and boss-retreat-clearance raycasts elsewhere in
 		# Mech.gd) - other mechs don't block sight, only terrain/obstacles.
-		var query = PhysicsRayQueryParameters2D.create(mech.global_position, mech.target.global_position, 1)
-		visible = space_state.intersect_ray(query).is_empty()
+		visible = not SimPhysics.segment_blocked(mech, mech.global_position, mech.target.global_position, SimPhysics.LAYER_ENV)
 		Mech._perf_sight_raycast_usec += Time.get_ticks_usec() - _t_sight_ray
 
 	if visible:

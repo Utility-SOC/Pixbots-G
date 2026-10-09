@@ -3920,7 +3920,7 @@ const ELEMENTAL_SYNERGY_NAMES = ["FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON",
 func _deflect_overflow(amount: float):
 	var burst_dir = Vector2.RIGHT.rotated(randf() * TAU)
 	# enemy + player layers, same convention as OilSlickHazard._tick_damage
-	var colliders = SimPhysics.circle_colliders(self, global_position + burst_dir * (DEFLECTOR_BURST_RADIUS * 0.5), DEFLECTOR_BURST_RADIUS, SimPhysics.LAYER_ENEMY | SimPhysics.LAYER_PLAYER)
+	var colliders = SimPhysics.circle_colliders(self, Transform2D(0.0, global_position + burst_dir * (DEFLECTOR_BURST_RADIUS * 0.5)), DEFLECTOR_BURST_RADIUS, SimPhysics.LAYER_ENEMY | SimPhysics.LAYER_PLAYER)
 	for col in colliders:
 		if col != self and col.has_method("apply_damage"):
 			col.apply_damage(amount, "RAW")

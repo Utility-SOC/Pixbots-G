@@ -161,16 +161,13 @@ func _pick_retreat_dir(dir: Vector2) -> Vector2:
 	# unused, same precedent as packet_tax.rs, in case a future redesign
 	# finds a genuinely batchable call site for it.
 	var _t_retreat = Time.get_ticks_usec()
-	var space_state = mech.get_world_2d().direct_space_state
 	var candidate_offsets_deg = [0.0, 25.0, -25.0, 50.0, -50.0]
 	var probe_dist = 150.0
 	var best_dir = -dir
 	var best_clearance = -1.0
 	for deg in candidate_offsets_deg:
 		var candidate = (-dir).rotated(deg_to_rad(deg))
-		var query = PhysicsRayQueryParameters2D.create(mech.global_position, mech.global_position + candidate * probe_dist, 1)
-		var result = space_state.intersect_ray(query)
-		var clearance = probe_dist if result.is_empty() else mech.global_position.distance_to(result.position)
+		var clearance = SimPhysics.segment_clearance(mech, mech.global_position, mech.global_position + candidate * probe_dist, SimPhysics.LAYER_ENV)
 		if clearance > best_clearance:
 			best_clearance = clearance
 			best_dir = candidate

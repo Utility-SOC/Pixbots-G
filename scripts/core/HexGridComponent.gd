@@ -24,9 +24,13 @@ var flow_overload: Dictionary = {}
 # Set once a full pass has completed since the last reset (distinguishes "nothing
 # powered" from "never simulated").
 var flow_ready: bool = false
+# Vector2i(anchor q, r) -> PackedInt32Array(6): how many packets entered through each face. Lets the Garage animate
+# energy along the real conduit path (in through these faces, out through the tile's exit directions).
+var flow_entries: Dictionary = {}
 
 func reset_flow() -> void:
 	flow.clear()
+	flow_entries.clear()
 	flow_loops.clear()
 	flow_overload.clear()
 	sim_saturated = false
@@ -43,6 +47,13 @@ func record_flow(key: Vector2i, visits: float, energy: float, dom: int, looped: 
 			f["dom"] = dom
 	if looped:
 		flow_loops[key] = true
+
+func record_entry(key: Vector2i, face: int, count: int = 1) -> void:
+	var e = flow_entries.get(key)
+	if e == null:
+		e = PackedInt32Array([0, 0, 0, 0, 0, 0])
+		flow_entries[key] = e
+	e[face] += count
 
 func record_overload(key: Vector2i, magnitude: float) -> void:
 	if magnitude > float(flow_overload.get(key, 0.0)):

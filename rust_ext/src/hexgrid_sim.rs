@@ -376,7 +376,16 @@ impl HexGridSim {
             flow_flat.push(if looped { 1.0 } else { 0.0 });
         }
 
+        // tile_entries: stride 6 per tile = packets that entered through each face (conduit animation in the Garage).
+        let mut entries_flat: Vec<f64> = Vec::with_capacity(descs.len() * 6);
+        for i in 0..descs.len() {
+            for f in 0..6 {
+                entries_flat.push(entry_steps[i][f] as f64);
+            }
+        }
+
         let mut result: VDict = Dictionary::new();
+        let _ = result.insert("tile_entries", &PackedFloat64Array::from(entries_flat.as_slice()));
         let _ = result.insert("tile_overload", &PackedFloat64Array::from(overload_peak.as_slice()));
         let _ = result.insert("tile_flow", &PackedFloat64Array::from(flow_flat.as_slice()));
         let _ = result.insert("hit_step_cap", hit_step_cap);

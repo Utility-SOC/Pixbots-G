@@ -48,6 +48,7 @@ var _redraw_timer: float = 0.0
 # and a tile handed more energy than it can carry pulses red (loops themselves are fine). Only drawn once the mech's
 # grid is clean (recalculated after the last edit) so it never shows stale data.
 var show_power_overlay: bool = true
+var show_conduit_flow: bool = true
 const POWER_RECALC_IDLE_MS = 450
 var _dirty_since_ms: int = 0
 var overload_tile_count: int = 0
@@ -470,10 +471,76 @@ func _draw_power_overlay(tile: HexTile, max_energy: float) -> void:
 		var y = center.y + hex_size * zoom * 0.72
 		var col = _get_synergy_color(int(flow["dom"])) if int(flow["dom"]) > 0 else Color(0.85, 0.85, 0.9)
 		draw_line(Vector2(center.x - w / 2.0, y), Vector2(center.x + w / 2.0, y), Color(col.r, col.g, col.b, 0.9), max(2.0, 4.0 * zoom))
+	if flow != null and show_conduit_flow:
+		_draw_conduit_flow(tile, key, center, flow, max_energy)
 	if hex_grid.flow_overload.has(key):
 		var pulse = 0.5 + 0.5 * sin(time_elapsed * 6.0)
 		for c in _tile_cells(tile):
 			_draw_hex_outline(c, Color(1.0, 0.15, 0.15, 0.5 + 0.5 * pulse), 4.0)
+
+# Animated energy along the real conduit path of a powered tile: dashes march in through every face energy actually
+# entered by (HexGridComponent.flow_entries) and out through the tile's exit directions for that entry. A generator
+# (the Core takes no input) marches out through its exit faces. Speed and brightness follow the tile's relative flow,
+# colour its dominant synergy. Drawn from time_elapsed, so it needs no extra node, shader or redraw rate.
+const CONDUIT_DASH = 0.3 # dash length / gap, in hex radii
+const CONDUIT_GAP = 0.26
+const CONDUIT_MAX_FACES = 6
+
+func _draw_conduit_flow(tile: HexTile, key: Vector2i, center: Vector2, flow: Dictionary, max_energy: float) -> void:
+	var hs = hex_size * zoom
+	var frac = clamp(log(1.0 + float(flow["energy"])) / log(1.0 + max(max_energy, 1.0)), 0.1, 1.0)
+	var col = _get_synergy_color(int(flow["dom"])) if int(flow["dom"]) > 0 else Color(0.85, 0.9, 1.0)
+	var bright = col.lightened(0.2)
+	bright.a = 0.6 + 0.4 * frac
+	var width = max(2.0, (1.5 + 2.5 * frac) * zoom)
+	var speed = 0.35 + 0.9 * frac # radii per second
+	var entries = hex_grid.flow_entries.get(key)
+	var segments: Array = [] # [from, to] pairs, all in screen space
+	if entries != null:
+		for face in range(6):
+			if int(entries[face]) <= 0:
+				continue
+			var edge = center + Vector2(cos(face * PI / 3.0), sin(face * PI / 3.0)) * hs * 0.9
+			segments.append([edge, center])
+			var exits: Array = []
+			if tile.has_method("get_exit_directions"):
+				exits = tile.get_exit_directions(face)
+			elif tile.has_method("get_exit_direction"):
+				exits.append(tile.get_exit_direction(face))
+			for ex in exits:
+				segments.append([center, center + Vector2(cos(ex * PI / 3.0), sin(ex * PI / 3.0)) * hs * 0.9])
+	elif tile.has_method("generate_energy") and tile.has_method("get_exit_directions"):
+		for ex in tile.get_exit_directions(0):
+			segments.append([center, center + Vector2(cos(ex * PI / 3.0), sin(ex * PI / 3.0)) * hs * 0.9])
+	var period = (CONDUIT_DASH + CONDUIT_GAP) * hs
+	var phase = fposmod(time_elapsed * speed * hs, period)
+	var drawn = 0
+	for seg in segments:
+		drawn += 1
+		if drawn > CONDUIT_MAX_FACES * 3:
+			break
+		var a: Vector2 = seg[0]
+		var b: Vector2 = seg[1]
+		var length = a.distance_to(b)
+		if length < 1.0:
+			continue
+		var dir = (b - a) / length
+		var start = phase - period
+		while start < length:
+			var d0 = max(start, 0.0)
+			var d1 = min(start + CONDUIT_DASH * hs, length)
+			if d1 > d0:
+				# Dark under-stroke for contrast on the tile, then a tail->head ramp so the direction of travel reads.
+				draw_line(a + dir * d0, a + dir * d1, Color(0, 0, 0, 0.45), width + 2.0, true)
+				var span = d1 - d0
+				for k in range(3):
+					var t0 = d0 + span * float(k) / 3.0
+					var t1 = d0 + span * float(k + 1) / 3.0
+					var ramp = Color(bright.r, bright.g, bright.b, bright.a * (0.35 + 0.65 * float(k + 1) / 3.0))
+					draw_line(a + dir * t0, a + dir * t1, ramp, width * (0.7 + 0.3 * float(k + 1) / 3.0), true)
+				if d1 - d0 > 1.0 and start + CONDUIT_DASH * hs <= length:
+					draw_circle(a + dir * d1, width * 0.65, col.lightened(0.55))
+			start += period
 
 # True when an inventory search is active AND this tile's type doesn't
 # match it - split out from _draw_tile so the filter logic itself

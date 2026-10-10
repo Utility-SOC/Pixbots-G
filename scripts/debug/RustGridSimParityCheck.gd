@@ -469,6 +469,15 @@ func _run_grid(label: String, builder: Callable):
 		var a = _harvest(comp_gd)
 		var b = _harvest(comp_rust)
 		_check("[%s] captures / transfers / stores / magnet / shield / remnant IDENTICAL" % label, _compare(a, b))
+		# Conduit animation data: which faces energy entered each tile through must agree between the two sims.
+		var ge: Dictionary = comp_gd.hex_grid.flow_entries
+		var re: Dictionary = comp_rust.hex_grid.flow_entries
+		var entries_same = ge.size() == re.size()
+		for k in ge:
+			if not re.has(k) or Array(ge[k]) != Array(re[k]):
+				entries_same = false
+				print("    MISMATCH flow_entries @%s: gd=%s rust=%s" % [k, ge[k], re.get(k)])
+		_check("[%s] flow_entries (conduit animation) identical, %d tiles" % [label, ge.size()], entries_same and not ge.is_empty())
 		_check("[%s] baseline produced non-vacuous output" % label,
 			not a["mounts"].is_empty() or not a["stores"].is_empty())
 

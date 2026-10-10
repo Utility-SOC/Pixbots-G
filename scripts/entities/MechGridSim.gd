@@ -922,6 +922,8 @@ func _simulate_grid(grid: HexGridComponent, starting_packets: Array, force_gdscr
 					p.reflected = false
 
 				grid.record_flow(Vector2i(tile.grid_position.q, tile.grid_position.r) if tile.grid_position else Vector2i(next_pos.q, next_pos.r), 1.0, entering.magnitude, -1, false)
+				if grid.has_method("record_entry"):
+					grid.record_entry(Vector2i(tile.grid_position.q, tile.grid_position.r) if tile.grid_position else Vector2i(next_pos.q, next_pos.r), (dir + 3) % 6)
 				var out_pkts = tile.process_energy(entering, (dir + 3) % 6, grid, next_pos)
 				for out in out_pkts:
 					out.position = next_pos

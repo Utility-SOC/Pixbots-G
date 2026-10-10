@@ -470,6 +470,15 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 			if gp == null:
 				continue
 			grid.record_flow(Vector2i(gp.q, gp.r), tf[i * 4], tf[i * 4 + 1], int(tf[i * 4 + 2]), tf[i * 4 + 3] > 0.5)
+		var te: PackedFloat64Array = result.get("tile_entries", PackedFloat64Array())
+		if grid.has_method("record_entry"):
+			for i in range(mini(tile_objs.size(), te.size() / 6)):
+				var gpe = tile_objs[i].grid_position
+				if gpe == null:
+					continue
+				for f in range(6):
+					if te[i * 6 + f] > 0.0:
+						grid.record_entry(Vector2i(gpe.q, gpe.r), f, int(te[i * 6 + f]))
 		var ov: PackedFloat64Array = result.get("tile_overload", PackedFloat64Array())
 		if grid.has_method("record_overload"):
 			for i in range(mini(tile_objs.size(), ov.size())):

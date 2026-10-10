@@ -56,6 +56,7 @@ func _ready():
 	btn_quit.text = "Quit to Desktop"
 	btn_quit.pressed.connect(_on_quit)
 	vbox.add_child(btn_quit)
+	UiFx.pop_in_layer.call_deferred(self)
 
 func _input(event):
 	if event.is_action_pressed("ui_cancel"):

@@ -21,6 +21,7 @@ func _ready():
 	
 	_setup_ui()
 	_load_settings()
+	UiFx.pop_in_layer.call_deferred(self)
 
 func _setup_ui():
 	var bg = ColorRect.new()

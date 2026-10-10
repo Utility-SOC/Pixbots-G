@@ -159,6 +159,7 @@ func _toggle():
 	get_tree().paused = is_open
 	if is_open:
 		_refresh()
+		UiFx.pop_in(root_panel)
 
 # --- Portraits (task #9: "a boss chunk, a squad chunk, and an individual
 # unit chunk") -------------------------------------------------------------

@@ -360,6 +360,7 @@ func _toggle_menu():
 	get_tree().paused = is_open
 	if is_open:
 		_refresh_squad_dropdown()
+		UiFx.pop_in(panel)
 
 # Templates evolve over a session (mutation/culling - see SquadDirector.gd),
 # so this list is rebuilt fresh every time the menu opens rather than once

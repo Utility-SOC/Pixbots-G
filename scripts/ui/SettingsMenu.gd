@@ -174,6 +174,18 @@ func _setup_ui():
 	SaveManager.status_graph_changed.connect(check_graph.set_pressed_no_signal) # method Callable: auto-disconnects when freed
 	visuals_tab.add_child(check_graph)
 
+	var overcharge_hint = Label.new()
+	overcharge_hint.text = "Auto-Equip may build deliberate overcharge loops: energy bounced through a dead-end corridor and amplified up to the per-weapon cap. Stronger builds, but the Garage will show overload warnings on the loop tiles. Turn off for clean, stable routing only."
+	overcharge_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	overcharge_hint.modulate = Color(0.7, 0.7, 0.7)
+	visuals_tab.add_child(overcharge_hint)
+
+	var check_overcharge = CheckButton.new()
+	check_overcharge.text = "Auto-Equip overcharge loops"
+	check_overcharge.button_pressed = SaveManager.overcharge_loops
+	check_overcharge.toggled.connect(func(pressed): SaveManager.set_overcharge_loops(pressed))
+	visuals_tab.add_child(check_overcharge)
+
 	# PROFILE TAB
 	var profile_tab = VBoxContainer.new()
 	profile_tab.name = "Profile"

@@ -87,9 +87,17 @@ func score(component) -> float:
 	var delivered = 0.0
 	for t in grid.get_all_tiles():
 		if t.tile_type.ends_with("Mount") and "pending_packets" in t:
+			var m_total = 0.0
+			var m_mag = 0.0
 			for item in t.pending_packets:
-				total += score_packet(item.packet)
-				delivered += item.packet.magnitude
+				m_total += score_packet(item.packet)
+				m_mag += item.packet.magnitude
+			# A mount can only fire its capped payload; overcharge records beyond that are wasted.
+			if m_mag > EnergyPacket.NORMAL_MAGNITUDE_CAP:
+				m_total *= EnergyPacket.NORMAL_MAGNITUDE_CAP / m_mag
+				m_mag = EnergyPacket.NORMAL_MAGNITUDE_CAP
+			total += m_total
+			delivered += m_mag
 	var reach_bonus = 1.0 + 0.1 * minf(1.0, delivered / generated if generated > 0.0 else 0.0)
 	return total * reach_bonus
 
@@ -231,6 +239,11 @@ const LOOP_MAX_ADDED = 3
 const LOOP_EVAL_BUDGET = 400
 const LOOP_REPLACEABLE = ["Directional Conduit", "Amplifier", "Catalyst", "Elemental Infuser"]
 var enable_loops: bool = true
+# Bounded overcharge (SaveManager.overcharge_loops, default on): a loop may exceed gain 1 and run to the step cap, because
+# each mount's payload is clamped to NORMAL_MAGNITUDE_CAP and the step cap makes the sim deterministic. Candidates are
+# only kept if the capped sim score rises, and LOOP_MAX_ADDED still limits the count, so the runaway stays local.
+# Off = stable (gain < 1) loops only.
+var allow_overcharge: bool = true
 
 func _free_corridor(component, grid, x: Vector2i, d: int) -> Array:
 	var offsets = HexCoord.get_direction_offsets()
@@ -345,7 +358,7 @@ func _try_loop_move(component, inventory: Array, xv: Vector2i, forward: int, d: 
 		return -1.0
 	var s = score(component)
 	var grid = component.hex_grid
-	if grid.sim_saturated or not grid.flow_overload.is_empty():
+	if (grid.sim_saturated or not grid.flow_overload.is_empty()) and not allow_overcharge:
 		s = -1.0
 	_revert_loop_move(component, inventory, undo)
 	return s

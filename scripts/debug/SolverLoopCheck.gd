@@ -12,7 +12,7 @@ func _check(l: String, c: bool):
 		push_error("FAIL: " + l)
 		failures += 1
 
-func _arm_case(rarity: int, recipe: String, loops: bool) -> Dictionary:
+func _arm_case(rarity: int, recipe: String, loops: bool, overcharge: bool = false) -> Dictionary:
 	SimRng.seed_all(SEED)
 	SolverScript._topology_cache.clear()
 	var mech = _build_mech(rarity)
@@ -23,6 +23,7 @@ func _arm_case(rarity: int, recipe: String, loops: bool) -> Dictionary:
 	inv = solver.solve(arm, inv)
 	var rf = RefinerScript.new()
 	rf.enable_loops = loops
+	rf.allow_overcharge = overcharge
 	var res = rf.refine(arm, inv)
 	var out = {"after": res["after"], "loops": int(res.get("loops", 0)), "sat": arm.hex_grid.sim_saturated, "over": arm.hex_grid.flow_overload.size()}
 	mech.queue_free()
@@ -39,6 +40,9 @@ func _ready():
 			_check("%s: an accepted loop leaves the arm unsaturated with no overloaded tile" % tag, not on["sat"] and on["over"] == 0)
 			_check("%s: an accepted loop strictly raises the score" % tag, on["after"] > off["after"])
 		total_loops += on["loops"]
+		var oc = _arm_case(spec[0], spec[1], true, true)
+		_check("%s: overcharge never scores below stable loops (%.1f vs %.1f, %d loops)" % [tag, oc["after"], on["after"], oc["loops"]], oc["after"] >= on["after"] - 0.0001)
+		_check("%s: overcharge adds at most %d loops" % [tag, SolverRefiner.LOOP_MAX_ADDED], oc["loops"] <= SolverRefiner.LOOP_MAX_ADDED)
 	_check("at least one deliberate loop was found across the cases (%d)" % total_loops, total_loops >= 1)
 	SimRng.unseed()
 	print("solver loop check done, failures=%d" % failures)

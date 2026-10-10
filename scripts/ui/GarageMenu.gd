@@ -786,6 +786,7 @@ func _on_auto_equip_pressed():
 		inventory = new_inventory
 		# Stage two: measure the real simulation and tune elements / spares for the best output.
 		var refiner = load("res://scripts/core/SolverRefiner.gd").new()
+		refiner.allow_overcharge = SaveManager.overcharge_loops
 		var rr = refiner.refine(active_component, inventory)
 		if rr.get("supported", false):
 			print("Auto-Equip refined: score %.1f -> %.1f (%d changes, %d sims)" % [rr["before"], rr["after"], rr["changes"], rr["evals"]])

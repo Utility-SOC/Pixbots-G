@@ -277,6 +277,16 @@ func set_fullscreen(on: bool, persist: bool = true) -> void:
 func toggle_fullscreen() -> void:
 	set_fullscreen(not fullscreen)
 
+# --- Overcharge loops (Auto-Equip may build bounded, cap-hitting energy loops; see SolverRefiner._loop_pass) ---
+var overcharge_loops: bool = true
+
+func set_overcharge_loops(on: bool) -> void:
+	overcharge_loops = on
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("Game", "OverchargeLoops", overcharge_loops)
+	config.save(SETTINGS_PATH)
+
 # --- Systems status graph (bottom-right HUD schematic, see scripts/ui/MechStatusGraph.gd) -------------
 signal status_graph_changed(on: bool)
 var show_status_graph: bool = true
@@ -420,6 +430,7 @@ func _ready():
 		batch_renderer_in_combat = bool(config.get_value("Rendering", "BatchInCombat", true))
 		projectile_size_mode = clamp(int(config.get_value("Rendering", "ProjectileSizeMode", 1)), 0, 2)
 		broken_limb_style = clamp(int(config.get_value("Rendering", "BrokenLimbStyle", 0)), 0, 1)
+		overcharge_loops = bool(config.get_value("Game", "OverchargeLoops", true))
 		fullscreen = bool(config.get_value("Display", "Fullscreen", false))
 		show_status_graph = bool(config.get_value("Display", "StatusGraph", true))
 		if fullscreen:

@@ -7,4 +7,5 @@
 pub mod flow_field;
 pub mod geometry;
 pub mod hex;
+pub mod hexgrid_sim;
 pub mod solid_grid;

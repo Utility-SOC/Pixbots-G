@@ -5,6 +5,12 @@ extends Node
 #   godot --path . res://scripts/debug/BenchGame.tscn -- --wave=12 --seconds=40
 # Options: --map=TYPE (force a map type), --wave=N (starting wave, scales enemy count), --seconds=S,
 # --nofire, --rate=N (fps cap; default uncapped/no vsync).
+# FIXED-WORKLOAD MODE (--fixed): the scoreboard for the Rust migration. Seeds SimRng + the map, forces the
+# map type, stops the player firing (no kills, so no next wave: the enemy set is constant), waits for the wave to finish
+# deploying, settles, then samples engine CPU time (Performance TIME_PHYSICS_PROCESS per physics tick and TIME_PROCESS
+# per frame; these exclude GPU/vsync waits) over a fixed number of physics ticks and prints one BENCH_FIXED line:
+#   godot --path . res://scripts/debug/BenchGame.tscn -- --fixed --wave=34 --map=Forest --seed=7 [--fixedticks=900]
+# Compare builds with tools/bench_fixed.sh (interleaved A/B repeats, median of medians).
 # Player gets unlimited lives and full HP so the run can't end early.
 # Output: one BENCH_SEC line per second, then a BENCH summary line.
 
@@ -68,6 +74,15 @@ var _nostatic := false # --nostatic: all StaticBody2D layers 0 (map broadphase c
 var _nostatic_done := false
 var _nostatic_r := 0.0 # --nostatic=R keeps static bodies within R px of the player
 var _hidevis := false
+var _fixed := false
+var _fixed_ticks := 900
+var _fixed_settle := 240
+var _fixed_state := 0 # 0 waiting for the wave, 1 settling, 2 sampling
+var _fixed_count := 0
+var _fixed_phys: Array[float] = []
+var _fixed_proc: Array[float] = []
+var _fixed_enemies := 0
+var _fixed_wait_t := 0.0
 
 func _ready():
 	for a in OS.get_cmdline_user_args():
@@ -75,6 +90,11 @@ func _ready():
 		elif a.begins_with("--seconds="): _seconds = float(a.split("=")[1])
 		elif a.begins_with("--rate="): _cap = int(a.split("=")[1])
 		elif a == "--nofire": _fire = false
+		elif a == "--fixed":
+			_fixed = true
+			_fire = false
+		elif a.begins_with("--fixedticks="): _fixed_ticks = int(a.split("=")[1])
+		elif a.begins_with("--fixedsettle="): _fixed_settle = int(a.split("=")[1])
 		elif a.begins_with("--seed="): _seed = int(a.split("=")[1])
 		elif a.begins_with("--map="): _map_type = a.split("=")[1]
 		elif a.begins_with("--swarm="): _swarm = int(a.split("=")[1])
@@ -106,12 +126,19 @@ func _ready():
 	Engine.max_fps = _cap
 	RenderingServer.viewport_set_measure_render_time(get_tree().root.get_viewport_rid(), true)
 	seed(_seed)
+	if _fixed:
+		SimRng.seed_all(_seed)
+		_nomusic = true
+		if _map_type == "":
+			_map_type = "Forest"
+		_seconds = 1.0e9 # the fixed run ends on its own tick budget
+		_cap = 0 # uncapped while the wave deploys; capped to 60 for the sampling window
 	if _nomusic:
 		ProceduralMusic.set_process(false)
 		ProceduralMusic.stop()
 		AudioManager._quitting = true
 	if _map_type != "":
-		SaveManager.pending_run_card = {"map_type": _map_type, "layout": "auto", "seed": 0}
+		SaveManager.pending_run_card = {"map_type": _map_type, "layout": "auto", "seed": _seed if _fixed else 0}
 	if OS.get_cmdline_user_args().has("--listnodes"):
 		for c in get_tree().root.get_children():
 			print("BENCH_ROOT ", c.name, " ", c.get_class())
@@ -470,7 +497,62 @@ func _swap_left_arm(gui) -> void:
 	gui._populate_component_tabs()
 	print("BENCH_SWAP #%d left arm -> %s (rarity %d, %d tiles)" % [_swap_n + 1, arm.component_name, arm.rarity, arm.hex_grid.get_all_tiles().size()])
 
+func _physics_process(_delta):
+	if not _fixed or _phase < 1 or _main == null:
+		return
+	var enemies = _main.active_enemies
+	match _fixed_state:
+		0:
+			_fixed_wait_t += _delta
+			# The wave is fully deployed once Main stops spawning and the count has stopped growing.
+			if not _main._spawning_wave and enemies > 0 and enemies == _fixed_enemies:
+				_fixed_count += 1
+				if _fixed_count >= 900: # squads deploy several seconds apart: only a 15 s plateau means the wave is done
+					_fixed_state = 1
+					_fixed_count = 0
+			else:
+				_fixed_count = 0
+			_fixed_enemies = enemies
+			if _fixed_wait_t > 400.0:
+				print("BENCH_FIXED_ABORT wave never settled (enemies=%d)" % enemies)
+				get_tree().quit(1)
+		1:
+			_fixed_count += 1
+			if _fixed_count >= _fixed_settle:
+				_fixed_state = 2
+				_fixed_count = 0
+				Engine.max_fps = 60 # sample at one frame per tick; deployment above ran uncapped to finish sooner
+		2:
+			_fixed_phys.append(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+			_fixed_count += 1
+			if _fixed_count >= _fixed_ticks:
+				_fixed_report(enemies)
+
+func _pct(sorted_arr: Array, q: float) -> float:
+	if sorted_arr.is_empty():
+		return 0.0
+	return sorted_arr[clampi(int(q * (sorted_arr.size() - 1)), 0, sorted_arr.size() - 1)]
+
+func _fixed_report(enemies: int) -> void:
+	var ph = _fixed_phys.duplicate()
+	ph.sort()
+	var pr = _fixed_proc.duplicate()
+	pr.sort()
+	var ph_sum := 0.0
+	for x in ph: ph_sum += x
+	var pr_sum := 0.0
+	for x in pr: pr_sum += x
+	# score = median physics ms per tick + median process ms per frame x frames per tick (about 1 with the 60 fps cap).
+	var frames_per_tick = float(pr.size()) / max(float(ph.size()), 1.0)
+	var score = _pct(ph, 0.5) + _pct(pr, 0.5) * frames_per_tick
+	print("BENCH_FIXED score=%.3f per_enemy=%.4f phys_med=%.3f phys_mean=%.3f phys_p95=%.3f proc_med=%.3f proc_mean=%.3f proc_p95=%.3f enemies=%d ticks=%d frames=%d nodes=%d wave=%d seed=%d" % [
+		score, score / max(float(enemies), 1.0), _pct(ph, 0.5), ph_sum / max(ph.size(), 1), _pct(ph, 0.95), _pct(pr, 0.5), pr_sum / max(pr.size(), 1), _pct(pr, 0.95),
+		enemies, ph.size(), pr.size(), get_tree().get_node_count(), _wave, _seed])
+	get_tree().quit(0)
+
 func _record(delta):
+	if _fixed and _fixed_state == 2:
+		_fixed_proc.append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
 	var ms = delta * 1000.0
 	_frames.append(ms)
 	_sec_frames.append(ms)

@@ -96,6 +96,9 @@ const DISCOVERY_BONUS = 1.5
 const PITY_PER_KILL = 0.004
 const PITY_MAX_BONUS = 0.12
 const BOSS_TILE_DROP_CHANCE = 0.50
+# Remediation Matrix (Mythic catch-all status Guard): never sold, only dropped by bosses once the run is deep.
+const REMEDIATION_MATRIX_MIN_WAVE = 150
+const REMEDIATION_MATRIX_BOSS_CHANCE = 0.15 # (tune) per boss kill at/after the min wave
 var _recent_drops: Dictionary = {} # tile_type -> decayed drop count
 var _drought_kills: int = 0
 var _last_wave_seen: int = 1
@@ -117,6 +120,9 @@ var garage_wave: int = 1 # wave of the last garage visit; set by Main
 
 func streak_multiplier() -> float:
 	return 1.0 + STREAK_DROP_RATE * float(max(0, current_wave - garage_wave))
+
+func remediation_matrix_chance(wave: int) -> float:
+	return REMEDIATION_MATRIX_BOSS_CHANCE if wave >= REMEDIATION_MATRIX_MIN_WAVE else 0.0
 
 func is_structural(tile_type: String) -> bool:
 	return tile_type in STRUCTURAL_TILE_TYPES or tile_type == "Microcore"
@@ -188,6 +194,13 @@ func generate_loot_for_mech(mech: Node):
 
 		if pack != null:
 			_spawn_component_drop(mech, pack)
+
+		var matrix_chance := remediation_matrix_chance(current_wave)
+		if matrix_chance > 0.0 and SimRng.stream("loot").randf() <= matrix_chance:
+			var matrix = load("res://scripts/tiles/RemediationMatrixTile.gd").new()
+			matrix.rarity = HexTile.Rarity.MYTHIC
+			_spawn_loot_drop(mech, matrix)
+			_note_dropped(matrix.tile_type)
 
 		# Corporate Sponsorships (task #17): this boss's own brand drops one
 		# of its tiles regardless of the player's sponsorship - see

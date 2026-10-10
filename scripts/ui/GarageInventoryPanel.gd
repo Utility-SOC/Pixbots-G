@@ -649,7 +649,7 @@ const TILE_TYPE_BLURBS = {
 	"Orbiting Array": "3-hex capital weapon - once armed, launches 3 projectiles that orbit outward from the mech.",
 	"Stun Guard": "Energy-fed: shortens the Concussed (stun) status on you in proportion to the energy routed into it (up to 90%). Costs a cell, mass and that energy.",
 	"Shock Guard": "Energy-fed: shortens the Paralyzed (shock) status on you in proportion to the energy routed into it (up to 90%). Costs a cell, mass and that energy.",
-	"Remediation Matrix": "Mythic, super rare. Energy-fed: shortens EVERY status on you (frozen, shocked, stunned, burning, poisoned, vortexed) in proportion to the energy routed into it, but needs 6x a single Guard's energy per fraction and caps at 70%.",
+	"Remediation Matrix": "Mythic, super rare: only dropped by bosses after wave 150. Energy-fed: shortens EVERY status on you (frozen, shocked, stunned, burning, poisoned, vortexed) in proportion to the energy routed into it, but needs 6x a single Guard's energy per fraction and caps at 70%.",
 	"Freeze Guard": "Energy-fed: shortens the Frozen status on you in proportion to the energy routed into it (up to 90%). Costs a cell, mass and that energy.",
 	"Structural Strut": "Zero-power filler that keeps the grid connected - tune it to an element (Configure Armor Element) for passive elemental resistance that stacks with more Struts.",
 	"Reactive Plating": "Counter-hits whatever damages you, if they're close enough to make physical sense - passive, no routing needed. Melee-range fights feel this most.",

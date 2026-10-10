@@ -49,8 +49,6 @@ const COMPONENT_RARITY = HexTile.Rarity.LEGENDARY
 
 # Curated - biased toward tiles with a real drop-rate problem rather than
 # an arbitrary "one of everything" grab-bag.
-const SUPER_RARE_TILE_SCRIPT = "res://scripts/tiles/RemediationMatrixTile.gd"
-const SUPER_RARE_OFFER_CHANCE = 0.04
 
 const SPECIAL_TILE_SCRIPTS = [
 	"res://scripts/tiles/ResonatorTile.gd",
@@ -255,9 +253,6 @@ func _generate_tile_offers():
 	_tile_offers.clear()
 	for script_path in SPECIAL_TILE_SCRIPTS:
 		_tile_offers.append(_make_tile_offer(script_path))
-	# SUPER rare: a small chance per restock that the Mythic Remediation Matrix is on the shelf, at 6x the usual price.
-	if SimRng.stream("loot").randf() < SUPER_RARE_OFFER_CHANCE:
-		_tile_offers.append(_make_tile_offer(SUPER_RARE_TILE_SCRIPT, SPECIAL_TILE_PRICE * 6))
 
 func _make_tile_offer(script_path: String, price: int = SPECIAL_TILE_PRICE) -> Dictionary:
 	var tile = load(script_path).new()
@@ -284,10 +279,7 @@ func purchase_tile(i: int, main) -> bool:
 	TileDiscoveryPopup.announce_if_new(offer.tile)
 	garage._refresh_inventory_ui()
 	garage._show_scrap_float("Delivered to tile inventory", Color(0.4, 0.9, 1.0))
-	if offer.script_path == SUPER_RARE_TILE_SCRIPT:
-		_tile_offers.remove_at(i) # one-off: it does not restock
-	else:
-		_tile_offers[i] = _make_tile_offer(offer.script_path)
+	_tile_offers[i] = _make_tile_offer(offer.script_path)
 	return true
 
 # --- Shared component-building helper --------------------------------------

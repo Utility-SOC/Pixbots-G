@@ -2,10 +2,54 @@ extends CanvasLayer
 
 const CoreTile = preload("res://scripts/tiles/CoreTile.gd")
 
+# Every placeable tile the debug grants know about. Structural plumbing (Core, Links,
+# struts) and abstract bases/deprecated shims are deliberately absent; DebugMenuCheck
+# fails if a new tile script is neither listed here nor in TILE_SCRIPTS_EXCLUDED.
+const TILE_SCRIPTS = [
+		"res://scripts/tiles/SplitterTile.gd",
+		"res://scripts/tiles/AmplifierTile.gd",
+		"res://scripts/tiles/ReflectorTile.gd",
+		"res://scripts/tiles/CatalystTile.gd",
+		"res://scripts/tiles/InfuserTile.gd",
+		"res://scripts/tiles/JumpjetTile.gd",
+		"res://scripts/tiles/ManeuveringThrusterTile.gd",
+		"res://scripts/tiles/WeaponMountTile.gd",
+		"res://scripts/tiles/LanceMountTile.gd",
+		"res://scripts/tiles/AccumulatorTile.gd",
+		"res://scripts/tiles/ActuatorTile.gd",
+		"res://scripts/tiles/DirectionalConduitTile.gd",
+		"res://scripts/tiles/FilterTile.gd",
+		"res://scripts/tiles/MagnetTile.gd",
+		"res://scripts/tiles/MicrocoreTile.gd",
+		"res://scripts/tiles/ResonatorTile.gd",
+		"res://scripts/tiles/ShieldTile.gd", # canonical Shield Generator (ShieldGeneratorTile is a deprecated shim)
+		"res://scripts/tiles/DroneBayTile.gd",
+		"res://scripts/tiles/AnchorTile.gd",
+		"res://scripts/tiles/CloakTile.gd",
+		"res://scripts/tiles/HealBeaconTile.gd",
+		"res://scripts/tiles/JammerModuleTile.gd",
+		"res://scripts/tiles/MissileRackTile.gd",
+		"res://scripts/tiles/ReverseAccumulatorTile.gd",
+		"res://scripts/tiles/OrbitingArrayTile.gd",
+		"res://scripts/tiles/StructuralStrutTile.gd",
+		"res://scripts/tiles/StunGuardTile.gd",
+		"res://scripts/tiles/ShockGuardTile.gd",
+		"res://scripts/tiles/FreezeGuardTile.gd",
+		"res://scripts/tiles/RemediationMatrixTile.gd",
+		"res://scripts/tiles/ReactivePlatingTile.gd",
+	"res://scripts/tiles/BufferCellTile.gd",
+	"res://scripts/tiles/PassiveTapTile.gd",
+	"res://scripts/tiles/WeakMirrorTile.gd",
+	"res://scripts/tiles/SmokeGrenadeTile.gd",
+]
+const TILE_SCRIPTS_EXCLUDED = ["CoreTile", "ComponentLinkTile", "StatusResistTile", "ShieldGeneratorTile"]
+const GRANT_RARITIES = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
+
 var panel: PanelContainer
 var is_open: bool = false
 var squad_type_dropdown: OptionButton
 var opt_reactor: OptionButton
+var boss_opt: OptionButton
 var force_ruins_check: CheckBox
 
 # Small helpers so tab construction below stays readable - every debug tool
@@ -129,35 +173,17 @@ func _ready():
 				main.garage_ui.scrap_label.text = "Scrap: " + str(main.player_scrap)
 			print("[Debug] Added 1,000,000 Scrap!")
 	)
-	_btn(tab_inv, "Give Lance Mount x5", func():
-		var main = get_tree().current_scene
-		if not main or main.get("player_inventory") == null:
-			return
-		var script = load("res://scripts/tiles/LanceMountTile.gd")
-		for i in range(5):
-			var tile = script.new()
-			tile.rarity = HexTile.Rarity.MYTHIC
-			main.player_inventory.append(tile)
-			TileDiscoveryPopup.announce_if_new(tile)
-			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
-				if main.garage_ui.inventory != main.player_inventory:
-					main.garage_ui.inventory.append(tile)
-		print("[Debug] Gave 5x Mythic Lance Mount - drag one from the Garage inventory onto 3 in-line arm hexes to place it.")
-	)
-	_btn(tab_inv, "Give Orbiting Array x5", func():
-		var main = get_tree().current_scene
-		if not main or main.get("player_inventory") == null:
-			return
-		var script = load("res://scripts/tiles/OrbitingArrayTile.gd")
-		for i in range(5):
-			var tile = script.new()
-			tile.rarity = HexTile.Rarity.MYTHIC
-			main.player_inventory.append(tile)
-			TileDiscoveryPopup.announce_if_new(tile)
-			if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
-				if main.garage_ui.inventory != main.player_inventory:
-					main.garage_ui.inventory.append(tile)
-		print("[Debug] Gave 5x Mythic Orbiting Array - drag onto 3 triangular hexes.")
+	var grant_tile_opt = OptionButton.new()
+	for path in TILE_SCRIPTS:
+		grant_tile_opt.add_item(path.get_file().get_basename().trim_suffix("Tile"))
+	tab_inv.add_child(grant_tile_opt)
+	var grant_rarity_opt = OptionButton.new()
+	for r in GRANT_RARITIES:
+		grant_rarity_opt.add_item(r)
+	grant_rarity_opt.selected = GRANT_RARITIES.size() - 1
+	tab_inv.add_child(grant_rarity_opt)
+	_btn(tab_inv, "Give selected tile x5", func():
+		_grant_tiles(TILE_SCRIPTS[grant_tile_opt.selected], grant_rarity_opt.selected, 5)
 	)
 	# Mod Chips (Late-game progression prep, task #41): normally these only
 	# come from TileActionMenu.extract_modifier() sacrificing a spare
@@ -186,9 +212,9 @@ func _ready():
 	# huge-magnitude projectiles, near-peer scaling) without grinding there.
 	var tab_late = _tab(tabs, "Late Game")
 	var wave_opt = OptionButton.new()
-	for w in [50, 100, 250, 500]:
+	for w in [25, 50, 100, 150, 250, 500]:
 		wave_opt.add_item("Wave %d" % w, w)
-	wave_opt.selected = 1
+	wave_opt.selected = 2
 	tab_late.add_child(wave_opt)
 	_btn(tab_late, "Jump to selected wave", func():
 		var m = get_tree().current_scene
@@ -201,10 +227,15 @@ func _ready():
 		_toggle_menu()
 		_on_late_game_sniper_kit(wave_opt.get_selected_id())
 	)
-	_btn(tab_late, "Difficulty: Why would you do this to yourself?", func():
-		SaveManager.set_difficulty(3)
-		print("[Debug] Difficulty set to the top tier (applies to newly spawned waves).")
+	var diff_opt = OptionButton.new()
+	for d in range(SaveManager.DIFFICULTY_NAMES.size()):
+		diff_opt.add_item("Difficulty: %s" % SaveManager.DIFFICULTY_NAMES[d])
+	diff_opt.selected = SaveManager.difficulty
+	diff_opt.item_selected.connect(func(i):
+		SaveManager.set_difficulty(i)
+		print("[Debug] Difficulty set to %s (applies to newly spawned waves)." % SaveManager.DIFFICULTY_NAMES[i])
 	)
+	tab_late.add_child(diff_opt)
 	var late_hint = Label.new()
 	late_hint.text = "Sniper kit equips Mythic parts, builds a long straight Kinetic+Pierce arm\n(Amplifier run into a Sniper Mount, Accumulator bank on hotkey 1) and\njumps the wave. Open the Garage after to inspect or tweak it."
 	late_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -228,7 +259,7 @@ func _ready():
 
 	var layout_opt = OptionButton.new()
 	layout_opt.add_item("Layout: auto")
-	for l in ["none", "river", "ridges", "pillars", "rings", "canyon", "crossroads"]:
+	for l in MapGenerator.LAYOUTS:
 		layout_opt.add_item("Layout: " + l)
 	tab_world.add_child(layout_opt)
 
@@ -303,15 +334,13 @@ func _ready():
 	boss_label.text = "-- Spawn Boss --"
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tab_world.add_child(boss_label)
-	var boss_opt = OptionButton.new()
-	for n in ["Warhulk", "Longshot", "Specter", "Incinerator", "Warden", "Overlord", "Stormcaller", "Tyrant", "Hexer", "Prism"]:
-		boss_opt.add_item(n)
+	boss_opt = OptionButton.new()
 	tab_world.add_child(boss_opt)
 	_btn(tab_world, "Spawn Selected Boss", func():
 		_toggle_menu()
 		var m = get_tree().current_scene
 		var d = m.world.get_node_or_null("SquadDirector") if (m and "world" in m and m.world) else null
-		if d and m.has_method("_spawn_boss"):
+		if d and boss_opt.item_count > 0 and m.has_method("_spawn_boss"):
 			d.debug_force_boss = boss_opt.get_item_text(boss_opt.selected)
 			m._spawn_boss(d, false)
 			d.debug_force_boss = ""
@@ -336,10 +365,15 @@ func _toggle_menu():
 # so this list is rebuilt fresh every time the menu opens rather than once
 # at _ready(), when SquadDirector likely doesn't even exist yet.
 func _refresh_squad_dropdown():
+	var director = _get_squad_director()
+	# Boss list tracks the live profile pool (seeds plus mutations, minus nothing hardcoded).
+	if boss_opt and director:
+		boss_opt.clear()
+		for bp in director.boss_profiles:
+			boss_opt.add_item(bp.profile_name)
 	if not squad_type_dropdown:
 		return
 	squad_type_dropdown.clear()
-	var director = _get_squad_director()
 	if not director:
 		return
 	for t in director.templates:
@@ -420,20 +454,7 @@ func _on_spawn_enemy():
 func _on_force_loot():
 	var player = get_tree().get_nodes_in_group("player")
 	if player.size() > 0:
-		var tile_classes = [
-			preload("res://scripts/tiles/AmplifierTile.gd"),
-			preload("res://scripts/tiles/ReflectorTile.gd"),
-			preload("res://scripts/tiles/SplitterTile.gd"),
-			preload("res://scripts/tiles/WeaponMountTile.gd"),
-			preload("res://scripts/tiles/InfuserTile.gd"),
-			preload("res://scripts/tiles/AccumulatorTile.gd"),
-			preload("res://scripts/tiles/CatalystTile.gd"),
-			preload("res://scripts/tiles/DirectionalConduitTile.gd"),
-			preload("res://scripts/tiles/FilterTile.gd"),
-			preload("res://scripts/tiles/ResonatorTile.gd")
-		]
-		var script = tile_classes.pick_random()
-		var tile = script.new()
+		var tile = load(TILE_SCRIPTS.pick_random()).new()
 		tile.rarity = HexTile.Rarity.LEGENDARY
 		var drop = load("res://scripts/entities/LootPickup.gd").new()
 		drop.tile_data = tile
@@ -443,6 +464,25 @@ func _on_force_loot():
 		# Main itself - outside the pixelated viewport since this session's
 		# visual identity pass.
 		player[0].get_parent().add_child(drop)
+
+func _grant_tiles(path: String, rarity: int, count: int) -> void:
+	var main = get_tree().current_scene
+	if not main or main.get("player_inventory") == null:
+		return
+	var script = load(path)
+	if not script:
+		return
+	for i in range(count):
+		var tile = script.new()
+		tile.rarity = rarity
+		main.player_inventory.append(tile)
+		TileDiscoveryPopup.announce_if_new(tile)
+		if main.get("garage_ui") != null and main.garage_ui.get("inventory") != null:
+			if main.garage_ui.inventory != main.player_inventory:
+				main.garage_ui.inventory.append(tile)
+	if main.get("garage_ui") != null and main.garage_ui.has_method("_refresh_inventory_ui"):
+		main.garage_ui._refresh_inventory_ui()
+	print("[Debug] Gave %dx %s (%s)" % [count, path.get_file().get_basename(), GRANT_RARITIES[clampi(rarity, 0, GRANT_RARITIES.size() - 1)]])
 
 func _on_heal_player():
 	var player = get_tree().get_nodes_in_group("player")
@@ -578,39 +618,7 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		return
 		
 	var Rarity = HexTile.Rarity
-	var tile_scripts = [
-		"res://scripts/tiles/SplitterTile.gd",
-		"res://scripts/tiles/AmplifierTile.gd",
-		"res://scripts/tiles/ReflectorTile.gd",
-		"res://scripts/tiles/CatalystTile.gd",
-		"res://scripts/tiles/InfuserTile.gd",
-		"res://scripts/tiles/JumpjetTile.gd",
-		"res://scripts/tiles/ManeuveringThrusterTile.gd",
-		"res://scripts/tiles/WeaponMountTile.gd",
-		"res://scripts/tiles/LanceMountTile.gd",
-		"res://scripts/tiles/AccumulatorTile.gd",
-		"res://scripts/tiles/ActuatorTile.gd",
-		"res://scripts/tiles/DirectionalConduitTile.gd",
-		"res://scripts/tiles/FilterTile.gd",
-		"res://scripts/tiles/MagnetTile.gd",
-		"res://scripts/tiles/MicrocoreTile.gd",
-		"res://scripts/tiles/ResonatorTile.gd",
-		"res://scripts/tiles/ShieldTile.gd", # canonical Shield Generator (ShieldGeneratorTile is a deprecated shim)
-		"res://scripts/tiles/DroneBayTile.gd",
-		"res://scripts/tiles/AnchorTile.gd",
-		"res://scripts/tiles/CloakTile.gd",
-		"res://scripts/tiles/HealBeaconTile.gd",
-		"res://scripts/tiles/JammerModuleTile.gd",
-		"res://scripts/tiles/MissileRackTile.gd",
-		"res://scripts/tiles/ReverseAccumulatorTile.gd",
-		"res://scripts/tiles/OrbitingArrayTile.gd",
-		"res://scripts/tiles/StructuralStrutTile.gd",
-		"res://scripts/tiles/StunGuardTile.gd",
-		"res://scripts/tiles/ShockGuardTile.gd",
-		"res://scripts/tiles/FreezeGuardTile.gd",
-		"res://scripts/tiles/RemediationMatrixTile.gd",
-		"res://scripts/tiles/ReactivePlatingTile.gd"
-	]
+	var tile_scripts = TILE_SCRIPTS
 	
 	# Give 50 of each normal tile
 	for path in tile_scripts:

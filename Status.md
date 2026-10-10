@@ -140,7 +140,7 @@ Superseded by the lane-based queue in Section 2 (reconciled 2026-10-08). Phase 2
 
 ### AAA Polish Roadmap (user-proposed 2026-08-05)
 - **Done:** GPUParticles2D migration; tabletop diorama shader; HitstopManager autoload; camera kick (`CameraShake.gd` spring); WorldEnvironment glow wired into the pixel viewport (`AAAPolishPhase1Check`).
-- **Not built (verified 2026-10-05):** BGM ducking under heavy impacts (no compressor/sidechain anywhere); pooled/layered weapon SFX (no weapon audio pool); MultiMesh scorch decals (the only MultiMesh user is the projectile renderer); energy-conduit scrolling shader in the garage; drop-pod transition (the garage is an overlay, so do it as an overlay animation, not async scene loading); hobby-shop diorama menu background (art task).
+- **Correction 2026-10-10:** BGM ducking, pooled weapon SFX and the Impact-bus sidechain DO exist (`scripts/audio/SfxManager.gd`); the ducking was too deep (~30 dB) and is now tuned from measurement (~9.5 dB, `SfxDuckingCheck`). **Not built (verified 2026-10-05):** MultiMesh scorch decals (the only MultiMesh user is the projectile renderer); energy-conduit scrolling shader in the garage; drop-pod transition (the garage is an overlay, so do it as an overlay animation, not async scene loading); hobby-shop diorama menu background (art task).
 
 ### Future Expansions
 - **Synchronous Online Multiplayer (GodotSteam):** P2P lobbies, state-sync with client prediction; modes 1v1, 2v2, co-op wave survival, asymmetric 2v1 point-buy.

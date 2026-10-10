@@ -101,10 +101,12 @@ func _ensure_buses():
 			return
 	var comp = AudioEffectCompressor.new()
 	comp.sidechain = "Impact"
-	comp.threshold = -26.0
-	comp.ratio = 5.0
+	# Measured with SfxDuckingCheck (steady tone on Music, one explosion): -26 dB / 5:1 crushed the score by ~30 dB for
+	# ~1.4 s, i.e. muted it in any real fight. -14 dB / 3:1 / 350 ms gives a ~9 dB dip that is back within a second.
+	comp.threshold = -14.0
+	comp.ratio = 3.0
 	comp.attack_us = 15000.0
-	comp.release_ms = 320.0
+	comp.release_ms = 350.0
 	comp.gain = 0.0
 	AudioServer.add_bus_effect(music, comp)
 

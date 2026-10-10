@@ -99,6 +99,10 @@ func _ready():
 			print("skip: %s is outside the Rust-routed subset" % name)
 			continue
 		produced["solver_" + name] = got
+		# Regression guard (2026-10-09): a solved torso must not saturate on its own. The reattach step used to route
+		# a dropped branch through its own subtree, closing a cycle between adjacent Splitters.
+		if name.begins_with("torso_"):
+			_check("solver_%s: routing tree is acyclic (sim does not saturate)" % name, not comp.hex_grid.sim_saturated)
 	SimRng.unseed()
 	_check("collected %d energy cases" % produced.size(), produced.size() >= 5)
 

@@ -679,6 +679,17 @@ func _aim_accessory_return(grid, acc_coord, tree_nodes: Dictionary, parent_map: 
 	if not acc_tile or not ("active_faces" in acc_tile):
 		return
 
+	# Feedback guard (found by SolverBenchDiag, 2026-10-09): energy the Head/Backpack send back must never be able
+	# to flow into the Head or Backpack link again, or it circulates torso -> accessory -> torso, duplicating at every
+	# Splitter until the sim saturates. A tree cell is "upstream of an accessory" when its subtree contains one of
+	# those links; injecting there is the loop. Sinks that ARE those links are excluded too.
+	var accessory_links: Dictionary = {}
+	for t in targets:
+		var lt = grid.get_tile(HexCoord.new(t.q, t.r))
+		if lt != null and "target_slot" in lt and (lt.target_slot == HexTile.BodySlot.HEAD or lt.target_slot == HexTile.BodySlot.BACKPACK):
+			accessory_links[Vector2i(t.q, t.r)] = true
+	var upstream_cache: Dictionary = {}
+
 	var sink_dirs: Array = []
 	var route_dirs: Array = []
 	for d in range(6):
@@ -690,11 +701,20 @@ func _aim_accessory_return(grid, acc_coord, tree_nodes: Dictionary, parent_map: 
 				is_sink = true
 				break
 		if is_sink:
-			sink_dirs.append(d)
+			if not accessory_links.has(nv):
+				sink_dirs.append(d)
 		elif (tree_nodes.has(nv) or parent_map.has(nv)) and nv != Vector2i(0, 0):
-			route_dirs.append(d)
+			if not _subtree_reaches(nv, accessory_links, tree_nodes, upstream_cache):
+				route_dirs.append(d)
 
 	var chosen: Array = sink_dirs + route_dirs
+	# Tree reasoning is only valid for packets entering a tile from the side the tree routed it from; a Reflector or
+	# conduit entered from another side sends energy elsewhere. So when the fast sim can run this grid, test each
+	# direction with a real packet and keep only the ones that reach weapon-side sinks without saturating or
+	# touching an accessory link. Falls back to the tree-based choice when the sim cannot handle the grid.
+	var tested = _test_return_faces(grid, acc_coord, accessory_links, targets)
+	if tested != null:
+		chosen = tested
 	if chosen.is_empty():
 		return
 	var max_faces = acc_tile.get_max_faces() if acc_tile.has_method("get_max_faces") else chosen.size()
@@ -702,6 +722,71 @@ func _aim_accessory_return(grid, acc_coord, tree_nodes: Dictionary, parent_map: 
 	for d in chosen:
 		if acc_tile.active_faces.size() < max_faces:
 			acc_tile.active_faces.append(d)
+
+# Simulates a test packet leaving the Accessory Return along each of the six directions. Returns the safe directions
+# (best reach first), possibly empty, or null when the fast simulator does not support this grid.
+const RustSimScript = preload("res://scripts/core/RustGridSim.gd")
+func _test_return_faces(grid, acc_coord, accessory_links: Dictionary, targets: Array):
+	if not RustSimScript.is_available():
+		return null
+	var scored: Array = []
+	for d in range(6):
+		var n = acc_coord.neighbor(d)
+		var nv = Vector2i(n.q, n.r)
+		var is_target = false
+		for t in targets:
+			if t.q == n.q and t.r == n.r:
+				is_target = true
+				break
+		if grid.get_tile(n) == null and not is_target:
+			continue
+		for tile in grid.get_all_tiles():
+			tile.reset_simulation_state()
+			if tile.has_method("clear_pending"):
+				tile.clear_pending()
+		grid.reset_flow()
+		var pkt = EnergyPacket.new(1000.0, HexCoord.new(acc_coord.q, acc_coord.r))
+		pkt.direction = d
+		pkt.is_active = true
+		if not RustSimScript.try_simulate(grid, [pkt], true):
+			grid.reset_flow()
+			return null
+		# Saturation is the fault (energy circling inside the torso, e.g. a Reflector entered from the wrong side).
+		# Touching an accessory link is only wasteful, not a cycle: the game does not re-simulate Head/Backpack on
+		# the return pass, so those links just swallow the energy. Prefer loop-free, widest-reaching directions.
+		var bad = grid.sim_saturated
+		var loops = grid.flow_loops.size()
+		var reach = 0
+		for t in targets:
+			var tv = Vector2i(t.q, t.r)
+			if (tv.x != 0 or tv.y != 0) and not accessory_links.has(tv) and grid.flow.has(tv):
+				reach += 1
+		if not bad and reach > 0:
+			scored.append([loops, -reach, d])
+	for tile in grid.get_all_tiles():
+		tile.reset_simulation_state()
+		if tile.has_method("clear_pending"):
+			tile.clear_pending()
+	grid.reset_flow()
+	scored.sort_custom(func(a, b): return a < b)
+	var out: Array = []
+	for sc in scored:
+		out.append(sc[2])
+	return out
+
+# True when `v` or anything below it in the routing tree is one of `goal_set`.
+func _subtree_reaches(v: Vector2i, goal_set: Dictionary, tree_nodes: Dictionary, cache: Dictionary) -> bool:
+	if cache.has(v):
+		return cache[v]
+	cache[v] = false # cycle guard; a tree has none, but never recurse forever
+	var hit = goal_set.has(v)
+	if not hit:
+		for c in tree_nodes.get(v, []):
+			if _subtree_reaches(c, goal_set, tree_nodes, cache):
+				hit = true
+				break
+	cache[v] = hit
+	return hit
 
 # Straight-run tile search order. With no profile, this is the original
 # fixed order. With a profile, Elemental Infuser goes first - it's the tile
@@ -850,6 +935,12 @@ func _try_reattach(e: Vector2i, tree_nodes: Dictionary, parent_map: Dictionary, 
 	var reattach_from = {}
 	var reattach_queue = []
 	reattach_from[v] = null
+	# The orphaned branch's OWN subtree is disconnected from the root too. Routing the new path through one of its
+	# descendants would give the tree an edge back into e's subtree and close a cycle (found by SolverBenchDiag,
+	# 2026-10-09: adjacent Splitters pointing at each other, torso saturating before any accessory is involved).
+	for orphan in _descendants_of(e, tree_nodes):
+		if orphan != e:
+			reattach_from[orphan] = null
 	for lv in locked_v.keys():
 		reattach_from[lv] = null
 	for t in targets:
@@ -890,6 +981,19 @@ func _try_reattach(e: Vector2i, tree_nodes: Dictionary, parent_map: Dictionary, 
 		parent_map[node] = prev
 		prev = node
 	return true
+
+# Every hex at or below `e` in tree_nodes (e included).
+func _descendants_of(e: Vector2i, tree_nodes: Dictionary) -> Array:
+	var out: Array = [e]
+	var seen := {e: true}
+	var i = 0
+	while i < out.size():
+		for c in tree_nodes.get(out[i], []):
+			if not seen.has(c):
+				seen[c] = true
+				out.append(c)
+		i += 1
+	return out
 
 # Cap-aware Splitter lookup for a hex that needs to fan out to num_faces
 # children - a plain first-match lookup could hand a Common Splitter

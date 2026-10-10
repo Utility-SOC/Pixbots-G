@@ -428,8 +428,7 @@
 		},
 		{
 			"faces": [
-				3,
-				1
+				3
 			],
 			"q": -2,
 			"r": 0,
@@ -439,18 +438,17 @@
 		{
 			"faces": [
 				0,
-				1,
-				4
+				5,
+				1
 			],
 			"q": -2,
 			"r": 1,
 			"rarity": 2,
-			"type": "Splitter"
+			"type": "Accessory Return"
 		},
 		{
 			"faces": [
-				2,
-				0
+				2
 			],
 			"q": -2,
 			"r": 2,
@@ -478,7 +476,8 @@
 		},
 		{
 			"faces": [
-				0
+				0,
+				1
 			],
 			"q": -1,
 			"r": 1,
@@ -506,8 +505,7 @@
 		},
 		{
 			"faces": [
-				4,
-				2
+				4
 			],
 			"q": 0,
 			"r": -2,
@@ -516,7 +514,8 @@
 		},
 		{
 			"faces": [
-				2
+				2,
+				3
 			],
 			"q": 0,
 			"r": -1,
@@ -567,23 +566,10 @@
 			"type": "Right Leg Link"
 		},
 		{
-			"faces": [
-				3
-			],
-			"q": 1,
-			"r": -2,
-			"rarity": 2,
-			"type": "Splitter"
-		},
-		{
-			"faces": [
-				5,
-				4
-			],
 			"q": 1,
 			"r": -1,
-			"rarity": 2,
-			"type": "Splitter"
+			"rarity": 1,
+			"type": "Catalyst"
 		},
 		{
 			"faces": [
@@ -597,13 +583,13 @@
 		{
 			"q": 2,
 			"r": -2,
-			"rarity": 1,
+			"rarity": 2,
 			"type": "Catalyst"
 		},
 		{
 			"q": 2,
 			"r": 0,
-			"rarity": 2,
+			"rarity": 1,
 			"type": "Catalyst"
 		},
 		{
@@ -619,7 +605,7 @@
 			"q": 3,
 			"r": 0,
 			"rarity": 1,
-			"type": "Catalyst"
+			"type": "Elemental Infuser"
 		},
 		{
 			"faces": [
@@ -664,8 +650,7 @@
 		},
 		{
 			"faces": [
-				3,
-				1
+				3
 			],
 			"q": -2,
 			"r": 0,
@@ -675,18 +660,17 @@
 		{
 			"faces": [
 				0,
-				1,
-				4
+				5,
+				1
 			],
 			"q": -2,
 			"r": 1,
 			"rarity": 2,
-			"type": "Splitter"
+			"type": "Accessory Return"
 		},
 		{
 			"faces": [
-				2,
-				0
+				2
 			],
 			"q": -2,
 			"r": 2,
@@ -714,7 +698,8 @@
 		},
 		{
 			"faces": [
-				0
+				0,
+				1
 			],
 			"q": -1,
 			"r": 1,
@@ -742,8 +727,7 @@
 		},
 		{
 			"faces": [
-				4,
-				2
+				4
 			],
 			"q": 0,
 			"r": -2,
@@ -752,7 +736,8 @@
 		},
 		{
 			"faces": [
-				2
+				2,
+				3
 			],
 			"q": 0,
 			"r": -1,
@@ -803,23 +788,10 @@
 			"type": "Right Leg Link"
 		},
 		{
-			"faces": [
-				3
-			],
-			"q": 1,
-			"r": -2,
-			"rarity": 2,
-			"type": "Splitter"
-		},
-		{
-			"faces": [
-				5,
-				4
-			],
 			"q": 1,
 			"r": -1,
-			"rarity": 2,
-			"type": "Splitter"
+			"rarity": 0,
+			"type": "Amplifier"
 		},
 		{
 			"faces": [
@@ -833,13 +805,13 @@
 		{
 			"q": 2,
 			"r": -2,
-			"rarity": 0,
+			"rarity": 1,
 			"type": "Amplifier"
 		},
 		{
 			"q": 2,
 			"r": 0,
-			"rarity": 1,
+			"rarity": 2,
 			"type": "Amplifier"
 		},
 		{
@@ -854,8 +826,8 @@
 		{
 			"q": 3,
 			"r": 0,
-			"rarity": 2,
-			"type": "Amplifier"
+			"rarity": 1,
+			"type": "Catalyst"
 		},
 		{
 			"faces": [

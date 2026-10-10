@@ -1705,54 +1705,19 @@
 			{
 				"active_faces": [
 					0.0,
-					1.0,
-					4.0
+					5.0,
+					1.0
 				],
-				"body_slot": 0.0,
+				"body_slot": 1.0,
 				"category": 3.0,
 				"level": 1.0,
-				"output_ratios": [],
 				"power_lost": false,
 				"q": -2.0,
 				"r": 1.0,
 				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
-				"tile_type": "Splitter"
-			},
-			{
-				"active_faces": [
-					3.0,
-					1.0
-				],
-				"body_slot": 0.0,
-				"category": 3.0,
-				"level": 1.0,
-				"output_ratios": [],
-				"power_lost": false,
-				"q": -2.0,
-				"r": 0.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
-				"tile_type": "Splitter"
-			},
-			{
-				"active_faces": [
-					2.0,
-					0.0
-				],
-				"body_slot": 0.0,
-				"category": 3.0,
-				"level": 1.0,
-				"output_ratios": [],
-				"power_lost": false,
-				"q": -2.0,
-				"r": 2.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
 				"sync_adjustment": 1.0,
-				"tile_type": "Splitter"
+				"tile_type": "Accessory Return"
 			},
 			{
 				"active_faces": [
@@ -1768,7 +1733,24 @@
 				"r": -1.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": -1.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					0.0,
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
 				"tile_type": "Splitter"
 			},
 			{
@@ -1785,13 +1767,13 @@
 				"r": 2.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
+				"sync_adjustment": 1.0,
 				"tile_type": "Splitter"
 			},
 			{
 				"active_faces": [
-					4.0,
-					2.0
+					2.0,
+					3.0
 				],
 				"body_slot": 0.0,
 				"category": 3.0,
@@ -1799,27 +1781,10 @@
 				"output_ratios": [],
 				"power_lost": false,
 				"q": 0.0,
-				"r": -2.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
-				"tile_type": "Splitter"
-			},
-			{
-				"active_faces": [
-					5.0,
-					4.0
-				],
-				"body_slot": 0.0,
-				"category": 3.0,
-				"level": 1.0,
-				"output_ratios": [],
-				"power_lost": false,
-				"q": 1.0,
 				"r": -1.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 1.0,
+				"sync_adjustment": -1.0,
 				"tile_type": "Splitter"
 			},
 			{
@@ -1850,31 +1815,15 @@
 			},
 			{
 				"active_faces": [
-					1.0
+					3.0
 				],
 				"body_slot": 0.0,
 				"category": 3.0,
 				"level": 1.0,
 				"output_ratios": [],
 				"power_lost": false,
-				"q": -1.0,
+				"q": -2.0,
 				"r": 0.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
-				"tile_type": "Splitter"
-			},
-			{
-				"active_faces": [
-					0.0
-				],
-				"body_slot": 0.0,
-				"category": 3.0,
-				"level": 1.0,
-				"output_ratios": [],
-				"power_lost": false,
-				"q": -1.0,
-				"r": 1.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
 				"sync_adjustment": 0.0,
@@ -1889,8 +1838,40 @@
 				"level": 1.0,
 				"output_ratios": [],
 				"power_lost": false,
+				"q": -2.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
 				"q": 0.0,
-				"r": -1.0,
+				"r": -2.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
 				"sync_adjustment": 0.0,
@@ -1925,7 +1906,7 @@
 				"r": 2.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 1.0,
+				"sync_adjustment": 0.0,
 				"tile_type": "Splitter"
 			},
 			{
@@ -1942,20 +1923,20 @@
 				"tile_type": "Amplifier"
 			},
 			{
-				"active_faces": [
-					3.0
-				],
 				"body_slot": 0.0,
-				"category": 3.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
 				"level": 1.0,
-				"output_ratios": [],
 				"power_lost": false,
 				"q": 1.0,
-				"r": -2.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 1.0,
-				"tile_type": "Splitter"
+				"r": -1.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
 			},
 			{
 				"active_faces": [
@@ -1970,7 +1951,7 @@
 				"r": 0.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 1.0,
+				"sync_adjustment": 0.0,
 				"tile_type": "Splitter"
 			},
 			{
@@ -1983,22 +1964,6 @@
 				"power_lost": false,
 				"q": 2.0,
 				"r": -2.0,
-				"rarity": 1.0,
-				"script_path": "res://scripts/tiles/CatalystTile.gd",
-				"sync_adjustment": 0.0,
-				"target_synergy": 0.0,
-				"tile_type": "Catalyst"
-			},
-			{
-				"body_slot": 0.0,
-				"category": 4.0,
-				"gate_every_n": 1.0,
-				"gate_min_magnitude": 0.0,
-				"inverted": false,
-				"level": 1.0,
-				"power_lost": false,
-				"q": 2.0,
-				"r": 0.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/CatalystTile.gd",
 				"sync_adjustment": 0.0,
@@ -2013,13 +1978,26 @@
 				"inverted": false,
 				"level": 1.0,
 				"power_lost": false,
-				"q": 3.0,
+				"q": 2.0,
 				"r": 0.0,
 				"rarity": 1.0,
 				"script_path": "res://scripts/tiles/CatalystTile.gd",
 				"sync_adjustment": 0.0,
 				"target_synergy": 0.0,
 				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 3.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/InfuserTile.gd",
+				"secondary_synergy": 0.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Elemental Infuser"
 			}
 		],
 		"valid_hexes": [
@@ -2377,54 +2355,19 @@
 			{
 				"active_faces": [
 					0.0,
-					1.0,
-					4.0
+					5.0,
+					1.0
 				],
-				"body_slot": 0.0,
+				"body_slot": 1.0,
 				"category": 3.0,
 				"level": 1.0,
-				"output_ratios": [],
 				"power_lost": false,
 				"q": -2.0,
 				"r": 1.0,
 				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
-				"tile_type": "Splitter"
-			},
-			{
-				"active_faces": [
-					3.0,
-					1.0
-				],
-				"body_slot": 0.0,
-				"category": 3.0,
-				"level": 1.0,
-				"output_ratios": [],
-				"power_lost": false,
-				"q": -2.0,
-				"r": 0.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
-				"tile_type": "Splitter"
-			},
-			{
-				"active_faces": [
-					2.0,
-					0.0
-				],
-				"body_slot": 0.0,
-				"category": 3.0,
-				"level": 1.0,
-				"output_ratios": [],
-				"power_lost": false,
-				"q": -2.0,
-				"r": 2.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
 				"sync_adjustment": 1.0,
-				"tile_type": "Splitter"
+				"tile_type": "Accessory Return"
 			},
 			{
 				"active_faces": [
@@ -2440,7 +2383,24 @@
 				"r": -1.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": -1.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					0.0,
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
 				"tile_type": "Splitter"
 			},
 			{
@@ -2457,13 +2417,13 @@
 				"r": 2.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
+				"sync_adjustment": 1.0,
 				"tile_type": "Splitter"
 			},
 			{
 				"active_faces": [
-					4.0,
-					2.0
+					2.0,
+					3.0
 				],
 				"body_slot": 0.0,
 				"category": 3.0,
@@ -2471,27 +2431,10 @@
 				"output_ratios": [],
 				"power_lost": false,
 				"q": 0.0,
-				"r": -2.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
-				"tile_type": "Splitter"
-			},
-			{
-				"active_faces": [
-					5.0,
-					4.0
-				],
-				"body_slot": 0.0,
-				"category": 3.0,
-				"level": 1.0,
-				"output_ratios": [],
-				"power_lost": false,
-				"q": 1.0,
 				"r": -1.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 1.0,
+				"sync_adjustment": -1.0,
 				"tile_type": "Splitter"
 			},
 			{
@@ -2522,31 +2465,15 @@
 			},
 			{
 				"active_faces": [
-					1.0
+					3.0
 				],
 				"body_slot": 0.0,
 				"category": 3.0,
 				"level": 1.0,
 				"output_ratios": [],
 				"power_lost": false,
-				"q": -1.0,
+				"q": -2.0,
 				"r": 0.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 0.0,
-				"tile_type": "Splitter"
-			},
-			{
-				"active_faces": [
-					0.0
-				],
-				"body_slot": 0.0,
-				"category": 3.0,
-				"level": 1.0,
-				"output_ratios": [],
-				"power_lost": false,
-				"q": -1.0,
-				"r": 1.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
 				"sync_adjustment": 0.0,
@@ -2561,8 +2488,40 @@
 				"level": 1.0,
 				"output_ratios": [],
 				"power_lost": false,
+				"q": -2.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
 				"q": 0.0,
-				"r": -1.0,
+				"r": -2.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
 				"sync_adjustment": 0.0,
@@ -2597,7 +2556,7 @@
 				"r": 2.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 1.0,
+				"sync_adjustment": 0.0,
 				"tile_type": "Splitter"
 			},
 			{
@@ -2614,20 +2573,17 @@
 				"tile_type": "Elemental Infuser"
 			},
 			{
-				"active_faces": [
-					3.0
-				],
 				"body_slot": 0.0,
-				"category": 3.0,
+				"category": 1.0,
 				"level": 1.0,
-				"output_ratios": [],
+				"mythic_focus": 0.0,
 				"power_lost": false,
 				"q": 1.0,
-				"r": -2.0,
-				"rarity": 2.0,
-				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 1.0,
-				"tile_type": "Splitter"
+				"r": -1.0,
+				"rarity": 0.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
 			},
 			{
 				"active_faces": [
@@ -2642,7 +2598,7 @@
 				"r": 0.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/SplitterTile.gd",
-				"sync_adjustment": 1.0,
+				"sync_adjustment": 0.0,
 				"tile_type": "Splitter"
 			},
 			{
@@ -2653,19 +2609,6 @@
 				"power_lost": false,
 				"q": 2.0,
 				"r": -2.0,
-				"rarity": 0.0,
-				"script_path": "res://scripts/tiles/AmplifierTile.gd",
-				"sync_adjustment": 0.0,
-				"tile_type": "Amplifier"
-			},
-			{
-				"body_slot": 0.0,
-				"category": 1.0,
-				"level": 1.0,
-				"mythic_focus": 0.0,
-				"power_lost": false,
-				"q": 2.0,
-				"r": 0.0,
 				"rarity": 1.0,
 				"script_path": "res://scripts/tiles/AmplifierTile.gd",
 				"sync_adjustment": 0.0,
@@ -2677,12 +2620,28 @@
 				"level": 1.0,
 				"mythic_focus": 0.0,
 				"power_lost": false,
-				"q": 3.0,
+				"q": 2.0,
 				"r": 0.0,
 				"rarity": 2.0,
 				"script_path": "res://scripts/tiles/AmplifierTile.gd",
 				"sync_adjustment": 0.0,
 				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 3.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 8.0,
+				"tile_type": "Catalyst"
 			}
 		],
 		"valid_hexes": [

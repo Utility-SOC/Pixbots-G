@@ -69,13 +69,14 @@ func get_footprint_shape() -> String:
 
 func _roll_sync_adjustment():
 	sync_adjustment = 0
+	var rng = SimRng.stream("tile")
 	if rarity == Rarity.RARE:
-		if randf() < 0.4:
-			sync_adjustment = 1 if randf() < 0.5 else -1
+		if rng.randf() < 0.4:
+			sync_adjustment = 1 if rng.randf() < 0.5 else -1
 	elif rarity == Rarity.LEGENDARY:
-		if randf() < 0.8:
+		if rng.randf() < 0.8:
 			var rolls = [1, -1, 2, -2]
-			sync_adjustment = rolls[randi() % rolls.size()]
+			sync_adjustment = rolls[rng.randi() % rolls.size()]
 
 var max_hp: float = 30.0
 var hp: float = 30.0

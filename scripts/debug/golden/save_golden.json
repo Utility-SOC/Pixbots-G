@@ -1,0 +1,2883 @@
+{
+	"arm_rare_default": {
+		"chip_capacity_upgrades": 0.0,
+		"component_name": "L. Arm",
+		"equipped_chips": [],
+		"fixed_sinks": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": -8.0,
+				"r": -1.0
+			}
+		],
+		"forbidden_tile_types": [],
+		"infusion_level": 0.0,
+		"infusion_stat_modifiers": {
+
+		},
+		"infusion_xp": 0.0,
+		"is_broken": false,
+		"legacy_stat_modifiers": {
+
+		},
+		"mass_reduction": 0.0,
+		"overclock_count": 0.0,
+		"rarity": 2.0,
+		"slot_type": 2.0,
+		"tiles": [
+			{
+				"body_slot": 2.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 1.0,
+				"target_slot": 0.0,
+				"tile_type": "Energy Intake"
+			},
+			{
+				"body_slot": 2.0,
+				"category": 5.0,
+				"level": 1.0,
+				"mythic_aim_direction": 0.0,
+				"mythic_frame_multiplier": 1.0,
+				"mythic_pattern": 0.0,
+				"power_lost": false,
+				"q": -8.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/WeaponMountTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Weapon Mount"
+			},
+			{
+				"active_faces": [
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -8.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -7.0,
+				"r": 0.0,
+				"rarity": 0.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -6.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -5.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -4.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -3.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -2.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -1.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/InfuserTile.gd",
+				"secondary_synergy": 0.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Elemental Infuser"
+			}
+		],
+		"valid_hexes": [
+			{
+				"q": 0.0,
+				"r": -1.0
+			},
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": 0.0,
+				"r": 1.0
+			},
+			{
+				"q": -1.0,
+				"r": -1.0
+			},
+			{
+				"q": -1.0,
+				"r": 0.0
+			},
+			{
+				"q": -1.0,
+				"r": 1.0
+			},
+			{
+				"q": -2.0,
+				"r": -1.0
+			},
+			{
+				"q": -2.0,
+				"r": 0.0
+			},
+			{
+				"q": -2.0,
+				"r": 1.0
+			},
+			{
+				"q": -3.0,
+				"r": -1.0
+			},
+			{
+				"q": -3.0,
+				"r": 0.0
+			},
+			{
+				"q": -3.0,
+				"r": 1.0
+			},
+			{
+				"q": -4.0,
+				"r": -1.0
+			},
+			{
+				"q": -4.0,
+				"r": 0.0
+			},
+			{
+				"q": -4.0,
+				"r": 1.0
+			},
+			{
+				"q": -5.0,
+				"r": -1.0
+			},
+			{
+				"q": -5.0,
+				"r": 0.0
+			},
+			{
+				"q": -5.0,
+				"r": 1.0
+			},
+			{
+				"q": -6.0,
+				"r": -1.0
+			},
+			{
+				"q": -6.0,
+				"r": 0.0
+			},
+			{
+				"q": -6.0,
+				"r": 1.0
+			},
+			{
+				"q": -7.0,
+				"r": -1.0
+			},
+			{
+				"q": -7.0,
+				"r": 0.0
+			},
+			{
+				"q": -7.0,
+				"r": 1.0
+			},
+			{
+				"q": -8.0,
+				"r": -1.0
+			},
+			{
+				"q": -8.0,
+				"r": 0.0
+			},
+			{
+				"q": -8.0,
+				"r": 1.0
+			}
+		]
+	},
+	"arm_rare_fire_profile": {
+		"chip_capacity_upgrades": 0.0,
+		"component_name": "L. Arm",
+		"equipped_chips": [],
+		"fixed_sinks": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": -8.0,
+				"r": -1.0
+			}
+		],
+		"forbidden_tile_types": [],
+		"infusion_level": 0.0,
+		"infusion_stat_modifiers": {
+
+		},
+		"infusion_xp": 0.0,
+		"is_broken": false,
+		"legacy_stat_modifiers": {
+
+		},
+		"mass_reduction": 0.0,
+		"overclock_count": 0.0,
+		"rarity": 2.0,
+		"slot_type": 2.0,
+		"tiles": [
+			{
+				"body_slot": 2.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 1.0,
+				"target_slot": 0.0,
+				"tile_type": "Energy Intake"
+			},
+			{
+				"body_slot": 2.0,
+				"category": 5.0,
+				"level": 1.0,
+				"mythic_aim_direction": 0.0,
+				"mythic_frame_multiplier": 1.0,
+				"mythic_pattern": 0.0,
+				"power_lost": false,
+				"q": -8.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/WeaponMountTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Weapon Mount"
+			},
+			{
+				"active_faces": [
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -8.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -7.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/InfuserTile.gd",
+				"secondary_synergy": 1.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Elemental Infuser"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -6.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/InfuserTile.gd",
+				"secondary_synergy": 1.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Elemental Infuser"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -5.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/InfuserTile.gd",
+				"secondary_synergy": 2.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Elemental Infuser"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -4.0,
+				"r": 0.0,
+				"rarity": 0.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -3.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -2.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -1.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 2.0,
+				"tile_type": "Catalyst"
+			}
+		],
+		"valid_hexes": [
+			{
+				"q": 0.0,
+				"r": -1.0
+			},
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": 0.0,
+				"r": 1.0
+			},
+			{
+				"q": -1.0,
+				"r": -1.0
+			},
+			{
+				"q": -1.0,
+				"r": 0.0
+			},
+			{
+				"q": -1.0,
+				"r": 1.0
+			},
+			{
+				"q": -2.0,
+				"r": -1.0
+			},
+			{
+				"q": -2.0,
+				"r": 0.0
+			},
+			{
+				"q": -2.0,
+				"r": 1.0
+			},
+			{
+				"q": -3.0,
+				"r": -1.0
+			},
+			{
+				"q": -3.0,
+				"r": 0.0
+			},
+			{
+				"q": -3.0,
+				"r": 1.0
+			},
+			{
+				"q": -4.0,
+				"r": -1.0
+			},
+			{
+				"q": -4.0,
+				"r": 0.0
+			},
+			{
+				"q": -4.0,
+				"r": 1.0
+			},
+			{
+				"q": -5.0,
+				"r": -1.0
+			},
+			{
+				"q": -5.0,
+				"r": 0.0
+			},
+			{
+				"q": -5.0,
+				"r": 1.0
+			},
+			{
+				"q": -6.0,
+				"r": -1.0
+			},
+			{
+				"q": -6.0,
+				"r": 0.0
+			},
+			{
+				"q": -6.0,
+				"r": 1.0
+			},
+			{
+				"q": -7.0,
+				"r": -1.0
+			},
+			{
+				"q": -7.0,
+				"r": 0.0
+			},
+			{
+				"q": -7.0,
+				"r": 1.0
+			},
+			{
+				"q": -8.0,
+				"r": -1.0
+			},
+			{
+				"q": -8.0,
+				"r": 0.0
+			},
+			{
+				"q": -8.0,
+				"r": 1.0
+			}
+		]
+	},
+	"arm_uncommon_default": {
+		"chip_capacity_upgrades": 0.0,
+		"component_name": "L. Arm",
+		"equipped_chips": [],
+		"fixed_sinks": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": -8.0,
+				"r": -1.0
+			}
+		],
+		"forbidden_tile_types": [],
+		"infusion_level": 0.0,
+		"infusion_stat_modifiers": {
+
+		},
+		"infusion_xp": 0.0,
+		"is_broken": false,
+		"legacy_stat_modifiers": {
+
+		},
+		"mass_reduction": 0.0,
+		"overclock_count": 0.0,
+		"rarity": 1.0,
+		"slot_type": 2.0,
+		"tiles": [
+			{
+				"body_slot": 2.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 0.0,
+				"tile_type": "Energy Intake"
+			},
+			{
+				"body_slot": 2.0,
+				"category": 5.0,
+				"level": 1.0,
+				"mythic_aim_direction": 0.0,
+				"mythic_frame_multiplier": 1.0,
+				"mythic_pattern": 0.0,
+				"power_lost": false,
+				"q": -8.0,
+				"r": -1.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/WeaponMountTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Weapon Mount"
+			},
+			{
+				"active_faces": [
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -8.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -7.0,
+				"r": 0.0,
+				"rarity": 0.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -6.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -5.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -4.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -3.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 1.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -2.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -1.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/InfuserTile.gd",
+				"secondary_synergy": 0.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Elemental Infuser"
+			}
+		],
+		"valid_hexes": [
+			{
+				"q": 0.0,
+				"r": -1.0
+			},
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": -1.0,
+				"r": -1.0
+			},
+			{
+				"q": -1.0,
+				"r": 0.0
+			},
+			{
+				"q": -2.0,
+				"r": -1.0
+			},
+			{
+				"q": -2.0,
+				"r": 0.0
+			},
+			{
+				"q": -3.0,
+				"r": -1.0
+			},
+			{
+				"q": -3.0,
+				"r": 0.0
+			},
+			{
+				"q": -4.0,
+				"r": -1.0
+			},
+			{
+				"q": -4.0,
+				"r": 0.0
+			},
+			{
+				"q": -5.0,
+				"r": -1.0
+			},
+			{
+				"q": -5.0,
+				"r": 0.0
+			},
+			{
+				"q": -6.0,
+				"r": -1.0
+			},
+			{
+				"q": -6.0,
+				"r": 0.0
+			},
+			{
+				"q": -7.0,
+				"r": -1.0
+			},
+			{
+				"q": -7.0,
+				"r": 0.0
+			},
+			{
+				"q": -8.0,
+				"r": -1.0
+			},
+			{
+				"q": -8.0,
+				"r": 0.0
+			}
+		]
+	},
+	"backpack_rare_default": {
+		"chip_capacity_upgrades": 0.0,
+		"component_name": "Backpack",
+		"equipped_chips": [],
+		"fixed_sinks": [
+			{
+				"q": -2.0,
+				"r": 2.0
+			}
+		],
+		"forbidden_tile_types": [],
+		"infusion_level": 0.0,
+		"infusion_stat_modifiers": {
+
+		},
+		"infusion_xp": 0.0,
+		"is_broken": false,
+		"legacy_stat_modifiers": {
+
+		},
+		"mass_reduction": 0.0,
+		"overclock_count": 0.0,
+		"rarity": 2.0,
+		"slot_type": 7.0,
+		"tiles": [
+			{
+				"active_faces": [
+					1.0
+				],
+				"body_slot": 7.0,
+				"category": 4.0,
+				"face_outputs": {
+					"0": 7.0,
+					"1": 7.0,
+					"2": 7.0,
+					"3": 7.0,
+					"4": 7.0,
+					"5": 7.0
+				},
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/MicrocoreTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Microcore"
+			},
+			{
+				"body_slot": 7.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -2.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 1.0,
+				"tile_type": "Torso Return"
+			},
+			{
+				"active_faces": [
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					2.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					0.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					2.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					2.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 2.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"active_faces": [
+					3.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 1.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 1.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 1.0,
+				"r": 1.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"active_faces": [
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 1.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			}
+		],
+		"valid_hexes": [
+			{
+				"q": -2.0,
+				"r": -2.0
+			},
+			{
+				"q": -2.0,
+				"r": -1.0
+			},
+			{
+				"q": -2.0,
+				"r": 0.0
+			},
+			{
+				"q": -2.0,
+				"r": 1.0
+			},
+			{
+				"q": -2.0,
+				"r": 2.0
+			},
+			{
+				"q": -1.0,
+				"r": -2.0
+			},
+			{
+				"q": -1.0,
+				"r": -1.0
+			},
+			{
+				"q": -1.0,
+				"r": 0.0
+			},
+			{
+				"q": -1.0,
+				"r": 1.0
+			},
+			{
+				"q": -1.0,
+				"r": 2.0
+			},
+			{
+				"q": 0.0,
+				"r": -2.0
+			},
+			{
+				"q": 0.0,
+				"r": -1.0
+			},
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": 0.0,
+				"r": 1.0
+			},
+			{
+				"q": 0.0,
+				"r": 2.0
+			},
+			{
+				"q": 1.0,
+				"r": -2.0
+			},
+			{
+				"q": 1.0,
+				"r": -1.0
+			},
+			{
+				"q": 1.0,
+				"r": 0.0
+			},
+			{
+				"q": 1.0,
+				"r": 1.0
+			},
+			{
+				"q": 1.0,
+				"r": 2.0
+			},
+			{
+				"q": 2.0,
+				"r": -2.0
+			},
+			{
+				"q": 2.0,
+				"r": -1.0
+			},
+			{
+				"q": 2.0,
+				"r": 0.0
+			},
+			{
+				"q": 2.0,
+				"r": 1.0
+			},
+			{
+				"q": 2.0,
+				"r": 2.0
+			}
+		]
+	},
+	"head_rare_default": {
+		"chip_capacity_upgrades": 0.0,
+		"component_name": "Head",
+		"equipped_chips": [],
+		"fixed_sinks": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": 2.0,
+				"r": -4.0
+			}
+		],
+		"forbidden_tile_types": [],
+		"infusion_level": 0.0,
+		"infusion_stat_modifiers": {
+
+		},
+		"infusion_xp": 0.0,
+		"is_broken": false,
+		"legacy_stat_modifiers": {
+
+		},
+		"mass_reduction": 0.0,
+		"overclock_count": 0.0,
+		"rarity": 2.0,
+		"slot_type": 6.0,
+		"tiles": [
+			{
+				"body_slot": 6.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 1.0,
+				"target_slot": 0.0,
+				"tile_type": "Energy Intake"
+			},
+			{
+				"body_slot": 6.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 2.0,
+				"r": -4.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 1.0,
+				"tile_type": "Torso Return"
+			},
+			{
+				"active_faces": [
+					5.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": -2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": -1.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 1.0,
+				"r": -3.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			}
+		],
+		"valid_hexes": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": 0.0,
+				"r": -1.0
+			},
+			{
+				"q": 1.0,
+				"r": -2.0
+			},
+			{
+				"q": 1.0,
+				"r": -3.0
+			},
+			{
+				"q": 2.0,
+				"r": -4.0
+			},
+			{
+				"q": -1.0,
+				"r": -1.0
+			},
+			{
+				"q": 1.0,
+				"r": -1.0
+			},
+			{
+				"q": 0.0,
+				"r": -2.0
+			},
+			{
+				"q": 2.0,
+				"r": -2.0
+			},
+			{
+				"q": 0.0,
+				"r": -3.0
+			},
+			{
+				"q": 2.0,
+				"r": -3.0
+			},
+			{
+				"q": 1.0,
+				"r": -4.0
+			},
+			{
+				"q": 3.0,
+				"r": -4.0
+			}
+		]
+	},
+	"leg_rare_default": {
+		"chip_capacity_upgrades": 0.0,
+		"component_name": "R. Leg",
+		"equipped_chips": [],
+		"fixed_sinks": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": -5.0,
+				"r": 6.0
+			}
+		],
+		"forbidden_tile_types": [],
+		"infusion_level": 0.0,
+		"infusion_stat_modifiers": {
+
+		},
+		"infusion_xp": 0.0,
+		"is_broken": false,
+		"legacy_stat_modifiers": {
+
+		},
+		"mass_reduction": 0.0,
+		"overclock_count": 0.0,
+		"rarity": 2.0,
+		"slot_type": 5.0,
+		"tiles": [
+			{
+				"body_slot": 5.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 1.0,
+				"target_slot": 0.0,
+				"tile_type": "Energy Intake"
+			},
+			{
+				"body_slot": 5.0,
+				"category": 5.0,
+				"level": 1.0,
+				"mythic_mode": 0.0,
+				"power_lost": false,
+				"q": -5.0,
+				"r": 6.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ActuatorTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Actuator"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -4.0,
+				"r": 5.0,
+				"rarity": 0.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -3.0,
+				"r": 4.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -2.0,
+				"r": 3.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -1.0,
+				"r": 2.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"active_faces": [
+					2.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			}
+		],
+		"valid_hexes": [
+			{
+				"q": -2.0,
+				"r": 0.0
+			},
+			{
+				"q": -1.0,
+				"r": 0.0
+			},
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": 1.0,
+				"r": 0.0
+			},
+			{
+				"q": -2.0,
+				"r": 1.0
+			},
+			{
+				"q": -1.0,
+				"r": 1.0
+			},
+			{
+				"q": 0.0,
+				"r": 1.0
+			},
+			{
+				"q": 1.0,
+				"r": 1.0
+			},
+			{
+				"q": -3.0,
+				"r": 2.0
+			},
+			{
+				"q": -2.0,
+				"r": 2.0
+			},
+			{
+				"q": -1.0,
+				"r": 2.0
+			},
+			{
+				"q": 0.0,
+				"r": 2.0
+			},
+			{
+				"q": -3.0,
+				"r": 3.0
+			},
+			{
+				"q": -2.0,
+				"r": 3.0
+			},
+			{
+				"q": -1.0,
+				"r": 3.0
+			},
+			{
+				"q": 0.0,
+				"r": 3.0
+			},
+			{
+				"q": -4.0,
+				"r": 4.0
+			},
+			{
+				"q": -3.0,
+				"r": 4.0
+			},
+			{
+				"q": -2.0,
+				"r": 4.0
+			},
+			{
+				"q": -1.0,
+				"r": 4.0
+			},
+			{
+				"q": -4.0,
+				"r": 5.0
+			},
+			{
+				"q": -3.0,
+				"r": 5.0
+			},
+			{
+				"q": -2.0,
+				"r": 5.0
+			},
+			{
+				"q": -1.0,
+				"r": 5.0
+			},
+			{
+				"q": -5.0,
+				"r": 6.0
+			},
+			{
+				"q": -4.0,
+				"r": 6.0
+			},
+			{
+				"q": -3.0,
+				"r": 6.0
+			},
+			{
+				"q": -2.0,
+				"r": 6.0
+			}
+		]
+	},
+	"torso_rare_default": {
+		"chip_capacity_upgrades": 0.0,
+		"component_name": "Torso",
+		"equipped_chips": [],
+		"fixed_sinks": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": 4.0,
+				"r": 0.0
+			},
+			{
+				"q": 0.0,
+				"r": 4.0
+			},
+			{
+				"q": -4.0,
+				"r": 4.0
+			},
+			{
+				"q": -4.0,
+				"r": 0.0
+			},
+			{
+				"q": 0.0,
+				"r": -3.0
+			},
+			{
+				"q": 3.0,
+				"r": -3.0
+			}
+		],
+		"forbidden_tile_types": [],
+		"infusion_level": 0.0,
+		"infusion_stat_modifiers": {
+
+		},
+		"infusion_xp": 0.0,
+		"is_broken": false,
+		"legacy_stat_modifiers": {
+
+		},
+		"mass_reduction": 0.0,
+		"overclock_count": 0.0,
+		"rarity": 2.0,
+		"slot_type": 1.0,
+		"tiles": [
+			{
+				"active_faces": [
+					4.0,
+					5.0
+				],
+				"body_slot": 1.0,
+				"category": 4.0,
+				"face_outputs": {
+					"0": 7.0,
+					"1": 7.0,
+					"2": 7.0,
+					"3": 7.0,
+					"4": 7.0,
+					"5": 7.0
+				},
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/CoreTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Core Reactor"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 4.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 3.0,
+				"tile_type": "Right Arm Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 4.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 5.0,
+				"tile_type": "Right Leg Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -4.0,
+				"r": 4.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 4.0,
+				"tile_type": "Left Leg Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -4.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 1.0,
+				"target_slot": 2.0,
+				"tile_type": "Left Arm Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": -3.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 6.0,
+				"tile_type": "Head Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 3.0,
+				"r": -3.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 7.0,
+				"tile_type": "Backpack Link"
+			},
+			{
+				"active_faces": [
+					0.0,
+					1.0,
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -2.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					3.0,
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -2.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					2.0,
+					0.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -2.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					2.0,
+					5.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": -1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					0.0,
+					3.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					4.0,
+					2.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": -2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					5.0,
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 1.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -3.0,
+				"r": 0.0,
+				"rarity": 0.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": -3.0,
+				"r": 3.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"active_faces": [
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					0.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					2.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					5.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 3.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"active_faces": [
+					3.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 1.0,
+				"r": -2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					0.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 1.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 2.0,
+				"r": -2.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 2.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 4.0,
+				"gate_every_n": 1.0,
+				"gate_min_magnitude": 0.0,
+				"inverted": false,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 3.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/CatalystTile.gd",
+				"sync_adjustment": 0.0,
+				"target_synergy": 0.0,
+				"tile_type": "Catalyst"
+			}
+		],
+		"valid_hexes": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": -1.0,
+				"r": 0.0
+			},
+			{
+				"q": 1.0,
+				"r": 0.0
+			},
+			{
+				"q": -1.0,
+				"r": 1.0
+			},
+			{
+				"q": 0.0,
+				"r": 1.0
+			},
+			{
+				"q": 0.0,
+				"r": -1.0
+			},
+			{
+				"q": 1.0,
+				"r": -1.0
+			},
+			{
+				"q": -2.0,
+				"r": 0.0
+			},
+			{
+				"q": 2.0,
+				"r": 0.0
+			},
+			{
+				"q": -2.0,
+				"r": 1.0
+			},
+			{
+				"q": 1.0,
+				"r": 1.0
+			},
+			{
+				"q": -2.0,
+				"r": 2.0
+			},
+			{
+				"q": 0.0,
+				"r": 2.0
+			},
+			{
+				"q": -1.0,
+				"r": -1.0
+			},
+			{
+				"q": 2.0,
+				"r": -1.0
+			},
+			{
+				"q": -1.0,
+				"r": 2.0
+			},
+			{
+				"q": 0.0,
+				"r": -2.0
+			},
+			{
+				"q": 2.0,
+				"r": -2.0
+			},
+			{
+				"q": 1.0,
+				"r": -2.0
+			},
+			{
+				"q": -3.0,
+				"r": 0.0
+			},
+			{
+				"q": 3.0,
+				"r": 0.0
+			},
+			{
+				"q": -3.0,
+				"r": 1.0
+			},
+			{
+				"q": 2.0,
+				"r": 1.0
+			},
+			{
+				"q": -3.0,
+				"r": 2.0
+			},
+			{
+				"q": 1.0,
+				"r": 2.0
+			},
+			{
+				"q": -3.0,
+				"r": 3.0
+			},
+			{
+				"q": 0.0,
+				"r": 3.0
+			},
+			{
+				"q": -2.0,
+				"r": -1.0
+			},
+			{
+				"q": 3.0,
+				"r": -1.0
+			},
+			{
+				"q": -2.0,
+				"r": 3.0
+			},
+			{
+				"q": -1.0,
+				"r": 3.0
+			},
+			{
+				"q": -1.0,
+				"r": -2.0
+			},
+			{
+				"q": 3.0,
+				"r": -2.0
+			},
+			{
+				"q": 0.0,
+				"r": -3.0
+			},
+			{
+				"q": 3.0,
+				"r": -3.0
+			},
+			{
+				"q": 1.0,
+				"r": -3.0
+			},
+			{
+				"q": 2.0,
+				"r": -3.0
+			},
+			{
+				"q": -4.0,
+				"r": 0.0
+			},
+			{
+				"q": 4.0,
+				"r": 0.0
+			},
+			{
+				"q": -4.0,
+				"r": 1.0
+			},
+			{
+				"q": 3.0,
+				"r": 1.0
+			},
+			{
+				"q": -4.0,
+				"r": 2.0
+			},
+			{
+				"q": 2.0,
+				"r": 2.0
+			},
+			{
+				"q": -4.0,
+				"r": 3.0
+			},
+			{
+				"q": 1.0,
+				"r": 3.0
+			},
+			{
+				"q": -4.0,
+				"r": 4.0
+			},
+			{
+				"q": 0.0,
+				"r": 4.0
+			},
+			{
+				"q": -3.0,
+				"r": -1.0
+			}
+		]
+	},
+	"torso_rare_pierce_profile": {
+		"chip_capacity_upgrades": 0.0,
+		"component_name": "Torso",
+		"equipped_chips": [],
+		"fixed_sinks": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": 4.0,
+				"r": 0.0
+			},
+			{
+				"q": 0.0,
+				"r": 4.0
+			},
+			{
+				"q": -4.0,
+				"r": 4.0
+			},
+			{
+				"q": -4.0,
+				"r": 0.0
+			},
+			{
+				"q": 0.0,
+				"r": -3.0
+			},
+			{
+				"q": 3.0,
+				"r": -3.0
+			}
+		],
+		"forbidden_tile_types": [],
+		"infusion_level": 0.0,
+		"infusion_stat_modifiers": {
+
+		},
+		"infusion_xp": 0.0,
+		"is_broken": false,
+		"legacy_stat_modifiers": {
+
+		},
+		"mass_reduction": 0.0,
+		"overclock_count": 0.0,
+		"rarity": 2.0,
+		"slot_type": 1.0,
+		"tiles": [
+			{
+				"active_faces": [
+					4.0,
+					5.0
+				],
+				"body_slot": 1.0,
+				"category": 4.0,
+				"face_outputs": {
+					"0": 7.0,
+					"1": 7.0,
+					"2": 7.0,
+					"3": 7.0,
+					"4": 7.0,
+					"5": 7.0
+				},
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/CoreTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Core Reactor"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 4.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 3.0,
+				"tile_type": "Right Arm Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 4.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 5.0,
+				"tile_type": "Right Leg Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -4.0,
+				"r": 4.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 4.0,
+				"tile_type": "Left Leg Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -4.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 1.0,
+				"target_slot": 2.0,
+				"tile_type": "Left Arm Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": -3.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 6.0,
+				"tile_type": "Head Link"
+			},
+			{
+				"body_slot": 1.0,
+				"category": 3.0,
+				"is_fixed": true,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 3.0,
+				"r": -3.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/ComponentLinkTile.gd",
+				"sync_adjustment": 0.0,
+				"target_slot": 7.0,
+				"tile_type": "Backpack Link"
+			},
+			{
+				"active_faces": [
+					0.0,
+					1.0,
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -2.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					3.0,
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -2.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					2.0,
+					0.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -2.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					2.0,
+					5.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": -1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					0.0,
+					3.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					4.0,
+					2.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": -2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					5.0,
+					4.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 1.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -3.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/InfuserTile.gd",
+				"secondary_synergy": 7.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Elemental Infuser"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"power_lost": false,
+				"q": -3.0,
+				"r": 3.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/InfuserTile.gd",
+				"secondary_synergy": 7.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Elemental Infuser"
+			},
+			{
+				"active_faces": [
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					0.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": -1.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					2.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": -1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					5.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": 1.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					1.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 0.0,
+				"r": 2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"power_lost": false,
+				"q": 0.0,
+				"r": 3.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/InfuserTile.gd",
+				"secondary_synergy": 8.0,
+				"sync_adjustment": 0.0,
+				"tile_type": "Elemental Infuser"
+			},
+			{
+				"active_faces": [
+					3.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 1.0,
+				"r": -2.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"active_faces": [
+					0.0
+				],
+				"body_slot": 0.0,
+				"category": 3.0,
+				"level": 1.0,
+				"output_ratios": [],
+				"power_lost": false,
+				"q": 1.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/SplitterTile.gd",
+				"sync_adjustment": 1.0,
+				"tile_type": "Splitter"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": 2.0,
+				"r": -2.0,
+				"rarity": 0.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": 2.0,
+				"r": 0.0,
+				"rarity": 1.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			},
+			{
+				"body_slot": 0.0,
+				"category": 1.0,
+				"level": 1.0,
+				"mythic_focus": 0.0,
+				"power_lost": false,
+				"q": 3.0,
+				"r": 0.0,
+				"rarity": 2.0,
+				"script_path": "res://scripts/tiles/AmplifierTile.gd",
+				"sync_adjustment": 0.0,
+				"tile_type": "Amplifier"
+			}
+		],
+		"valid_hexes": [
+			{
+				"q": 0.0,
+				"r": 0.0
+			},
+			{
+				"q": -1.0,
+				"r": 0.0
+			},
+			{
+				"q": 1.0,
+				"r": 0.0
+			},
+			{
+				"q": -1.0,
+				"r": 1.0
+			},
+			{
+				"q": 0.0,
+				"r": 1.0
+			},
+			{
+				"q": 0.0,
+				"r": -1.0
+			},
+			{
+				"q": 1.0,
+				"r": -1.0
+			},
+			{
+				"q": -2.0,
+				"r": 0.0
+			},
+			{
+				"q": 2.0,
+				"r": 0.0
+			},
+			{
+				"q": -2.0,
+				"r": 1.0
+			},
+			{
+				"q": 1.0,
+				"r": 1.0
+			},
+			{
+				"q": -2.0,
+				"r": 2.0
+			},
+			{
+				"q": 0.0,
+				"r": 2.0
+			},
+			{
+				"q": -1.0,
+				"r": -1.0
+			},
+			{
+				"q": 2.0,
+				"r": -1.0
+			},
+			{
+				"q": -1.0,
+				"r": 2.0
+			},
+			{
+				"q": 0.0,
+				"r": -2.0
+			},
+			{
+				"q": 2.0,
+				"r": -2.0
+			},
+			{
+				"q": 1.0,
+				"r": -2.0
+			},
+			{
+				"q": -3.0,
+				"r": 0.0
+			},
+			{
+				"q": 3.0,
+				"r": 0.0
+			},
+			{
+				"q": -3.0,
+				"r": 1.0
+			},
+			{
+				"q": 2.0,
+				"r": 1.0
+			},
+			{
+				"q": -3.0,
+				"r": 2.0
+			},
+			{
+				"q": 1.0,
+				"r": 2.0
+			},
+			{
+				"q": -3.0,
+				"r": 3.0
+			},
+			{
+				"q": 0.0,
+				"r": 3.0
+			},
+			{
+				"q": -2.0,
+				"r": -1.0
+			},
+			{
+				"q": 3.0,
+				"r": -1.0
+			},
+			{
+				"q": -2.0,
+				"r": 3.0
+			},
+			{
+				"q": -1.0,
+				"r": 3.0
+			},
+			{
+				"q": -1.0,
+				"r": -2.0
+			},
+			{
+				"q": 3.0,
+				"r": -2.0
+			},
+			{
+				"q": 0.0,
+				"r": -3.0
+			},
+			{
+				"q": 3.0,
+				"r": -3.0
+			},
+			{
+				"q": 1.0,
+				"r": -3.0
+			},
+			{
+				"q": 2.0,
+				"r": -3.0
+			},
+			{
+				"q": -4.0,
+				"r": 0.0
+			},
+			{
+				"q": 4.0,
+				"r": 0.0
+			},
+			{
+				"q": -4.0,
+				"r": 1.0
+			},
+			{
+				"q": 3.0,
+				"r": 1.0
+			},
+			{
+				"q": -4.0,
+				"r": 2.0
+			},
+			{
+				"q": 2.0,
+				"r": 2.0
+			},
+			{
+				"q": -4.0,
+				"r": 3.0
+			},
+			{
+				"q": 1.0,
+				"r": 3.0
+			},
+			{
+				"q": -4.0,
+				"r": 4.0
+			},
+			{
+				"q": 0.0,
+				"r": 4.0
+			},
+			{
+				"q": -3.0,
+				"r": -1.0
+			}
+		]
+	}
+}

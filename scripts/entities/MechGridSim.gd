@@ -58,6 +58,7 @@ func _recalculate_grid():
 
 func _reset_grid_state():
 	mech._ai_shot_speed_cache = -1.0
+	mech._ai_explosion_cache = -1.0
 	mech.precalculated_weapons.clear()
 	mech._charges_idle = false
 	mech.lance_mounts.clear()

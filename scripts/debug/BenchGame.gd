@@ -381,6 +381,10 @@ func _process(delta):
 					n.collision_mask = 0
 					cnt += 1
 				print("BENCH_NOSTATIC disabled=", cnt)
+			if OS.get_cmdline_user_args().has("--coverpressure") and Engine.get_physics_frames() % 20 == 0:
+				for e in get_tree().get_nodes_in_group("enemy"):
+					if not e.is_boss:
+						e.hp = minf(e.hp, e.max_hp * 0.45) # exercise CoverBrain: every enemy reads as wounded
 			if _noslide or _hidevis:
 				for e in get_tree().get_nodes_in_group("enemy"):
 					if _noslide: e._diag_skip_move_and_slide = true
@@ -425,6 +429,7 @@ func _process(delta):
 				_node_histogram()
 			if _t >= _seconds:
 				_report()
+				print("BENCH_COVER started=%d peeks=%d ducks=%d replans=%d why=%s" % [CoverBrain.stat_started, CoverBrain.stat_peeks, CoverBrain.stat_ducks, CoverBrain.stat_replans, CoverBrain.stat_why])
 				get_tree().quit()
 
 # Drives the --swaparm scenario one step per call (a call per frame).

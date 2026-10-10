@@ -336,6 +336,7 @@ var components: Dictionary = {} # Dict of HexTile.BodySlot -> ComponentEquipment
 var is_grid_dirty: bool = true
 var precalculated_weapons: Array = []
 var _ai_shot_speed_cache: float = -1.0
+var _ai_explosion_cache: float = -1.0
 # Every LanceMountTile found across all equipped components this recalc -
 # collected here (not folded into precalculated_weapons, which assumes the
 # WeaponMountTile bank/normal-split model) since Lance fires itself
@@ -420,6 +421,8 @@ var tactic_goal_active: bool = false
 var tactic_path_clear: bool = false
 var tactic_hold: bool = false
 var tactic_label: String = ""
+var suppress_pos: Vector2 = Vector2.ZERO # SquadTactics: aim here (the rock the player hides behind) instead of at the player
+var cover_brain = null # CoverBrain (lazy, enemies only): peek-and-hide behaviour under pressure
 var is_boss: bool = false
 # Set by Main._spawn_boss right after director._spawn_bot_for_role (same
 # pattern as spawn_profile above). Drives which enrage style/ability
@@ -2476,6 +2479,19 @@ func _ai_shot_speed() -> float:
 	_ai_shot_speed_cache = total / n if n > 0 else 500.0
 	return _ai_shot_speed_cache
 
+# Mean Explosion share of this mech's shots (decides whether it can crack hard cover; see CoverSense.can_damage).
+func ai_explosion_share() -> float:
+	if _ai_explosion_cache >= 0.0:
+		return _ai_explosion_cache
+	var total = 0.0
+	var n = 0
+	for data in precalculated_weapons:
+		var ratios = EnergyPacket.compute_ratios(data.packet.synergies)
+		total += float(ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0))
+		n += 1
+	_ai_explosion_cache = total / n if n > 0 else 0.0
+	return _ai_explosion_cache
+
 func _execute_ai_tactics(delta):
 	# Flee/wild states override everything below for regular wave enemies -
 	# checked BEFORE target re-acquisition, or a wild bot would immediately
@@ -2524,11 +2540,20 @@ func _execute_ai_tactics(delta):
 		# result. _update_player_sight() itself still exists unchanged
 		# (JammerWiringCheck.gd calls it directly to force past the
 		# throttle for its own test), it's just no longer called from here.
+		var in_cover := false
 		if not is_boss:
-			if _ai_state_label:
+			if cover_brain == null:
+				cover_brain = CoverBrain.new(self)
+			cover_brain.update(delta, _get_map_ref())
+			in_cover = cover_brain.active()
+		if not is_boss:
+			if in_cover and _ai_state_label:
+				_ai_state_label.text = cover_brain.label()
+				_ai_state_label.modulate = Color(0.9, 0.8, 0.3)
+			elif _ai_state_label:
 				_ai_state_label.text = ("CHASE" if tactic_label == "" else tactic_label) if has_sight_of_player else "SEARCH"
 				_ai_state_label.modulate = (Color(0.3, 1.0, 0.3) if tactic_label == "" else Color(0.3, 0.9, 1.0)) if has_sight_of_player else Color(1.0, 0.6, 0.2)
-			if not has_sight_of_player:
+			if not has_sight_of_player and not in_cover:
 				if not sight_and_search:
 					sight_and_search = SightAndSearch.new(self)
 				# Phase 2 continuation instrumentation (see
@@ -2585,7 +2610,11 @@ func _execute_ai_tactics(delta):
 			_perf_flow_field_usec += Time.get_ticks_usec() - _t_flow
 
 		var tactic_moving = false
-		if not is_boss and tactic_goal_active:
+		if in_cover:
+			# Cover owns movement: straight to the hide/peek point (CoverBrain only plans cover it can walk to directly).
+			tactic_moving = true
+			velocity = cover_brain.desired_velocity(current_move_speed * speed_modifier)
+		elif not is_boss and tactic_goal_active:
 			var to_goal = tactic_goal - global_position
 			if to_goal.length() > TACTIC_ARRIVE_RADIUS:
 				tactic_moving = true
@@ -2625,7 +2654,7 @@ func _execute_ai_tactics(delta):
 				velocity += _cached_separation * current_move_speed * SEPARATION_WEIGHT
 
 		# AI combat shooting (out of range = hold charge, same as the player)
-		if dist < engagement_distance + 150.0 and not _diag_skip_shoot:
+		if dist < engagement_distance + 150.0 and not _diag_skip_shoot and not (in_cover and cover_brain.hiding()):
 			var _t_shoot_diag = Time.get_ticks_usec()
 			if is_boss:
 				_shoot(target.global_position, true, true, delta)
@@ -2634,7 +2663,7 @@ func _execute_ai_tactics(delta):
 				_ai_shoot_timer -= delta
 				if _ai_shoot_timer <= 0.0:
 					_ai_shoot_timer = 1.0 / AI_SHOOT_CHECK_HZ
-					_shoot(_ai_aim_point(target.global_position, dist), true, true, delta)
+					_shoot(suppress_pos if suppress_pos != Vector2.ZERO else _ai_aim_point(target.global_position, dist), true, true, delta)
 			_perf_diag_shoot_usec += Time.get_ticks_usec() - _t_shoot_diag
 
 

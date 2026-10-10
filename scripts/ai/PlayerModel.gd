@@ -35,6 +35,9 @@ var slow_damage: Dictionary = {}
 var recent_kills: Dictionary = {}
 var slow_kills: Dictionary = {}
 var pressure: float = 0.0
+# Share of recent fight time the player spent behind cover relative to the squads hunting them (0..1, smoothed).
+var cover_share: float = 0.0
+const COVER_EMA_SECONDS = 30.0
 var waves_since_shift: int = 99
 var shift_count: int = 0
 var last_dominance: float = 0.0
@@ -136,11 +139,23 @@ func end_wave(damage_taken: float, player_ehp: float) -> Dictionary:
 	pressure = clamp(pressure, 0.0, MAX_PRESSURE)
 	return {"shifted": shifted, "dominance": last_dominance}
 
+# A player who fights from cover gets more flanking, encircling and baiting squads (they flush cover; a straight swarm
+# just feeds them). Scales with how much of the recent fight was spent covered; neutral below COVER_PLAN_FLOOR.
+const COVER_PLAN_FLOOR = 0.2
+func cover_plan_multipliers() -> Dictionary:
+	if cover_share < COVER_PLAN_FLOOR:
+		return {}
+	var k = clampf((cover_share - COVER_PLAN_FLOOR) / (1.0 - COVER_PLAN_FLOOR), 0.0, 1.0)
+	return {"pincer": 1.0 + 0.8 * k, "hammer_anvil": 1.0 + 0.5 * k, "encircle": 1.0 + 0.6 * k, "bait_flank": 1.0 + 0.6 * k, "swarm": 1.0 - 0.4 * k}
+
+func note_cover(covered: bool, dt: float) -> void:
+	cover_share = lerpf(cover_share, 1.0 if covered else 0.0, clampf(dt / COVER_EMA_SECONDS, 0.0, 1.0))
+
 func to_dict() -> Dictionary:
 	return {
 		"recent_damage": recent_damage, "slow_damage": slow_damage,
 		"recent_kills": recent_kills, "slow_kills": slow_kills,
-		"pressure": pressure, "waves_since_shift": waves_since_shift,
+		"pressure": pressure, "cover_share": cover_share, "waves_since_shift": waves_since_shift,
 		"shift_count": shift_count, "habits": habits.to_dict(),
 	}
 
@@ -152,6 +167,7 @@ func from_dict(data: Dictionary) -> void:
 				out[str(k)] = float(data[f][k])
 			set(f, out)
 	pressure = float(data.get("pressure", 0.0))
+	cover_share = float(data.get("cover_share", 0.0))
 	waves_since_shift = int(data.get("waves_since_shift", 99))
 	shift_count = int(data.get("shift_count", 0))
 	if data.get("habits") is Dictionary:

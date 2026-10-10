@@ -692,8 +692,14 @@ func _current_wave() -> int:
 
 # Picks a genome (a plan archetype plus evolved params) for a squad. Returns {}
 # only if the pool is somehow empty.
+static func _merge_plan_mults(a: Dictionary, b: Dictionary) -> Dictionary:
+	var out = a.duplicate()
+	for k in b:
+		out[k] = float(out.get(k, 1.0)) * float(b[k])
+	return out
+
 func choose_tactic_genome(exclude_base: String = "", bias: String = "") -> Dictionary:
-	var id = TacticGenome.choose(_current_wave(), player_model.pressure, tactic_recent, tactic_pool, exclude_base, null, bias, player_model.habits.plan_multipliers())
+	var id = TacticGenome.choose(_current_wave(), player_model.pressure, tactic_recent, tactic_pool, exclude_base, null, bias, _merge_plan_mults(player_model.habits.plan_multipliers(), player_model.cover_plan_multipliers()))
 	var g = tactic_pool.get(id, {})
 	if not g.is_empty():
 		tactic_recent.append(g["base"])

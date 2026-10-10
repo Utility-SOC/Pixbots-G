@@ -59,6 +59,13 @@ var _assign: Dictionary = {} # instance_id -> {"kind": String, "side": float, "s
 var _assign_ids: Array = []
 var _progress: Dictionary = {} # instance_id -> {"best": float, "stall": int, "ban_until": float}
 var _clock: float = 0.0
+# Player-in-cover awareness: refreshed every tick. While true, flank/cutoff/ring goals are moved to the nearest cell with
+# a clear line to the player (CoverSense.find_exposed_cell) so a covered player is flushed out, not shot at through rock.
+var player_covered: bool = false
+var _flush_active: bool = false # covered AND the squad is actually hunting the player (not defending a fort)
+var _flush: Dictionary = {} # instance_id -> {"pos": Vector2, "until": float, "for": Vector2}
+const FLUSH_CACHE_SECONDS = 1.5
+const FLUSH_PLAYER_MOVED = 90.0
 
 static func plan_cfg(name: String) -> Dictionary:
 	return PLANS.get(name, PLANS["swarm"])
@@ -191,6 +198,13 @@ func _tick(squad: Node, player: Node2D) -> void:
 	_refresh_habit(director)
 	_maybe_replan(squad, members, director)
 
+	var map_ref = members[0].call("_get_map_ref") if members[0].has_method("_get_map_ref") else null
+	var real_p: Vector2 = player.global_position
+	player_covered = map_ref != null and centre.distance_to(real_p) < 1200.0 and bool(CoverSense.body_cover(map_ref, real_p, centre)["covered"])
+	_flush_active = player_covered and P == real_p
+	if director and "player_model" in director and director.player_model and director.player_model.has_method("note_cover"):
+		director.player_model.note_cover(player_covered, TICK_INTERVAL)
+
 	# Staging only makes sense before first contact.
 	if _phase == "stage":
 		var engaged = squad.first_engagement_time >= 0.0 or squad.total_damage_taken > 0.0
@@ -198,6 +212,8 @@ func _tick(squad: Node, player: Node2D) -> void:
 			_phase = "commit"
 			_phase_time = 0.0
 			_say(squad, director, "commit", plan_name)
+
+	_assign_suppressors(members, real_p, map_ref)
 
 	var ids = []
 	for m in members:
@@ -215,6 +231,9 @@ func _tick(squad: Node, player: Node2D) -> void:
 		_set_member_goal(m, _assign[m.get_instance_id()], P, cfg, map, ring_n)
 	if _phase == "stage":
 		_stage_goal_ticks += 1
+	for m in members:
+		if "suppress_pos" in m and m.suppress_pos != Vector2.ZERO:
+			m.tactic_label = "SUPPRESS"
 
 # Zone-objective awareness: a squad (one in three, picked by instance id so the whole field does not camp)
 # within DEFEND_RANGE of a fort hold point that the player has started filling (progress >= DEFEND_PROGRESS)
@@ -355,6 +374,11 @@ func _set_member_goal(m: Node, info: Dictionary, P: Vector2, cfg: Dictionary, ma
 			"overwatch":
 				label = "COVER"
 
+	if _flush_active and goal != Vector2.ZERO and kind in ["flank", "cutoff", "ring"]:
+		var flushed = _flush_goal(m, goal, P, eng, map)
+		if flushed != Vector2.ZERO:
+			goal = flushed
+			label = "FLUSH"
 	var prog = _progress.get(m.get_instance_id(), {"best": INF, "stall": 0, "ban_until": 0.0})
 	if goal != Vector2.ZERO:
 		var amph = bool(m.is_amphibious) if "is_amphibious" in m else false
@@ -393,6 +417,47 @@ func _set_member_goal(m: Node, info: Dictionary, P: Vector2, cfg: Dictionary, ma
 		m.tactic_path_clear = map.segment_walkable(m.global_position, goal, bool(m.is_amphibious) if "is_amphibious" in m else false)
 	else:
 		m.tactic_path_clear = false
+
+# While the player hides behind something, members that cannot see them (and are in range) shoot the cover itself when
+# their weapons can damage it, instead of wasting fire into it by accident or standing idle. At most MAX_SUPPRESSORS per
+# squad so the rest keep flushing/flanking. Cleared for everyone otherwise (Mech falls back to aiming at the player).
+const MAX_SUPPRESSORS = 2
+func _assign_suppressors(members: Array, real_p: Vector2, map: Node) -> void:
+	for m in members:
+		if "suppress_pos" in m:
+			m.suppress_pos = Vector2.ZERO
+	if not _flush_active or map == null:
+		return
+	var picked = 0
+	var by_dist: Array = members.duplicate()
+	by_dist.sort_custom(func(a, b): return a.global_position.distance_squared_to(real_p) < b.global_position.distance_squared_to(real_p))
+	for m in by_dist:
+		if picked >= MAX_SUPPRESSORS:
+			break
+		var eng = float(m.engagement_distance) if "engagement_distance" in m else 250.0
+		if m.global_position.distance_to(real_p) > eng + 150.0:
+			continue
+		if not ("suppress_pos" in m) or not m.has_method("ai_explosion_share"):
+			continue
+		if "cover_brain" in m and m.cover_brain != null and m.cover_brain.active():
+			continue
+		var info = CoverSense.blocker_info(map, m.global_position, real_p)
+		if info.is_empty() or not CoverSense.can_damage(str(info["name"]), m.ai_explosion_share()):
+			continue
+		m.suppress_pos = info["pos"]
+		picked += 1
+
+# The exposed firing cell nearest `goal`, cached per member so the query is not repeated every tick.
+func _flush_goal(m: Node, goal: Vector2, P: Vector2, eng: float, map: Node) -> Vector2:
+	var id = m.get_instance_id()
+	var cached = _flush.get(id)
+	if cached != null and _clock < float(cached["until"]) and P.distance_to(cached["for"]) < FLUSH_PLAYER_MOVED:
+		return cached["pos"]
+	if map == null or not CoverSense.take_budget():
+		return cached["pos"] if cached != null else Vector2.ZERO
+	var cell = CoverSense.find_exposed_cell(map, P, goal, eng, bool(m.is_amphibious) if "is_amphibious" in m else false)
+	_flush[id] = {"pos": cell, "until": _clock + FLUSH_CACHE_SECONDS, "for": P}
+	return cell
 
 func _nudge_walkable(map: Node, P: Vector2, goal: Vector2, amph: bool) -> Vector2:
 	var off = goal - P

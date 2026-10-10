@@ -83,7 +83,7 @@ This is the actual long-term destination the `pixbots_core` split above is aimed
 7. Feature batch after the Rust ports: Bot League spectating, Tactical Puzzles, Wager Waves, Shop Cat, shop-framing UI.
 
 **P:**
-1. Tween panel transitions; garage conduit shader; drop-pod overlay.
+1. ~~Tween panel transitions~~ DONE 2026-10-10 (`UiFx`, Pause/Settings/War Room/Debug; Garage and the `Window` popups not yet); garage conduit shader (needs per-tile entry faces plumbed out of the Rust sim; `entry_steps` exists in `SimResult` but is not marshalled); drop-pod overlay.
 2. Synergy Codex for biome interactions.
 3. Phase 5 visual identity (build-driven player mech look).
 4. Menu diorama (art); cutscene authoring (men in black) when the owner supplies beats.

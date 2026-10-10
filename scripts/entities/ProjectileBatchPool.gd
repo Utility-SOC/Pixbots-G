@@ -107,6 +107,8 @@ var _lightning_target_offset: PackedFloat32Array
 # isn't worth it here).
 var _blink_timer: PackedFloat32Array
 var _hops_left: PackedInt32Array
+var _vortex_timer: PackedFloat32Array # per-slot vortex pull query accumulator
+var _pin_carry: PackedVector2Array # distance moved since the last vortex query; pinned bodies ride it
 # Captured once at spawn (Phase 6) - _hops_left/_pierce_count only ever
 # count DOWN from these, so "how much is left, as a fraction of how much
 # there ever was" (_compute_hit_decay's whole job) needs the original max
@@ -374,6 +376,8 @@ func _init(p_capacity: int = DEFAULT_CAPACITY):
 	_r_fire.resize(capacity)
 	_r_psn.resize(capacity)
 	_r_vtx.resize(capacity)
+	_vortex_timer.resize(capacity)
+	_pin_carry.resize(capacity)
 	_r_ltg.resize(capacity)
 	_r_prc.resize(capacity)
 	_r_exp.resize(capacity)
@@ -722,6 +726,8 @@ func _spawn_impl(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: f
 	_r_fire[i] = ratios.get(EnergyPacket.SynergyType.FIRE, 0.0)
 	_r_psn[i] = ratios.get(EnergyPacket.SynergyType.POISON, 0.0)
 	_r_vtx[i] = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
+	_vortex_timer[i] = 0.0
+	_pin_carry[i] = Vector2.ZERO
 	_r_ltg[i] = ratios.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	_r_prc[i] = ratios.get(EnergyPacket.SynergyType.PIERCE, 0.0)
 	_r_exp[i] = ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
@@ -1467,6 +1473,7 @@ func _step_simulate(delta: float):
 	# _is_mine's own field comment) - handled entirely by _step_mine_movement,
 	# excluded from every loop below via `if _is_mine[i]: continue`.
 	_step_mine_movement(delta)
+	_step_vortex(delta)
 
 	if not _flight_rasterizer:
 		# No Rust extension loaded - degrade to the old straight-line
@@ -1548,6 +1555,9 @@ func _step_simulate(delta: float):
 		var base = k * RESPONSE_STRIDE
 		_direction[i] = Vector2(results_flat[base], results_flat[base + 1])
 		var velocity = Vector2(results_flat[base + 2], results_flat[base + 3])
+		if _r_vtx[i] >= VortexEffects.WANDER_MIN_RATIO:
+			var dir_i = _direction[i]
+			velocity += Vector2(-dir_i.y, dir_i.x) * VortexEffects.wander_velocity(_elapsed[i], _spawn_gen[i], _r_vtx[i], clampf(1.0 - _r_kin[i], 0.0, 1.0))
 		_visual_offset[i] = Vector2(results_flat[base + 4], results_flat[base + 5])
 		_lightning_segment_index[i] = results_flat[base + 9]
 		_lightning_prev_offset[i] = results_flat[base + 10]
@@ -1555,10 +1565,33 @@ func _step_simulate(delta: float):
 		_prev_position[i] = _position[i]
 		var step = velocity * delta
 		_position[i] += step
+		_pin_carry[i] += step
 		_distance_traveled[i] += step.length()
 		if _distance_traveled[i] >= _max_range[i]:
 			despawn(i)
 	_step_blink_hops(delta)
+
+# Vortex pull / pin / gravity well (VortexEffects). The pool had no vortex pull before; this is the legacy
+# Projectile._pull_nearby_items behaviour plus the rework, throttled per slot to VortexEffects.QUERY_INTERVAL.
+func _step_vortex(delta: float):
+	for i in range(_highest_active + 1):
+		if _alive[i] == 0 or _r_vtx[i] <= 0.1:
+			continue
+		_vortex_timer[i] += delta
+		if _vortex_timer[i] < VortexEffects.QUERY_INTERVAL:
+			continue
+		var elapsed = _vortex_timer[i]
+		_vortex_timer[i] = 0.0
+		var r_vtx = _r_vtx[i]
+		var radius = (150.0 + 100.0 * r_vtx) * VortexEffects.pull_magnitude_mult(_damage[i])
+		if _is_mine[i] == 1 and VortexEffects.is_well(_r_psn[i], r_vtx, _damage[i]):
+			radius = VortexEffects.well_radius(_damage[i] * r_vtx, _r_exp[i])
+		var carry = _pin_carry[i]
+		_pin_carry[i] = Vector2.ZERO
+		var by_player = _fired_by_player[i] == 1
+		var pin_r = VortexEffects.pin_radius(r_vtx)
+		for col in SimPhysics.circle_colliders(self, Transform2D(0.0, _position[i]), radius, SimPhysics.LAYER_LOOT | SimPhysics.LAYER_ENEMY | SimPhysics.LAYER_PLAYER):
+			VortexEffects.pull_target(col, _position[i], by_player, r_vtx, _damage[i], elapsed, carry, pin_r)
 
 # Poison mine-crawl movement (Phase 3) - direct port of Projectile.
 # _physics_process_mine (real system's own header: "no gravity lob, vortex
@@ -1852,6 +1885,9 @@ func _step_hit_test():
 				# piercing through like a normal shot - consumes the mine
 				# outright regardless of pierce/hop state.
 				if _is_mine[i] == 1:
+					# A gravity well holds its ground and only detonates when its lifetime ends.
+					if VortexEffects.is_well(_r_psn[i], _r_vtx[i], _damage[i]):
+						break
 					_trigger_poison_mine_detonation(i)
 					despawn(i)
 					break

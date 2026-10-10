@@ -42,6 +42,10 @@ func get_guard_energy() -> float:
 	stored_energy = 0.0
 	return e
 
+# The statuses this tile shortens. Single Guards cover one; the Remediation Matrix overrides this to cover them all.
+func get_resisted_statuses() -> Array:
+	return [resisted_status] if resisted_status != "" else []
+
 func get_max_resist() -> float:
 	return TileStatsRegistry.get_stat(stats_key, "max_resist", 0.9)
 

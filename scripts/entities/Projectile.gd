@@ -232,6 +232,8 @@ const VORTEX_QUERY_INTERVAL = 0.05 # nearby-item pull scan
 var _homing_query_timer: float = 0.0
 var _cached_homing_target: Node2D = null
 var _vortex_query_timer: float = 0.0
+var _pin_carry: Vector2 = Vector2.ZERO # distance the shot moved since the last vortex query; pinned bodies ride it
+var _wander_seed: int = 0
 # Lightning blink-hop's resolved nearest target, written by
 # ProjectileTargetingBatcher._resolve_blink() (see _update_blink's own
 # comment) - mirrors _cached_homing_target's exact same one-tick-latency
@@ -291,6 +293,8 @@ func _reset_pooled_state():
 	_cached_homing_target = null
 	_homing_query_timer = SimRng.stream("combat").randf() * HOMING_QUERY_INTERVAL
 	_vortex_query_timer = SimRng.stream("combat").randf() * VORTEX_QUERY_INTERVAL
+	_wander_seed = SimRng.stream("combat").randi() & 0x7FFFFFFF
+	_pin_carry = Vector2.ZERO
 	_lightning_segment_index = -1
 	_lightning_prev_offset = 0.0
 	_lightning_target_offset = 0.0
@@ -1400,10 +1404,18 @@ func _physics_process_body(delta: float):
 			# stay in the tree, unused, in case a future full-frame-batch
 			# redesign changes the economics.
 			_pull_nearby_items(elapsed)
+			_pin_carry = Vector2.ZERO
+
+	# VORTEX WANDER: a moving vortex shot bends along quadratic Beziers instead of flying straight (the lateral
+	# velocity is added after BOTH the Rust and GDScript flight paths so they agree).
+	if _flight_r_vtx >= VortexEffects.WANDER_MIN_RATIO:
+		var wander_ortho = Vector2(-direction.y, direction.x)
+		velocity += wander_ortho * VortexEffects.wander_velocity(time_alive, _wander_seed, _flight_r_vtx, _flight_straighten)
 
 	# APPLY PHYSICS
 	var _prev_global_pos = global_position
 	position += velocity * delta
+	_pin_carry += velocity * delta
 
 	# TUNNELING FIX (Rust broadphase port - Phase 3): hit detection is no
 	# longer Area2D signals firing only if a shape still happens to overlap
@@ -1522,6 +1534,19 @@ func _physics_process_mine(delta: float):
 
 	var _prev_global_pos = global_position
 	position += velocity * delta
+	_pin_carry += velocity * delta
+
+	# GRAVITY WELL: a large Poison + Vortex mine pulls and pins everything in a radius set by its vortex energy
+	# (Explosive widens it) for as long as it lives, instead of only popping on contact.
+	var r_vtx_mine = ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)
+	if VortexEffects.is_well(ratios.get(EnergyPacket.SynergyType.POISON, 0.0), r_vtx_mine, damage):
+		_vortex_query_timer += delta
+		if _vortex_query_timer >= VORTEX_QUERY_INTERVAL:
+			var well_elapsed = _vortex_query_timer
+			_vortex_query_timer = 0.0
+			var well_r = VortexEffects.well_radius(damage * r_vtx_mine, ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0))
+			_pull_nearby_items(well_elapsed, well_r)
+			_pin_carry = Vector2.ZERO
 
 	var _moved = global_position - _prev_global_pos
 	ProjectileBroadphase.report_movement(self, _prev_global_pos, global_position, _hit_radius)
@@ -1827,35 +1852,8 @@ func _get_vortex_magnitude_pull_mult() -> float:
 # geometry, GDScript owns game rules and Node mutation" discipline as every
 # other port this session.
 func _apply_vortex_pull_to_target(col: Node, delta: float):
-	if col == self:
-		return
-
-	var pull_mult = 3.0 # Targets get pulled 300% as hard
-	if "is_player" in col:
-		if fired_by_player and col.is_player:
-			if col.get("is_vortex_immune"):
-				pull_mult = 0.0
-			else:
-				pull_mult = 0.05 # Shooter is barely affected
-		elif not fired_by_player and not col.is_player:
-			if col.get("is_vortex_immune"):
-				pull_mult = 0.0
-			else:
-				pull_mult = 0.05 # Shooter is barely affected
-		else:
-			var prot = col.get("vortex_pull_protection_ratio")
-			if prot != null and float(prot) > 0.0:
-				pull_mult *= (1.0 - float(prot))
-
-	var pull_strength = 600.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0) * pull_mult * _get_vortex_magnitude_pull_mult()
-
-	if col.has_method("pull_towards"):
-		col.pull_towards(global_position, delta, pull_strength)
-	elif col is CharacterBody2D: # Fallback
-		var p_dir = (global_position - col.global_position).normalized()
-		var lerp_weight = 10.0 * delta
-		if lerp_weight > 1.0: lerp_weight = 1.0
-		col.velocity = col.velocity.lerp(p_dir * pull_strength, lerp_weight)
+	var carry = _pin_carry
+	VortexEffects.pull_target(col, global_position, fired_by_player, ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0), total_power, delta, carry, VortexEffects.pin_radius(ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)), self)
 
 # Task #33: a Rust-batched replacement (ProjectileTargetingBatcher.
 # request_vortex_pull) was tried and reverted after honest measurement (a
@@ -1864,9 +1862,11 @@ func _apply_vortex_pull_to_target(col: Node, delta: float):
 # homing-target search's single-result reduction, so it can't dodge the
 # same FFI/marshalling cost). This real per-projectile
 # PhysicsShapeQueryParameters2D shape query stays the live implementation.
-func _pull_nearby_items(delta: float):
+func _pull_nearby_items(delta: float, radius_override: float = -1.0):
 	var magnitude_pull_mult = _get_vortex_magnitude_pull_mult()
 	var pull_radius = (150.0 + 100.0 * ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0)) * magnitude_pull_mult
+	if radius_override > 0.0:
+		pull_radius = radius_override
 	# Always pull Loot (16), Enemies (4), and Player (8)
 	for col in SimPhysics.circle_colliders(self, global_transform, pull_radius, SimPhysics.LAYER_LOOT | SimPhysics.LAYER_ENEMY | SimPhysics.LAYER_PLAYER):
 		_apply_vortex_pull_to_target(col, delta)
@@ -2075,6 +2075,9 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 	# shot - the direct hit above already dealt its own damage, this adds
 	# the AoE burst on top, then consumes the mine outright.
 	if _is_poison_mine:
+		# A gravity well holds its ground (it keeps pulling and pinning) and only detonates when its lifetime ends.
+		if VortexEffects.is_well(ratios.get(EnergyPacket.SynergyType.POISON, 0.0), ratios.get(EnergyPacket.SynergyType.VORTEX, 0.0), damage):
+			return
 		_trigger_poison_mine_detonation()
 		_release_or_free()
 		return

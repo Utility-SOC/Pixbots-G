@@ -77,7 +77,7 @@ This is the actual long-term destination the `pixbots_core` split above is aimed
 1. Smarter AutoEquipSolver (remaining stage 2 above): loops, mixed synergies, head/backpack as reactor boosters/conditioners (spec).
 2. War Room upgrades incl. confidence display for build culling (culls after ~3 trials).
 3. ~~Ice embrittlement + shatter~~ DONE 2026-10-09 (`scripts/core/IceEffects.gd`, `IceEffectsCheck`; numbers marked (tune) need a balance pass; enemies use FLOW_REF 200 as actuator flow).
-4. Vortex pin / gravity-well mine / bezier wander (spec); Mythic remediation tile (spec).
+4. ~~Vortex pin / gravity-well mine / bezier wander~~ DONE 2026-10-09 (`scripts/core/VortexEffects.gd`, shared by Projectile.gd and the batch pool; the pool previously had NO vortex pull, now has it; `VortexEffectsCheck`). ~~Mythic remediation tile~~ DONE (`RemediationMatrixTile`, shop 4% super-rare offer at 24,000 scrap, one-off; no loot-drop path yet). All numbers marked (tune) need the balance pass.
 5. Enemy use of terrain; remaining map scope (set pieces, map types, biome identity).
 6. Elemental balance pass (`docs/ELEMENTAL_BALANCE_OPTIONS.md`), Guard `energy_for_max` calibration. Heat stays on hold.
 7. Feature batch after the Rust ports: Bot League spectating, Tactical Puzzles, Wager Waves, Shop Cat, shop-framing UI.

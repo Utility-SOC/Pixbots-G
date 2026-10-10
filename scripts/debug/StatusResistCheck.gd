@@ -123,5 +123,23 @@ func _ready():
 		_check("Rust sim now describes a Structural Strut as pass-through", not sd.is_empty() and sd["kind"] == RustGridSimScript.KIND_PASS)
 	else:
 		print("SKIP: Rust grid sim not available in this run")
+	# 6) Remediation Matrix: Mythic catch-all, 6x the energy per fraction, lower cap, one fed cell covers every status.
+	var mx = load("res://scripts/tiles/RemediationMatrixTile.gd").new()
+	mx.rarity = R.MYTHIC
+	var mfull: float = TileStatsRegistry.get_stat("RemediationMatrixTile", "energy_for_max", 9000.0)
+	var mcap: float = TileStatsRegistry.get_stat("RemediationMatrixTile", "max_resist", 0.7)
+	_check("Matrix needs 6x a single Guard's energy for full protection", is_equal_approx(mfull, 6.0 * full))
+	_check("Matrix cap is lower than a Guard's (less focused)", mcap < cap)
+	_check("Matrix covers frozen, paralyzed, concussed, burning, poisoned, vortexed", mx.get_resisted_statuses().size() == 6 and "burning" in mx.get_resisted_statuses())
+	_check("same energy gives a Matrix 1/6 the resistance of a Guard", is_equal_approx(mx.resist_for_energy(full * 0.5) / (cap * 0.5), mcap / cap / 6.0))
+	mx.stored_energy = mfull * 0.5
+	var mm = _mech_with([mx])
+	_check("one fed Matrix shortens frozen (got %.3f)" % mm.status_duration_mult.get("frozen", 1.0), is_equal_approx(mm.status_duration_mult.get("frozen", 1.0), 1.0 - mcap * 0.5))
+	_check("...and burning", is_equal_approx(mm.status_duration_mult.get("burning", 1.0), 1.0 - mcap * 0.5))
+	_check("...and paralyzed", is_equal_approx(mm.status_duration_mult.get("paralyzed", 1.0), 1.0 - mcap * 0.5))
+	if RustGridSimScript.is_available():
+		var md = RustGridSimScript._describe_tile(load("res://scripts/tiles/RemediationMatrixTile.gd").new())
+		_check("Rust sim treats the Matrix as a store sink", md.get("kind", -1) == RustGridSimScript.KIND_STORE_SINK)
+
 	print("StatusResistCheck: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

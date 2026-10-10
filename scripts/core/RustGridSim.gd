@@ -169,7 +169,7 @@ static func _describe_tile(tile) -> Dictionary:
 	elif t == "Heal Beacon":
 		d["kind"] = KIND_STORE_SINK
 		d["store_coef"] = 1.0 + tile.rarity * 0.5
-	elif t == "Stun Guard" or t == "Shock Guard" or t == "Freeze Guard":
+	elif t == "Stun Guard" or t == "Shock Guard" or t == "Freeze Guard" or t == "Remediation Matrix":
 		d["kind"] = KIND_STORE_SINK # energy-fed status resistance: same intake as the Heal Beacon
 		d["store_coef"] = 1.0 + tile.rarity * 0.5
 	elif t == "Jammer Module":

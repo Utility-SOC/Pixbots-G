@@ -585,13 +585,15 @@ func _collect_weapon_mounts_and_tile_capabilities():
 
 			# Stun / Shock / Freeze Guards: passive, unconditional from presence. Stack multiplicatively with a floor
 			# (the tile's max_resist), so piling on cells has diminishing returns and never reaches full immunity.
-			if tile.has_method("get_guard_energy") and tile.resisted_status != "":
+			if tile.has_method("get_guard_energy") and not tile.get_resisted_statuses().is_empty():
 				# Resistance is proportional to the energy fed in (see StatusResistTile.gd); several Guards of one
-				# kind add up, capped at the tile's max_resist, so nobody is ever fully immune.
+				# kind add up, capped at the tile's max_resist, so nobody is ever fully immune. The energy is read ONCE
+				# and applies to every status the tile covers (a Remediation Matrix covers them all).
 				var guard_resist: float = tile.resist_for_energy(tile.get_guard_energy())
-				var total_resist: float = minf(mech._status_resist_sum.get(tile.resisted_status, 0.0) + guard_resist, tile.get_max_resist())
-				mech._status_resist_sum[tile.resisted_status] = total_resist
-				mech.status_duration_mult[tile.resisted_status] = 1.0 - total_resist
+				for status_name in tile.get_resisted_statuses():
+					var total_resist: float = minf(mech._status_resist_sum.get(status_name, 0.0) + guard_resist, tile.get_max_resist())
+					mech._status_resist_sum[status_name] = total_resist
+					mech.status_duration_mult[status_name] = 1.0 - total_resist
 
 			# Reactive Plating (design request: "reactive armor options
 			# which melee mechs will abuse" - see the field comment on

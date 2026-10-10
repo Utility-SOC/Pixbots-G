@@ -1,0 +1,6 @@
+{
+	"weight": 4.0,
+	"energy_for_max": 9000.0,
+	"max_resist": 0.7,
+	"description": "Remediation Matrix (Mythic, super rare): shortens EVERY crowd-control and damage-over-time status on you (frozen, shocked, stunned, burning, poisoned, vortexed) in proportion to the energy routed into it. Needs 6x the energy of a single Guard for the same fraction and caps at 70%, but one cell does the work of six."
+}

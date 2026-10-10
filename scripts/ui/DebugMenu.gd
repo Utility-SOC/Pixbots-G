@@ -608,6 +608,7 @@ func _on_give_god_inventory(is_mythic: bool = false):
 		"res://scripts/tiles/StunGuardTile.gd",
 		"res://scripts/tiles/ShockGuardTile.gd",
 		"res://scripts/tiles/FreezeGuardTile.gd",
+		"res://scripts/tiles/RemediationMatrixTile.gd",
 		"res://scripts/tiles/ReactivePlatingTile.gd"
 	]
 	

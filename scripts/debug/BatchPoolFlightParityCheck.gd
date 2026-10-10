@@ -86,6 +86,8 @@ func _ready():
 		var out: PackedFloat64Array = rasterizer.compute_batch_flat(PackedInt64Array([1]), req)
 		ref_dir = Vector2(out[0], out[1])
 		var velocity = Vector2(out[2], out[3])
+		# Vortex wander is layered on after the Rust step (VortexEffects), keyed on the slot's spawn generation.
+		velocity += Vector2(-ref_dir.y, ref_dir.x) * VortexEffects.wander_velocity(ref_time_alive, pool._spawn_gen[i], r_vtx, straighten)
 		var visual_offset = Vector2(out[4], out[5])
 		ref_seg = out[9]; ref_prev_off = out[10]; ref_target_off = out[11]
 		ref_pos += velocity * delta

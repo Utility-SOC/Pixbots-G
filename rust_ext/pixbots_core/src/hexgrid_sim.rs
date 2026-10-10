@@ -948,6 +948,16 @@ mod tests {
     }
 
     #[test]
+    fn overload_marks_the_choke_tile_not_the_tile_the_excess_flows_back_into() {
+        // Upstream amplifier (4x) feeds a non-Mythic mount with far more than it can carry. The mount is the choke;
+        // the reflected excess then re-enters the amplifier, which must NOT be flagged for it.
+        let amp = TileDesc { kind: 1, amp_mult: 4.0, rarity: 0, ..TileDesc::default() };
+        let r = run(&[(1, amp), (2, mount())], 2, packet_at(0, 0, 0, NORMAL_MAGNITUDE_CAP * 0.9));
+        assert!(r.overload_peak[1] > NORMAL_MAGNITUDE_CAP, "choke peak {}", r.overload_peak[1]);
+        assert_eq!(r.overload_peak[0], 0.0, "upstream tile was flagged by reflected excess");
+    }
+
+    #[test]
     fn simulation_is_deterministic() {
         let a = run(&[(3, mount())], 3, packet_at(0, 0, 0, 500.0));
         let b = run(&[(3, mount())], 3, packet_at(0, 0, 0, 500.0));

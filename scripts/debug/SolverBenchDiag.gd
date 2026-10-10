@@ -33,6 +33,8 @@ func _recipes() -> Dictionary:
 		"lean": [["Amplifier", 2, C], ["Catalyst", 1, U], ["Infuser", 2, U], ["Splitter", 2, U], ["Reflector", 1, C]],
 		"mid": [["Amplifier", 5, U], ["Catalyst", 3, U], ["Infuser", 5, R], ["Splitter", 4, R], ["Reflector", 3, U], ["Conduit", 4, C]],
 		"rich": [["Amplifier", 10, R], ["Catalyst", 6, R], ["Infuser", 10, R], ["Splitter", 8, R], ["Reflector", 6, R], ["Conduit", 6, C], ["Amplifier", 3, L], ["Infuser", 3, L]],
+		# What enemy bots get (MechLoadoutBuilder): ~25 each of Amplifier/Splitter/Infuser/Catalyst at the bot's rarity.
+		"enemy": [["Amplifier", 25, U], ["Splitter", 25, U], ["Infuser", 25, U], ["Catalyst", 25, U], ["Reflector", 2, U]],
 	}
 
 func _inventory(recipe: Array) -> Array:
@@ -62,12 +64,17 @@ func _build_mech(rarity: int):
 	return mech
 
 func _slot_order() -> Array:
+	# BENCH_ORDER=acc_first solves Head and Backpack right after the torso (they condition the energy that returns to
+	# the torso, so they should get first pick of conditioners); default is the shipping order.
+	if OS.get_environment("BENCH_ORDER") == "acc_first":
+		return [HexTile.BodySlot.TORSO, HexTile.BodySlot.HEAD, HexTile.BodySlot.BACKPACK, HexTile.BodySlot.ARM_R, HexTile.BodySlot.ARM_L, HexTile.BodySlot.LEG_R, HexTile.BodySlot.LEG_L]
 	return [HexTile.BodySlot.TORSO, HexTile.BodySlot.ARM_R, HexTile.BodySlot.ARM_L, HexTile.BodySlot.LEG_R, HexTile.BodySlot.LEG_L, HexTile.BodySlot.HEAD, HexTile.BodySlot.BACKPACK]
 
 # Score per MOUNT, not per record: a mount's packets are merged and clamped at the normal per-packet cap, so energy that
 # only exists because a loop is saturating (the Garage warns about those) cannot buy score. Saturation is reported
 # separately (sat = parts whose sim hit its step limit, over = parts with an overloaded tile).
 func _score_mech(mech) -> Array:
+	mech._recalculate_grid() # warm-up: drops any residue a trial sim left queued on tiles, so the score is steady-state
 	mech._recalculate_grid()
 	var merged: Dictionary = {}
 	var order: Array = []
@@ -123,6 +130,9 @@ func _run_case(rarity: int, recipe_name: String, refine: bool) -> Array:
 		inv = solver.solve(comp, inv)
 		if refine:
 			RefinerScript.new().refine(comp, inv)
+	if refine and OS.get_environment("BENCH_MECHREFINE") == "1":
+		var mr_res = MechRefiner.new().refine_accessories(mech)
+		print("MECHREFINE r=%d %s before=%.1f after=%.1f evals=%d changes=%d" % [rarity, recipe_name, mr_res["before"], mr_res["after"], mr_res["evals"], mr_res["changes"]])
 	var res = _score_mech(mech)
 	mech.queue_free()
 	return res
@@ -131,15 +141,19 @@ func _ready():
 	var refine = OS.get_environment("BENCH_NOREFINE") != "1"
 	var grand = 0.0
 	var gain_sum = 0.0
+	var log_sum = 0.0
+	var n_cases = 0
 	print("rarity  recipe   score        gain   mounts elems sat over loops  (refine=%s)" % str(refine))
 	for rarity in [HexTile.Rarity.UNCOMMON, HexTile.Rarity.RARE, HexTile.Rarity.LEGENDARY]:
-		for recipe_name in ["lean", "mid", "rich"]:
+		for recipe_name in ["lean", "mid", "rich", "enemy"]:
 			var t0 = Time.get_ticks_msec()
 			var r = _run_case(rarity, recipe_name, refine)
 			grand += r[0]
 			var gain = r[0] / maxf(r[6], 1.0)
 			gain_sum += gain
+			log_sum += log(maxf(gain, 0.05))
+			n_cases += 1
 			print("BENCH r=%d %-5s %12.1f %9.3f %4d %4d %4d %4d %4d   %d ms" % [rarity, recipe_name, r[0], gain, r[1], r[2], r[3], r[4], r[5], Time.get_ticks_msec() - t0])
 	SimRng.unseed()
-	print("BENCH_TOTAL %.1f   GAIN_SUM %.3f" % [grand, gain_sum])
+	print("BENCH_TOTAL %.1f   GAIN_SUM %.3f   GAIN_GEOMEAN %.3f" % [grand, gain_sum, exp(log_sum / maxf(n_cases, 1))])
 	get_tree().quit()

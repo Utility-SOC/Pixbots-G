@@ -48,6 +48,17 @@ func record_overload(key: Vector2i, magnitude: float) -> void:
 	if magnitude > float(flow_overload.get(key, 0.0)):
 		flow_overload[key] = magnitude
 
+# Drops every packet a tile is still holding from a trial simulation (mount payloads AND the transfers Link tiles queue
+# for other parts). ComponentLinkTile.clear_pending() only clears pending_packets, so a trial sim on the torso left
+# queued transfers that the next real mech recalculation then forwarded again, inflating the first result.
+func clear_sim_residue() -> void:
+	for t in get_all_tiles():
+		t.reset_simulation_state()
+		if t.has_method("clear_pending"):
+			t.clear_pending()
+		if "pending_transfer_packets" in t:
+			t.pending_transfer_packets.clear()
+
 func is_powered(key: Vector2i) -> bool:
 	return flow.has(key)
 

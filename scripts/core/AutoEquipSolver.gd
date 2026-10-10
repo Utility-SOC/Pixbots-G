@@ -740,10 +740,7 @@ func _test_return_faces(grid, acc_coord, accessory_links: Dictionary, targets: A
 				break
 		if grid.get_tile(n) == null and not is_target:
 			continue
-		for tile in grid.get_all_tiles():
-			tile.reset_simulation_state()
-			if tile.has_method("clear_pending"):
-				tile.clear_pending()
+		grid.clear_sim_residue()
 		grid.reset_flow()
 		var pkt = EnergyPacket.new(1000.0, HexCoord.new(acc_coord.q, acc_coord.r))
 		pkt.direction = d
@@ -763,10 +760,7 @@ func _test_return_faces(grid, acc_coord, accessory_links: Dictionary, targets: A
 				reach += 1
 		if not bad and reach > 0:
 			scored.append([loops, -reach, d])
-	for tile in grid.get_all_tiles():
-		tile.reset_simulation_state()
-		if tile.has_method("clear_pending"):
-			tile.clear_pending()
+	grid.clear_sim_residue()
 	grid.reset_flow()
 	scored.sort_custom(func(a, b): return a < b)
 	var out: Array = []

@@ -58,10 +58,7 @@ static func score_packet(p) -> float:
 func score(component) -> float:
 	evals += 1
 	var grid = component.hex_grid
-	for t in grid.get_all_tiles():
-		t.reset_simulation_state()
-		if t.has_method("clear_pending"):
-			t.clear_pending()
+	grid.clear_sim_residue()
 	var generated = 0.0
 	var pkts: Array = []
 	for t in grid.get_all_tiles():
@@ -82,6 +79,8 @@ func score(component) -> float:
 				component.set_meta("refiner_feed_dir", _feed_dir)
 		pkts.append(_feed_packet(_feed_dir))
 		generated = INPUT_MAGNITUDE
+	# The sim only ever SETS the saturation/overload flags; clear them so each trial is judged on its own layout.
+	grid.reset_flow()
 	if not RustSim.try_simulate(grid, pkts, true):
 		return -1.0
 	var total = 0.0
@@ -107,10 +106,7 @@ func _find_feed_dir(component) -> int:
 	var best_total = -1.0
 	var grid = component.hex_grid
 	for d in range(6):
-		for t in grid.get_all_tiles():
-			t.reset_simulation_state()
-			if t.has_method("clear_pending"):
-				t.clear_pending()
+		grid.clear_sim_residue()
 		if not RustSim.try_simulate(grid, [_feed_packet(d)], true):
 			return 0
 		var total = 0.0
@@ -210,12 +206,188 @@ func refine(component, inventory: Array, budget: int = 120) -> Dictionary:
 				best = swap
 				improved = true
 				changes += 1
-	# Leave sim state consistent with the final layout.
+	# Deliberate loops: ping-pong pockets (see _loop_pass). Own budget so element tuning is never starved.
+	if enable_loops:
+		var loop_res = _loop_pass(component, inventory, best)
+		best = loop_res["score"]
+		changes += loop_res["added"]
+		result["loops"] = loop_res["added"]
+	# Leave sim state consistent with the final layout (flow for the Garage overlay), but with no packets still queued
+	# on tiles: the next real recalculation must start clean.
 	score(component)
+	component.hex_grid.clear_sim_residue()
 	result["after"] = best
 	result["evals"] = evals
 	result["changes"] = changes
 	return result
+
+# ---- Deliberate loops -------------------------------------------------------------------------------------------
+# A packet sent into an EMPTY dead-end corridor travels to the edge of the valid hexes, bounces and returns with 5%
+# loss per hex, so a Splitter with a side corridor is a loop with no wiring at all. Splitters divide energy, so a
+# lap's gain is (share sent into the corridor) x (Amplifier gain, applied on the way out AND back) x 0.95^(2 x hexes);
+# below 1 the packet settles and the mount sees the geometric series (a stable boost), above 1 it runs away to the cap.
+# The sim is the judge: a candidate is kept only if the score rises and the grid does not saturate or overload.
+const LOOP_MAX_ADDED = 3
+const LOOP_EVAL_BUDGET = 400
+const LOOP_REPLACEABLE = ["Directional Conduit", "Amplifier", "Catalyst", "Elemental Infuser"]
+var enable_loops: bool = true
+
+func _free_corridor(component, grid, x: Vector2i, d: int) -> Array:
+	var offsets = HexCoord.get_direction_offsets()
+	var valid := {}
+	for h in component.valid_hexes:
+		valid[Vector2i(h.q, h.r)] = true
+	var cells: Array = []
+	var cur = x + offsets[d]
+	while valid.has(cur) and grid.get_tile(HexCoord.new(cur.x, cur.y)) == null:
+		cells.append(cur)
+		cur += offsets[d]
+	# Must end at the edge of the valid area (so the packet bounces back), not at another tile.
+	if valid.has(cur):
+		return []
+	return cells
+
+func _flow_distance(grid) -> Dictionary:
+	var dist := {Vector2i(0, 0): 0}
+	var frontier = [Vector2i(0, 0)]
+	var offsets = HexCoord.get_direction_offsets()
+	while frontier.size() > 0:
+		var cur = frontier.pop_front()
+		for d in range(6):
+			var nv = cur + offsets[d]
+			if not dist.has(nv) and grid.flow.has(nv):
+				dist[nv] = dist[cur] + 1
+				frontier.append(nv)
+	return dist
+
+func _spare_indices(inventory: Array, tile_type: String) -> Array:
+	var idx: Array = []
+	for i in range(inventory.size()):
+		if inventory[i].tile_type == tile_type:
+			idx.append(i)
+	# best rarity first
+	idx.sort_custom(func(a, b): return inventory[a].rarity > inventory[b].rarity)
+	return idx
+
+func _loop_pass(component, inventory: Array, start_score: float) -> Dictionary:
+	var grid = component.hex_grid
+	var out = {"score": start_score, "added": 0}
+	var spent = 0
+	var current = start_score
+	while out["added"] < LOOP_MAX_ADDED and spent < LOOP_EVAL_BUDGET:
+		if _spare_indices(inventory, "Splitter").is_empty():
+			break
+		score(component) # fresh flow for the current layout
+		var dist = _flow_distance(grid)
+		var best_move = null
+		var best_score = current
+		var offsets = HexCoord.get_direction_offsets()
+		for t in grid.get_all_tiles():
+			if spent >= LOOP_EVAL_BUDGET:
+				break
+			if not (t.tile_type in LOOP_REPLACEABLE) or t.grid_position == null:
+				continue
+			var xv = Vector2i(t.grid_position.q, t.grid_position.r)
+			if not dist.has(xv):
+				continue
+			# Downstream neighbour: the occupied flow neighbour one step further from the intake.
+			var forward = -1
+			for d in range(6):
+				var nv = xv + offsets[d]
+				if dist.has(nv) and dist[nv] == dist[xv] + 1:
+					forward = d
+					break
+			if forward < 0:
+				continue
+			for d in range(6):
+				if d == forward or spent >= LOOP_EVAL_BUDGET:
+					continue
+				var corridor = _free_corridor(component, grid, xv, d)
+				if corridor.size() < 1:
+					continue
+				for variant in _amp_variants(inventory, corridor.size()):
+					if spent >= LOOP_EVAL_BUDGET:
+						break
+					var s = _try_loop_move(component, inventory, xv, forward, d, corridor, variant)
+					spent += 1
+					if s > best_score * (1.0 + MIN_GAIN):
+						best_score = s
+						best_move = [xv, forward, d, corridor, variant]
+		if best_move == null:
+			break
+		# Apply the winner for real (the trial above always reverted).
+		_apply_loop_move(component, inventory, best_move[0], best_move[1], best_move[2], best_move[3], best_move[4], false)
+		current = score(component)
+		out["added"] += 1
+		out["score"] = current
+	return out
+
+# Amplifier placements to try in a corridor of `length` cells: none; one amp (each distinct spare rarity) at each cell;
+# two best spares at the first two cells. Tile references, not inventory indices (the Splitter swap shifts those).
+func _amp_variants(inventory: Array, length: int) -> Array:
+	var variants: Array = [[]]
+	var by_rarity: Dictionary = {}
+	for t in inventory:
+		if t.tile_type == "Amplifier" and not by_rarity.has(t.rarity):
+			by_rarity[t.rarity] = t
+	for r in by_rarity:
+		for pos in range(length):
+			variants.append([[by_rarity[r], pos]])
+	var spares = _spare_indices(inventory, "Amplifier")
+	if spares.size() >= 2 and length >= 2:
+		variants.append([[inventory[spares[0]], 0], [inventory[spares[1]], 1]])
+	return variants
+
+# Returns the score with the loop applied (or -1.0 when it saturates/overloads/cannot run), then reverts.
+func _try_loop_move(component, inventory: Array, xv: Vector2i, forward: int, d: int, corridor: Array, variant: Array) -> float:
+	var undo = _apply_loop_move(component, inventory, xv, forward, d, corridor, variant, true)
+	if undo == null:
+		return -1.0
+	var s = score(component)
+	var grid = component.hex_grid
+	if grid.sim_saturated or not grid.flow_overload.is_empty():
+		s = -1.0
+	_revert_loop_move(component, inventory, undo)
+	return s
+
+# Swaps a spare Splitter in at xv (faces: forward + d) and puts `amps` spare Amplifiers into the corridor.
+# With record=true returns an undo record; the caller reverts. Returns null when it cannot be applied.
+func _apply_loop_move(component, inventory: Array, xv: Vector2i, forward: int, d: int, corridor: Array, variant: Array, record: bool):
+	var grid = component.hex_grid
+	var xh = HexCoord.new(xv.x, xv.y)
+	var split_idx = _spare_indices(inventory, "Splitter")
+	if split_idx.is_empty():
+		return null
+	var splitter = inventory[split_idx[0]]
+	if splitter.has_method("get_max_faces") and splitter.get_max_faces() < 2:
+		return null
+	var original = grid.get_tile(xh)
+	if original == null:
+		return null
+	inventory.erase(splitter)
+	grid.remove_tile(xh)
+	splitter.active_faces.clear()
+	splitter.active_faces.append(forward)
+	splitter.active_faces.append(d)
+	grid.add_tile(xh, splitter)
+	inventory.append(original)
+	var placed: Array = []
+	for av in variant:
+		placed.append([av[0], corridor[av[1]]])
+	for pr in placed:
+		inventory.erase(pr[0])
+		grid.add_tile(HexCoord.new(pr[1].x, pr[1].y), pr[0])
+	return {"xh": xh, "splitter": splitter, "original": original, "placed": placed}
+
+func _revert_loop_move(component, inventory: Array, undo: Dictionary) -> void:
+	var grid = component.hex_grid
+	for pr in undo["placed"]:
+		grid.remove_tile(HexCoord.new(pr[1].x, pr[1].y))
+		inventory.append(pr[0])
+	grid.remove_tile(undo["xh"])
+	inventory.erase(undo["original"])
+	grid.add_tile(undo["xh"], undo["original"])
+	inventory.append(undo["splitter"])
 
 # Tries each distinct (type, rarity) spare in `inventory` in place of the tile at v; keeps the best
 # improvement (returns its score) or restores the original (returns the unchanged best).

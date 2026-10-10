@@ -1,6 +1,7 @@
 use godot::prelude::*;
 use godot::classes::{IRefCounted, RefCounted};
 use std::time::Instant;
+use pixbots_core::hex::HexCoord;
 
 // gdext 0.5's Dictionary is generic over key/value type now - VDict is the
 // untyped (Variant/Variant) form matching the old Dictionary-of-anything API.
@@ -12,34 +13,6 @@ type VDict = Dictionary<Variant, Variant>;
 // rust_poc/hexgrid.rs and in-engine in scripts/debug/RustBenchComparison.gd.
 // This is step 1 - proving the toolchain actually works - before porting
 // anything that matters gameplay-wise.
-
-#[derive(Copy, Clone)]
-struct HexCoord {
-    q: i32,
-    r: i32,
-}
-
-const DIRECTIONS: [HexCoord; 6] = [
-    HexCoord { q: 1, r: 0 },
-    HexCoord { q: 0, r: 1 },
-    HexCoord { q: -1, r: 1 },
-    HexCoord { q: -1, r: 0 },
-    HexCoord { q: 0, r: -1 },
-    HexCoord { q: 1, r: -1 },
-];
-
-impl HexCoord {
-    fn neighbor(&self, dir: usize) -> HexCoord {
-        let d = DIRECTIONS[dir % 6];
-        HexCoord { q: self.q + d.q, r: self.r + d.r }
-    }
-    fn distance(&self, other: &HexCoord) -> i32 {
-        let dq = self.q - other.q;
-        let dr = self.r - other.r;
-        let dz = -dq - dr;
-        (dq.abs() + dr.abs() + dz.abs()) / 2
-    }
-}
 
 #[derive(GodotClass)]
 #[class(base=RefCounted)]
@@ -64,8 +37,8 @@ impl HexMathBench {
     fn run_benchmark(&self, iterations: i64) -> VDict {
         let start = Instant::now();
         let mut acc: i64 = 0;
-        let mut c = HexCoord { q: 0, r: 0 };
-        let origin = HexCoord { q: 0, r: 0 };
+        let mut c = HexCoord::new(0, 0);
+        let origin = HexCoord::new(0, 0);
         for i in 0..iterations {
             c = c.neighbor((i % 6) as usize);
             acc += c.distance(&origin) as i64;

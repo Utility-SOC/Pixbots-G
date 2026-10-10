@@ -65,7 +65,7 @@ This is the actual long-term destination the `pixbots_core` split above is aimed
 
 ### Lane contents (top item per lane each round)
 **A (Rust):** (after prerequisites)
-1. `hexmath`, `solid_grid`, `flow_field` into `pixbots_core`.
+1. ~~`hexmath`, `solid_grid`, `flow_field` into `pixbots_core`~~ DONE 2026-10-09 (`pixbots_core::{hex,solid_grid,flow_field}` with native tests; `rust_ext` bindings are marshalling only; GDScript parity checks pass; release `.so` not rebuilt yet).
 2. Rust spatial index replacing ~3,069 `StaticBody2D`s (A/B: +9 to +21 fps).
 3. Per-tick mech movement/steering, status effects, hazards (the measured per-enemy cost).
 4. `hexgrid_sim`, `separation`, projectile flight/broadphase into core; deterministic `step(dt)` + headless bench.

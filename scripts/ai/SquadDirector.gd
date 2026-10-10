@@ -100,7 +100,7 @@ func get_next_rival() -> String:
 			continue
 		valid_candidates.append(r)
 		
-	var chosen = valid_candidates[randi() % valid_candidates.size()]
+	var chosen = valid_candidates[SimRng.stream("ai").randi() % valid_candidates.size()]
 	active_rival_pool.erase(chosen)
 	rivals_fought_this_round += 1
 	request_save_learned_state()
@@ -589,7 +589,7 @@ func spawn_specific_squad(template: SquadTemplate, spawn_pos: Vector2) -> Squad:
 	for mech in squad.members:
 		if not is_instance_valid(mech):
 			continue
-		var pos = spawn_pos + Vector2(randf_range(-100, 100), randf_range(-100, 100))
+		var pos = spawn_pos + Vector2(SimRng.stream("ai").randf_range(-100, 100), SimRng.stream("ai").randf_range(-100, 100))
 		mech.global_position = map.get_valid_spawn_position(pos) if map else pos
 		if player:
 			mech.target = player
@@ -788,7 +788,7 @@ func _merge_squads(squad_a: Squad, squad_b: Squad):
 		# become a candidate template sometimes, so the director can find
 		# out empirically whether combined squads like this one are
 		# actually more effective than what's already in rotation.
-		if randf() < 0.4 and template_evolution._count_experimental() < TemplateEvolution.MAX_EXPERIMENTAL_TEMPLATES:
+		if SimRng.stream("ai").randf() < 0.4 and template_evolution._count_experimental() < TemplateEvolution.MAX_EXPERIMENTAL_TEMPLATES:
 			var derived = SquadTemplateMutator.from_squad_composition(squad_a, "Fused")
 			if derived:
 				register_template(derived)
@@ -1037,7 +1037,7 @@ func get_debrief_line() -> String:
 			best_el = element
 	# Only when the pattern is genuinely lopsided, and not every time -
 	# the debrief should feel like being noticed, not like a ticker.
-	if best_el != "RAW" and best_el != "" and best_delta >= 8 and randf() < 0.4:
+	if best_el != "RAW" and best_el != "" and best_delta >= 8 and SimRng.stream("ai").randf() < 0.4:
 		return "It logged every one of those %d %s kills just now. It'll remember." % [best_delta, str(best_el).capitalize()]
 	return ""
 
@@ -1171,11 +1171,11 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 		# random favored element. Without this, early waves (before any
 		# experimental profiles exist) are a monoculture of the reactive
 		# baseline - every bot firing the same projectile type.
-		if randf() < 0.35:
-			var jittered = SolverProfile.new(bot.spawn_profile.profile_name + "*", randi() % EnergyPacket.SynergyType.size())
+		if SimRng.stream("ai").randf() < 0.35:
+			var jittered = SolverProfile.new(bot.spawn_profile.profile_name + "*", SimRng.stream("ai").randi() % EnergyPacket.SynergyType.size())
 			jittered.role = role
 			bot.spawn_profile.copy_genes_to(jittered)
-			jittered.favored_synergy = randi() % EnergyPacket.SynergyType.size()
+			jittered.favored_synergy = SimRng.stream("ai").randi() % EnergyPacket.SynergyType.size()
 			bot.spawn_profile = jittered
 	if role == "diver":
 		bot.is_amphibious = true
@@ -1242,8 +1242,8 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	# player's own damage log, so it should never coin-flip into NOT doing
 	# the one thing it exists for.
 	var counter_chance = counter_build_chance()
-	var commit_weapon_counter = force_full_counter or randf() < counter_chance
-	var commit_shield_counter = force_full_counter or randf() < counter_chance
+	var commit_weapon_counter = force_full_counter or SimRng.stream("ai").randf() < counter_chance
+	var commit_shield_counter = force_full_counter or SimRng.stream("ai").randf() < counter_chance
 
 	# Apply generated synergies to bot's components
 	bot.ready.connect(func():

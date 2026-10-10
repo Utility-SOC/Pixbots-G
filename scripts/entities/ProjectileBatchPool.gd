@@ -1706,7 +1706,7 @@ func _apply_damage_to_target(target: Node, amount: float, element: String, src: 
 	_perf_hit_count += 1
 	if target.has_method("apply_part_damage") and "components" in target and not target.components.is_empty():
 		var slots = target.components.keys()
-		var slot = slots[randi() % slots.size()]
+		var slot = slots[SimRng.stream("combat").randi() % slots.size()]
 		target.apply_part_damage(slot, amount, element)
 	elif target.has_method("apply_damage"):
 		target.apply_damage(amount, element, src, false, source_label)
@@ -1919,7 +1919,7 @@ func _apply_synergy_status_effects_from_dict(i: int, target: Node, sr: Dictionar
 	if sr.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1:
 		target.apply_status("frozen", 3.0 * sr[EnergyPacket.SynergyType.ICE])
 	var rl = sr.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
-	if rl > 0.15 and randf() < 0.35 * rl:
+	if rl > 0.15 and SimRng.stream("combat").randf() < 0.35 * rl:
 		target.apply_status("paralyzed", 0.4 + 0.5 * rl)
 	if sr.get(EnergyPacket.SynergyType.POISON, 0.0) > 0.1:
 		target.apply_status("poisoned", 4.0 + 3.0 * sr[EnergyPacket.SynergyType.POISON])
@@ -1931,7 +1931,7 @@ func _apply_synergy_status_effects_from_dict(i: int, target: Node, sr: Dictionar
 	if sr.get(EnergyPacket.SynergyType.PIERCE, 0.0) > 0.15:
 		target.apply_status("rent", 4.0)
 	var re = sr.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
-	if re > 0.2 and randf() < 0.5 * re:
+	if re > 0.2 and SimRng.stream("combat").randf() < 0.5 * re:
 		target.apply_status("concussed", 0.35)
 	var rv = sr.get(EnergyPacket.SynergyType.VORTEX, 0.0)
 	if rv > 0.15:
@@ -1941,7 +1941,7 @@ func _apply_synergy_status_effects_from_dict(i: int, target: Node, sr: Dictionar
 	var rvm = sr.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
 	if rvm > 0.1:
 		target.apply_status("bleeding", 3.0 + 2.0 * rvm)
-		if rvm > 0.5 and randf() < 0.3:
+		if rvm > 0.5 and SimRng.stream("combat").randf() < 0.3:
 			target.apply_status("immobilized", 0.5)
 
 # Mirrors Projectile.gd:1927-1931 - heals the SHOOTER's HP pool, not the

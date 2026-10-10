@@ -175,7 +175,7 @@ func _start_search_pattern(datum: Vector2):
 	mech._search_datum = datum
 	mech._search_leg_len_units = 1
 	mech._search_legs_done_at_this_len = 0
-	mech._search_heading_idx = randi() % 4
+	mech._search_heading_idx = SimRng.stream("ai").randi() % 4
 	mech._search_leg_start = mech.global_position
 	mech._search_pattern_initialized = true
 	mech._search_leg_target = _next_leg_target()
@@ -267,8 +267,8 @@ func _pick_frontier_point(min_dist: float = 250.0, max_dist: float = -1.0) -> Ve
 	var best = Vector2.ZERO
 	var best_score = -1.0
 	for i in range(8):
-		var ang = (TAU / 8.0) * i + randf_range(-0.3, 0.3)
-		var dist = randf_range(min_dist, max_dist)
+		var ang = (TAU / 8.0) * i + SimRng.stream("ai").randf_range(-0.3, 0.3)
+		var dist = SimRng.stream("ai").randf_range(min_dist, max_dist)
 		var candidate = mech.global_position + Vector2(cos(ang), sin(ang)) * dist
 		var score = dist
 		if mech.squad and is_instance_valid(mech.squad) and mech.squad.is_recently_explored(candidate):
@@ -277,5 +277,5 @@ func _pick_frontier_point(min_dist: float = 250.0, max_dist: float = -1.0) -> Ve
 			best_score = score
 			best = candidate
 	if best == Vector2.ZERO:
-		best = mech.global_position + Vector2(1, 0).rotated(randf() * TAU) * 300.0
+		best = mech.global_position + Vector2(1, 0).rotated(SimRng.stream("ai").randf() * TAU) * 300.0
 	return best

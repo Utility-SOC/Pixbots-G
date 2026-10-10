@@ -100,7 +100,7 @@ func setup(p_owner: Node2D, p_loadout: ComponentEquipment, p_rarity: int, p_visu
 	drone_loadout_source = p_loadout
 	drone_rarity = p_rarity
 	drone_visual_class = p_visual_class
-	_orbit_angle = randf() * TAU
+	_orbit_angle = SimRng.stream("combat").randf() * TAU
 
 func _ready():
 	# Reads as "the owner's side," not always the player's - an enemy-owned
@@ -110,7 +110,7 @@ func _ready():
 	is_player = owner_mech and "is_player" in owner_mech and owner_mech.is_player
 	combat_role = "drone"
 	base_rarity = drone_rarity
-	_target_rescan_timer = randf() * TARGET_RESCAN_INTERVAL # desync - see Mech.gd/Projectile.gd's matching fix
+	_target_rescan_timer = SimRng.stream("combat").randf() * TARGET_RESCAN_INTERVAL # desync - see Mech.gd/Projectile.gd's matching fix
 
 	# Drone._ready() fully overrides Mech._ready() (never calls super) so it
 	# never picked up Mech.gd:578's add_to_group("enemy") for enemy-owned

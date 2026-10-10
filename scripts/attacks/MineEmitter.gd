@@ -67,7 +67,7 @@ func setup(duration: float, flame_total: float, flame_range: float, volley_total
 
 func _enter_tree() -> void:
 	live_count += 1
-	_tick_t = randf() * TICK_SEC # spread queries across frames
+	_tick_t = SimRng.stream("combat").randf() * TICK_SEC # spread queries across frames
 
 func _exit_tree() -> void:
 	live_count = max(0, live_count - 1)

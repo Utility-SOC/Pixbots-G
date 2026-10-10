@@ -29,9 +29,9 @@ func _init(forced_synergy: int = -1):
 		jam_mode = JamMode.SYNERGY
 		target_synergy = forced_synergy
 	else:
-		jam_mode = JamMode.VISION if randf() < 0.5 else JamMode.SYNERGY
+		jam_mode = JamMode.VISION if SimRng.stream("tile").randf() < 0.5 else JamMode.SYNERGY
 		# Skip RAW (index 0) as a jam target - jamming "no element" is a no-op.
-		target_synergy = 1 + (randi() % (EnergyPacket.SynergyType.size() - 1))
+		target_synergy = 1 + (SimRng.stream("tile").randi() % (EnergyPacket.SynergyType.size() - 1))
 
 var stored_energy: float = 0.0
 

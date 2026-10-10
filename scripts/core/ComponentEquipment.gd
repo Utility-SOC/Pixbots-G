@@ -703,7 +703,7 @@ func _grow_diagonal_band(base_count: int, q_half: float, r_neg: float, r_pos: fl
 		_try_add_torso_hex(h)
 
 func generate_procedural_shape():
-	var seed_val = randi()
+	var seed_val = SimRng.stream("loot").randi()
 	_generate_procedural_shape_with_seed(seed_val)
 
 func _generate_procedural_shape_with_seed(seed_val: int):
@@ -876,7 +876,7 @@ func add_infusion_xp(amount: int):
 func _roll_stat_modifier():
 	if rarity < HexTile.Rarity.LEGENDARY: return # Only legendary gear can be augmented
 
-	var roll = CHIP_STAT_POOL[randi() % CHIP_STAT_POOL.size()]
+	var roll = CHIP_STAT_POOL[SimRng.stream("loot").randi() % CHIP_STAT_POOL.size()]
 
 	if infusion_stat_modifiers.has(roll):
 		infusion_stat_modifiers[roll] += 0.05 # Add 5%
@@ -1713,7 +1713,7 @@ static func create_dual_utility_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON
 	pack.fixed_sinks.append(HexCoord.new(0, 0))
 	_orient_intake_to_shape(pack, intake)
 
-	var roll = randf()
+	var roll = SimRng.stream("loot").randf()
 	var combo: String
 	if forced_synergy >= 0:
 		combo = "jammer_jammer" if roll < 0.55 else ("jammer_cloak" if roll < 0.9 else "heal_heal")
@@ -1782,7 +1782,7 @@ static func create_support_backpack(p_rarity: int = HexTile.Rarity.UNCOMMON, for
 	# over-relied-on synergy, the roll leans toward Jammer and aims it at
 	# that synergy (see create_dual_utility_backpack's forced_synergy).
 	if p_rarity >= HexTile.Rarity.RARE:
-		var roll = randf()
+		var roll = SimRng.stream("loot").randf()
 		var jammer_chance = 0.7 if forced_synergy >= 0 else 0.45
 		var second: HexTile
 		if roll < jammer_chance:

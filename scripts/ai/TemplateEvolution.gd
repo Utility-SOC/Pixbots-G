@@ -39,7 +39,7 @@ func _pick_fitness_weighted_parent(candidates: Array) -> SquadTemplate:
 	var total = 0.0
 	for t in candidates:
 		total += max(10.0, t.get_average_fitness())
-	var roll = randf() * total
+	var roll = SimRng.stream("ai").randf() * total
 	var acc = 0.0
 	for t in candidates:
 		acc += max(10.0, t.get_average_fitness())
@@ -73,7 +73,7 @@ func maybe_introduce_experimental_template():
 		candidates = director.templates
 
 	var new_template: SquadTemplate = null
-	var roll = randf()
+	var roll = SimRng.stream("ai").randf()
 	if roll < 0.55:
 		new_template = SquadTemplateMutator.mutate(_pick_fitness_weighted_parent(candidates))
 	elif roll < 0.85 and candidates.size() >= 2:
@@ -162,7 +162,7 @@ func select_template_weighted(allowed_templates: Array = []) -> SquadTemplate:
 		effective_weights[t] = w
 		total_weight += w
 
-	var roll = randf() * total_weight
+	var roll = SimRng.stream("ai").randf() * total_weight
 	var current_weight = 0.0
 	var selected_template: SquadTemplate = candidates[0]
 

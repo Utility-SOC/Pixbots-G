@@ -84,7 +84,7 @@ static func is_valid_brand(id: String) -> bool:
 	return BRAND_IDS.has(id)
 
 static func random_brand() -> String:
-	return BRAND_IDS[randi() % BRAND_IDS.size()]
+	return BRAND_IDS[SimRng.stream("loot").randi() % BRAND_IDS.size()]
 
 static func display_name(id: String) -> String:
 	return BRAND_NAMES.get(id, "Unknown")

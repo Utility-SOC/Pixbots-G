@@ -156,7 +156,7 @@ func generate_loot_for_mech(mech: Node):
 		for chip in comp.equipped_chips:
 			if chip.get("traits", []).size() != 1:
 				continue # Corrupted - destroyed on death, never drops
-			if randf() <= CHIP_DROP_CHANCE:
+			if SimRng.stream("loot").randf() <= CHIP_DROP_CHANCE:
 				_spawn_chip_drop(mech, chip)
 
 	var equipped_tiles = []
@@ -208,11 +208,11 @@ func generate_loot_for_mech(mech: Node):
 				if sponsor_tile:
 					_spawn_loot_drop(mech, sponsor_tile)
 
-	elif randf() <= COMPONENT_DROP_CHANCE:
+	elif SimRng.stream("loot").randf() <= COMPONENT_DROP_CHANCE:
 		# Regular kills occasionally shed a whole (Common/Uncommon) component
 		# - salvage fodder that feeds the upgrade/infusion economy without
 		# competing with boss drops for excitement.
-		var rarity = HexTile.Rarity.UNCOMMON if randf() < 0.25 else HexTile.Rarity.COMMON
+		var rarity = HexTile.Rarity.UNCOMMON if SimRng.stream("loot").randf() < 0.25 else HexTile.Rarity.COMMON
 		var salvage = _create_procedural_component(rarity, mech, "Salvaged")
 		_spawn_component_drop(mech, salvage)
 
@@ -222,7 +222,7 @@ func generate_loot_for_mech(mech: Node):
 			# (Core/Links/Returns), which used to win just by being equipped first.
 			if is_structural(tile.tile_type):
 				continue
-			var roll = randf()
+			var roll = SimRng.stream("loot").randf()
 			if roll <= 0.10:
 				tile.rarity = HexTile.Rarity.LEGENDARY
 			else:
@@ -234,7 +234,7 @@ func generate_loot_for_mech(mech: Node):
 		var sm = get_node_or_null("/root/SaveManager")
 		var discovered = sm.discovered_tile_types.has(tile.tile_type) if sm else true
 		var chance = drop_chance(tile.tile_type, tile.rarity, is_boss, discovered)
-		if randf() <= chance:
+		if SimRng.stream("loot").randf() <= chance:
 			_spawn_loot_drop(mech, tile)
 			_note_dropped(tile.tile_type)
 			dropped_any_tile = true
@@ -266,7 +266,7 @@ func generate_ghost_loot(mech: Node):
 		total_weight += wgt
 
 	var pick_weighted = func():
-		var roll = randf() * total_weight
+		var roll = SimRng.stream("loot").randf() * total_weight
 		for i in range(equipped_tiles.size()):
 			roll -= weights[i]
 			if roll <= 0.0:
@@ -295,7 +295,7 @@ func generate_ghost_loot(mech: Node):
 			continue
 		var chance = _get_mythic_drop_rate() if tile.rarity == HexTile.Rarity.MYTHIC else DROP_RATES.get(tile.rarity, 0.0)
 		chance *= _tile_type_drop_multiplier(tile.tile_type, tile.rarity)
-		if randf() <= chance:
+		if SimRng.stream("loot").randf() <= chance:
 			dropped[tile] = true
 			_spawn_loot_drop(mech, tile)
 
@@ -304,7 +304,7 @@ func generate_ghost_loot(mech: Node):
 func _create_procedural_component(rarity: int, mech: Node, name_prefix: String):
 	var comp_script = load("res://scripts/core/ComponentEquipment.gd")
 	var slots = [HexTile.BodySlot.ARM_L, HexTile.BodySlot.ARM_R, HexTile.BodySlot.LEG_L, HexTile.BodySlot.LEG_R, HexTile.BodySlot.HEAD, HexTile.BodySlot.TORSO]
-	var slot = slots[randi() % slots.size()]
+	var slot = slots[SimRng.stream("loot").randi() % slots.size()]
 	var pack = comp_script.new(slot, rarity)
 	pack.component_name = name_prefix + " " + str(slot) + " Drop"
 	pack.role_variant = mech.combat_role if "combat_role" in mech else ""
@@ -342,20 +342,20 @@ func _spawn_component_drop(mech: Node, pack):
 		return
 	var drop = load("res://scripts/entities/LootPickup.gd").new()
 	drop.equipment_data = pack
-	drop.global_position = mech.global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
+	drop.global_position = mech.global_position + Vector2(SimRng.stream("loot").randf_range(-30, 30), SimRng.stream("loot").randf_range(-30, 30))
 	if mech.get_parent():
 		mech.get_parent().call_deferred("add_child", drop)
 
 func _spawn_loot_drop(mech: Node, tile: HexTile):
 	var drop = load("res://scripts/entities/LootPickup.gd").new()
 	drop.tile_data = tile
-	drop.global_position = mech.global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
+	drop.global_position = mech.global_position + Vector2(SimRng.stream("loot").randf_range(-30, 30), SimRng.stream("loot").randf_range(-30, 30))
 	if mech.get_parent():
 		mech.get_parent().call_deferred("add_child", drop)
 
 func _spawn_chip_drop(mech: Node, chip: Dictionary):
 	var drop = load("res://scripts/entities/LootPickup.gd").new()
 	drop.chip_data = chip.duplicate(true)
-	drop.global_position = mech.global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
+	drop.global_position = mech.global_position + Vector2(SimRng.stream("loot").randf_range(-30, 30), SimRng.stream("loot").randf_range(-30, 30))
 	if mech.get_parent():
 		mech.get_parent().call_deferred("add_child", drop)

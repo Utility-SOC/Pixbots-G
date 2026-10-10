@@ -85,8 +85,8 @@ func _ready():
 	# _homing_query_timer - staggers a whole simultaneous volley's worth of
 	# orbs onto different ticks instead of every one of them re-scanning on
 	# the exact same frame.
-	_contact_timer = randf() * CONTACT_CHECK_INTERVAL
-	_lash_timer = randf() * LIGHTNING_LASH_INTERVAL
+	_contact_timer = SimRng.stream("combat").randf() * CONTACT_CHECK_INTERVAL
+	_lash_timer = SimRng.stream("combat").randf() * LIGHTNING_LASH_INTERVAL
 
 	var timer = get_tree().create_timer(LIFETIME)
 	timer.timeout.connect(queue_free)

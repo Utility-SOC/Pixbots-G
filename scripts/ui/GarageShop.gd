@@ -219,7 +219,7 @@ func _generate_component_offers():
 		_component_offers.append(_make_component_offer(slot))
 
 func _make_component_offer(slot: int) -> Dictionary:
-	var role = BOT_ROLES[randi() % BOT_ROLES.size()]
+	var role = BOT_ROLES[SimRng.stream("loot").randi() % BOT_ROLES.size()]
 	var comp = _build_generated_component(slot, role, COMPONENT_RARITY)
 	return {"slot": slot, "role": role, "rarity": COMPONENT_RARITY, "price": COMPONENT_PRICE, "component": comp}
 

@@ -705,9 +705,9 @@ func _spawn_extraction_marker():
 	var marker_class = load("res://scripts/entities/ExtractionMarker.gd")
 	if marker_class:
 		extraction_marker = marker_class.new()
-		var offset = Vector2(randf_range(600, 1500), randf_range(600, 1500))
-		if randf() > 0.5: offset.x *= -1
-		if randf() > 0.5: offset.y *= -1
+		var offset = Vector2(SimRng.stream("spawn").randf_range(600, 1500), SimRng.stream("spawn").randf_range(600, 1500))
+		if SimRng.stream("spawn").randf() > 0.5: offset.x *= -1
+		if SimRng.stream("spawn").randf() > 0.5: offset.y *= -1
 
 		if player:
 			var target_pos = player.global_position + offset
@@ -748,7 +748,7 @@ func _setup_environment():
 	# Long-term every biome here becomes a themed tabletop mat (grass mat,
 	# tundra mat...) rather than "terrain".
 	var pool = _water_eligible_map_types()
-	map.map_type = pool[randi() % pool.size()]
+	map.map_type = pool[SimRng.stream("map").randi() % pool.size()]
 	var run_card: Dictionary = SaveManager.pending_run_card
 	if not run_card.is_empty():
 		map.map_type = str(run_card.get("map_type", map.map_type))
@@ -1129,7 +1129,7 @@ func _wave_plan(director) -> Dictionary:
 		# against the player, nothing else.
 		allowed_templates = director.top_n_by_recent_effectiveness(3)
 	elif current_wave > 0 and current_wave % 4 == 0:
-		var role = SquadTemplateMutatorScript.ALL_ROLES[randi() % SquadTemplateMutatorScript.ALL_ROLES.size()]
+		var role = SquadTemplateMutatorScript.ALL_ROLES[SimRng.stream("ai").randi() % SquadTemplateMutatorScript.ALL_ROLES.size()]
 		for t in director.templates:
 			if t.required_roles.has(role):
 				allowed_templates.append(t)
@@ -1326,10 +1326,10 @@ func _start_wave():
 	# champion sometimes shows up at the shop to challenge you - "counted
 	# like any game-shop challenger" per the design ruling. Story-wise it's
 	# a visiting player; mechanically it's their exact exported build.
-	elif current_wave >= 3 and randf() < 0.12:
+	elif current_wave >= 3 and SimRng.stream("ai").randf() < 0.12:
 		var ghosts = ChampionCardScript.list_ghosts()
 		if not ghosts.is_empty():
-			_spawn_traveling_champion(ghosts[randi() % ghosts.size()])
+			_spawn_traveling_champion(ghosts[SimRng.stream("ai").randi() % ghosts.size()])
 
 	var plan = _wave_plan(director)
 	print("[POOL] wave %d start: stock=%d missing=%d drafted_squads=%d target=%d hits=%d misses=%d" % [current_wave, director.pool_stock(), director.pool_missing_count(), director._draft_queue.size(), plan["target"], director.pool_hits, director.pool_misses])
@@ -1437,7 +1437,7 @@ func _spawn_wave_async(director, target_enemy_count: int, allowed_templates: Arr
 			# awaits frames between bots) - positioning it then threw script errors.
 			if not is_instance_valid(mech):
 				continue
-			var raw_pos = center_spawn + Vector2(randf_range(-200, 200), randf_range(-200, 200))
+			var raw_pos = center_spawn + Vector2(SimRng.stream("spawn").randf_range(-200, 200), SimRng.stream("spawn").randf_range(-200, 200))
 			# Hard-clamp inside the walls BEFORE the valid-position search:
 			# get_valid_spawn_position returns its input unchanged when it
 			# can't find a clear tile, which let edge-anchored spawns with
@@ -1496,19 +1496,19 @@ func _pick_spawn_anchor() -> Vector2:
 
 	for i in range(4):
 		candidates.append(Vector2(
-			randf_range(map_w * 0.25, map_w * 0.75),
-			randf_range(map_h * 0.25, map_h * 0.75)
+			SimRng.stream("spawn").randf_range(map_w * 0.25, map_w * 0.75),
+			SimRng.stream("spawn").randf_range(map_h * 0.25, map_h * 0.75)
 		))
 
 	if map.obstacles.size() > 0:
 		var obstacle_keys = map.obstacles.keys()
 		for i in range(3):
-			var k = obstacle_keys[randi() % obstacle_keys.size()]
-			candidates.append(Vector2(k.x * map.tile_size, k.y * map.tile_size) + Vector2(randf_range(-64, 64), randf_range(-64, 64)))
+			var k = obstacle_keys[SimRng.stream("spawn").randi() % obstacle_keys.size()]
+			candidates.append(Vector2(k.x * map.tile_size, k.y * map.tile_size) + Vector2(SimRng.stream("spawn").randf_range(-64, 64), SimRng.stream("spawn").randf_range(-64, 64)))
 
 	var comfortable: Array = candidates.filter(func(c): return c.distance_to(player.global_position) > 700.0)
 	if comfortable.size() > 0:
-		return comfortable[randi() % comfortable.size()]
+		return comfortable[SimRng.stream("spawn").randi() % comfortable.size()]
 	var best = candidates[0]
 	for c in candidates:
 		if c.distance_to(player.global_position) > best.distance_to(player.global_position):
@@ -1571,7 +1571,7 @@ func _spawn_boss(director, is_mega: bool):
 		boss.max_hp *= 5.0 * hp_mult
 		boss.is_boss = true
 		var backpacks = ["shield", "jetpack", "missile", "drone"]
-		boss.set_meta("boss_drop", backpacks.pick_random())
+		boss.set_meta("boss_drop", SimRng.pick("loot", backpacks))
 
 	# Corporate Sponsorships (task #17): every boss from wave 100+ reps a
 	# random brand - its kill drops one of that brand's tiles (see
@@ -1591,9 +1591,9 @@ func _spawn_boss(director, is_mega: bool):
 
 	boss.hp = boss.max_hp
 	_equip_enemy_chips(boss)
-	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
-	if randf() > 0.5: offset.x *= -1
-	if randf() > 0.5: offset.y *= -1
+	var offset = Vector2(SimRng.stream("spawn").randf_range(500, 1000), SimRng.stream("spawn").randf_range(500, 1000))
+	if SimRng.stream("spawn").randf() > 0.5: offset.x *= -1
+	if SimRng.stream("spawn").randf() > 0.5: offset.y *= -1
 	var center_spawn = player.global_position + offset
 
 	boss.global_position = map.get_valid_spawn_position(center_spawn)
@@ -1637,13 +1637,13 @@ const ENEMY_CHIP_COUNT_MAX = 3
 func _equip_enemy_chips(mech: Node):
 	if not "components" in mech or mech.components.is_empty():
 		return
-	var count = randi_range(ENEMY_CHIP_COUNT_MIN, ENEMY_CHIP_COUNT_MAX)
+	var count = SimRng.stream("loot").randi_range(ENEMY_CHIP_COUNT_MIN, ENEMY_CHIP_COUNT_MAX)
 	var slots = mech.components.keys()
 	for i in range(count):
-		var stat = ComponentEquipmentScript.CHIP_STAT_POOL.pick_random()
-		var value = round((1.0 + randf_range(ENEMY_CHIP_MIN_BONUS, ENEMY_CHIP_MAX_BONUS)) * 100.0) / 100.0
+		var stat = SimRng.pick("loot", ComponentEquipmentScript.CHIP_STAT_POOL)
+		var value = round((1.0 + SimRng.stream("loot").randf_range(ENEMY_CHIP_MIN_BONUS, ENEMY_CHIP_MAX_BONUS)) * 100.0) / 100.0
 		var shuffled = slots.duplicate()
-		shuffled.shuffle()
+		SimRng.shuffle("loot", shuffled)
 		for slot in shuffled:
 			if mech.components[slot].equip_chip(stat, value):
 				break
@@ -1701,7 +1701,7 @@ func _on_boss_died(boss):
 
 	# NEW: Guarantee 3-5 scattered tiles for any Boss
 	var drop_rarity = HexTile.Rarity.LEGENDARY if drop_type == "mega" else HexTile.Rarity.RARE
-	_scatter_random_tiles(boss.global_position, randi_range(3, 5), drop_rarity)
+	_scatter_random_tiles(boss.global_position, SimRng.stream("loot").randi_range(3, 5), drop_rarity)
 		
 	_on_enemy_died()
 
@@ -1715,7 +1715,7 @@ func _generate_random_tile() -> HexTile:
 		preload("res://scripts/tiles/MagnetTile.gd"),
 		preload("res://scripts/tiles/ShieldTile.gd")
 	]
-	return tile_types.pick_random().new()
+	return SimRng.pick("loot", tile_types).new()
 
 func _scatter_random_tiles(origin: Vector2, count: int, rarity: int):
 	for i in range(count):
@@ -1726,7 +1726,7 @@ func _scatter_random_tiles(origin: Vector2, count: int, rarity: int):
 		# property exists) - was silently spawning pickups that could never
 		# actually be collected.
 		pickup.tile_data = tile
-		pickup.global_position = origin + Vector2(randf_range(-50, 50), randf_range(-50, 50))
+		pickup.global_position = origin + Vector2(SimRng.stream("loot").randf_range(-50, 50), SimRng.stream("loot").randf_range(-50, 50))
 		world.call_deferred("add_child", pickup)
 
 # --- Nemesis Bounties --------------------------------------------------------
@@ -1764,9 +1764,9 @@ func _spawn_nemesis(director):
 
 	boss.hp = boss.max_hp
 	_equip_enemy_chips(boss)
-	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
-	if randf() > 0.5: offset.x *= -1
-	if randf() > 0.5: offset.y *= -1
+	var offset = Vector2(SimRng.stream("spawn").randf_range(500, 1000), SimRng.stream("spawn").randf_range(500, 1000))
+	if SimRng.stream("spawn").randf() > 0.5: offset.x *= -1
+	if SimRng.stream("spawn").randf() > 0.5: offset.y *= -1
 	var center_spawn = player.global_position + offset
 
 	boss.global_position = map.get_valid_spawn_position(center_spawn)
@@ -1819,7 +1819,7 @@ func _on_nemesis_died(boss):
 	pickup.global_position = boss.global_position
 	world.add_child(pickup)
 
-	_scatter_random_tiles(boss.global_position, randi_range(3, 5), HexTile.Rarity.LEGENDARY)
+	_scatter_random_tiles(boss.global_position, SimRng.stream("loot").randi_range(3, 5), HexTile.Rarity.LEGENDARY)
 	_on_enemy_died()
 
 # --- Rival Challenges (FEATURE_ROADMAP.md Story section) --------------------
@@ -1864,7 +1864,7 @@ func _spawn_rival(director, force_rarity = -1, force_name = ""):
 		# Equivalent-budget constraint
 		var player_power = director._estimate_mech_power(player)
 		var rival_power = director._estimate_mech_power(rival)
-		var target_power = player_power * randf_range(0.85, 1.15)
+		var target_power = player_power * SimRng.stream("ai").randf_range(0.85, 1.15)
 		var power_mult = clamp(target_power / max(1.0, rival_power), 0.4, 3.0)
 
 		# If profile overrides HP, multiply
@@ -1880,9 +1880,9 @@ func _spawn_rival(director, force_rarity = -1, force_name = ""):
 		_equip_enemy_chips(rival)
 
 		rival.scale = Vector2(1.3, 1.3)
-		var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
-		if randf() > 0.5: offset.x *= -1
-		if randf() > 0.5: offset.y *= -1
+		var offset = Vector2(SimRng.stream("spawn").randf_range(500, 1000), SimRng.stream("spawn").randf_range(500, 1000))
+		if SimRng.stream("spawn").randf() > 0.5: offset.x *= -1
+		if SimRng.stream("spawn").randf() > 0.5: offset.y *= -1
 		var center_spawn = player.global_position + offset
 		rival.global_position = map.get_valid_spawn_position(center_spawn)
 		rival.target = player
@@ -1991,7 +1991,7 @@ func _on_rival_defeated(rival):
 		world.add_child(pickup)
 		
 	# NEW: Scatter 3-5 tiles
-	_scatter_random_tiles(rival.global_position, randi_range(3, 5), rarity)
+	_scatter_random_tiles(rival.global_position, SimRng.stream("loot").randi_range(3, 5), rarity)
 
 	_on_enemy_died()
 
@@ -2016,9 +2016,9 @@ func _spawn_traveling_champion(ghost: Dictionary):
 	champ.collision_layer = 4
 	champ.collision_mask = 1 | 2 | 8 | 32
 
-	var offset = Vector2(randf_range(500, 1000), randf_range(500, 1000))
-	if randf() > 0.5: offset.x *= -1
-	if randf() > 0.5: offset.y *= -1
+	var offset = Vector2(SimRng.stream("spawn").randf_range(500, 1000), SimRng.stream("spawn").randf_range(500, 1000))
+	if SimRng.stream("spawn").randf() > 0.5: offset.x *= -1
+	if SimRng.stream("spawn").randf() > 0.5: offset.y *= -1
 	champ.global_position = map.get_valid_spawn_position(player.global_position + offset)
 	world.add_child(champ)
 	champ._recalculate_grid()
@@ -2117,10 +2117,10 @@ func _apply_haul_loss(fraction: float) -> int:
 	if fraction < 1.0:
 		var exact = float(n) * fraction
 		lose = int(floor(exact))
-		if randf() < exact - float(lose):
+		if SimRng.stream("loot").randf() < exact - float(lose):
 			lose += 1
 	for i in range(lose):
-		var idx = randi() % _haul.size()
+		var idx = SimRng.stream("loot").randi() % _haul.size()
 		var entry = _haul[idx]
 		_haul.remove_at(idx)
 		match entry[0]:
@@ -2470,7 +2470,7 @@ func _rotate_campaign_map():
 	# _water_eligible_map_types above).
 	var pool = _water_eligible_map_types()
 	var choices = pool.filter(func(t): return t != old_type)
-	map.map_type = choices[randi() % choices.size()] if not choices.is_empty() else pool[randi() % pool.size()]
+	map.map_type = choices[SimRng.stream("map").randi() % choices.size()] if not choices.is_empty() else pool[SimRng.stream("map").randi() % pool.size()]
 	map.name = "GameMap"
 	world.add_child(map)
 	# Draw order among equal-z siblings is child order: limbs sit at z=0 like the
@@ -2492,7 +2492,7 @@ func _rotate_campaign_map():
 		for bay_id in drone_nodes:
 			var drone = drone_nodes[bay_id]
 			if is_instance_valid(drone):
-				var offset = Vector2(randf_range(-80.0, 80.0), randf_range(-80.0, 80.0))
+				var offset = Vector2(SimRng.stream("spawn").randf_range(-80.0, 80.0), SimRng.stream("spawn").randf_range(-80.0, 80.0))
 				drone.global_position = map.get_valid_spawn_position(player.global_position + offset)
 
 	_map_rotation_wave_start = current_wave

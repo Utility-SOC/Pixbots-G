@@ -309,8 +309,8 @@ func _fire_hunter_salvo(mech, world: Node, muzzle: Vector2, target_pos: Vector2,
 	for i in range(shell_count):
 		# Ring layout, one jittered slot per shell - reads as a scattered
 		# salvo rather than N shells landing in an identical stack.
-		var angle = (TAU * float(i) / shell_count) + randf_range(-0.2, 0.2)
-		var offset = Vector2(cos(angle), sin(angle)) * SPREAD_RADIUS * scatter * randf_range(0.4, 1.0)
+		var angle = (TAU * float(i) / shell_count) + SimRng.stream("combat").randf_range(-0.2, 0.2)
+		var offset = Vector2(cos(angle), sin(angle)) * SPREAD_RADIUS * scatter * SimRng.stream("combat").randf_range(0.4, 1.0)
 		var impact_pos = target_pos + offset
 		var flight_time = clamp(muzzle.distance_to(impact_pos) / effective_speed, 0.12, 2.2)
 		# Small stagger so shells don't all land on the same frame - the

@@ -71,7 +71,7 @@ func get_stock_build(template_name: String, role: String, rarity: int, slot: int
 
 func should_test_deviation() -> bool:
 	var mult = director.exploration_multiplier() if director.has_method("exploration_multiplier") else 1.0
-	return randf() < min(0.5, DEVIATION_TEST_RATE * mult)
+	return SimRng.stream("ai").randf() < min(0.5, DEVIATION_TEST_RATE * mult)
 
 # Loading-screen prewarm hook (Deploy-time, called from Main._close_garage)
 # - warms every already-known StockBuild's simulation cache (see Mech.
@@ -124,11 +124,11 @@ func pick_donor(role: String, rarity: int):
 			pool.append(b)
 	if pool.is_empty():
 		return null
-	return pool[randi() % pool.size()]
+	return pool[SimRng.stream("ai").randi() % pool.size()]
 
 func _make_candidate(MechScript, template_name: String, role: String, rarity: int, slot: int, profile):
 	var champ = get_stock_build(template_name, role, rarity, slot)
-	if champ != null and randf() < SPLICE_CHANCE:
+	if champ != null and SimRng.stream("ai").randf() < SPLICE_CHANCE:
 		var donor = pick_donor(role, rarity)
 		if donor != null and donor != champ:
 			var spliced = StockBuildMutator.splice(champ, donor)

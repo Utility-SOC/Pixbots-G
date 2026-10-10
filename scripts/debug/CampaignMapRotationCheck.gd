@@ -122,7 +122,7 @@ func _ready():
 	_check("rotation runs its map-type pool through the water-eligibility gate",
 		main_source.contains("var pool = _water_eligible_map_types()"))
 	_check("initial setup also runs through the water-eligibility gate, not a raw MAP_ROTATION_TYPES pick",
-		main_source.contains("var pool = _water_eligible_map_types()\n\tmap.map_type = pool[randi() % pool.size()]"))
+		main_source.contains("var pool = _water_eligible_map_types()\n\tmap.map_type = pool[SimRng.stream(\"map\").randi() % pool.size()]"))
 	_check("rotation repositions the player onto a valid spot on the NEW map",
 		main_source.contains("player.global_position = map.get_valid_spawn_position("))
 	# User report, 2026-08-11: "if the map changes midrun my drone vanishes" -
@@ -138,7 +138,7 @@ func _ready():
 	_check("the drone-reposition loop is guarded on a valid player existing (no sane \"near the player\" position without one)",
 		main_source.contains("if player:\n\t\tplayer.global_position = map.get_valid_spawn_position(") and main_source.find("for bay_id in drone_nodes:") > main_source.find("if player:\n\t\tplayer.global_position = map.get_valid_spawn_position("))
 	_check("each drone is only relocated if it's still alive (is_instance_valid guard, not a blind dictionary iteration)",
-		main_source.contains("if is_instance_valid(drone):\n") and main_source.contains("var offset = Vector2(randf_range("))
+		main_source.contains("if is_instance_valid(drone):\n") and main_source.contains("var offset = Vector2(SimRng.stream(\"spawn\").randf_range("))
 	_check("rotation resets both trackers so the next window starts clean",
 		main_source.contains("_map_rotation_wave_start = current_wave") and main_source.contains("_map_rotation_elapsed = 0.0"))
 	_check("_ready() anchors the wave tracker to the actual starting wave (fresh game or loaded save), not always 1",

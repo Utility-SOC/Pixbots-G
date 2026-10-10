@@ -289,8 +289,8 @@ func _reset_pooled_state():
 	_is_poison_mine = false # re-derived from ratios a few lines below in _ready(), reset here for a clean baseline
 	was_reflected = false
 	_cached_homing_target = null
-	_homing_query_timer = randf() * HOMING_QUERY_INTERVAL
-	_vortex_query_timer = randf() * VORTEX_QUERY_INTERVAL
+	_homing_query_timer = SimRng.stream("combat").randf() * HOMING_QUERY_INTERVAL
+	_vortex_query_timer = SimRng.stream("combat").randf() * VORTEX_QUERY_INTERVAL
 	_lightning_segment_index = -1
 	_lightning_prev_offset = 0.0
 	_lightning_target_offset = 0.0
@@ -338,8 +338,8 @@ func _ready():
 	# on every refresh after that - a thundering herd of shape queries
 	# landing together every ~0.05-0.1s instead of spread across frames.
 	# Randomizing the starting value only changes WHEN it first fires.
-	_homing_query_timer = randf() * HOMING_QUERY_INTERVAL
-	_vortex_query_timer = randf() * VORTEX_QUERY_INTERVAL
+	_homing_query_timer = SimRng.stream("combat").randf() * HOMING_QUERY_INTERVAL
+	_vortex_query_timer = SimRng.stream("combat").randf() * VORTEX_QUERY_INTERVAL
 
 	# Calculate total power
 	for k in synergies:
@@ -1979,7 +1979,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 
 	# LIGHTNING: paralyze chance - a full-stop lockup, brief
 	var rl = sr.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
-	if rl > 0.15 and randf() < 0.35 * rl:
+	if rl > 0.15 and SimRng.stream("combat").randf() < 0.35 * rl:
 		target.apply_status("paralyzed", 0.4 + 0.5 * rl)
 
 	# POISON: lingering toxin - DoT plus a mild slow
@@ -2000,7 +2000,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 
 	# EXPLOSION: concussion chance - near-total slow, very brief
 	var re = sr.get(EnergyPacket.SynergyType.EXPLOSION, 0.0)
-	if re > 0.2 and randf() < 0.5 * re:
+	if re > 0.2 and SimRng.stream("combat").randf() < 0.5 * re:
 		target.apply_status("concussed", 0.35)
 
 	# VORTEX: dragged toward the impact point for a moment
@@ -2014,7 +2014,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 	var rvm = sr.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
 	if rvm > 0.1:
 		target.apply_status("bleeding", 3.0 + 2.0 * rvm)
-		if rvm > 0.5 and randf() < 0.3:
+		if rvm > 0.5 and SimRng.stream("combat").randf() < 0.3:
 			target.apply_status("immobilized", 0.5)
 		
 	# Lightning Arcing - chains through multiple enemies in sequence (not

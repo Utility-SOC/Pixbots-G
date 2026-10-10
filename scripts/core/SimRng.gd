@@ -37,3 +37,16 @@ static func stream(stream_name: String) -> RandomNumberGenerator:
 
 static func is_seeded() -> bool:
 	return _seeded
+
+# Random element of a non-empty array (replaces Array.pick_random()).
+static func pick(stream_name: String, arr: Array):
+	return arr[stream(stream_name).randi() % arr.size()]
+
+# In-place Fisher-Yates shuffle (replaces Array.shuffle()).
+static func shuffle(stream_name: String, arr: Array) -> void:
+	var rng = stream(stream_name)
+	for i in range(arr.size() - 1, 0, -1):
+		var j = rng.randi() % (i + 1)
+		var tmp = arr[i]
+		arr[i] = arr[j]
+		arr[j] = tmp

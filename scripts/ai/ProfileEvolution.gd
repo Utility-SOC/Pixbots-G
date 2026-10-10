@@ -83,7 +83,7 @@ func get_active_solver_profile(role: String = "") -> SolverProfile:
 
 	var total_weight = 0.0
 	for p in candidates: total_weight += p.spawn_weight
-	var roll = randf() * total_weight
+	var roll = SimRng.stream("ai").randf() * total_weight
 	var acc = 0.0
 	for p in candidates:
 		acc += p.spawn_weight
@@ -120,7 +120,7 @@ func _pick_role_needing_profiles() -> String:
 			candidates = [r]
 		elif counts[r] == min_count:
 			candidates.append(r)
-	return candidates[randi() % candidates.size()]
+	return candidates[SimRng.stream("ai").randi() % candidates.size()]
 
 func maybe_introduce_experimental_profile():
 	if _count_experimental_profiles() >= MAX_EXPERIMENTAL_PROFILES:
@@ -130,16 +130,16 @@ func maybe_introduce_experimental_profile():
 
 	var mutant: SolverProfile = null
 	# 30% crossbreed when two same-role profiles exist to breed from
-	if role_pool.size() >= 2 and randf() < 0.3:
-		var a = role_pool[randi() % role_pool.size()]
+	if role_pool.size() >= 2 and SimRng.stream("ai").randf() < 0.3:
+		var a = role_pool[SimRng.stream("ai").randi() % role_pool.size()]
 		var b = a
 		for i in range(8):
-			b = role_pool[randi() % role_pool.size()]
+			b = role_pool[SimRng.stream("ai").randi() % role_pool.size()]
 			if b != a:
 				break
 		mutant = _crossover_profiles(a, b) if a != b else _mutate_profile(a)
 	else:
-		var parent = role_pool[randi() % role_pool.size()] if not role_pool.is_empty() else build_reactive_profile(role)
+		var parent = role_pool[SimRng.stream("ai").randi() % role_pool.size()] if not role_pool.is_empty() else build_reactive_profile(role)
 		mutant = _mutate_profile(parent)
 	mutant.role = role
 	director.solver_profiles.append(mutant)
@@ -152,14 +152,14 @@ func maybe_introduce_experimental_profile():
 func _crossover_profiles(a: SolverProfile, b: SolverProfile) -> SolverProfile:
 	var fitter = a if a.get_average_fitness() >= b.get_average_fitness() else b
 	var child = SolverProfile.new(WarRoomNames.designation(), fitter.favored_synergy)
-	child.pierce_priority = clamp((a.pierce_priority + b.pierce_priority) / 2.0 + randf_range(-0.05, 0.05), 0.0, 1.0)
-	child.amplify_priority = clamp((a.amplify_priority + b.amplify_priority) / 2.0 + randf_range(-0.05, 0.05), 0.1, 2.0)
+	child.pierce_priority = clamp((a.pierce_priority + b.pierce_priority) / 2.0 + SimRng.stream("ai").randf_range(-0.05, 0.05), 0.0, 1.0)
+	child.amplify_priority = clamp((a.amplify_priority + b.amplify_priority) / 2.0 + SimRng.stream("ai").randf_range(-0.05, 0.05), 0.1, 2.0)
 	# Second element and its mix come from one parent together (they only make
 	# sense as a pair); engagement stance blends.
-	var donor = a if randf() < 0.5 else b
+	var donor = a if SimRng.stream("ai").randf() < 0.5 else b
 	child.secondary_synergy = donor.secondary_synergy
 	child.secondary_mix = donor.secondary_mix
-	child.engage_scale = clamp((a.engage_scale + b.engage_scale) / 2.0 + randf_range(-0.04, 0.04), SolverProfile.ENGAGE_MIN, SolverProfile.ENGAGE_MAX)
+	child.engage_scale = clamp((a.engage_scale + b.engage_scale) / 2.0 + SimRng.stream("ai").randf_range(-0.04, 0.04), SolverProfile.ENGAGE_MIN, SolverProfile.ENGAGE_MAX)
 	child.is_experimental = true
 	child.base_spawn_weight = 65.0
 	child.spawn_weight = 65.0
@@ -167,19 +167,19 @@ func _crossover_profiles(a: SolverProfile, b: SolverProfile) -> SolverProfile:
 
 func _mutate_profile(parent: SolverProfile) -> SolverProfile:
 	var mutant = SolverProfile.new(WarRoomNames.designation(), parent.favored_synergy)
-	mutant.pierce_priority = clamp(parent.pierce_priority + randf_range(-0.35, 0.35), 0.0, 1.0)
-	mutant.amplify_priority = clamp(parent.amplify_priority + randf_range(-0.35, 0.35), 0.1, 2.0)
-	if randf() < 0.35:
-		mutant.favored_synergy = randi() % EnergyPacket.SynergyType.size()
+	mutant.pierce_priority = clamp(parent.pierce_priority + SimRng.stream("ai").randf_range(-0.35, 0.35), 0.0, 1.0)
+	mutant.amplify_priority = clamp(parent.amplify_priority + SimRng.stream("ai").randf_range(-0.35, 0.35), 0.1, 2.0)
+	if SimRng.stream("ai").randf() < 0.35:
+		mutant.favored_synergy = SimRng.stream("ai").randi() % EnergyPacket.SynergyType.size()
 	mutant.secondary_synergy = parent.secondary_synergy
 	mutant.secondary_mix = parent.secondary_mix
 	mutant.engage_scale = parent.engage_scale
-	if randf() < 0.3:
-		mutant.secondary_synergy = randi() % EnergyPacket.SynergyType.size() if randf() < 0.8 else -1
-	if randf() < 0.5:
-		mutant.secondary_mix = clamp(mutant.secondary_mix + randf_range(-0.2, 0.3), 0.0, 0.6)
-	if randf() < 0.5:
-		mutant.engage_scale = clamp(mutant.engage_scale + randf_range(-0.2, 0.2), SolverProfile.ENGAGE_MIN, SolverProfile.ENGAGE_MAX)
+	if SimRng.stream("ai").randf() < 0.3:
+		mutant.secondary_synergy = SimRng.stream("ai").randi() % EnergyPacket.SynergyType.size() if SimRng.stream("ai").randf() < 0.8 else -1
+	if SimRng.stream("ai").randf() < 0.5:
+		mutant.secondary_mix = clamp(mutant.secondary_mix + SimRng.stream("ai").randf_range(-0.2, 0.3), 0.0, 0.6)
+	if SimRng.stream("ai").randf() < 0.5:
+		mutant.engage_scale = clamp(mutant.engage_scale + SimRng.stream("ai").randf_range(-0.2, 0.2), SolverProfile.ENGAGE_MIN, SolverProfile.ENGAGE_MAX)
 	mutant.is_experimental = true
 	mutant.base_spawn_weight = 60.0
 	mutant.spawn_weight = 60.0

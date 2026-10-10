@@ -51,48 +51,48 @@ static func _evolve_formation(child: SquadTemplate, parent: SquadTemplate, other
 	child.tactic_bias = parent.tactic_bias
 	child.formation_spread = parent.formation_spread
 	if other != null:
-		if randf() < 0.5:
+		if SimRng.stream("ai").randf() < 0.5:
 			child.tactic_bias = other.tactic_bias
 		child.formation_spread = (parent.formation_spread + other.formation_spread) / 2.0
-	if randf() < 0.25:
+	if SimRng.stream("ai").randf() < 0.25:
 		var choices = [""] + SquadTacticsScript.PLANS.keys()
-		child.tactic_bias = choices[randi() % choices.size()]
-	if randf() < 0.5:
-		child.formation_spread = clamp(child.formation_spread + randf_range(-0.15, 0.15), SquadTemplate.SPREAD_MIN, SquadTemplate.SPREAD_MAX)
+		child.tactic_bias = choices[SimRng.stream("ai").randi() % choices.size()]
+	if SimRng.stream("ai").randf() < 0.5:
+		child.formation_spread = clamp(child.formation_spread + SimRng.stream("ai").randf_range(-0.15, 0.15), SquadTemplate.SPREAD_MIN, SquadTemplate.SPREAD_MAX)
 
 static func mutate(parent: SquadTemplate) -> SquadTemplate:
 	var roles: Dictionary = parent.required_roles.duplicate()
 	if roles.is_empty():
-		roles[ALL_ROLES[randi() % ALL_ROLES.size()]] = 1
+		roles[ALL_ROLES[SimRng.stream("ai").randi() % ALL_ROLES.size()]] = 1
 
-	var op = randi() % 4
+	var op = SimRng.stream("ai").randi() % 4
 	match op:
 		0: # Bump a random role's count (capped so squads don't balloon)
 			var keys = roles.keys()
-			var k = keys[randi() % keys.size()]
+			var k = keys[SimRng.stream("ai").randi() % keys.size()]
 			roles[k] = min(4, roles[k] + 1)
 		1: # Drop a random role's count, removing it if it hits 0 (never empty the whole squad)
 			if roles.size() > 1:
 				var keys = roles.keys()
-				var k = keys[randi() % keys.size()]
+				var k = keys[SimRng.stream("ai").randi() % keys.size()]
 				roles[k] -= 1
 				if roles[k] <= 0:
 					roles.erase(k)
 		2: # Swap a role for a different one, keeping its count
 			var keys = roles.keys()
-			var k = keys[randi() % keys.size()]
+			var k = keys[SimRng.stream("ai").randi() % keys.size()]
 			var count = roles[k]
 			roles.erase(k)
-			var new_role = ALL_ROLES[randi() % ALL_ROLES.size()]
+			var new_role = ALL_ROLES[SimRng.stream("ai").randi() % ALL_ROLES.size()]
 			roles[new_role] = roles.get(new_role, 0) + count
 		3: # Add a brand new role into the mix
-			var new_role = ALL_ROLES[randi() % ALL_ROLES.size()]
+			var new_role = ALL_ROLES[SimRng.stream("ai").randi() % ALL_ROLES.size()]
 			roles[new_role] = roles.get(new_role, 0) + 1
 
 	var mutant = SquadTemplate.new(WarRoomNames.designation(), clamp_size(roles))
 	_evolve_formation(mutant, parent)
 	mutant.parent_name = parent.template_name # lineage for the War Room family tree
-	mutant.has_shields = parent.has_shields if randf() < 0.7 else not parent.has_shields
+	mutant.has_shields = parent.has_shields if SimRng.stream("ai").randf() < 0.7 else not parent.has_shields
 	mutant.base_spawn_weight = 60.0 # experimental templates start modest, not at the 100 baseline
 	mutant.spawn_weight = 60.0
 	mutant.is_experimental = true
@@ -111,18 +111,18 @@ static func crossover(a: SquadTemplate, b: SquadTemplate) -> SquadTemplate:
 	for k in all_keys:
 		var ca = int(a.required_roles.get(k, 0))
 		var cb = int(b.required_roles.get(k, 0))
-		var count = ca if randf() < 0.5 else cb
-		if randf() < 0.2:
+		var count = ca if SimRng.stream("ai").randf() < 0.5 else cb
+		if SimRng.stream("ai").randf() < 0.2:
 			count = int(round((ca + cb) / 2.0))
 		if count > 0:
 			roles[k] = min(4, count)
 	if roles.is_empty():
-		roles[ALL_ROLES[randi() % ALL_ROLES.size()]] = 1
+		roles[ALL_ROLES[SimRng.stream("ai").randi() % ALL_ROLES.size()]] = 1
 
 	var child = SquadTemplate.new(WarRoomNames.designation(), clamp_size(roles))
 	_evolve_formation(child, a, b)
 	child.parent_name = a.template_name if a.get_average_fitness() >= b.get_average_fitness() else b.template_name
-	child.has_shields = a.has_shields if randf() < 0.5 else b.has_shields
+	child.has_shields = a.has_shields if SimRng.stream("ai").randf() < 0.5 else b.has_shields
 	child.base_spawn_weight = 65.0 # slightly above mutants - both parents earned their spot
 	child.spawn_weight = 65.0
 	child.is_experimental = true
@@ -130,13 +130,13 @@ static func crossover(a: SquadTemplate, b: SquadTemplate) -> SquadTemplate:
 
 static func random_template() -> SquadTemplate:
 	var roles: Dictionary = {}
-	var role_count = 1 + randi() % 3
+	var role_count = 1 + SimRng.stream("ai").randi() % 3
 	for i in range(role_count):
-		var r = ALL_ROLES[randi() % ALL_ROLES.size()]
-		roles[r] = roles.get(r, 0) + 1 + (randi() % 2)
+		var r = ALL_ROLES[SimRng.stream("ai").randi() % ALL_ROLES.size()]
+		roles[r] = roles.get(r, 0) + 1 + (SimRng.stream("ai").randi() % 2)
 
 	var template = SquadTemplate.new(WarRoomNames.designation(), clamp_size(roles))
-	template.has_shields = randf() < 0.3
+	template.has_shields = SimRng.stream("ai").randf() < 0.3
 	template.base_spawn_weight = 60.0
 	template.spawn_weight = 60.0
 	template.is_experimental = true

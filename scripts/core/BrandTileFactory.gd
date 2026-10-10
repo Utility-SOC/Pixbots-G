@@ -42,7 +42,7 @@ static func random_tile_for_brand(brand_id: String) -> HexTile:
 	var scripts: Array = BRAND_TILE_SCRIPTS.get(brand_id, [])
 	if scripts.is_empty():
 		return null
-	var path = scripts[randi() % scripts.size()]
+	var path = scripts[SimRng.stream("loot").randi() % scripts.size()]
 	var tile: HexTile = load(path).new()
 	tile.rarity = HexTile.Rarity.MYTHIC
 	tile.brand_id = brand_id

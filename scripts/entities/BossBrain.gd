@@ -92,8 +92,8 @@ func try_reposition(delta: float, dist: float, dir: Vector2) -> bool:
 		# engagement ring, so there is no stable orbit to pre-aim at.
 		_teleport_timer -= delta
 		if _teleport_timer <= 0.0 and mech.target and is_instance_valid(mech.target):
-			_teleport_timer = randf_range(4.0, 6.5)
-			var dest = mech.target.global_position + Vector2.RIGHT.rotated(randf() * TAU) * mech.engagement_distance
+			_teleport_timer = SimRng.stream("combat").randf_range(4.0, 6.5)
+			var dest = mech.target.global_position + Vector2.RIGHT.rotated(SimRng.stream("combat").randf() * TAU) * mech.engagement_distance
 			var map = mech._get_map_ref()
 			if map:
 				dest = map.get_valid_spawn_position(dest)
@@ -287,9 +287,9 @@ func _apply_enrage_style(style: String):
 				_do_blink_strike()
 			boss_ability_cooldown = min(boss_ability_cooldown, 0.6)
 		"unstable":
-			mech.fire_rate *= randf_range(0.5, 0.85)
-			mech.speed_modifier *= randf_range(1.1, 1.5)
-			mech.engagement_distance *= randf_range(0.7, 1.0)
+			mech.fire_rate *= SimRng.stream("combat").randf_range(0.5, 0.85)
+			mech.speed_modifier *= SimRng.stream("combat").randf_range(1.1, 1.5)
+			mech.engagement_distance *= SimRng.stream("combat").randf_range(0.7, 1.0)
 		_:
 			mech.fire_rate *= 0.8
 			mech.speed_modifier *= 1.15
@@ -315,7 +315,7 @@ func _start_ability():
 	if pool.is_empty():
 		boss_ability_cooldown = BOSS_ABILITY_COOLDOWN * cooldown_scale # no ability available - don't retry every frame
 		return
-	var ability = pool[randi() % pool.size()]
+	var ability = pool[SimRng.stream("combat").randi() % pool.size()]
 	match ability:
 		"shockwave":
 			boss_ability_state = "shockwave"
@@ -488,7 +488,7 @@ func _resolve_railgun():
 # also opens the usual 0.25s post-decloak window, so a fast follow-up shot
 # right after still lands the bonus too.
 func _do_blink_strike():
-	var flank_dir = Vector2.RIGHT.rotated(randf() * TAU)
+	var flank_dir = Vector2.RIGHT.rotated(SimRng.stream("combat").randf() * TAU)
 	var dest = mech.target.global_position + flank_dir * 130.0
 	# Snap to the nearest clear tile, same helper used for squad spawns -
 	# a raw random offset could otherwise occasionally land the teleport
@@ -607,7 +607,7 @@ func _do_meteor_rain() -> void:
 	for i in range(5):
 		var delay = 0.9 + 0.3 * i
 		var lead = p.global_position + vel * delay * 0.8
-		var jitter = Vector2.RIGHT.rotated(randf() * TAU) * randf_range(0.0, 90.0)
+		var jitter = Vector2.RIGHT.rotated(SimRng.stream("combat").randf() * TAU) * SimRng.stream("combat").randf_range(0.0, 90.0)
 		_delayed_blast(lead + jitter, BLAST_RADIUS, delay, 0.035)
 	mech._show_floating_text("METEORS", Color(1.0, 0.5, 0.2))
 
@@ -620,7 +620,7 @@ func _do_minefield() -> void:
 	var centre = p.global_position
 	var n = 7
 	for i in range(n):
-		var ang = TAU * float(i) / float(n) + randf() * 0.3
+		var ang = TAU * float(i) / float(n) + SimRng.stream("combat").randf() * 0.3
 		_delayed_blast(centre + Vector2.RIGHT.rotated(ang) * 250.0, 120.0, 1.5, 0.045)
 	mech._show_floating_text("MINEFIELD", Color(1.0, 0.4, 0.2))
 

@@ -29,7 +29,7 @@ func _ready():
 	add_to_group("lava_vent")
 	z_index = -3
 	_seed = randi()
-	_timer = randf_range(MIN_PERIOD * 0.3, MAX_PERIOD) # staggered so vents don't pulse in unison
+	_timer = SimRng.stream("combat").randf_range(MIN_PERIOD * 0.3, MAX_PERIOD) # staggered so vents don't pulse in unison
 	queue_redraw()
 
 func _process(delta: float):
@@ -48,7 +48,7 @@ func _process(delta: float):
 			_erupt()
 		2:
 			_phase = 0
-			_timer = randf_range(MIN_PERIOD, MAX_PERIOD)
+			_timer = SimRng.stream("combat").randf_range(MIN_PERIOD, MAX_PERIOD)
 	queue_redraw()
 
 func _erupt() -> void:

@@ -24,7 +24,7 @@ var _scan_timer: float = 0.0
 
 func _ready():
 	super._ready()
-	_scan_timer = randf() * (1.0 / SCAN_HZ)
+	_scan_timer = SimRng.stream("combat").randf() * (1.0 / SCAN_HZ)
 
 func _process(delta: float):
 	_scan_timer -= delta

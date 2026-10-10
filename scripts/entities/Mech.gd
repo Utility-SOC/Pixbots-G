@@ -649,9 +649,9 @@ func _ready():
 		# of being spread out. Randomizing the STARTING value only changes
 		# WHEN each mech's timer first fires, not what it does once it
 		# does - purely a scheduling fix.
-		_sight_check_timer = randf() * (1.0 / SIGHT_CHECK_HZ)
-		_search_waypoint_timer = randf() * SEARCH_WAYPOINT_INTERVAL
-		_mosey_timer = randf() * MOSEY_UPDATE_INTERVAL
+		_sight_check_timer = SimRng.stream("combat").randf() * (1.0 / SIGHT_CHECK_HZ)
+		_search_waypoint_timer = SimRng.stream("combat").randf() * SEARCH_WAYPOINT_INTERVAL
+		_mosey_timer = SimRng.stream("combat").randf() * MOSEY_UPDATE_INTERVAL
 		# Per-mech personal drift bias for _mosey_toward_target - without
 		# this every far mech beelines the exact same flow-field direction,
 		# which reads as a single-file conga line and (per the user) has a
@@ -659,7 +659,7 @@ func _ready():
 		# together instead of spread out. A small fixed heading offset,
 		# rolled once and kept for the mech's whole life, gives each one its
 		# own consistent amble angle instead of a robotic identical line.
-		_mosey_wander_offset = randf_range(-0.4, 0.4)
+		_mosey_wander_offset = SimRng.stream("combat").randf_range(-0.4, 0.4)
 
 	if not is_player:
 		var _t_loadout = Time.get_ticks_usec()
@@ -747,7 +747,7 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 	var forced_synergy = _get_reactive_jam_synergy()
 	match role:
 		"ambusher":
-			if randf() < 0.85: # not guaranteed, keeps some loot variety
+			if SimRng.stream("loot").randf() < 0.85: # not guaranteed, keeps some loot variety
 				return ComponentEquipment.create_cloak_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
 		"scout":
 			# Base chance is low (infrequent, per the original design request),
@@ -755,7 +755,7 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 			# on one synergy for kills - "jammers spawn in response to player
 			# tactics," not just at a fixed background rate.
 			var chance = 0.25 if forced_synergy < 0 else 0.65
-			if randf() < chance:
+			if SimRng.stream("loot").randf() < chance:
 				return ComponentEquipment.create_dual_utility_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON), forced_synergy)
 		"support":
 			return ComponentEquipment.create_support_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON), forced_synergy)
@@ -772,7 +772,7 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 	# of their own (including a "scout"/"ambusher" that rolled OUT of their
 	# usual jammer/cloak chance above).
 	if role != "":
-		var roll = randf()
+		var roll = SimRng.stream("loot").randf()
 		if roll < 0.08:
 			return ComponentEquipment.create_drone_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
 		elif roll < 0.12:
@@ -783,7 +783,7 @@ func _create_role_backpack(role: String, p_rarity: int) -> ComponentEquipment:
 	# grenades too") - rolled independently of role, same "mobs get toys
 	# too" spirit as the drone roll above. Open to everyone this function
 	# builds for, bosses/rivals/champions included - no tier restriction.
-	if role != "" and randf() < 0.2:
+	if role != "" and SimRng.stream("loot").randf() < 0.2:
 		return ComponentEquipment.create_smoke_grenade_backpack(max(p_rarity, HexTile.Rarity.UNCOMMON))
 
 	return ComponentEquipment.create_starter_backpack(role, p_rarity)
@@ -1389,7 +1389,7 @@ var _lod_ai_timer: float = 0.0
 # cost here is pure GDScript loop math, not a physics-server round trip -
 # spreads the periodic catch-up work across frames instead of bursting the
 # whole far population on the same tick.
-var _lod_weapon_charge_timer: float = randf() * 0.25
+var _lod_weapon_charge_timer: float = SimRng.stream("combat").randf() * 0.25
 var _lod_weapon_charge_elapsed: float = 0.0
 
 # Perf plan (wave-138 playtest: "shoot 466ms/sec" dwarfing everything else)
@@ -1417,7 +1417,7 @@ var _lod_weapon_charge_elapsed: float = 0.0
 # entirely (see the call site) - matches this file's existing stance that
 # a boss's kit/behavior matters more than the savings would.
 const AI_SHOOT_CHECK_HZ = 20.0
-var _ai_shoot_timer: float = randf() * (1.0 / AI_SHOOT_CHECK_HZ)
+var _ai_shoot_timer: float = SimRng.stream("combat").randf() * (1.0 / AI_SHOOT_CHECK_HZ)
 
 # Simulation LOD (task #34 follow-up) - same throttle-while-far pattern as
 # _lod_weapon_charge_timer/_lod_weapon_charge_elapsed above, extended to the
@@ -2989,7 +2989,7 @@ func _finalize_grid_state():
 	if not is_player and not _spawn_primed:
 		_spawn_primed = true
 		for data in precalculated_weapons:
-			var frac = randf_range(0.7, 1.0)
+			var frac = SimRng.stream("combat").randf_range(0.7, 1.0)
 			if data.get("bank_mode", "") == "bank":
 				data.mount.bank_current_charge = data.packet.charge_required * frac
 			else:
@@ -3918,7 +3918,7 @@ const ELEMENTAL_SYNERGY_NAMES = ["FIRE", "ICE", "LIGHTNING", "VORTEX", "POISON",
 # hits, rather than inventing a second implementation of "damage everyone
 # in a radius."
 func _deflect_overflow(amount: float):
-	var burst_dir = Vector2.RIGHT.rotated(randf() * TAU)
+	var burst_dir = Vector2.RIGHT.rotated(SimRng.stream("combat").randf() * TAU)
 	# enemy + player layers, same convention as OilSlickHazard._tick_damage
 	var colliders = SimPhysics.circle_colliders(self, Transform2D(0.0, global_position + burst_dir * (DEFLECTOR_BURST_RADIUS * 0.5)), DEFLECTOR_BURST_RADIUS, SimPhysics.LAYER_ENEMY | SimPhysics.LAYER_PLAYER)
 	for col in colliders:
@@ -4104,7 +4104,7 @@ func _apply_damage_body(amount: float, element: String = "RAW", source: Node = n
 	# regardless of remaining HP. Locked exemption list per
 	# FEATURE_ROADMAP.md's Decision Log - see _is_pierce_execution_exempt().
 	if element == "PIERCE" and not _is_pierce_execution_exempt():
-		if randf() < PIERCE_EXECUTION_CHANCE:
+		if SimRng.stream("combat").randf() < PIERCE_EXECUTION_CHANCE:
 			_show_floating_text("EXECUTED", Color(1.0, 0.15, 0.15))
 			HitstopManager.trigger()
 			hp = 0
@@ -4243,7 +4243,7 @@ func apply_part_damage(slot: int, amount: float, element: String = "RAW"):
 	# picky about exactly where the structural HP damage lands.
 	var tiles = comp.hex_grid.get_all_tiles()
 	if tiles.size() > 0:
-		var hit_tile = tiles[randi() % tiles.size()]
+		var hit_tile = tiles[SimRng.stream("combat").randi() % tiles.size()]
 		var was_offline = hit_tile.is_disabled
 		hit_tile.take_damage(mitigated_amount)
 		if hit_tile.is_disabled and not was_offline:
@@ -4283,7 +4283,7 @@ func _roll_component_disable(comp, amount: float, element: String):
 	if chance < DISABLE_MIN_CHANCE:
 		return # too weak a hit on too low-priority a tile - never disables from this one
 
-	if randf() >= chance:
+	if SimRng.stream("combat").randf() >= chance:
 		return
 
 	target.hp = 0
@@ -4396,11 +4396,11 @@ func _find_disable_priority_tile(comp):
 			other.append(t)
 
 	if not splitters.is_empty():
-		return splitters.pick_random()
+		return SimRng.pick("combat", splitters)
 	if not secondary.is_empty():
-		return secondary.pick_random()
+		return SimRng.pick("combat", secondary)
 	if not other.is_empty():
-		return other.pick_random()
+		return SimRng.pick("combat", other)
 	return null
 
 func apply_status(effect_name: String, duration: float):

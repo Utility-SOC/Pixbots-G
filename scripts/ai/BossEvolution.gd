@@ -69,7 +69,7 @@ func get_active_boss_profile() -> BossProfile:
 		return BossProfile.new()
 	var total_weight = 0.0
 	for bp in director.boss_profiles: total_weight += bp.spawn_weight
-	var roll = randf() * total_weight
+	var roll = SimRng.stream("ai").randf() * total_weight
 	var acc = 0.0
 	for bp in director.boss_profiles:
 		acc += bp.spawn_weight
@@ -95,20 +95,20 @@ func build_nemesis_profile() -> BossProfile:
 				favored_element = element
 	var display_element = favored_element.capitalize() if favored_element != "RAW" else "Unproven"
 
-	var role = BossProfile.ALL_ROLES[randi() % BossProfile.ALL_ROLES.size()]
+	var role = BossProfile.ALL_ROLES[SimRng.stream("ai").randi() % BossProfile.ALL_ROLES.size()]
 	var bp = BossProfile.new("Nemesis: %s Hunter" % display_element, role)
 
 	# Two abilities, guaranteed distinct - a Nemesis alternating between two
 	# signature moves reads as deliberately dangerous, not a lucky mutation
 	# roll (compare _mutate_boss_profile's ability_pool growth, which is
 	# itself a coin flip).
-	bp.ability_pool = [BossProfile.ALL_ABILITIES[randi() % BossProfile.ALL_ABILITIES.size()]]
+	bp.ability_pool = [BossProfile.ALL_ABILITIES[SimRng.stream("ai").randi() % BossProfile.ALL_ABILITIES.size()]]
 	var remaining_abilities = BossProfile.ALL_ABILITIES.filter(func(a): return not bp.ability_pool.has(a))
 	if remaining_abilities.size() > 0:
-		bp.ability_pool.append(remaining_abilities[randi() % remaining_abilities.size()])
+		bp.ability_pool.append(remaining_abilities[SimRng.stream("ai").randi() % remaining_abilities.size()])
 
-	bp.enrage_style = BossProfile.ALL_ENRAGE_STYLES[randi() % BossProfile.ALL_ENRAGE_STYLES.size()]
-	bp.position_style = BossProfile.ALL_POSITION_STYLES[randi() % BossProfile.ALL_POSITION_STYLES.size()]
+	bp.enrage_style = BossProfile.ALL_ENRAGE_STYLES[SimRng.stream("ai").randi() % BossProfile.ALL_ENRAGE_STYLES.size()]
+	bp.position_style = BossProfile.ALL_POSITION_STYLES[SimRng.stream("ai").randi() % BossProfile.ALL_POSITION_STYLES.size()]
 	bp.hp_mult = NEMESIS_HP_MULT
 	bp.is_experimental = false
 	bp.origin_pilot = "Nemesis Bounty"
@@ -124,7 +124,7 @@ func _count_experimental_boss_profiles() -> int:
 func maybe_introduce_experimental_boss_profile():
 	if _count_experimental_boss_profiles() >= MAX_EXPERIMENTAL_BOSS_PROFILES or director.boss_profiles.is_empty():
 		return
-	var parent = director.boss_profiles[randi() % director.boss_profiles.size()]
+	var parent = director.boss_profiles[SimRng.stream("ai").randi() % director.boss_profiles.size()]
 	var mutant = _mutate_boss_profile(parent)
 	director.boss_profiles.append(mutant)
 	print("[DIRECTOR] New experimental boss profile on trial: '", mutant.profile_name, "' role=", mutant.base_role, " abilities=", mutant.ability_pool, " enrage=", mutant.enrage_style, " position=", mutant.position_style)
@@ -151,25 +151,25 @@ func _mutate_boss_profile(parent: BossProfile) -> BossProfile:
 	mutant.spawn_weight = 60.0
 	mutant.parent_name = parent.profile_name
 
-	var roll = randf()
+	var roll = SimRng.stream("ai").randf()
 	if roll < 0.25:
-		mutant.enrage_style = BossProfile.ALL_ENRAGE_STYLES[randi() % BossProfile.ALL_ENRAGE_STYLES.size()]
+		mutant.enrage_style = BossProfile.ALL_ENRAGE_STYLES[SimRng.stream("ai").randi() % BossProfile.ALL_ENRAGE_STYLES.size()]
 	elif roll < 0.5:
-		mutant.position_style = BossProfile.ALL_POSITION_STYLES[randi() % BossProfile.ALL_POSITION_STYLES.size()]
+		mutant.position_style = BossProfile.ALL_POSITION_STYLES[SimRng.stream("ai").randi() % BossProfile.ALL_POSITION_STYLES.size()]
 	elif roll < 0.8:
-		if mutant.ability_pool.size() < BossProfile.MAX_POOL and randf() < 0.6:
+		if mutant.ability_pool.size() < BossProfile.MAX_POOL and SimRng.stream("ai").randf() < 0.6:
 			var addable = BossProfile.ALL_ABILITIES.filter(func(a): return not mutant.ability_pool.has(a))
 			if addable.size() > 0:
-				mutant.ability_pool.append(addable[randi() % addable.size()])
+				mutant.ability_pool.append(addable[SimRng.stream("ai").randi() % addable.size()])
 		elif mutant.ability_pool.size() > 0:
-			var idx = randi() % mutant.ability_pool.size()
-			mutant.ability_pool[idx] = BossProfile.ALL_ABILITIES[randi() % BossProfile.ALL_ABILITIES.size()]
+			var idx = SimRng.stream("ai").randi() % mutant.ability_pool.size()
+			mutant.ability_pool[idx] = BossProfile.ALL_ABILITIES[SimRng.stream("ai").randi() % BossProfile.ALL_ABILITIES.size()]
 	else:
-		mutant.hp_mult = clamp(mutant.hp_mult * randf_range(0.8, 1.2), 0.2, 4.0)
+		mutant.hp_mult = clamp(mutant.hp_mult * SimRng.stream("ai").randf_range(0.8, 1.2), 0.2, 4.0)
 
 	# Rare, dramatic: rebuild on a different role's stat block entirely.
-	if randf() < 0.15:
-		mutant.base_role = BossProfile.ALL_ROLES[randi() % BossProfile.ALL_ROLES.size()]
+	if SimRng.stream("ai").randf() < 0.15:
+		mutant.base_role = BossProfile.ALL_ROLES[SimRng.stream("ai").randi() % BossProfile.ALL_ROLES.size()]
 
 	return mutant
 

@@ -370,7 +370,7 @@ func _build_threat_board(director):
 		var status = "TRIAL" if t.is_experimental else "CORE"
 		_lbl(info, "#%d  %s  [%s]" % [i + 1, t.template_name, status], COL_TRIAL if t.is_experimental else COL_TITLE, 16)
 		_lbl(info, _format_roles(t.required_roles) + ("  |  shielded" if t.has_shields else ""), COL_DIM, 12)
-		_lbl(info, "avg fitness %.0f  |  deployed %d  |  spawn weight %.0f" % [avg, t.times_deployed, t.spawn_weight], _fitness_color(avg, t.times_deployed), 12)
+		_lbl(info, "avg fitness %.0f  |  deployed %d  |  spawn weight %.0f  |  %s" % [avg, t.times_deployed, t.spawn_weight, _evidence_text(t.times_deployed, avg, t.is_experimental, TemplateEvolution.MIN_TRIALS_BEFORE_CULL, TemplateEvolution.CULL_FITNESS_THRESHOLD)], _fitness_color(avg, t.times_deployed), 12)
 		if t.parent_name != "":
 			_lbl(info, "lineage: " + t.parent_name, COL_GHOST, 11)
 
@@ -453,7 +453,7 @@ func _build_doctrines(director):
 		var avg = t.get_average_fitness()
 		var fit_str = ("%.0f" % avg) if t.times_deployed > 0 else "-"
 		_lbl(doctrine_vbox, "%s  [%s]" % [t.template_name, "TRIAL" if t.is_experimental else "CORE"], COL_TRIAL if t.is_experimental else COL_CORE, 14)
-		_lbl(doctrine_vbox, "   %s | weight %.0f | deployed %d | avg %s | %s" % [_format_roles(t.required_roles), t.spawn_weight, t.times_deployed, fit_str, _evidence_text(t.times_deployed, avg, t.is_experimental)], _fitness_color(avg, t.times_deployed), 12)
+		_lbl(doctrine_vbox, "   %s | weight %.0f | deployed %d | avg %s | %s" % [_format_roles(t.required_roles), t.spawn_weight, t.times_deployed, fit_str, _evidence_text(t.times_deployed, avg, t.is_experimental, TemplateEvolution.MIN_TRIALS_BEFORE_CULL, TemplateEvolution.CULL_FITNESS_THRESHOLD)], _fitness_color(avg, t.times_deployed), 12)
 
 	_lbl(doctrine_vbox, "\nLOADOUT DOCTRINES (solver profiles, by role)", COL_SECTION, 15)
 	_lbl(doctrine_vbox, "Each role evolves its own lineage - a sniper doctrine no longer competes with a brawler doctrine for the same rotation.", COL_DIM, 11)

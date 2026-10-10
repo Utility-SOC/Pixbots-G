@@ -1,6 +1,5 @@
 use godot::prelude::*;
 use godot::classes::{IRefCounted, RefCounted};
-use std::collections::HashMap;
 
 type VDict = Dictionary<Variant, Variant>;
 
@@ -52,72 +51,26 @@ fn get_vec2(d: &VDict, k: &str) -> Vector2 {
     d.get(k).and_then(|v| v.try_to().ok()).unwrap_or(Vector2::ZERO)
 }
 
-fn cell_of(pos: Vector2, cell_size: f64) -> (i64, i64) {
-    (
-        ((pos.x as f64) / cell_size).floor() as i64,
-        ((pos.y as f64) / cell_size).floor() as i64,
-    )
-}
-
 #[godot_api]
 impl SeparationRs {
-    // `mechs`: one Dictionary per eligible mech this batch - keys: id
-    // (i64, instance id), pos (Vector2).
-    // `radius`: separation radius (same meaning as Mech.SEPARATION_RADIUS).
-    // Returns: one Dictionary per mech, same order - keys: id (i64), push
-    // (Vector2) - identical formula to the old _compute_separation(): each
-    // neighbor within `radius` contributes a unit vector away from it,
-    // weighted by (1 - distance/radius), averaged over however many
-    // neighbors were found (zero neighbors -> Vector2.ZERO).
+    // `mechs`: one Dictionary per eligible mech this batch - keys: id (i64), pos (Vector2). `radius`: separation radius
+    // (Mech.SEPARATION_RADIUS). Returns one {id, push} Dictionary per mech, same order. The maths is
+    // pixbots_core::separation (native tests); this only marshals.
     #[func]
     fn batch_compute_separation(&self, mechs: Array<Variant>, radius: f64) -> Array<Variant> {
-        let entries: Vec<(i64, Vector2)> = mechs
+        let entries: Vec<(i64, (f32, f32))> = mechs
             .iter_shared()
             .filter_map(|v| {
                 let d: VDict = v.try_to().ok()?;
-                Some((get_i(&d, "id"), get_vec2(&d, "pos")))
+                let p = get_vec2(&d, "pos");
+                Some((get_i(&d, "id"), (p.x, p.y)))
             })
             .collect();
-
-        // Cell size matched to the separation radius itself - a neighbor
-        // within `radius` can only ever be in the same cell or one of the
-        // 8 adjacent ones.
-        let cell_size = radius.max(1.0);
-        let mut buckets: HashMap<(i64, i64), Vec<usize>> = HashMap::with_capacity(entries.len());
-        for (i, (_, pos)) in entries.iter().enumerate() {
-            buckets.entry(cell_of(*pos, cell_size)).or_default().push(i);
-        }
-
         let mut results: Array<Variant> = Array::new();
-        for (i, (id, pos)) in entries.iter().enumerate() {
-            let (cx, cy) = cell_of(*pos, cell_size);
-            let mut push = Vector2::ZERO;
-            let mut count = 0i64;
-            for dx in -1..=1 {
-                for dy in -1..=1 {
-                    let Some(indices) = buckets.get(&(cx + dx, cy + dy)) else {
-                        continue;
-                    };
-                    for &j in indices {
-                        if j == i {
-                            continue;
-                        }
-                        let other_pos = entries[j].1;
-                        let away = *pos - other_pos;
-                        let d = away.length() as f64;
-                        if d > 0.001 && d < radius {
-                            push += away.normalized() * (1.0 - d / radius) as f32;
-                            count += 1;
-                        }
-                    }
-                }
-            }
-            if count > 0 {
-                push /= count as f32;
-            }
+        for (id, (px, py)) in pixbots_core::separation::compute(&entries, radius) {
             let mut out: VDict = Dictionary::new();
-            let _ = out.insert("id", *id);
-            let _ = out.insert("push", push);
+            let _ = out.insert("id", id);
+            let _ = out.insert("push", Vector2::new(px, py));
             results.push(&out.to_variant());
         }
         results

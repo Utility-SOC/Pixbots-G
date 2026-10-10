@@ -4,8 +4,10 @@
 //! survive a change of engine or shell belongs here; `rust_ext` (the GDExtension) only converts Godot arrays to these
 //! types and back.
 
+pub mod flight;
 pub mod flow_field;
 pub mod geometry;
 pub mod hex;
 pub mod hexgrid_sim;
+pub mod separation;
 pub mod solid_grid;

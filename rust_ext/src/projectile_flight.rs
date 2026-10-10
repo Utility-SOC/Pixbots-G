@@ -2,6 +2,7 @@ use godot::prelude::*;
 use godot::classes::{IRefCounted, RefCounted};
 
 type VDict = Dictionary<Variant, Variant>;
+use pixbots_core::flight::{self, FlightInput, Vec2};
 
 // Ports Projectile.gd's per-frame "ORGANIC VELOCITY ACCUMULATION" block
 // (kinetic steering response, fire drag, poison gravity lob, vortex swirl,
@@ -67,28 +68,14 @@ impl IRefCounted for ProjectileFlight {
     }
 }
 
-// Cheap deterministic scramble (splitmix64-style) - not Godot's actual
-// hash(), see the module comment above for why that's fine here.
-fn simple_hash(seed: i64) -> i64 {
-    let mut x = seed as u64;
-    x = x.wrapping_add(0x9E3779B97F4A7C15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
-    x ^= x >> 31;
-    x as i64
-}
-
 fn get_f(d: &VDict, k: &str) -> f64 {
     d.get(k).and_then(|v| v.try_to::<f64>().ok()).unwrap_or(0.0)
 }
 
-// The actual math, shared by every entry point. Primitive in, primitive out
-// (a tuple) - no Dictionary construction here at all, so callers decide
-// their own marshalling shape (Dictionary for compute_step/compute_batch,
-// flat packed arrays for compute_batch_flat) without duplicating the math.
-// Returns (direction, velocity, visual_offset, current_speed,
-// gravity_velocity, new_lightning_segment_index, new_lightning_prev_offset,
-// new_lightning_target_offset).
+// The maths lives in pixbots_core::flight (native tests). This adapter keeps the primitive-in, tuple-out shape the
+// entry points below were written against.
+// Returns (direction, velocity, visual_offset, current_speed, gravity_velocity, new_lightning_segment_index,
+// new_lightning_prev_offset, new_lightning_target_offset).
 #[allow(clippy::too_many_arguments)]
 fn compute_step_core_prim(
     r_kin: f64, r_vamp: f64, r_fire: f64, r_psn: f64, r_vtx: f64, r_ltg: f64, r_prc: f64,
@@ -98,74 +85,25 @@ fn compute_step_core_prim(
     lightning_segment_index: i64, lightning_prev_offset: f64, lightning_target_offset: f64,
     instance_id: i64,
 ) -> (Vector2, Vector2, Vector2, f64, Vector2, i64, f64, f64) {
-    let mut dir = direction;
-    let mut effective_r_prc = r_prc;
-
-    // 3. KINETIC STEERING ("The Straightener") & VAMPIRIC OVERRIDE
-    if has_homing_target {
-        let turn_speed = (8.0 * r_vamp) / steering_resistance;
-        dir = dir.lerp(target_direction, (turn_speed * delta) as f32).normalized();
-        if r_kin > 0.0 && r_vamp > 0.0 {
-            effective_r_prc = r_prc.max(0.5); // Kinetic+Vampiric grants pierce
-        }
-    } else if target_direction != Vector2::ZERO {
-        let mut turn_speed: f64 = 0.5; // Passive drift
-        if r_kin > 0.0 {
-            turn_speed += 6.0 * r_kin;
-        }
-        turn_speed /= steering_resistance;
-        dir = dir.lerp(target_direction, (turn_speed * delta) as f32).normalized();
-    }
-
-    // 4. FIRE DECELERATION ("The Plume") vs PIERCE / KINETIC
-    let mut current_speed = final_speed;
-    if r_fire > 0.0 {
-        let mut drag_coefficient = 800.0 * r_fire;
-        drag_coefficient *= 1.0 - effective_r_prc; // Pierce cancels drag organically
-        drag_coefficient = (drag_coefficient - 500.0 * r_kin).max(0.0); // Kinetic fights it
-        current_speed = (final_speed - drag_coefficient * time_alive).max(50.0);
-    }
-
-    // 5. POISON GRAVITY LOB ("The Mortar") - dampened by Kinetic's straightening
-    let mut gravity_velocity = Vector2::ZERO;
-    if r_psn > 0.0 {
-        gravity_velocity = Vector2::new(0.0, (400.0 * r_psn * time_alive * straighten) as f32);
-    }
-
-    let ortho = Vector2::new(-dir.y, dir.x);
-    let mut velocity = dir * (current_speed as f32) + gravity_velocity;
-    let mut visual_offset = Vector2::ZERO;
-
-    // 6. VORTEX SWIRL ("The Swirler") - self-movement only; the nearby-
-    // item pull query stays in GDScript (it touches other physics
-    // bodies, not pure per-projectile math).
-    if r_vtx > 0.0 {
-        let swirl_amplitude = 250.0 * r_vtx * straighten;
-        let swirl_freq: f64 = 6.0;
-        let swirl_vel = ortho * ((time_alive * swirl_freq).cos() as f32) * (swirl_amplitude as f32);
-        velocity += swirl_vel;
-    }
-
-    // 7. LIGHTNING ZIG-ZAG ("The Arc")
-    let mut new_segment_index = lightning_segment_index;
-    let mut new_prev_offset = lightning_prev_offset;
-    let mut new_target_offset = lightning_target_offset;
-    if r_ltg > 0.0 {
-        let segment_length: f64 = 0.045;
-        let segment_index = (time_alive / segment_length) as i64;
-        if segment_index != lightning_segment_index {
-            new_segment_index = segment_index;
-            new_prev_offset = lightning_target_offset;
-            let seed = simple_hash(instance_id) ^ segment_index;
-            new_target_offset = ((seed.rem_euclid(2000)) as f64 / 1000.0) - 1.0;
-        }
-        let seg_t_raw = ((time_alive.rem_euclid(segment_length)) / segment_length).clamp(0.0, 1.0);
-        let seg_t = seg_t_raw * seg_t_raw; // ease sharply so it snaps rather than glides
-        let lightning_wave = new_prev_offset + (new_target_offset - new_prev_offset) * seg_t;
-        visual_offset += ortho * (lightning_wave as f32) * (26.0 * r_ltg) as f32;
-    }
-
-    (dir, velocity, visual_offset, current_speed, gravity_velocity, new_segment_index, new_prev_offset, new_target_offset)
+    let o = flight::step(&FlightInput {
+        r_kin, r_vamp, r_fire, r_psn, r_vtx, r_ltg, r_prc,
+        direction: Vec2::new(direction.x, direction.y),
+        target_direction: Vec2::new(target_direction.x, target_direction.y),
+        has_homing_target,
+        final_speed, time_alive, delta, steering_resistance, straighten,
+        lightning_segment_index, lightning_prev_offset, lightning_target_offset,
+        instance_id,
+    });
+    (
+        Vector2::new(o.direction.x, o.direction.y),
+        Vector2::new(o.velocity.x, o.velocity.y),
+        Vector2::new(o.visual_offset.x, o.visual_offset.y),
+        o.current_speed,
+        Vector2::new(o.gravity_velocity.x, o.gravity_velocity.y),
+        o.lightning_segment_index,
+        o.lightning_prev_offset,
+        o.lightning_target_offset,
+    )
 }
 
 // Dictionary-shaped wrapper around compute_step_core_prim, used by both

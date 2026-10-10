@@ -1917,7 +1917,7 @@ func _apply_synergy_status_effects_from_dict(i: int, target: Node, sr: Dictionar
 	if sr.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1:
 		target.apply_status("burning", 3.0 * sr[EnergyPacket.SynergyType.FIRE])
 	if sr.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1:
-		target.apply_status("frozen", 3.0 * sr[EnergyPacket.SynergyType.ICE])
+		IceEffects.apply_hit(target, sr[EnergyPacket.SynergyType.ICE], _damage[i])
 	var rl = sr.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)
 	if rl > 0.15 and SimRng.stream("combat").randf() < 0.35 * rl:
 		target.apply_status("paralyzed", 0.4 + 0.5 * rl)

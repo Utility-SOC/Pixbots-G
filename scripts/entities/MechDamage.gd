@@ -202,7 +202,7 @@ func _apply_damage_body(amount: float, element: String = "RAW", source: Node = n
 	# between two mutually-plated mechs standing adjacent - this counter-hit
 	# is tagged was_reflected=true, so it can't trigger the attacker's OWN
 	# plating back at us in turn.
-	if amount > 0.0 and mech.has_reactive_plating and not was_reflected \
+	if amount > 0.0 and mech.has_reactive_plating and mech.embrittle_timer <= 0.0 and not was_reflected \
 			and is_instance_valid(source) and source.has_method("apply_damage") and "global_position" in source:
 		var trigger_radius = TileStatsRegistry.get_stat("ReactivePlatingTile", "trigger_radius", 140.0)
 		if mech.global_position.distance_to(source.global_position) <= trigger_radius:
@@ -254,7 +254,10 @@ func _apply_damage_body(amount: float, element: String = "RAW", source: Node = n
 		# the display doesn't turn into a wall of flickering micro-numbers.
 		_show_floating_text(str(int(round(amount))), Color(1.0, 0.9, 0.3) if mech.is_player else Color(1.0, 1.0, 1.0))
 
+	IceEffects.try_shatter(mech, element, amount, source)
 	mech.hp -= amount
+	if not mech.pending_shatter.is_empty():
+		IceEffects.resolve_shatter(mech)
 	if mech.hp <= 0:
 		# Killing-blow premium for near-peer evolution (see note_priority_kill).
 		if mech.is_player and is_instance_valid(source) and source.has_method("note_priority_kill"):

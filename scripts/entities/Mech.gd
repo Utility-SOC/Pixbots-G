@@ -2656,6 +2656,12 @@ var _status_resist_sum: Dictionary = {} # scratch for the recalculation: status 
 # more hits at exactly the range this triggers, AND punishes whatever it's
 # trading blows with.
 var has_reactive_plating: bool = false
+# Ice embrittlement (IceEffects): share of actuator flow blocked while the timer runs, and the ice energy that froze us
+# (drives shatter violence). pending_shatter is set by a big kinetic hit and resolved after damage lands.
+var embrittle_timer: float = 0.0
+var embrittle_block: float = 0.0
+var frozen_ice_energy: float = 0.0
+var pending_shatter: Dictionary = {}
 var reactive_plating_reflect_pct: float = 0.0 # % of incoming (post-mitigation) damage reflected back to the attacker
 # Per-attacker cooldown (mirrors _ram_cooldowns' shape) - without this, a
 # sustained beam/DoT source standing close would eat a reactive counter-hit

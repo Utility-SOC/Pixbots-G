@@ -41,7 +41,7 @@ func handle_input(delta: float):
 	# Calculate base walk multiplier from Actuators
 	var actuator_mult = 1.0
 	if mech.actuator_energy and mech.actuator_energy.magnitude > 0:
-		actuator_mult += (mech.actuator_energy.magnitude / 200.0)
+		actuator_mult += (mech.actuator_energy.magnitude / 200.0) * (1.0 - (mech.embrittle_block if mech.embrittle_timer > 0.0 else 0.0))
 		actuator_mult = min(actuator_mult, 3.5) # User requested max 3.5x for actuator
 
 	# Calculate sprint multiplier from Jumpjets

@@ -59,5 +59,14 @@ func tick(delta: float) -> void:
 		if mech.status_effects[effect] <= 0:
 			effects_to_remove.append(effect)
 
+	# Embrittlement outlasts nothing: it ends with its timer, and a thawed mech forgets the ice that froze it.
+	if mech.embrittle_timer > 0.0:
+		mech.embrittle_timer -= delta
+		# Only the unblocked share of actuator flow reaches the legs: slow in proportion.
+		mech.current_move_speed *= 1.0 - 0.6 * mech.embrittle_block
+		if mech.embrittle_timer <= 0.0:
+			mech.embrittle_block = 0.0
+	if mech.frozen_ice_energy > 0.0 and not mech.status_effects.has("frozen"):
+		mech.frozen_ice_energy = 0.0
 	for effect in effects_to_remove:
 		mech.status_effects.erase(effect)

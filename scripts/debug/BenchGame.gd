@@ -129,6 +129,7 @@ func _ready():
 	if _fixed:
 		SimRng.seed_all(_seed)
 		_nomusic = true
+		FpsCounter.set_process(false)
 		if _map_type == "":
 			_map_type = "Forest"
 		_seconds = 1.0e9 # the fixed run ends on its own tick budget
@@ -526,6 +527,7 @@ func _physics_process(_delta):
 			if _fixed_count >= _fixed_settle:
 				_fixed_state = 2
 				_fixed_count = 0
+				_fixed_zero_counters()
 				Engine.max_fps = 60 # sample at one frame per tick; deployment above ran uncapped to finish sooner
 		2:
 			_fixed_phys.append(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
@@ -537,6 +539,28 @@ func _pct(sorted_arr: Array, q: float) -> float:
 	if sorted_arr.is_empty():
 		return 0.0
 	return sorted_arr[clampi(int(q * (sorted_arr.size() - 1)), 0, sorted_arr.size() - 1)]
+
+# FpsCounter reads-and-resets the Mech perf counters once a second for its HUD; it is switched off in --fixed mode so the
+# counters accumulate over the whole sampling window and can be reported per tick.
+func _fixed_zero_counters() -> void:
+	Mech._perf_ai_tactics_usec = 0
+	Mech._perf_shoot_usec = 0
+	Mech._perf_move_usec = 0
+	Mech._perf_sight_usec = 0
+	Mech._perf_flow_field_usec = 0
+	Mech._perf_orbit_raycast_usec = 0
+	Mech._perf_separation_usec = 0
+	Mech._perf_status_effects_usec = 0
+	Mech._perf_weapon_charges_usec = 0
+	Mech._perf_ability_systems_usec = 0
+	Mech._perf_recalc_usec = 0
+
+func _fixed_parts_line(ticks: int) -> String:
+	var t = max(float(ticks), 1.0) * 1000.0
+	return "ai=%.3f shoot=%.3f move=%.3f sight=%.3f flow=%.3f orbit_ray=%.3f sep=%.3f status=%.3f weapon_charges=%.3f abilities=%.3f recalc=%.3f" % [
+		Mech._perf_ai_tactics_usec / t, Mech._perf_shoot_usec / t, Mech._perf_move_usec / t, Mech._perf_sight_usec / t,
+		Mech._perf_flow_field_usec / t, Mech._perf_orbit_raycast_usec / t, Mech._perf_separation_usec / t,
+		Mech._perf_status_effects_usec / t, Mech._perf_weapon_charges_usec / t, Mech._perf_ability_systems_usec / t, Mech._perf_recalc_usec / t]
 
 func _fixed_report(enemies: int) -> void:
 	var ph = _fixed_phys.duplicate()
@@ -553,6 +577,7 @@ func _fixed_report(enemies: int) -> void:
 	print("BENCH_FIXED score=%.3f per_enemy=%.4f phys_med=%.3f phys_mean=%.3f phys_p95=%.3f proc_med=%.3f proc_mean=%.3f proc_p95=%.3f enemies=%d ticks=%d frames=%d nodes=%d wave=%d seed=%d" % [
 		score, score / max(float(enemies), 1.0), _pct(ph, 0.5), ph_sum / max(ph.size(), 1), _pct(ph, 0.95), _pct(pr, 0.5), pr_sum / max(pr.size(), 1), _pct(pr, 0.95),
 		enemies, ph.size(), pr.size(), get_tree().get_node_count(), _wave, _seed])
+	print("BENCH_FIXED_PARTS ms/tick: ", _fixed_parts_line(ph.size()))
 	get_tree().quit(0)
 
 func _record(delta):

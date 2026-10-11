@@ -47,6 +47,7 @@ const GRANT_RARITIES = ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
 
 var panel: PanelContainer
 var is_open: bool = false
+var _was_paused_before_open: bool = false
 var squad_type_dropdown: OptionButton
 var opt_reactor: OptionButton
 var boss_opt: OptionButton
@@ -357,7 +358,13 @@ func _input(event):
 func _toggle_menu():
 	is_open = not is_open
 	panel.visible = is_open
-	get_tree().paused = is_open
+	# Restore the pre-open state on close: forcing paused=false here unpaused
+	# the world under an open Garage (enemies killed the player in it).
+	if is_open:
+		_was_paused_before_open = get_tree().paused
+		get_tree().paused = true
+	else:
+		get_tree().paused = _was_paused_before_open
 	if is_open:
 		_refresh_squad_dropdown()
 		UiFx.pop_in(panel)

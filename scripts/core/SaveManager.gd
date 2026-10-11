@@ -1286,5 +1286,3 @@ func clone_mech_loadout(source_mech, target_mech) -> void:
 			if target_mech.components.has(slot) and target_mech.components[slot] != null:
 				target_mech.unequip_component(slot).queue_free()
 			target_mech.equip_component(cloned_comp)
-
-

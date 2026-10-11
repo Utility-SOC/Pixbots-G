@@ -483,7 +483,7 @@ func _draw_power_overlay(tile: HexTile, max_energy: float) -> void:
 # (the Core takes no input) marches out through its exit faces. Speed and brightness follow the tile's relative flow,
 # colour its dominant synergy. Drawn from time_elapsed, so it needs no extra node, shader or redraw rate.
 const CONDUIT_DASH = 0.3 # dash length / gap, in hex radii
-const CONDUIT_GAP = 0.26
+const CONDUIT_GAP = 0.75
 const CONDUIT_MAX_FACES = 6
 
 func _draw_conduit_flow(tile: HexTile, key: Vector2i, center: Vector2, flow: Dictionary, max_energy: float) -> void:
@@ -531,13 +531,13 @@ func _draw_conduit_flow(tile: HexTile, key: Vector2i, center: Vector2, flow: Dic
 			var d1 = min(start + CONDUIT_DASH * hs, length)
 			if d1 > d0:
 				# Dark under-stroke for contrast on the tile, then a tail->head ramp so the direction of travel reads.
-				draw_line(a + dir * d0, a + dir * d1, Color(0, 0, 0, 0.45), width + 2.0, true)
+				draw_line(a + dir * d0, a + dir * d1, Color(0, 0, 0, 0.45), width + 2.0, false)
 				var span = d1 - d0
 				for k in range(3):
 					var t0 = d0 + span * float(k) / 3.0
 					var t1 = d0 + span * float(k + 1) / 3.0
 					var ramp = Color(bright.r, bright.g, bright.b, bright.a * (0.35 + 0.65 * float(k + 1) / 3.0))
-					draw_line(a + dir * t0, a + dir * t1, ramp, width * (0.7 + 0.3 * float(k + 1) / 3.0), true)
+					draw_line(a + dir * t0, a + dir * t1, ramp, width * (0.7 + 0.3 * float(k + 1) / 3.0), false)
 				if d1 - d0 > 1.0 and start + CONDUIT_DASH * hs <= length:
 					draw_circle(a + dir * d1, width * 0.65, col.lightened(0.55))
 			start += period

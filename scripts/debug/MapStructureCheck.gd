@@ -19,6 +19,7 @@ func _ready():
 	for t in ["Normal", "Forest", "Desert", "Tundra", "Volcano", "Dungeon"]:
 		var m = MapGen.new()
 		m.map_type = t
+		m.map_seed = 20261011 # fixed: the wall count depends on how many forts the zone roll makes, so an unseeded map made this flaky
 		add_child(m)
 		await get_tree().process_frame
 		var roads := 0

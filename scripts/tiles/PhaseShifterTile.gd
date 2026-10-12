@@ -4,12 +4,12 @@ extends HexTile
 # Mythic only. A powered Phase Shifter lets the wearer walk through EVERY terrain obstacle (rocks, trees, ruins, husks:
 # the layer the Jumpjets fly over; map border, dungeon walls and water are untouched and are not counted). The price is
 # a systemic drain: while the wearer is inside obstacles, all energy moving through the mech is cut by DRAIN_PER_PIECE
-# for every obstacle piece touched, every physics tick (additive across pieces: three pieces = 15% per tick). The drain
+# for every obstacle piece touched, every physics tick (additive across pieces: three pieces = 6% per tick). The drain
 # is PhaseDrain's `flow` multiplier; it recovers over RECOVER_SECONDS once clear. Numbers marked (tune).
 #
 # Terminal, like the Anchor: it absorbs what reaches it and needs some energy to work (an unfed shifter does nothing).
 
-const DRAIN_PER_PIECE = 0.05
+const DRAIN_PER_PIECE = 0.02
 const RECOVER_SECONDS = 1.0 # (tune) time to come back from fully drained to full flow once clear of terrain
 
 var stored_energy: float = 0.0

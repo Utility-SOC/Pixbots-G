@@ -77,7 +77,7 @@ func tick(delta: float) -> void:
 		if cloak_charge <= 0.0:
 			break_cloak()
 	elif time_since_cloak_break >= mech.cloak_recharge_delay:
-		cloak_charge = min(mech.max_cloak_charge, cloak_charge + mech.cloak_recharge_rate * delta)
+		cloak_charge = min(mech.max_cloak_charge, cloak_charge + mech.cloak_recharge_rate * mech.phase_flow * delta)
 
 		var wants_cloak = false
 		if mech.is_player:

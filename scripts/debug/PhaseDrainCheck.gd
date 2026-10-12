@@ -33,11 +33,11 @@ func _shifter_mech(rarity: int, fed: bool):
 	return mech
 
 func _ready():
-	_check("one tick in one piece costs 5%", is_equal_approx(PhaseDrain.drained(1.0, 1, 1.0 / 60.0), 0.95))
-	_check("three pieces in one tick cost 15%", is_equal_approx(PhaseDrain.drained(1.0, 3, 1.0 / 60.0), 0.85))
+	_check("one tick in one piece costs 2%", is_equal_approx(PhaseDrain.drained(1.0, 1, 1.0 / 60.0), 0.98))
+	_check("three pieces in one tick cost 6%", is_equal_approx(PhaseDrain.drained(1.0, 3, 1.0 / 60.0), 0.94))
 	_check("frame-rate independent: two half-ticks equal one tick", is_equal_approx(PhaseDrain.drained(PhaseDrain.drained(1.0, 2, 1.0 / 120.0), 2, 1.0 / 120.0), PhaseDrain.drained(1.0, 2, 1.0 / 60.0)))
 	_check("no pieces, no drain", PhaseDrain.drained(0.7, 0, 1.0) == 0.7)
-	_check("a long stay inside terrain empties the flow", PhaseDrain.drained(1.0, 3, 1.0) < 0.001)
+	_check("a second inside three pieces cuts the flow to a few percent", PhaseDrain.drained(1.0, 3, 1.0) < 0.03)
 	_check("it never goes negative", PhaseDrain.drained(1.0, 20, 5.0) >= 0.0)
 	_check("flow recovers when clear", is_equal_approx(PhaseDrain.recovered(0.2, 0.5), 0.7) and PhaseDrain.recovered(0.9, 5.0) == 1.0)
 
@@ -97,10 +97,10 @@ func _ready():
 	await get_tree().physics_frame
 	on.phase_flow = 1.0
 	PhaseDrain.tick(on, 1.0 / 60.0)
-	_check("a tick inside three pieces drains 15%% (%.3f)" % on.phase_flow, absf(on.phase_flow - 0.85) < 0.001)
+	_check("a tick inside three pieces drains 6%% (%.3f)" % on.phase_flow, absf(on.phase_flow - 0.94) < 0.001)
 	on.global_position = Vector2(500, 500)
 	PhaseDrain.tick(on, 0.25)
-	_check("and it recovers once clear (%.2f)" % on.phase_flow, on.phase_flow > 0.85)
+	_check("and it recovers once clear (%.2f)" % on.phase_flow, on.phase_flow > 0.94)
 
 	print("PhaseDrainCheck: failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

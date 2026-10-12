@@ -23,12 +23,13 @@ func _init(p_mech: Mech):
 	mech = p_mech
 
 func update(delta: float):
-	if mech.total_magnetic_power > 0.0:
+	var magnet_power = mech.total_magnetic_power * mech.phase_flow # Phase Shifter drain
+	if magnet_power > 0.0:
 		# Saturating curve (see Mech.MAGNET_POWER_SCALE's field comment) -
 		# approaches linear-in-power for normal magnitudes, asymptotes
 		# to a fixed ceiling no matter how large total_magnetic_power
 		# gets (loop-abuse case).
-		var magnet_power_factor = 1.0 - exp(-mech.total_magnetic_power / mech.MAGNET_POWER_SCALE)
+		var magnet_power_factor = 1.0 - exp(-magnet_power / mech.MAGNET_POWER_SCALE)
 		var pull_radius = 150.0 + mech.MAGNET_PULL_RADIUS_MAX_BONUS * magnet_power_factor
 		_update_visual(pull_radius)
 

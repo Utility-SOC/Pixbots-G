@@ -2,7 +2,7 @@ class_name PhaseDrain
 extends RefCounted
 
 # The Phase Shifter's cost (see PhaseShifterTile): `mech.phase_flow` is the share of normal energy flow still moving
-# through the mech (1.0 = untouched). Every physics tick spent inside obstacles multiplies it by (1 - 0.05 x pieces
+# through the mech (1.0 = untouched). Every physics tick spent inside obstacles multiplies it by (1 - 2% x pieces
 # touched); once clear it climbs back over PhaseShifterTile.RECOVER_SECONDS. Weapons and shields read it.
 
 const MAX_PIECES = 20

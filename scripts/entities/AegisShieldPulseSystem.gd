@@ -36,14 +36,14 @@ func _emit_pulse():
 			continue # no shield generator of their own - nothing to top up
 		if mech.global_position.distance_to(ally.global_position) > mech.shield_pulse_radius:
 			continue
-		var restored = min(ally.max_shield_hp, ally.shield_hp + mech.shield_pulse_power) - ally.shield_hp
+		var restored = min(ally.max_shield_hp, ally.shield_hp + mech.shield_pulse_power * mech.phase_flow) - ally.shield_hp
 		ally.shield_hp += restored
 		if restored >= 1.0 and ally.has_method("_show_floating_text"):
 			ally._show_floating_text("+%d SHIELD" % int(round(restored)), Color(0.3, 0.6, 1.0))
 
 	# Self too (AoE + self, matching Heal Beacon's own-mech inclusion).
 	if mech.max_shield_hp > 0.0:
-		var self_restored = min(mech.max_shield_hp, mech.shield_hp + mech.shield_pulse_power) - mech.shield_hp
+		var self_restored = min(mech.max_shield_hp, mech.shield_hp + mech.shield_pulse_power * mech.phase_flow) - mech.shield_hp
 		mech.shield_hp += self_restored
 
 	var visual_class = load("res://scripts/attacks/PulseRingVisual.gd")

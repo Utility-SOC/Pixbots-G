@@ -47,7 +47,7 @@ func _emit_pulse():
 			continue
 		if mech.global_position.distance_to(ally.global_position) > mech.heal_pulse_radius:
 			continue
-		var healed = min(ally.max_hp, ally.hp + mech.heal_pulse_power) - ally.hp
+		var healed = min(ally.max_hp, ally.hp + mech.heal_pulse_power * mech.phase_flow) - ally.hp
 		ally.hp += healed
 		if healed >= 1.0 and ally.has_method("_show_floating_text"):
 			ally._show_floating_text("+%d" % int(round(healed)), Color(0.3, 1.0, 0.4))
@@ -55,7 +55,7 @@ func _emit_pulse():
 	# AI beacons self-heal at half strength (the squad is the point); the
 	# player's manual pulse self-heals at full - it's their button.
 	var self_mult = 1.0 if mech.is_player else 0.5
-	var self_healed = min(mech.max_hp, mech.hp + mech.heal_pulse_power * self_mult) - mech.hp
+	var self_healed = min(mech.max_hp, mech.hp + mech.heal_pulse_power * self_mult * mech.phase_flow) - mech.hp
 	mech.hp += self_healed
 	if self_healed >= 1.0:
 		mech._show_floating_text("+%d" % int(round(self_healed)), Color(0.3, 1.0, 0.4))
@@ -82,7 +82,7 @@ func _repair_stat(key: String, default_value: float) -> float:
 func _tick_field_repair(delta: float) -> void:
 	var cost: float = _repair_stat("repair_pulse_cost", 240000.0)
 	mech.repair_cooldown = maxf(0.0, mech.repair_cooldown - delta)
-	mech.repair_charge = minf(mech.repair_charge + mech.repair_energy_flow * delta, cost)
+	mech.repair_charge = minf(mech.repair_charge + mech.repair_energy_flow * mech.phase_flow * delta, cost)
 	if mech.repair_charge >= cost and mech.repair_cooldown <= 0.0:
 		if field_repair_pulse():
 			mech.repair_charge -= cost

@@ -1606,6 +1606,27 @@ func _wager_hp_mult(main) -> float:
 	var w = main.get("wager") if main != null else null
 	return w.hp_mult() if w != null and is_instance_valid(w) else 1.0
 
+# Exponent on (player power / baseline) per difficulty: Casual barely follows you, the top tier nearly matches you.
+const PEER_EXP_BY_DIFFICULTY = [0.25, 0.40, 0.55, 0.85]
+const POWER_FALL_RATE = 0.02 # per second the smoothed estimate may drop toward a lower reading (rises are immediate)
+var _power_smooth: float = 0.0
+var _power_smooth_usec: int = 0
+
+static func peer_multiplier(difficulty: int, power: float) -> float:
+	var e = PEER_EXP_BY_DIFFICULTY[clampi(difficulty, 0, PEER_EXP_BY_DIFFICULTY.size() - 1)]
+	return maxf(1.0, pow(power / NEAR_PEER_BASELINE, e))
+
+func _smoothed_player_power() -> float:
+	var now = Time.get_ticks_usec()
+	var raw = _estimate_player_power()
+	var dt = float(now - _power_smooth_usec) / 1000000.0 if _power_smooth_usec > 0 else 0.0
+	_power_smooth_usec = now
+	if raw >= _power_smooth or _power_smooth <= 0.0:
+		_power_smooth = raw
+	else:
+		_power_smooth = maxf(raw, _power_smooth * (1.0 - minf(1.0, POWER_FALL_RATE * dt)))
+	return _power_smooth
+
 func _wave_multiplier() -> float:
 	var main = get_tree().current_scene
 	var wave = int(main.current_wave) if main and "current_wave" in main else 0
@@ -1616,9 +1637,10 @@ func _wave_multiplier() -> float:
 	var wave_multiplier = 1.0
 	if main and "current_wave" in main:
 		wave_multiplier = SaveManager.wave_hp_multiplier(difficulty, main.current_wave)
-	if difficulty >= 2:
-		var peer_exp = 0.85 if difficulty >= 3 else 0.5
-		wave_multiplier *= max(1.0, pow(_estimate_player_power() / NEAR_PEER_BASELINE, peer_exp))
+	# Build-relative scaling on EVERY difficulty (owner decision 2026-10-13, docs/GAME_REVIEW.md): enemy HP follows the player's
+	# build power by an exponent that rises with difficulty, so a strong build is still tested. The power estimate is smoothed
+	# (slow to fall) so swapping to junk right before a wave cannot dodge it.
+	wave_multiplier *= peer_multiplier(difficulty, _smoothed_player_power())
 	_wm_cache = {"wave": wave, "usec": now, "value": wave_multiplier}
 	return wave_multiplier * _wager_hp_mult(main)
 

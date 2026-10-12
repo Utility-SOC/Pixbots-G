@@ -70,6 +70,7 @@ func _reset_grid_state():
 	mech.anchor_energy = 0.0
 	mech.shield_recharge_delay = 3.0
 	mech.shield_recharge_rate = 0.0
+	mech.actuator_speed_bonus = 0.0
 	mech.base_move_speed = 150.0 # Reset base speed for Jumpjets to calculate
 	mech.jumpjet_rarity = -1
 	mech.thruster_accel_bonus = -1
@@ -436,6 +437,7 @@ func _collect_weapon_mounts_and_tile_capabilities():
 
 			if tile.has_method("get_speed_bonus"):
 				mech.base_move_speed += tile.get_speed_bonus()
+				mech.actuator_speed_bonus += tile.get_speed_bonus()
 
 			var magnet_power_here = 0.0
 			if tile.has_method("get_magnetic_power"):

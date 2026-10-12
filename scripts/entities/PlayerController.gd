@@ -89,7 +89,7 @@ func handle_input(delta: float):
 	if mech.jumpjet_rarity >= 0:
 		accel += (mech.jumpjet_rarity * 150.0)
 	if mech.thruster_accel_bonus >= 0:
-		accel += (mech.thruster_accel_bonus * 200.0)
+		accel += (mech.thruster_accel_bonus * 200.0 * mech.phase_flow) # Phase Shifter drain
 
 	# Ice: traction < 1 stretches both speeding up and braking, so you slide.
 	mech.velocity = TerrainEffects.steer(mech.velocity, target_vel, accel, mech.terrain_traction, delta)

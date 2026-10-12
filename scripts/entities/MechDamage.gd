@@ -472,7 +472,7 @@ func apply_status(effect_name: String, duration: float):
 
 func update_status_effects(delta: float):
 	mech._poll_offline_tiles(delta)
-	mech.current_move_speed = mech.base_move_speed * mech._get_mass_speed_mult() * pow(Mech.LEG_BROKEN_SPEED_MULT, mech.broken_leg_count())
+	mech.current_move_speed = (mech.base_move_speed - mech.actuator_speed_bonus * (1.0 - mech.phase_flow)) * mech._get_mass_speed_mult() * pow(Mech.LEG_BROKEN_SPEED_MULT, mech.broken_leg_count())
 	if mech.is_amphibious and mech._in_water:
 		mech.current_move_speed *= Mech.AMPHIBIOUS_WATER_SPEED_MULT
 

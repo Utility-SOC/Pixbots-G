@@ -80,8 +80,10 @@ func process_energy(packet: EnergyPacket, entry_direction: int, grid: Node = nul
 	stored_energy += packet.magnitude
 	return []
 
-func get_bay_energy() -> float:
-	var e = stored_energy
+# `link_flow` is the owner's Phase Shifter flow (Mech.phase_flow): the energy arriving over the bay's link is cut by it,
+# while the drone's own cores and reactors are never touched.
+func get_bay_energy(link_flow: float = 1.0) -> float:
+	var e = stored_energy * link_flow
 	stored_energy = 0.0
 	return e
 

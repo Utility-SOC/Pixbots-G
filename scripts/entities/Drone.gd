@@ -207,6 +207,11 @@ func _physics_process(delta: float):
 		die()
 		return
 
+	# A drone has its own flow (the owner's Phase Shifter drain never reaches its own cores or reactors); only a Phase
+	# Shifter on the drone itself drains it.
+	if phase_shifter_active or phase_flow < 1.0:
+		PhaseDrain.tick(self, delta)
+
 	#_update_heat(delta) # Thermal system commented out in Mech.gd - see there.
 	_tick_weapon_charges(delta)
 

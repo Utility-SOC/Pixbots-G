@@ -227,6 +227,7 @@ var capture_buffs: Dictionary = {}
 # phase_flow is the share of energy flow left after the terrain drain (1.0 = none).
 var phase_shifter_active: bool = false
 var phase_flow: float = 1.0
+var actuator_speed_bonus: float = 0.0 # the share of base_move_speed that came from Actuators (Phase Shifter drains it)
 
 # Corporate Sponsorships (task #17): Aegis Dynamics' AegisJammerShieldTile
 # capacity fields. has_elemental_aegis is checked directly in

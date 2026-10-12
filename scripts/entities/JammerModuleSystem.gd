@@ -45,7 +45,7 @@ func tick(delta: float) -> void:
 	# field should increase with more power pushed into it").
 	var jam_energy = 0.0
 	for tile in mech._jammer_tiles:
-		jam_energy += tile.get_jam_energy()
+		jam_energy += tile.get_jam_energy() * mech.phase_flow # Phase Shifter drain
 
 	if mech.has_jammer_module and mech.jammer_mode == 0: # VISION
 		_ensure_jammer_field()

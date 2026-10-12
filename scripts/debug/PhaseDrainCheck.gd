@@ -102,5 +102,27 @@ func _ready():
 	PhaseDrain.tick(on, 0.25)
 	_check("and it recovers once clear (%.2f)" % on.phase_flow, on.phase_flow > 0.94)
 
+	# Actuator speed, thruster-style consumers and the drone link read the flow
+	var fast = MechScript.new()
+	fast.is_player = true
+	add_child(fast)
+	fast.base_move_speed = 250.0
+	fast.actuator_speed_bonus = 100.0
+	fast.phase_flow = 0.5
+	fast.update_status_effects(0.0)
+	var full = MechScript.new()
+	full.is_player = true
+	add_child(full)
+	full.base_move_speed = 250.0
+	full.actuator_speed_bonus = 100.0
+	full.update_status_effects(0.0)
+	_check("a drained mech loses its Actuator speed bonus, not its base speed (%.1f vs %.1f)" % [fast.current_move_speed, full.current_move_speed], fast.current_move_speed < full.current_move_speed and fast.current_move_speed > full.current_move_speed * 0.6)
+	var bay = DroneBayTile.new()
+	bay.stored_energy = 100.0
+	_check("a drone bay link is cut by the owner's flow", is_equal_approx(bay.get_bay_energy(0.4), 40.0) and bay.stored_energy == 0.0)
+	var drone = Drone.new()
+	_check("a drone keeps its own full flow regardless of any owner", drone.phase_flow == 1.0 and not drone.phase_shifter_active)
+	drone.free()
+
 	print("PhaseDrainCheck: failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

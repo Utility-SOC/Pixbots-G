@@ -235,6 +235,23 @@ static func wave_hp_multiplier(p_difficulty: int, wave: int) -> float:
 
 var difficulty: int = 1
 
+# --- Frank's Challenges (best clear time per challenge id, in seconds) ---------------------------------------------
+var pending_challenge: String = ""
+
+func challenge_record(id: String) -> float:
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	return float(config.get_value("Challenges", id, -1.0))
+
+func set_challenge_record(id: String, seconds: float) -> void:
+	var best = challenge_record(id)
+	if best >= 0.0 and best <= seconds:
+		return
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("Challenges", id, seconds)
+	config.save(SETTINGS_PATH)
+
 # Install-wide (not per-save) identity used to attribute AI profiles shared
 # via the War Room's export/import clipboard flow - when an imported
 # template collides by name with one you already have, the importer's

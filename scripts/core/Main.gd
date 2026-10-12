@@ -765,6 +765,7 @@ func _setup_environment():
 		map.map_type = str(run_card.get("map_type", map.map_type))
 		map.map_layout = str(run_card.get("layout", "auto"))
 		map.map_seed = int(run_card.get("seed", 0))
+		map.era_override = str(run_card.get("era", "")) # Frank's Challenges and Elite Four fights pick the war era
 	map.name = "GameMap"
 	world.add_child(map)
 
@@ -971,6 +972,20 @@ func _start_intermission():
 	show_dialogue("Shopkeeper", DialogueManager.get_intermission_quip(), Color(0.7, 0.85, 1.0), 5.0)
 	_show_countdown()
 
+# Frank's Challenge mode (ChallengesMenu): one scripted scenario replaces the wave loop.
+var _challenge_runner: ChallengeRunner = null
+func _start_challenge() -> void:
+	if _challenge_runner != null and is_instance_valid(_challenge_runner):
+		return
+	var c = FrankChallenges.find(SaveManager.pending_challenge)
+	if c.is_empty():
+		return
+	_challenge_runner = ChallengeRunner.new()
+	_challenge_runner.main = self
+	_challenge_runner.challenge = c
+	add_child(_challenge_runner)
+	_challenge_runner.start()
+
 func _ensure_wager() -> WagerWaves:
 	if wager == null or not is_instance_valid(wager):
 		wager = WagerWaves.new()
@@ -1163,6 +1178,9 @@ func _wave_plan(director) -> Dictionary:
 	return plan
 
 func _start_wave():
+	if SaveManager.current_game_mode == "challenge":
+		_start_challenge()
+		return
 	# Re-entrancy guard (user report 2026-08-05: stuck on wave 65, killing
 	# everything spawned after a Garage visit never advanced it). Extraction
 	# is player-voluntary and NOT gated on the current wave having cleared -

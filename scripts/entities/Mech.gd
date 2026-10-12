@@ -230,6 +230,9 @@ var phase_flow: float = 1.0
 # Wager Waves (WagerWaves): the player accepted a harder wave. Damage taken multiplier and weapon output multiplier.
 var wager_damage_taken_mult: float = 1.0
 var wager_weapons_mult: float = 1.0
+# Frank's Challenges rules on an enemy (FrankChallenges): flat damage taken off every hit; "The Eye" threshold.
+var flat_damage_reduction: float = 0.0
+var eye_threshold: float = 0.0
 var actuator_speed_bonus: float = 0.0 # the share of base_move_speed that came from Actuators (Phase Shifter drains it)
 
 # Corporate Sponsorships (task #17): Aegis Dynamics' AegisJammerShieldTile

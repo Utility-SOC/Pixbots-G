@@ -155,6 +155,9 @@ func _apply_damage_body(amount: float, element: String = "RAW", source: Node = n
 	if amount > 0 and mech._brace_timer > 0.0:
 		amount *= 0.75
 
+	if amount > 0 and (mech.flat_damage_reduction > 0.0 or mech.eye_threshold > 0.0):
+		amount = FrankChallenges.filter_hit(amount, mech.flat_damage_reduction, mech.eye_threshold)
+
 	if amount > 0 and mech.wager_damage_taken_mult != 1.0:
 		amount *= mech.wager_damage_taken_mult # a "glass" wager
 

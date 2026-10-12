@@ -25,6 +25,7 @@ const TILE_SCRIPTS = [
 		"res://scripts/tiles/ShieldTile.gd", # canonical Shield Generator (ShieldGeneratorTile is a deprecated shim)
 		"res://scripts/tiles/DroneBayTile.gd",
 		"res://scripts/tiles/AnchorTile.gd",
+		"res://scripts/tiles/PhaseShifterTile.gd",
 		"res://scripts/tiles/CloakTile.gd",
 		"res://scripts/tiles/HealBeaconTile.gd",
 		"res://scripts/tiles/JammerModuleTile.gd",

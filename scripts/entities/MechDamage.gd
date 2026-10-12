@@ -506,6 +506,9 @@ func update_status_effects(delta: float):
 		mech._rally_speed_timer -= delta
 		mech.current_move_speed *= Mech.RALLY_SPEED_MULT
 
+	if mech.phase_shifter_active or mech.phase_flow < 1.0:
+		PhaseDrain.tick(mech, delta)
+
 	if not mech.capture_buffs.is_empty():
 		CaptureBuffs.tick(mech, delta)
 		mech.current_move_speed *= CaptureBuffs.speed_mult(mech)

@@ -223,6 +223,10 @@ var kinetic_sight_bonus: float = 0.0
 var element_combo: Dictionary = {}
 # Timed buffs from capturing map objectives: type -> seconds left (see CaptureBuffs).
 var capture_buffs: Dictionary = {}
+# Phase Shifter (PhaseShifterTile / PhaseDrain): a powered Mythic shifter lets the mech pass through terrain obstacles;
+# phase_flow is the share of energy flow left after the terrain drain (1.0 = none).
+var phase_shifter_active: bool = false
+var phase_flow: float = 1.0
 
 # Corporate Sponsorships (task #17): Aegis Dynamics' AegisJammerShieldTile
 # capacity fields. has_elemental_aegis is checked directly in
@@ -857,7 +861,7 @@ func _jets_firing() -> bool:
 	return false
 
 func _update_obstacle_phasing():
-	if _has_jumpjets() and _jets_firing():
+	if phase_shifter_active or (_has_jumpjets() and _jets_firing()):
 		collision_mask &= ~OBSTACLE_LAYER
 	else:
 		collision_mask |= OBSTACLE_LAYER
@@ -1153,7 +1157,7 @@ func _physics_process(delta: float):
 	time_since_last_hit += delta
 	if has_shield_generator and max_shield_hp > 0 and time_since_last_hit >= shield_recharge_delay:
 		if shield_hp < max_shield_hp:
-			shield_hp = min(max_shield_hp, shield_hp + shield_recharge_rate * delta)
+			shield_hp = min(max_shield_hp, shield_hp + shield_recharge_rate * delta * phase_flow)
 
 	if is_boss:
 		# _boss_time_alive/_boss_first_engagement used to be separate boss-only

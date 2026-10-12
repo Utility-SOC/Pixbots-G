@@ -677,6 +677,8 @@ func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, d
 	var fire_damage = base_damage * 1.2 if is_beam else base_damage
 	if not mech.capture_buffs.is_empty():
 		fire_damage *= CaptureBuffs.weapons_mult(mech) # capture-point weapons buff
+	if mech.phase_flow < 1.0:
+		fire_damage *= mech.phase_flow # Phase Shifter terrain drain (PhaseDrain)
 	var fire_speed = LIVE_BATCH_SPEED * 2.5 if is_beam else LIVE_BATCH_SPEED
 
 	if step > 0:

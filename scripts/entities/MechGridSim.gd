@@ -113,6 +113,7 @@ func _reset_grid_state():
 	mech.repair_energy_flow = 0.0
 
 	mech.total_magnetic_power = 0.0
+	mech.phase_shifter_active = false
 	mech.min_loot_attract_rarity = -1
 	mech.stat_modifiers.clear()
 	mech.elemental_resistances.clear() # rebuilt below from equipped Structural Struts (elemental armor)
@@ -461,6 +462,10 @@ func _collect_weapon_mounts_and_tile_capabilities():
 
 			if tile.tile_type == "Shield Generator" and tile.rarity == HexTile.Rarity.MYTHIC:
 				mech.shield_mythic_mode = int(tile.get("mythic_mode"))
+
+			if tile.tile_type == "Phase Shifter" and tile.has_method("take_phase_energy"):
+				if tile.is_working(tile.take_phase_energy()):
+					mech.phase_shifter_active = true
 
 			if tile.tile_type == "Anchor":
 				mech.is_vortex_immune = true

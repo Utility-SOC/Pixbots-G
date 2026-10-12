@@ -267,7 +267,12 @@ func _apply_damage_body(amount: float, element: String = "RAW", source: Node = n
 
 	var shatter_source = source if is_instance_valid(source) else (mech.hit_source if is_instance_valid(mech.hit_source) else null)
 	IceEffects.try_shatter(mech, element, amount, shatter_source)
-	mech.hp -= amount
+	if amount < 0.0:
+		# A heal never lifts HP above max_hp (it used to be uncapped: lifesteal on huge shots banked millions of HP over a 100 HP
+		# bar). Health already above max (a set value) is left alone, it just stops growing.
+		mech.hp = maxf(mech.hp, minf(mech.hp - amount, mech.max_hp))
+	else:
+		mech.hp -= amount
 	if not mech.pending_shatter.is_empty():
 		IceEffects.resolve_shatter(mech)
 	if mech.hp <= 0:

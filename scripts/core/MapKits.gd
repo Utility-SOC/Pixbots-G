@@ -10,6 +10,9 @@ extends RefCounted
 # Two more files hold the builders: MapKitsA (urban, coast, swamp, poppies) and others added as they are written.
 
 const BT = {"GRASS": 0, "WATER": 1, "DESERT": 2, "FOREST": 3, "TUNDRA": 4, "VOLCANO": 5, "DUNGEON": 6, "ROAD": 7, "FLOOR": 8, "SHALLOW": 9}
+# Every tree is a physics body: 24,000 of them (a first Dense Forest) crashed the engine on an Intel HD 4000 right after generation,
+# where the classic Forest map's ~5,000 and the Swamp's ~7,000 are fine. A map type may place at most this many.
+const MAX_TREES = 9000
 const KEEPOUT = 12.0 # tiles around the player's spawn kept clear of set pieces
 
 # ---- hooks --------------------------------------------------------------------------------------------------------
@@ -75,6 +78,10 @@ static func put_obstacle(m, x: int, y: int, name: String, clear_r: float = 5.0) 
 	var b = m.terrain[y][x]
 	if b == BT["WATER"] or m.obstacles.has(Vector2i(x, y)):
 		return false
+	if name == "Tree":
+		if m.tree_budget_used >= MAX_TREES:
+			return false
+		m.tree_budget_used += 1
 	m.obstacles[Vector2i(x, y)] = name
 	return true
 

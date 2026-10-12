@@ -57,6 +57,28 @@ func _ready():
 	shop_rect.visible = false
 	layer.add_child(shop_rect)
 	_set_mode(0)
+	if OS.get_cmdline_user_args().has("--auto"):
+		_auto_tour.call_deferred()
+
+# --auto: visits every map type in turn (a soak/crash hunt, not a demo). Prints SHOWCASE_AUTO lines and quits at the end.
+func _auto_tour() -> void:
+	var start = 0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--from="):
+			start = int(a.split("=")[1])
+	while _busy:
+		await get_tree().process_frame
+	for i in range(start, _types.size()):
+		type_index = i
+		era_index = i % 4
+		print("SHOWCASE_AUTO %d/%d %s %s" % [i + 1, _types.size(), _types[i], MapTypes.ERAS[era_index]])
+		_generate()
+		await get_tree().process_frame
+		while _busy:
+			await get_tree().process_frame
+		await get_tree().create_timer(2.0).timeout
+	print("SHOWCASE_AUTO done")
+	get_tree().quit()
 
 func _set_mode(m: int) -> void:
 	mode = m

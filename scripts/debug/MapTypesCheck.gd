@@ -53,6 +53,11 @@ func _run(t: String, era: String) -> void:
 					bad_cells += 1
 	_check("%s: every piece has art and a valid era (%s)" % [tag, str(bad_style)], bad_style.is_empty())
 	_check("%s: pieces never overlap (%d) and own their cells (%d lost to connectivity corridors)" % [tag, overlaps, bad_cells], overlaps == 0 and bad_cells <= maxi(8, seen.size() / 100))
+	var tree_count = 0
+	for k in m.obstacles:
+		if m.obstacles[k] == "Tree":
+			tree_count += 1
+	_check("%s: a sane number of trees (%d, cap %d)" % [tag, tree_count, MapKits.MAX_TREES], tree_count <= MapKits.MAX_TREES + 300)
 	var min_pieces = {"Islands": 15, "Lakelands": 15, "Swamp": 15, "Dense Forest": 10, "Hydrothermal Park": 8}.get(MapTypes.base(t), 25)
 	_check("%s: enough set pieces (%d)" % [tag, m.ruin_specs.size()], m.ruin_specs.size() >= min_pieces)
 	var spots_ok = true

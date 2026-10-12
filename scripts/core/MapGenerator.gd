@@ -51,6 +51,7 @@ var decor: Dictionary = {}
 var hazard_spots: Array = []
 # Live tree bodies by tile (forest fire spread looks neighbours up here).
 var tree_nodes: Dictionary = {}
+var tree_budget_used: int = 0 # trees placed by MapKits this generation (capped: see MapKits.MAX_TREES)
 # Terrain height (Hilly, Mountains): one level 0..9 per tile, row-major (y * width + x). Heights change how fast mechs climb
 # and descend (slope_mult), stop shots fired from lower ground (see ProjectileBatchPool) and clip explosions (los_clear).
 var heights: PackedByteArray = PackedByteArray()
@@ -434,6 +435,7 @@ func _generate_map():
 		ruin_specs.clear()
 		decor.clear()
 		tree_nodes.clear()
+		tree_budget_used = 0
 		heights = PackedByteArray()
 		has_heights = false
 		snow_cells.clear()

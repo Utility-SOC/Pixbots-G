@@ -231,7 +231,7 @@ static func dense_forest(m) -> void:
 				if Vector2(x, y).distance_to(c) < (13.0 if c.x == w / 2.0 and c.y == h / 2.0 else 7.0 + 4.0 * float(posmod(int(c.x * 7.0 + c.y), 3))):
 					open = true
 					break
-			if not open and randf() < 0.4:
+			if not open and randf() < 0.13: # ~8,000 trees (see MapKits.MAX_TREES)
 				MapKits.put_obstacle(m, x, y, "Tree", 6.0)
 	MapKits.scatter_pieces(m, ["gothic", "camp", "agricultural", "monument"], 26, Rect2i(5, 5, w - 10, h - 10), 0, 80)
 	if m.era != "prewar":

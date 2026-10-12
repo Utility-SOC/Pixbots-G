@@ -17,6 +17,18 @@ const PIN_PER_RATIO = 30.0
 const WANDER_SEGMENT_SEC = 0.55
 const WANDER_AMPLITUDE = 260.0
 const WANDER_MIN_RATIO = 0.15
+# Crash damage: hostile bodies dragged into each other by a pull hurt each other. Damage grows with the vortex energy doing
+# the pulling and with how fast the two close on one another, and each body has a short cooldown so a pile-up is not a
+# per-tick damage spam. It is VORTEX damage, so an Anchor's damage reduction applies to it.
+const CRASH_DISTANCE = 48.0 # centre-to-centre
+const CRASH_MIN_SPEED = 60.0 # px/s of closing speed below which bodies just nudge
+const CRASH_REF_SPEED = 300.0 # closing speed that deals 1x CRASH_DAMAGE_PER_ENERGY
+const CRASH_MAX_SPEED_MULT = 3.0
+const CRASH_DAMAGE_PER_ENERGY = 0.35 # (tune) of the vortex energy (damage x vortex ratio), per crash at the reference speed
+const CRASH_COOLDOWN = 0.4
+const CRASH_WINDOW = 0.3 # a body counts as caught in the vortex this long after its last pull
+const CRASH_FORGET = 1.0
+static var _pulled: Dictionary = {} # instance_id -> {node, pos, vel, t, cd}
 
 static func pull_magnitude_mult(power: float) -> float:
 	return minf(1.0 + log(1.0 + power / 200.0) * 0.4, 3.0)
@@ -75,7 +87,64 @@ static func pull_target(col: Node, src_pos: Vector2, fired_by_player: bool, r_vt
 	elif col is CharacterBody2D:
 		var p_dir = (src_pos - col.global_position).normalized()
 		col.velocity = col.velocity.lerp(p_dir * pull_strength, minf(10.0 * delta, 1.0))
+	if hostile and pull_mult > 0.0 and col is Node2D and col.has_method("apply_damage"):
+		note_pull(col, _now(), power * r_vtx)
 	# Pin: a hostile body inside the pin radius rides along with the shot (move_and_collide so walls still stop it).
 	if hostile and pull_mult > 0.0 and carry != Vector2.ZERO and col is Node2D \
 			and col.global_position.distance_to(src_pos) <= radius_pin and col.has_method("move_and_collide"):
 		col.move_and_collide(carry)
+
+
+static func crash_damage(energy: float, closing_speed: float) -> float:
+	if closing_speed < CRASH_MIN_SPEED or energy <= 0.0:
+		return 0.0
+	return CRASH_DAMAGE_PER_ENERGY * energy * minf(closing_speed / CRASH_REF_SPEED, CRASH_MAX_SPEED_MULT)
+
+static func _now() -> float:
+	return float(Engine.get_physics_frames()) / float(Engine.physics_ticks_per_second)
+
+static func reset_crashes() -> void:
+	_pulled.clear()
+
+# Records that `col` is being pulled right now (sim time `now`, vortex energy `energy`) and crashes it into any other
+# pulled body it overlaps while closing on it. Called from pull_target for hostile bodies; `now` is a parameter so a check
+# can drive the clock. Velocity is measured from the body's own movement between notes, so it works for any mover.
+static func note_pull(col: Node2D, now: float, energy: float, source: Node = null) -> void:
+	var id = col.get_instance_id()
+	var pos = col.global_position
+	var e: Dictionary = _pulled.get(id, {})
+	if e.is_empty():
+		e = {"node": col, "pos": pos, "vel": Vector2.ZERO, "t": now, "cd": 0.0}
+		_pulled[id] = e
+	else:
+		var dt = now - float(e["t"])
+		if dt >= 0.03: # two shots pulling the same body in one tick must not zero its measured velocity
+			e["vel"] = (pos - e["pos"]) / dt
+			e["pos"] = pos
+			e["t"] = now
+		else:
+			e["pos"] = pos
+	for other_id in _pulled.keys():
+		if other_id == id:
+			continue
+		var o: Dictionary = _pulled[other_id]
+		if not is_instance_valid(o["node"]) or now - float(o["t"]) > CRASH_FORGET:
+			_pulled.erase(other_id)
+			continue
+		if now - float(o["t"]) > CRASH_WINDOW or now < float(o["cd"]) or now < float(e["cd"]):
+			continue
+		var other: Node2D = o["node"]
+		var delta_pos: Vector2 = other.global_position - pos
+		if delta_pos.length() > CRASH_DISTANCE or delta_pos == Vector2.ZERO:
+			continue
+		var closing = ((e["vel"] as Vector2) - (o["vel"] as Vector2)).dot(delta_pos.normalized())
+		var dmg = crash_damage(energy, closing)
+		if dmg <= 0.0:
+			continue
+		var src = source if is_instance_valid(source) else null
+		for victim in [col, other]:
+			if is_instance_valid(victim) and victim.get("is_dead") != true and victim.has_method("apply_damage"):
+				victim.apply_damage(dmg, "VORTEX", src, false, "VORTEX CRASH")
+		e["cd"] = now + CRASH_COOLDOWN
+		o["cd"] = now + CRASH_COOLDOWN
+		break # one crash per body per note; the cooldown covers the rest of the pile-up

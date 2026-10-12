@@ -108,20 +108,23 @@ func add_member(mech: Node):
 		mech.rejoin_from_wild()
 
 	# Listen for when the member dies (exits the tree)
-	mech.tree_exiting.connect(_on_member_died)
+	if not mech.tree_exiting.is_connected(_on_member_died): # a bot re-added to the same squad (wild recruit) must not double-connect
+		mech.tree_exiting.connect(_on_member_died)
 
 	# Listen for when the member deals damage
+	var dealt_cb = _on_member_dealt_damage.bind(mech)
 	if mech.has_user_signal("dealt_damage") or mech.has_signal("dealt_damage"):
-		mech.dealt_damage.connect(_on_member_dealt_damage.bind(mech))
+		if not mech.dealt_damage.is_connected(dealt_cb):
+			mech.dealt_damage.connect(dealt_cb)
 	elif not mech.has_signal("dealt_damage"):
 		mech.add_user_signal("dealt_damage", [{"name": "amount", "type": TYPE_FLOAT}])
-		mech.connect("dealt_damage", _on_member_dealt_damage.bind(mech))
+		mech.connect("dealt_damage", dealt_cb)
 
 	# Listen for when the member takes damage (see total_damage_taken's own
 	# field comment) - a real declared signal on every Mech from the start,
 	# so this doesn't need the has_user_signal fallback dance dealt_damage
 	# above still carries for historical/defensive reasons.
-	if mech.has_signal("took_damage"):
+	if mech.has_signal("took_damage") and not mech.took_damage.is_connected(_on_member_took_damage):
 		mech.took_damage.connect(_on_member_took_damage)
 
 func _on_member_dealt_damage(amount: float, mech: Node = null):

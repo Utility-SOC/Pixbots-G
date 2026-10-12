@@ -325,6 +325,8 @@ func _build_player_read(director):
 	var top_el = pm.recent_top_damage_element()
 	if top_el != "":
 		_lbl(threat_vbox, "  Main damage lately: %s (%.0f%%)" % [top_el, pm.recent_damage_share(top_el) * 100.0], COL_TITLE, 14)
+	for hint in StatusCounterHints.hints(director.bot_element_usage if "bot_element_usage" in director else {}):
+		_lbl(threat_vbox, hint, COL_DIM, 12)
 	_lbl(threat_vbox, "", COL_DIM, 6)
 
 func _build_threat_board(director):

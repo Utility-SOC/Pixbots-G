@@ -29,6 +29,18 @@ func _ready():
 	var menu = DebugMenuScript.new()
 	add_child(menu)
 	_check("menu builds", menu.panel != null and menu.boss_opt != null)
+
+	# Closing the menu must restore the prior pause state (Garage keeps the world paused).
+	get_tree().paused = true
+	menu._toggle_menu()
+	_check("menu open pauses", menu.is_open and get_tree().paused)
+	menu._toggle_menu()
+	_check("close keeps world paused when it was paused", not menu.is_open and get_tree().paused)
+	get_tree().paused = false
+	menu._toggle_menu()
+	menu._toggle_menu()
+	_check("close leaves world running when it was running", not get_tree().paused)
+	get_tree().paused = false
 	menu.queue_free()
 
 	var lm = LootManager

@@ -62,7 +62,9 @@ var caution: float = 0.6
 func _init(mech: Node) -> void:
 	m = mech
 	_eval = float(m.get_instance_id() % 5) * 0.08 # spread evaluations across mechs
-	var h = float((m.get_instance_id() * 2654435761) % 1000) / 1000.0
+	# posmod: instance ids get large enough that id * 2654435761 wraps 64 bits negative, and a plain % then went negative too
+	# (caution fell below CAUTION_RANGE for some bots).
+	var h = float(posmod(m.get_instance_id() * 2654435761, 1000)) / 1000.0
 	caution = lerpf(CAUTION_RANGE.x, CAUTION_RANGE.y, h)
 	if "combat_role" in m and str(m.combat_role) in CoverSense.BACKLINE_ROLES:
 		caution = minf(caution + BACKLINE_CAUTION_BONUS, 1.0)

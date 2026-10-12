@@ -159,6 +159,12 @@ func _ready():
 	for c in cautions:
 		all_in_range = all_in_range and c >= CoverBrain.CAUTION_RANGE.x and c <= 1.0
 	_check("caution stays within its range", all_in_range)
+	# Large instance ids (a long session) used to wrap id * 2654435761 negative and drag caution below its range.
+	var big_ok = true
+	for i in range(50):
+		var h = float(posmod((8143174189266 + i * 16777259) * 2654435761, 1000)) / 1000.0
+		big_ok = big_ok and h >= 0.0 and h < 1.0
+	_check("the caution hash stays in [0,1) for very large instance ids", big_ok)
 	var sniper = MechScript.new()
 	sniper.combat_role = "sniper"
 	var plain = MechScript.new()

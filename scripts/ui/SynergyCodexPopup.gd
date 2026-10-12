@@ -44,6 +44,42 @@ const SYNERGY_CODEX_ENTRIES = [
 		"movement": "The Hunter: actively curves mid-flight to seek enemies, turn rate scaling with its ratio. Ice's inertia resists the curve; Kinetic+Vampiric together grant pierce so the hunt continues through the first victim."},
 ]
 
+const TerrainEffectsScript = preload("res://scripts/core/TerrainEffects.gd") # no class_name on that script
+
+# --- Terrain and combinations (P lane: "Synergy Codex for biome interactions") ---------------------------------------------
+# Numbers come from the real constants (TerrainEffects, ElementCombos) so the text cannot drift from the rules; the two shot
+# interactions below mirror ProjectileBatchPool._apply_biome_triggers (water+Lightning: 400px burst at 2x damage, forest+Fire:
+# 200px burst at 1.5x damage that sets targets burning) - update here if those change.
+static func _pct(mult: float) -> String:
+	return "%+d%%" % int(round((mult - 1.0) * 100.0))
+
+static func terrain_entries() -> Array:
+	return [
+		{"name": "ROAD", "desc": "Walking speed %s. Roads reward routes." % _pct(TerrainEffectsScript.ROAD_SPEED)},
+		{"name": "SHALLOWS", "desc": "Walking speed %s and looser steering. Lightning shots arc through the water: a 400 px burst for 2x damage." % _pct(TerrainEffectsScript.SHALLOW_SPEED)},
+		{"name": "WATER", "desc": "Mechs without a jumpjet or amphibious legs can drown. Lightning shots arc through it: a 400 px burst for 2x damage."},
+		{"name": "TUNDRA ICE", "desc": "Very low traction (%d%% of normal): you keep sliding the way you were going and steering takes a moment to bite." % int(round(TerrainEffectsScript.ICE_TRACTION * 100.0))},
+		{"name": "VOLCANIC ASH", "desc": "Walking speed %s." % _pct(TerrainEffectsScript.ASH_SPEED)},
+		{"name": "FOREST", "desc": "Undergrowth slows walking (%s). Fire shots set it off: a 200 px burst for 1.5x damage that leaves targets burning." % _pct(TerrainEffectsScript.UNDERGROWTH_SPEED)},
+		{"name": "OIL SLICKS", "desc": "Any Fire shot ignites an oil slick it passes through."},
+		{"name": "JUMPJETS / AMPHIBIOUS", "desc": "Mechs that are not touching the ground ignore every ground effect above."},
+	]
+
+static func combo_entries() -> Array:
+	var notes = {
+		"Shatter": "Ice freezes and embrittles; a Kinetic hit then shatters the target and hurts its neighbours (never the shooter). Works from one gun carrying both, or two guns.",
+		"Gravity well": "A Poison mine with a big Vortex share becomes a gravity well that drags everything nearby together.",
+		"Rend & burn": "Pierce rends armour (+20% damage taken) and passes through a whole line; Fire's burn then scales with the shot.",
+		"Storm": "Lightning chains and paralyses; Explosion splashes onto the locked-up targets.",
+	}
+	var out: Array = []
+	for name in ElementCombos.COMBOS:
+		var c: Dictionary = ElementCombos.COMBOS[name]
+		out.append({"name": name.to_upper(), "elements": "%s + %s" % [EnergyPacket.element_name(int(c["a"])).capitalize(), EnergyPacket.element_name(int(c["b"])).capitalize()], "desc": notes.get(name, "")})
+	out.append({"name": "VORTEX CRASH", "elements": "Vortex", "desc": "Enemies dragged into each other by a Vortex pull hurt each other, more the faster and harder they are pulled. An Anchor fed with energy softens it for you."})
+	out.append({"name": "ENEMY COMBOS", "elements": "", "desc": "On higher difficulties some enemies carry these same pairs. The War Room shows when they lean on an element you can counter with a Shock, Freeze or Stun Guard."})
+	return out
+
 var garage: GarageMenu
 var _popup: PopupPanel = null
 
@@ -110,4 +146,25 @@ func _build_popup() -> PopupPanel:
 
 		vbox.add_child(HSeparator.new())
 
+	_add_section(vbox, "TERRAIN - how the ground changes a fight", terrain_entries())
+	_add_section(vbox, "COMBINATIONS - elements that work together", combo_entries())
+
 	return popup
+
+func _add_section(vbox: VBoxContainer, title: String, entries: Array) -> void:
+	var head = Label.new()
+	head.text = title
+	head.add_theme_font_size_override("font_size", 15)
+	head.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
+	vbox.add_child(head)
+	for e in entries:
+		var name_label = Label.new()
+		name_label.text = e["name"] + ("  (" + e["elements"] + ")" if e.get("elements", "") != "" else "")
+		name_label.add_theme_color_override("font_color", Color(0.75, 0.9, 1.0))
+		vbox.add_child(name_label)
+		var desc_label = Label.new()
+		desc_label.text = e["desc"]
+		desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+		desc_label.custom_minimum_size = Vector2(390, 0)
+		vbox.add_child(desc_label)
+	vbox.add_child(HSeparator.new())

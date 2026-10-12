@@ -91,7 +91,7 @@ This is the actual long-term destination the `pixbots_core` split above is aimed
 
 **P:**
 1. ~~Tween panel transitions~~ DONE 2026-10-10 (`UiFx`, Pause/Settings/War Room/Debug; Garage and the `Window` popups DONE 2026-10-11 (`UiFx.pop_in_popup` after every `popup_centered`, Garage via `pop_in_layer`; not eyeballed in-game, owner to confirm it reads well on the HD 4000)); ~~garage conduit animation~~ DONE 2026-10-10 (`GarageGridRenderer._draw_conduit_flow`; per-tile entry faces now marshalled from the Rust sim and recorded by the GDScript sim; parity-checked; `scripts/debug/ConduitFlowShot.tscn` renders it to PNG); drop-pod overlay.
-2. Synergy Codex for biome interactions.
+2. ~~Synergy Codex for biome interactions~~ DONE 2026-10-11 (`SynergyCodexPopup` gained TERRAIN and COMBINATIONS sections built from the real `TerrainEffects` / `ElementCombos` constants; `SynergyCodexSectionsCheck`).
 3. Phase 5 visual identity (build-driven player mech look).
 4. Menu diorama (art); cutscene authoring (men in black) when the owner supplies beats.
 

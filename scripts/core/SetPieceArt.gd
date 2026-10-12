@@ -32,10 +32,10 @@ static func styles() -> Array:
 		"bunker", "watchtower", "hangar", "barracks", "smokestack_works", "fuel_tanks", "container_stack"]
 
 static func has_style(style: String) -> bool:
-	return style in styles() or style in SetPieceArtB.styles()
+	return style in styles() or style in SetPieceArtB.styles() or style in SetPieceArtC.styles() or SetPieceKit.has_style(style)
 
 static func all_styles() -> Array:
-	return styles() + SetPieceArtB.styles()
+	return styles() + SetPieceArtB.styles() + SetPieceArtC.styles() + SetPieceKit.styles()
 
 static func _f(out: Array, c0: int, r0: int, c1: int, r1: int, col: Color, cols: int, rows: int) -> void:
 	c0 = clampi(c0, 0, cols)
@@ -54,6 +54,10 @@ static func _arch(out: Array, c: int, r: int, h: int, col: Color, cols: int, row
 static func rects(style: String, footprint: Vector2, seed_v: int) -> Array:
 	if style in SetPieceArtB.styles():
 		return SetPieceArtB.rects(style, footprint, seed_v)
+	if style in SetPieceArtC.styles():
+		return SetPieceArtC.rects(style, footprint, seed_v)
+	if SetPieceKit.has_style(style):
+		return SetPieceKit.rects(style, footprint, seed_v)
 	var cols = int(footprint.x / PIX)
 	var rows = int(footprint.y / PIX)
 	var rng = RandomNumberGenerator.new()

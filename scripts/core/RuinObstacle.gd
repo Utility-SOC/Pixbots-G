@@ -22,6 +22,8 @@ var _visual_seed: int = 0
 # from ruin_specs' "type" key before add_child, same convention as
 # size_tiles/origin_tile/footprint below.
 var structure_type: String = "ruin"
+# War era (SetPieceEra): library pieces age with it, and farm buildings evolve (SetPieces.evolved).
+var era: String = "prewar"
 
 # Projectile hit-broadphase (see scripts/core/ProjectileBroadphase.gd).
 var broadphase_radius: float = 0.0
@@ -46,9 +48,11 @@ func _ready():
 	broadphase_radius = rect.size.length() / 2.0
 
 func _draw():
-	if SetPieceArt.has_style(structure_type):
+	var style = SetPieces.evolved(structure_type, era)
+	if SetPieceArt.has_style(style):
 		var half_fp = footprint / 2.0
-		for r in SetPieceArt.rects(structure_type, footprint, _visual_seed):
+		var art = SetPieceEra.apply(SetPieceArt.rects(style, footprint, _visual_seed), footprint, era, _visual_seed + 7)
+		for r in art:
 			draw_rect(Rect2(r[0].position - half_fp, r[0].size), r[1])
 		return
 	match structure_type:

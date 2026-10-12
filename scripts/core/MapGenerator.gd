@@ -1484,6 +1484,7 @@ func _build_collisions_and_obstacles():
 		ruin.footprint = Vector2(spec.w * tile_size, spec.h * tile_size)
 		ruin.map_ref = self
 		ruin.structure_type = spec.get("type", "ruin")
+		ruin.era = spec.get("era", "prewar")
 		ruin.global_position = Vector2(spec.x * tile_size, spec.y * tile_size) + ruin.footprint / 2.0
 		add_child(ruin)
 

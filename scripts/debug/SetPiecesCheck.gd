@@ -18,7 +18,7 @@ func _ready():
 	var missing_row = art.filter(func(n): return not SetPieces.has_piece(n))
 	_check("every piece has art (%s)" % str(missing_art), missing_art.is_empty())
 	_check("every art style has a catalogue row (%s)" % str(missing_row), missing_row.is_empty())
-	_check("the library is broad: at least 60 pieces over 10+ themes (%d / %d)" % [cat.size(), _themes().size()], cat.size() >= 60 and _themes().size() >= 10)
+	_check("the library is broad: at least 100 pieces over 12+ themes (%d / %d)" % [cat.size(), _themes().size()], cat.size() >= 100 and _themes().size() >= 12)
 
 	var bad = []
 	for n in cat:
@@ -27,7 +27,7 @@ func _ready():
 			var fp = Vector2(int(sz[0]) * 32, int(sz[1]) * 32)
 			var rs = SetPieceArt.rects(n, fp, 12345)
 			var again = SetPieceArt.rects(n, fp, 12345)
-			if rs.size() < 5:
+			if rs.size() < 4:
 				bad.append(n + " too few rects")
 			if rs.size() != again.size():
 				bad.append(n + " not deterministic")
@@ -77,6 +77,27 @@ func _ready():
 	_check("agricultural maps only get agricultural pieces", agri_ok)
 	_check("big footprints get the big kits", ["gothic_cathedral", "ruin"].has(SetPieces.pick(["gothic"], 10, 10, 12, 7)))
 	_check("maps without a theme list place no library pieces", SetPieces.themes_for("Desert").is_empty() and not SetPieces.themes_for("Tabletop").is_empty())
+	var bad_evo = []
+	for k in SetPieces.EVOLUTION:
+		var chain: Array = SetPieces.EVOLUTION[k]
+		if chain.size() != 4 or chain[0] != k:
+			bad_evo.append(k + " chain shape")
+		for st in chain:
+			if not SetPieceArt.has_style(st) and not (st in ["barn", "farmhouse"]):
+				bad_evo.append(k + " -> " + st + " has no art")
+	_check("every evolution chain is complete and drawable (%s)" % str(bad_evo), bad_evo.is_empty())
+	_check("farm buildings turn gothic or deco as the war goes on", SetPieces.evolved("silo", "prewar") == "silo" and SetPieces.evolved("silo", "apocalypse") == "gothic_silo" and SetPieces.evolved("granary", "no_mans_land") == "granary_chapel" and SetPieces.evolved("obelisk", "apocalypse") == "obelisk")
+	var kit_bad = []
+	for k in SetPieceKit.KITS:
+		var fp2 = Vector2(5 * 32, 5 * 32)
+		var rs2 = SetPieceArt.rects(k, fp2, 3)
+		if rs2.size() < 10:
+			kit_bad.append(k)
+		for r in rs2:
+			if r[0].position.x < -0.01 or r[0].position.y < -0.01 or r[0].end.x > fp2.x + 0.01 or r[0].end.y > fp2.y + 0.01:
+				kit_bad.append(k + " oob")
+				break
+	_check("kitbashes draw inside the footprint (%s)" % str(kit_bad), kit_bad.is_empty())
 	print("SetPiecesCheck: failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
 

@@ -77,6 +77,66 @@ const PIECES = {
 	"column_ruin": {"theme": "ancient", "min": [3, 2], "max": [5, 3], "weight": 3, "hard": 1.3},
 	"ziggurat": {"theme": "ancient", "min": [5, 4], "max": [8, 6], "weight": 2, "hard": 1.8},
 	"sandstone_arch": {"theme": "ancient", "min": [4, 3], "max": [7, 5], "weight": 2, "hard": 2.0},
+	# sci-fi (hyperfuturistic terrain on the same table)
+	"hab_dome": {"theme": "scifi", "min": [3, 3], "max": [5, 4], "weight": 3, "hard": 0.9},
+	"reactor_tower": {"theme": "scifi", "min": [2, 3], "max": [4, 5], "weight": 2, "hard": 1.3},
+	"landing_pad": {"theme": "scifi", "min": [4, 3], "max": [6, 5], "weight": 2, "hard": 0.3},
+	"comms_spire": {"theme": "scifi", "min": [2, 3], "max": [3, 5], "weight": 2, "hard": 0.7},
+	"cryo_tanks": {"theme": "scifi", "min": [3, 2], "max": [5, 3], "weight": 2, "hard": 0.8},
+	"gantry_bay": {"theme": "scifi", "min": [5, 4], "max": [8, 6], "weight": 2, "hard": 1.1},
+	"force_pylon": {"theme": "scifi", "min": [2, 2], "max": [3, 3], "weight": 2, "hard": 0.9},
+	"data_monolith": {"theme": "scifi", "min": [2, 3], "max": [2, 4], "weight": 2, "hard": 1.5},
+	"bio_dome": {"theme": "scifi", "min": [3, 3], "max": [5, 5], "weight": 2, "hard": 0.4},
+	# dungeon furniture ("indoor", D&D vibes)
+	"altar": {"theme": "dungeon", "min": [2, 2], "max": [3, 2], "weight": 2, "hard": 1.4},
+	"sarcophagus": {"theme": "dungeon", "min": [3, 2], "max": [4, 2], "weight": 3, "hard": 1.3},
+	"throne": {"theme": "dungeon", "min": [3, 3], "max": [4, 4], "weight": 1, "hard": 1.2},
+	"pillar_cluster": {"theme": "dungeon", "min": [3, 3], "max": [5, 4], "weight": 3, "hard": 1.5},
+	"brazier": {"theme": "dungeon", "min": [2, 2], "max": [2, 2], "weight": 3, "hard": 0.6},
+	"treasure_hoard": {"theme": "dungeon", "min": [3, 2], "max": [4, 3], "weight": 2, "hard": 0.4},
+	"bookshelves": {"theme": "dungeon", "min": [3, 2], "max": [5, 2], "weight": 3, "hard": 0.7},
+	"torture_rack": {"theme": "dungeon", "min": [3, 2], "max": [4, 3], "weight": 1, "hard": 0.8},
+	"summoning_circle": {"theme": "dungeon", "min": [3, 3], "max": [4, 4], "weight": 1, "hard": 0.2},
+	"stone_well": {"theme": "dungeon", "min": [2, 2], "max": [3, 3], "weight": 2, "hard": 1.2},
+	"hearth": {"theme": "dungeon", "min": [3, 2], "max": [4, 2], "weight": 2, "hard": 1.4},
+	"banquet_table": {"theme": "dungeon", "min": [4, 2], "max": [6, 3], "weight": 3, "hard": 0.7},
+	"iron_cage": {"theme": "dungeon", "min": [2, 2], "max": [3, 3], "weight": 2, "hard": 1.0},
+	"gargoyle": {"theme": "dungeon", "min": [2, 2], "max": [3, 3], "weight": 2, "hard": 1.4},
+	# surreal
+	"floating_arch": {"theme": "surreal", "min": [4, 3], "max": [6, 5], "weight": 3, "hard": 1.0},
+	"stair_to_nowhere": {"theme": "surreal", "min": [3, 3], "max": [5, 5], "weight": 3, "hard": 1.1},
+	"eye_pillar": {"theme": "surreal", "min": [2, 3], "max": [3, 5], "weight": 3, "hard": 1.2},
+	"melting_clock": {"theme": "surreal", "min": [3, 3], "max": [4, 5], "weight": 3, "hard": 0.8},
+	"lone_door": {"theme": "surreal", "min": [2, 3], "max": [3, 4], "weight": 3, "hard": 1.0},
+	"chess_tower": {"theme": "surreal", "min": [2, 3], "max": [3, 5], "weight": 2, "hard": 1.3},
+	"balloon_house": {"theme": "surreal", "min": [3, 4], "max": [5, 6], "weight": 2, "hard": 0.6},
+	"cloud_pedestal": {"theme": "surreal", "min": [3, 2], "max": [5, 3], "weight": 2, "hard": 0.3},
+	"upside_down_spire": {"theme": "surreal", "min": [2, 2], "max": [3, 4], "weight": 3, "hard": 1.1},
+	"mirror_chapel": {"theme": "surreal", "min": [3, 4], "max": [5, 6], "weight": 2, "hard": 1.1},
+	"hourglass_tower": {"theme": "surreal", "min": [2, 4], "max": [4, 6], "weight": 3, "hard": 1.1},
+	"inverted_cathedral": {"theme": "surreal", "min": [8, 5], "max": [12, 8], "weight": 1, "hard": 1.2},
+	"twin_obelisks": {"theme": "surreal", "min": [4, 3], "max": [6, 5], "weight": 2, "hard": 1.4},
+	"sky_fortress": {"theme": "surreal", "min": [4, 5], "max": [6, 7], "weight": 2, "hard": 1.2},
+	# mixed-genre kitbashes (terrain from a dozen different games on one table)
+	"keep_reactor": {"theme": "kitbash", "min": [3, 5], "max": [4, 7], "weight": 3, "hard": 1.3},
+	"hab_chapel": {"theme": "kitbash", "min": [5, 3], "max": [7, 4], "weight": 3, "hard": 1.0},
+	"dome_cathedral": {"theme": "kitbash", "min": [4, 5], "max": [6, 8], "weight": 2, "hard": 1.0},
+	"castle_launchpad": {"theme": "kitbash", "min": [5, 4], "max": [8, 6], "weight": 3, "hard": 0.9},
+	"fortress_works": {"theme": "kitbash", "min": [4, 4], "max": [6, 6], "weight": 2, "hard": 1.5},
+	"tank_cathedral": {"theme": "kitbash", "min": [4, 4], "max": [6, 6], "weight": 2, "hard": 1.3},
+	"deco_bunker": {"theme": "kitbash", "min": [3, 4], "max": [5, 5], "weight": 3, "hard": 1.6},
+	"pylon_chapel": {"theme": "kitbash", "min": [5, 3], "max": [7, 4], "weight": 2, "hard": 1.0},
+	"silo_monolith": {"theme": "kitbash", "min": [4, 3], "max": [6, 4], "weight": 2, "hard": 1.2},
+	"cathedral_hangar": {"theme": "kitbash", "min": [8, 6], "max": [12, 9], "weight": 1, "hard": 1.2},
+	"temple_reactor": {"theme": "kitbash", "min": [5, 6], "max": [8, 9], "weight": 1, "hard": 1.4},
+	# evolved farm buildings: reached through SetPieces.evolved as a war drags on, never picked directly
+	"gothic_silo": {"theme": "evolved", "min": [2, 3], "max": [3, 4], "weight": 0, "hard": 1.0},
+	"deco_silo": {"theme": "evolved", "min": [2, 3], "max": [3, 4], "weight": 0, "hard": 1.0},
+	"granary_chapel": {"theme": "evolved", "min": [3, 4], "max": [5, 5], "weight": 0, "hard": 1.0},
+	"cathedral_barn": {"theme": "evolved", "min": [3, 3], "max": [7, 6], "weight": 0, "hard": 1.1},
+	"windmill_spire": {"theme": "evolved", "min": [4, 3], "max": [6, 4], "weight": 0, "hard": 1.0},
+	"haystack_shrine": {"theme": "evolved", "min": [2, 2], "max": [3, 3], "weight": 0, "hard": 0.8},
+	"deco_stable": {"theme": "evolved", "min": [4, 3], "max": [6, 5], "weight": 0, "hard": 1.0},
 }
 
 # Which themes each map type draws from. Maps not listed place no library pieces.
@@ -88,6 +148,26 @@ const THEMES_BY_MAP = {
 
 # Share of placements that keep the plain grey ruin shell (Tabletop's original look) so the table is not all new kits.
 const PLAIN_RUIN_SHARE = 0.3
+
+# How buildings change as a war drags on: [prewar, skirmish, no_mans_land, apocalypse]. Farm buildings turn gothic or art
+# deco, as if the land itself were mutating (owner: "some of the agricultural stuff should become more art deco/gothic as it
+# progresses"). Styles not listed never change (the era's wear and tear still applies to them).
+const EVOLUTION = {
+	"silo": ["silo", "silo", "deco_silo", "gothic_silo"],
+	"granary": ["granary", "granary", "granary_chapel", "cathedral_barn"],
+	"windmill": ["windmill", "windmill", "windmill_spire", "windmill_spire"],
+	"haystack": ["haystack", "haystack", "haystack", "haystack_shrine"],
+	"stable": ["stable", "stable", "deco_stable", "deco_stable"],
+	"barn": ["barn", "barn", "granary_chapel", "cathedral_barn"],
+	"farmhouse": ["farmhouse", "farmhouse", "gothic_chapel", "gothic_chapel"],
+	"water_tower": ["water_tower", "water_tower", "deco_tower", "gothic_spire"],
+	"greenhouse": ["greenhouse", "greenhouse", "bio_dome", "dome_cathedral"],
+}
+
+static func evolved(style: String, era: String) -> String:
+	if not EVOLUTION.has(style):
+		return style
+	return EVOLUTION[style][SetPieceEra.index_of(era)]
 
 static func themes_for(map_type: String) -> Array:
 	return THEMES_BY_MAP.get(map_type, [])

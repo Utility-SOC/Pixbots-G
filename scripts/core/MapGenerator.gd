@@ -180,6 +180,13 @@ func _ready():
 	if get_tree().root.has_node("ProceduralMusic"):
 		ProceduralMusic.set_biome(map_type)
 
+	# Weather: Desert sandstorms, Tundra blizzards (see WeatherSystem).
+	if WeatherSystem.KIND_BY_MAP.has(map_type) and get_node_or_null("WeatherSystem") == null:
+		var weather = WeatherSystem.new()
+		weather.name = "WeatherSystem"
+		weather.kind = WeatherSystem.KIND_BY_MAP[map_type]
+		add_child(weather)
+
 # -----------------------------------------------------------------------------
 # SHARED FLOW FIELD - replaces N independent per-enemy AStarGrid2D searches
 # -----------------------------------------------------------------------------

@@ -36,7 +36,7 @@ func _effective_sight_range() -> float:
 	# Corporate Sponsorships: Keeneye Sensing's passive sight-radius bonus -
 	# see SensorTile.gd's header. kinetic_sight_bonus: SquadDirector's
 	# counter-doctrine Kinetic weapon builds - see Mech.gd's field comment.
-	return mech.SIGHT_RANGE * (mech.SCOUT_SIGHT_MULT if mech.combat_role == "scout" else 1.0) + mech.sensor_sight_bonus + mech.kinetic_sight_bonus
+	return (mech.SIGHT_RANGE * (mech.SCOUT_SIGHT_MULT if mech.combat_role == "scout" else 1.0) + mech.sensor_sight_bonus + mech.kinetic_sight_bonus) * WeatherSystem.sight_mult(mech.get_tree()) # storms shrink it
 
 func _effective_search_radius() -> float:
 	return mech.SEARCH_WANDER_RADIUS * (mech.SCOUT_SEARCH_MULT if mech.combat_role == "scout" else 1.0)

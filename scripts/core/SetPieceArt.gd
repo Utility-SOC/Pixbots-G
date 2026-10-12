@@ -32,10 +32,10 @@ static func styles() -> Array:
 		"bunker", "watchtower", "hangar", "barracks", "smokestack_works", "fuel_tanks", "container_stack"]
 
 static func has_style(style: String) -> bool:
-	return style in styles() or style in SetPieceArtB.styles() or style in SetPieceArtC.styles() or style in SetPieceArtD.styles() or SetPieceKit.has_style(style)
+	return style in styles() or style in SetPieceArtB.styles() or style in SetPieceArtC.styles() or style in SetPieceArtD.styles() or style in SetPieceArtE.styles() or SetPieceKit.has_style(style)
 
 static func all_styles() -> Array:
-	return styles() + SetPieceArtB.styles() + SetPieceArtC.styles() + SetPieceArtD.styles() + SetPieceKit.styles()
+	return styles() + SetPieceArtB.styles() + SetPieceArtC.styles() + SetPieceArtD.styles() + SetPieceArtE.styles() + SetPieceKit.styles()
 
 static func _f(out: Array, c0: int, r0: int, c1: int, r1: int, col: Color, cols: int, rows: int) -> void:
 	c0 = clampi(c0, 0, cols)
@@ -58,6 +58,8 @@ static func rects(style: String, footprint: Vector2, seed_v: int) -> Array:
 		return SetPieceArtC.rects(style, footprint, seed_v)
 	if style in SetPieceArtD.styles():
 		return SetPieceArtD.rects(style, footprint, seed_v)
+	if style in SetPieceArtE.styles():
+		return SetPieceArtE.rects(style, footprint, seed_v)
 	if SetPieceKit.has_style(style):
 		return SetPieceKit.rects(style, footprint, seed_v)
 	var cols = int(footprint.x / PIX)

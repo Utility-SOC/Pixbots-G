@@ -15,10 +15,11 @@ const KEEPOUT = 12.0 # tiles around the player's spawn kept clear of set pieces
 # ---- hooks --------------------------------------------------------------------------------------------------------
 
 static func prepare(m) -> void:
+	m.future = MapTypes.is_future(m.map_type)
 	m.era = m.era_override if m.era_override != "" else MapTypes.roll_era(m.map_type, randf())
 
 static func base_biome(m, x: int, y: int) -> int:
-	match m.map_type:
+	match MapTypes.base(m.map_type):
 		"Urban": return BT["FLOOR"]
 		"Islands": return BT["WATER"]
 		"Swamp", "Dense Forest": return BT["FOREST"]
@@ -30,7 +31,7 @@ static func base_biome(m, x: int, y: int) -> int:
 static func build(m) -> void:
 	m.decor.clear()
 	m.hazard_spots.clear()
-	match m.map_type:
+	match MapTypes.base(m.map_type):
 		"Urban": MapKitsA.urban(m)
 		"Lakelands": MapKitsA.lakelands(m)
 		"Islands": MapKitsA.islands(m)
@@ -75,7 +76,41 @@ static func put_obstacle(m, x: int, y: int, name: String, clear_r: float = 5.0) 
 	m.obstacles[Vector2i(x, y)] = name
 	return true
 
+# Classic decor and set-piece themes/styles have hypertech counterparts for the Hyper variants.
+const FUTURE_DECOR = {"poppy": "neon_bloom", "poppy_dense": "neon_bloom", "flowers": "neon_bloom", "grass_tuft": "circuit", "moss": "circuit",
+	"cracks": "circuit", "wire": "hardlight", "ripple": "circuit", "bones": "debris", "sandbags": "hex_plate"}
+const FUTURE_THEMES = {
+	"urban": ["hyper_city"], "art_deco": ["hyper_city", "kitbash"], "gothic": ["hyper_arcane", "kitbash"], "monument": ["hyper_arcane"],
+	"ancient": ["hyper_arcane"], "agricultural": ["hyper_bio"], "coast": ["hyper_infra", "hyper_city"], "power": ["hyper_infra"],
+	"industrial": ["hyper_infra"], "military": ["hyper_infra", "scifi"], "fortification": ["hyper_infra"], "camp": ["scifi", "hyper_bio"],
+	"range": ["hyper_infra"], "arena": ["hyper_infra", "hyper_arcane"], "swamp": ["hyper_bio"], "oz": ["hyper_arcane", "kitbash"],
+	"cave": ["hyper_arcane", "cave"], "dungeon": ["hyper_interior"], "desert_rock": ["hyper_arcane"], "stadium": ["hyper_city"],
+}
+const FUTURE_STYLES = {"hangar": "gantry_bay", "watchtower": "comms_spire", "missile_silo": "orbital_gun", "target_dummies": "hardlight_barrier",
+	"observation_tower": "data_spire", "floodlight_tower": "force_pylon", "scoreboard": "holo_billboard", "triumphal_arch": "void_gate",
+	"colonnade": "hardlight_barrier", "grandstand": "maglev_station", "emerald_tower": "sky_spire", "hangar_door_bunker": "gantry_bay",
+	"pillar_cluster": "data_monolith", "sandstone_arch": "void_gate", "column_ruin": "crystal_spire", "temple": "cyber_torii", "ziggurat": "arcology",
+	"sarcophagus": "cryo_pod", "altar": "hologram_table", "iron_cage": "airlock", "brazier": "console_bank", "gargoyle": "server_rack",
+	"banquet_table": "hologram_table", "hearth": "reactor_core", "bookshelves": "server_rack", "throne": "console_bank", "treasure_hoard": "cryo_pod",
+	"torture_rack": "console_bank", "summoning_circle": "reactor_core", "stone_well": "reactor_core", "graveyard": "cryo_pod", "crypt": "airlock",
+	"mausoleum": "airlock", "stalagmites": "crystal_cluster"}
+
+static func map_themes(m, themes: Array) -> Array:
+	if not m.future:
+		return themes
+	var out: Array = []
+	for t in themes:
+		for f in FUTURE_THEMES.get(t, [t]):
+			if not (f in out):
+				out.append(f)
+	return out
+
+static func map_style(m, style: String) -> String:
+	return FUTURE_STYLES.get(style, style) if m.future else style
+
 static func add_decor(m, x: int, y: int, kind: String) -> void:
+	if m.future:
+		kind = FUTURE_DECOR.get(kind, kind)
 	if x >= 0 and y >= 0 and x < m.width and y < m.height and (m.terrain[y][x] != BT["WATER"] or kind.begins_with("pool_")):
 		m.decor[Vector2i(x, y)] = kind
 
@@ -110,6 +145,7 @@ static func rect_free(m, x: int, y: int, w: int, h: int, margin: int = 1, keepou
 	return Vector2(cxp - m.width / 2.0, cyp - m.height / 2.0).length() >= keepout_r
 
 static func place_piece(m, style: String, x: int, y: int, w: int, h: int, margin: int = 1) -> bool:
+	style = map_style(m, style)
 	if not rect_free(m, x, y, w, h, margin):
 		return false
 	for yy in range(y, y + h):
@@ -122,11 +158,26 @@ static func place_piece(m, style: String, x: int, y: int, w: int, h: int, margin
 static func scatter_pieces(m, themes: Array, count: int, region: Rect2i, margin: int = 1, tries_per: int = 30) -> int:
 	var placed = 0
 	var tries = 0
+	themes = map_themes(m, themes)
 	while placed < count and tries < count * tries_per:
 		tries += 1
 		var style = SetPieces.random_piece(themes, randf())
 		if style == "ruin":
 			continue
+		var sz = SetPieces.random_size(style, randf(), randf())
+		var x = region.position.x + randi() % maxi(1, region.size.x - sz.x + 1)
+		var y = region.position.y + randi() % maxi(1, region.size.y - sz.y + 1)
+		if place_piece(m, style, x, y, sz.x, sz.y, margin):
+			placed += 1
+	return placed
+
+# Places up to `count` pieces drawn uniformly from the named `styles` (no theme weighting), each at a random footprint of its size.
+static func scatter_styles(m, styles: Array, count: int, region: Rect2i, margin: int = 1, tries_per: int = 40) -> int:
+	var placed = 0
+	var tries = 0
+	while placed < count and tries < count * tries_per:
+		tries += 1
+		var style: String = styles[randi() % styles.size()]
 		var sz = SetPieces.random_size(style, randf(), randf())
 		var x = region.position.x + randi() % maxi(1, region.size.x - sz.x + 1)
 		var y = region.position.y + randi() % maxi(1, region.size.y - sz.y + 1)

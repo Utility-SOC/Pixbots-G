@@ -58,7 +58,7 @@ static func rects(style: String, footprint: Vector2, seed_v: int) -> Array:
 		"arcology":
 			var tiers = 5
 			for t in range(tiers):
-				var inset = t * cols / (2 * tiers + 2)
+				var inset = (tiers - 1 - t) * cols / (2 * tiers + 2) # stepped: narrow at the top, wide at the base
 				var r0 = rows * t / tiers
 				var r1 = rows * (t + 1) / tiers
 				_f(o, inset, r0 + 1, cols - inset, rows, CHROME_D.darkened(0.15 * float(t % 2)), cols, rows)

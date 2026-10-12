@@ -9,9 +9,9 @@ const BT = MapKits.BT
 static func urban(m) -> void:
 	var cx = m.width / 2
 	var cy = m.height / 2
-	var bw = 34
-	var bh = 26
-	var street = 5
+	var fut = m.future # Ecumenopolis: a Coruscant-style planet-city, every block built up and no parks
+	var bw = 30 if fut else 34
+	var bh = 24 if fut else 26
 	var th = MapKits.themes("Urban", m.era)
 	# streets: a grid with the spawn at an intersection; every third street is a wider avenue
 	for y in range(m.height):
@@ -24,8 +24,10 @@ static func urban(m) -> void:
 			var wide_y = 3 if posmod(ky, 3) == 0 else 2
 			if absi(dx) <= wide_x or absi(dy) <= wide_y:
 				m.terrain[y][x] = BT["ROAD"]
-	for kx in range(-7, 8):
-		for ky in range(-6, 7):
+				if fut and (x + y) % 9 == 0 and (absi(dx) <= 1 or absi(dy) <= 1):
+					MapKits.add_decor(m, x, y, "neon_lane")
+	for kx in range(-8, 9):
+		for ky in range(-7, 8):
 			var x0 = cx + kx * bw + 5
 			var y0 = cy + ky * bh + 5
 			var rect = Rect2i(x0, y0, bw - 10, bh - 10)
@@ -34,6 +36,21 @@ static func urban(m) -> void:
 			if kx == 0 and ky == 0:
 				continue
 			var roll = randf()
+			if fut:
+				if roll < 0.08:
+					_plaza(m, rect)
+				elif roll < 0.18:
+					MapKits.scatter_pieces(m, ["power", "industrial"], 7, rect, 1, 80)
+				elif roll < 0.24:
+					MapKits.scatter_pieces(m, ["agricultural", "swamp"], 6, rect, 1, 80) # sky-gardens and vertical farms
+				else: # a built-up block: landmark towers first, then the clutter between them
+					if randf() < 0.6:
+						MapKits.scatter_styles(m, ["arcology"], 1, rect, 1, 30)
+					MapKits.scatter_styles(m, ["sky_spire", "sky_spire", "data_spire", "cargo_lift"], 4, rect, 1, 40)
+					if randf() < 0.45:
+						MapKits.scatter_styles(m, ["maglev_station", "skybridge"], 1, rect, 1, 30)
+					MapKits.scatter_pieces(m, ["hyper_city"], 5, rect, 1, 60)
+				continue
 			if roll < 0.12:
 				_park(m, rect)
 			elif roll < 0.22:

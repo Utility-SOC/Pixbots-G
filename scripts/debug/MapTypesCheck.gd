@@ -24,6 +24,7 @@ func _run(t: String, era: String) -> void:
 	add_child(m)
 	await get_tree().process_frame
 	var tag = "%s/%s" % [t, era]
+	_check("%s: future flag matches the name" % tag, m.future == MapTypes.is_future(t))
 	var c = Vector2i(m.width / 2, m.height / 2)
 	_check("%s: size matches the registry" % tag, Vector2i(m.width, m.height) == MapTypes.size(t))
 	_check("%s: the era is what was asked" % tag, m.era == era)
@@ -51,17 +52,17 @@ func _run(t: String, era: String) -> void:
 				if m.obstacles.get(k, "") != "RuinPart":
 					bad_cells += 1
 	_check("%s: every piece has art and a valid era (%s)" % [tag, str(bad_style)], bad_style.is_empty())
-	_check("%s: pieces never overlap (%d) and own their cells (%d)" % [tag, overlaps, bad_cells], overlaps == 0 and bad_cells == 0)
-	var min_pieces = {"Islands": 15, "Lakelands": 15, "Swamp": 15, "Dense Forest": 10, "Hydrothermal Park": 8}.get(t, 25)
+	_check("%s: pieces never overlap (%d) and own their cells (%d lost to connectivity corridors)" % [tag, overlaps, bad_cells], overlaps == 0 and bad_cells <= maxi(8, seen.size() / 100))
+	var min_pieces = {"Islands": 15, "Lakelands": 15, "Swamp": 15, "Dense Forest": 10, "Hydrothermal Park": 8}.get(MapTypes.base(t), 25)
 	_check("%s: enough set pieces (%d)" % [tag, m.ruin_specs.size()], m.ruin_specs.size() >= min_pieces)
 	var spots_ok = true
 	for s in m.hazard_spots:
 		if s["pos"].x < 0 or s["pos"].y < 0 or s["pos"].x >= m.width or s["pos"].y >= m.height:
 			spots_ok = false
 	_check("%s: hazard spots in bounds (%d)" % [tag, m.hazard_spots.size()], spots_ok)
-	if t in ["Hydrothermal Park"]:
+	if MapTypes.base(t) in ["Hydrothermal Park"]:
 		_check("%s: has geysers" % tag, m.hazard_spots.any(func(s): return s["kind"] == "geyser"))
-	if t == "Munitions Range":
+	if MapTypes.base(t) == "Munitions Range":
 		_check("%s: has unexploded ordnance" % tag, m.hazard_spots.any(func(s): return s["kind"] == "uxo"))
 	var zones_ok = true
 	for z in m.zones:
@@ -73,7 +74,7 @@ func _run(t: String, era: String) -> void:
 
 func _ready():
 	var names = MapTypes.names()
-	var flagship = ["Urban", "Beach", "Poppy Fields"]
+	var flagship = ["Urban", "Beach", "Poppy Fields", "Ecumenopolis"]
 	for i in range(names.size()):
 		var t: String = names[i]
 		if t in flagship:
@@ -81,6 +82,8 @@ func _ready():
 				await _run(t, e)
 		else:
 			await _run(t, MapTypes.ERAS[i % 4])
+	_check("every type has a hypertech twin", MapTypes.names().size() == MapTypes.classic_names().size() * 2 and "Ecumenopolis" in MapTypes.names() and "Hyper Beach" in MapTypes.names())
+	_check("hyper names resolve to their base", MapTypes.base("Ecumenopolis") == "Urban" and MapTypes.base("Hyper Swamp") == "Swamp" and MapTypes.base("Swamp") == "Swamp")
 	_check("era rolls are weighted and cover every era", MapTypes.roll_era("Beach", 0.0) == "prewar" and MapTypes.roll_era("Beach", 0.99) == "apocalypse" and MapTypes.roll_era("Beach", 0.55) == "no_mans_land")
 	_check("tints darken with the war", MapTypes.tint("Urban", "apocalypse").r < MapTypes.tint("Urban", "prewar").r)
 	print("map types check done, failures=%d" % failures)

@@ -43,6 +43,8 @@ var map_type: String = "Normal" # Can be "Arena"
 # Colosseum Elite Four fights). Only meaningful for the data-driven types in MapTypes.
 var era: String = ""
 var era_override: String = ""
+# True for the Hyper variants of a MapTypes map (hypertech pieces and decor); set by MapKits.prepare.
+var future: bool = false
 # Baked ground decoration: tile -> MapDecor kind. Painted into the chunk images (see _render_chunk_image).
 var decor: Dictionary = {}
 # Spots the hazard spawner turns into nodes for MapTypes maps: {"kind": "geyser"|"uxo", "pos": Vector2 (tiles)}.
@@ -199,7 +201,7 @@ func _ready():
 # Weather: Desert sandstorms, Tundra blizzards (see WeatherSystem). Safe to call again after the map type changes.
 func _ensure_weather() -> void:
 	var existing = get_node_or_null("WeatherSystem")
-	var wanted = WeatherSystem.KIND_BY_MAP.get(map_type, "")
+	var wanted = WeatherSystem.KIND_BY_MAP.get(map_type, WeatherSystem.KIND_BY_MAP.get(MapTypes.base(map_type), ""))
 	if existing != null and (wanted == "" or existing.kind != wanted):
 		existing.remove_from_group("weather")
 		existing.queue_free()

@@ -75,7 +75,9 @@ const MAP_ROTATION_TYPES = ["Tabletop", "Tabletop", "Normal", "Open Field", "For
 # The data-driven map types (MapTypes), joining the rotation after the originals. Colosseum is reserved for Elite Four fights.
 const NEW_ROTATION_TYPES = [
 	"Urban", "Lakelands", "Islands", "Beach", "Swamp", "Poppy Fields", "Sports Arena", "Hydrothermal Park", "Desert Arches", "Dense Forest",
-	"Munitions Range", "Military Base", "Caves", "Crypt", "Keep", "Dreamscape"]
+	"Munitions Range", "Military Base", "Caves", "Crypt", "Keep", "Dreamscape",
+	"Ecumenopolis", "Hyper Lakelands", "Hyper Islands", "Hyper Beach", "Hyper Swamp", "Hyper Poppy Fields", "Hyper Sports Arena", "Hyper Hydrothermal Park",
+	"Hyper Desert Arches", "Hyper Dense Forest", "Hyper Munitions Range", "Hyper Military Base", "Hyper Caves", "Hyper Crypt", "Hyper Keep", "Hyper Dreamscape"]
 
 # Per the user: "in campaign mode, the map should change every ten waves, or
 # every 3 minutes, whichever is faster. (I'd like to be able to tune that

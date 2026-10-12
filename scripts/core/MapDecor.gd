@@ -6,7 +6,7 @@ extends RefCounted
 # at runtime. `decor` maps a tile (Vector2i) to a kind string; each kind draws inside its tile only.
 
 const KINDS = ["poppy", "poppy_dense", "crater", "wire", "bones", "tracks", "debris", "yellow_road", "flowers", "pool_deep", "pool_blue",
-	"pool_green", "pool_yellow", "pool_orange", "ripple", "moss", "cracks", "scorch", "sandbags", "blood_moon_glow", "grass_tuft", "ice_crack", "ash"]
+	"pool_green", "pool_yellow", "pool_orange", "ripple", "moss", "cracks", "scorch", "sandbags", "blood_moon_glow", "grass_tuft", "ice_crack", "ash", "neon_bloom", "circuit", "hardlight", "neon_lane", "hex_plate"]
 
 static func _h(cell: Vector2i, salt: int) -> int:
 	return posmod(cell.x * 73856093 ^ cell.y * 19349663 ^ salt * 83492791, 100003)
@@ -114,6 +114,38 @@ static func paint(img: Image, kind: String, ox: int, oy: int, t: int, cell: Vect
 				var x = ox + _h(cell, i * 2 + 1) % (t - 3)
 				var y = oy + _h(cell, i * 2 + 2) % (t - 3)
 				img.fill_rect(Rect2i(x, y, 3, 3), Color(0.3, 0.3, 0.32))
+		"neon_bloom":
+			for i in range(6):
+				var x = ox + 2 + _h(cell, i * 2 + 1) % (t - 6)
+				var y = oy + 2 + _h(cell, i * 2 + 2) % (t - 6)
+				var c = [Color(0.95, 0.3, 0.8), Color(0.3, 0.9, 1.0), Color(0.6, 1.0, 0.4)][_h(cell, i) % 3]
+				img.fill_rect(Rect2i(x, y, 3, 3), c)
+				img.fill_rect(Rect2i(x + 1, y + 3, 1, 3), Color(0.1, 0.35, 0.3))
+		"circuit":
+			var y0 = oy + 6 + _h(cell, 1) % (t - 12)
+			var x = ox
+			while x < ox + t:
+				img.set_pixel(x, y0, Color(0.2, 0.75, 0.6))
+				x += 1
+				if _h(cell, x) % 9 == 0:
+					y0 = clampi(y0 + ((_h(cell, x + 5) % 3) - 1) * 3, oy + 2, oy + t - 3)
+			img.fill_rect(Rect2i(ox + _h(cell, 3) % (t - 4), y0 - 1, 3, 3), Color(0.6, 1.0, 0.85))
+		"hardlight":
+			for x in range(0, t, 2):
+				img.set_pixel(ox + x, oy + t / 2, Color(0.4, 0.95, 1.0))
+				img.set_pixel(ox + x, oy + t / 2 + 1, Color(0.15, 0.55, 0.8))
+			img.fill_rect(Rect2i(ox, oy + t / 2 - 5, 2, 11), Color(0.25, 0.3, 0.4))
+			img.fill_rect(Rect2i(ox + t - 2, oy + t / 2 - 5, 2, 11), Color(0.25, 0.3, 0.4))
+		"neon_lane":
+			for x in range(0, t, 8):
+				img.fill_rect(Rect2i(ox + x, oy + t / 2 - 1, 5, 2), Color(0.3, 0.95, 1.0))
+		"hex_plate":
+			for i in range(2):
+				var cx = ox + 8 + i * 14
+				var cy = oy + 8 + (i % 2) * 8
+				img.fill_rect(Rect2i(cx - 4, cy - 2, 9, 5), Color(0.34, 0.38, 0.46))
+				img.fill_rect(Rect2i(cx - 2, cy - 4, 5, 9), Color(0.34, 0.38, 0.46))
+				img.fill_rect(Rect2i(cx - 1, cy - 1, 3, 3), Color(0.55, 0.9, 1.0))
 		"blood_moon_glow":
 			for i in range(6):
 				var x = ox + _h(cell, i * 2 + 1) % (t - 4)

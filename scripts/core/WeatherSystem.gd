@@ -16,7 +16,7 @@ const KINDS = {
 	"blizzard": {"first": Vector2(90.0, 180.0), "gap": Vector2(120.0, 240.0), "ramp": 7.0, "hold": Vector2(15.0, 25.0), "fade": 9.0,
 		"min_sight": 0.15, "ebb_depth": 0.5, "ebb_period": 9.0, "tint": Color(0.9, 0.95, 1.0), "max_alpha": 0.6, "warn": "BLIZZARD", "once_in": 3},
 }
-const KIND_BY_MAP = {"Desert": "sandstorm", "Tundra": "blizzard"}
+const KIND_BY_MAP = {"Desert": "sandstorm", "Tundra": "blizzard", "Desert Arches": "sandstorm"}
 
 var kind: String = "sandstorm"
 var state: int = State.CLEAR

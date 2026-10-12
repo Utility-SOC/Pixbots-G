@@ -264,13 +264,18 @@ func _ready():
 	for l in MapGenerator.LAYOUTS:
 		layout_opt.add_item("Layout: " + l)
 	tab_world.add_child(layout_opt)
+	var era_opt = OptionButton.new() # war era for the data-driven map types (MapTypes)
+	era_opt.add_item("War era: auto")
+	for e in MapTypes.ERAS:
+		era_opt.add_item("War era: " + e)
+	tab_world.add_child(era_opt)
 
 	var map_grid = GridContainer.new()
 	map_grid.columns = 3
 	tab_world.add_child(map_grid)
 
-	var map_types = ["Normal", "Arena", "Open Field", "Desert", "Forest", "Tundra", "Volcano", "Dungeon", "Water", "Tabletop", "FightShovel"]
-	var map_colors = [Color(0.4, 0.8, 0.4), Color(0.15, 0.1, 0.2), Color(0.4, 0.8, 0.4), Color(0.9, 0.8, 0.5), Color(0.1, 0.5, 0.2), Color(0.8, 0.9, 0.9), Color(0.3, 0.1, 0.1), Color(0.15, 0.1, 0.2), Color(0.2, 0.4, 0.9), Color(0.85, 0.7, 0.45), Color(0.62, 0.53, 0.36)]
+	var map_types = ["Normal", "Arena", "Open Field", "Desert", "Forest", "Tundra", "Volcano", "Dungeon", "Water", "Tabletop", "FightShovel"] + MapTypes.names()
+	var map_colors = [Color(0.4, 0.8, 0.4), Color(0.15, 0.1, 0.2), Color(0.4, 0.8, 0.4), Color(0.9, 0.8, 0.5), Color(0.1, 0.5, 0.2), Color(0.8, 0.9, 0.9), Color(0.3, 0.1, 0.1), Color(0.15, 0.1, 0.2), Color(0.2, 0.4, 0.9), Color(0.85, 0.7, 0.45), Color(0.62, 0.53, 0.36)] + MapTypes.names().map(func(n): return MapTypes.tint(n, "prewar") * Color(0.55, 0.65, 0.5))
 
 	for i in range(map_types.size()):
 		var map_type = map_types[i]
@@ -304,10 +309,12 @@ func _ready():
 			var map = main.world.get_node_or_null("GameMap") if (main and "world" in main and main.world) else null
 			if map:
 				map.map_type = map_type
+				map.era_override = "" if era_opt.selected <= 0 else MapTypes.ERAS[era_opt.selected - 1]
 				map.force_ruins = force_ruins_check.button_pressed
 				map.map_layout = "auto" if layout_opt.selected <= 0 else layout_opt.get_item_text(layout_opt.selected).replace("Layout: ", "")
 				map.map_seed = 0
 				map._generate_map()
+				map._ensure_weather()
 				map._draw_map_to_texture()
 				map._build_navigation()
 				# Map sizes can differ wildly (Tabletop is 64x32 vs the

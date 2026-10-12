@@ -106,7 +106,7 @@ class MinimapView:
 					var biome = row[x]
 					var c = colors.get(biome)
 					if c == null:
-						var col: Color = map._get_biome_color(biome)
+						var col: Color = map._get_biome_color(biome) * (map.ground_tint() if map.has_method("ground_tint") else Color.WHITE)
 						c = [col.r8, col.g8, col.b8]
 						colors[biome] = c
 					bytes[i] = c[0]

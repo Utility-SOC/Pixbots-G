@@ -22,6 +22,14 @@ var done: bool = false
 var reward_rarity_override: int = -1 # tests
 var buff_type: String = "" # hold points only: the CaptureBuffs type granted on capture ("" = none); set by MapGenerator
 var rewards_given: int = 0
+# Enemy capture (hold points only): enemies standing in an unoccupied ring fill enemy_progress; when it is full the point is
+# enemy-held, its buff goes to the enemies around it (short refresh) until the player takes it. All (tune).
+const ENEMY_HOLD_SECONDS = 20.0
+const ENEMY_BUFF_RADIUS_MULT = 1.5
+const ENEMY_BUFF_SECONDS = 6.0
+var enemy_progress: float = 0.0
+var enemy_held: bool = false
+var _enemy_buff_t: float = 0.0
 
 var _linger := 0.0
 var _redraw_t := 0.0
@@ -61,8 +69,41 @@ func step(delta: float) -> void:
 		progress = minf(progress + delta / HOLD_SECONDS, 1.0)
 	elif not player_in:
 		progress = maxf(progress - delta / HOLD_SECONDS * DRAIN_RATE, 0.0)
+	_step_enemy_capture(delta, player_in)
 	if progress >= 1.0:
 		_complete()
+
+func _enemy_count_inside() -> int:
+	var n = 0
+	for e in EntityCache.get_group("enemy"):
+		if is_instance_valid(e) and e.get("is_dead") != true and e.get("combat_role") != "drone" and e.global_position.distance_to(global_position) <= radius:
+			n += 1
+	return n
+
+# Enemies capture an empty ring by standing in it; a player inside holds them off (and slowly undoes their progress).
+func _step_enemy_capture(delta: float, player_in: bool) -> void:
+	if kind != "hold" or done:
+		return
+	if player_in:
+		enemy_progress = maxf(enemy_progress - delta / ENEMY_HOLD_SECONDS * 2.0, 0.0)
+		if enemy_held and progress >= 0.5:
+			enemy_held = false # the player is taking it back
+		return
+	if not enemy_held:
+		if _enemy_count_inside() > 0:
+			enemy_progress = minf(enemy_progress + delta / ENEMY_HOLD_SECONDS, 1.0)
+			if enemy_progress >= 1.0:
+				enemy_held = true
+		else:
+			enemy_progress = maxf(enemy_progress - delta / ENEMY_HOLD_SECONDS * 0.5, 0.0)
+	if enemy_held and buff_type != "":
+		_enemy_buff_t -= delta
+		if _enemy_buff_t <= 0.0:
+			_enemy_buff_t = 1.0
+			for e in EntityCache.get_group("enemy"):
+				if is_instance_valid(e) and e.get("is_dead") != true and e.global_position.distance_to(global_position) <= radius * ENEMY_BUFF_RADIUS_MULT:
+					if CaptureBuffs.grant(e, buff_type):
+						e.capture_buffs[buff_type] = ENEMY_BUFF_SECONDS
 
 func _player_distance() -> float:
 	var players = EntityCache.get_group("player")
@@ -103,7 +144,12 @@ func _draw():
 		draw_line(Vector2(-9, -1), Vector2(9, -1), c, 2.0)
 		return
 	var col = Color(0.4, 0.9, 0.5) if not contested else Color(1.0, 0.45, 0.35)
-	if buff_type != "" and not contested and not done:
+	if enemy_held and not done:
+		col = Color(1.0, 0.25, 0.25)
+		draw_arc(Vector2.ZERO, radius * ENEMY_BUFF_RADIUS_MULT, 0.0, TAU, 48, Color(1.0, 0.25, 0.25, 0.18), 2.0)
+	elif enemy_progress > 0.0 and not done:
+		draw_arc(Vector2.ZERO, radius * 0.92, -PI * 0.5, -PI * 0.5 + TAU * enemy_progress, 48, Color(1.0, 0.3, 0.3, 0.6), 3.0)
+	if buff_type != "" and not contested and not done and not enemy_held:
 		col = CaptureBuffs.COLORS[buff_type] # the ring shows which buff this point offers
 	if done:
 		col = Color(0.6, 0.9, 1.0)

@@ -77,6 +77,30 @@ const PIECES = {
 	"column_ruin": {"theme": "ancient", "min": [3, 2], "max": [5, 3], "weight": 3, "hard": 1.3},
 	"ziggurat": {"theme": "ancient", "min": [5, 4], "max": [8, 6], "weight": 2, "hard": 1.8},
 	"sandstone_arch": {"theme": "ancient", "min": [4, 3], "max": [7, 5], "weight": 2, "hard": 2.0},
+	# coast, stadium, swamp, range, cave and Oz pieces (SetPieceArtD)
+	"lighthouse": {"theme": "coast", "min": [2, 4], "max": [3, 6], "weight": 2, "hard": 1.3},
+	"beach_hut": {"theme": "coast", "min": [2, 2], "max": [3, 3], "weight": 3, "hard": 0.4},
+	"umbrella_cluster": {"theme": "coast", "min": [3, 2], "max": [5, 3], "weight": 3, "hard": 0.2},
+	"landing_craft": {"theme": "coast", "min": [4, 3], "max": [6, 4], "weight": 2, "hard": 1.2},
+	"grandstand": {"theme": "stadium", "min": [6, 3], "max": [10, 5], "weight": 3, "hard": 1.4},
+	"scoreboard": {"theme": "stadium", "min": [3, 3], "max": [5, 4], "weight": 2, "hard": 0.8},
+	"floodlight_tower": {"theme": "stadium", "min": [2, 4], "max": [3, 6], "weight": 3, "hard": 0.7},
+	"stilt_house": {"theme": "swamp", "min": [3, 3], "max": [5, 4], "weight": 3, "hard": 0.6},
+	"emerald_tower": {"theme": "oz", "min": [3, 5], "max": [5, 8], "weight": 3, "hard": 1.2},
+	"scarecrow": {"theme": "oz", "min": [2, 3], "max": [2, 4], "weight": 3, "hard": 0.3},
+	"hoodoo": {"theme": "desert_rock", "min": [3, 3], "max": [5, 5], "weight": 3, "hard": 1.6},
+	"stalagmites": {"theme": "cave", "min": [3, 2], "max": [5, 4], "weight": 3, "hard": 1.4},
+	"crystal_cluster": {"theme": "cave", "min": [2, 2], "max": [4, 3], "weight": 2, "hard": 1.0},
+	"giant_skeleton": {"theme": "apocalypse_relic", "min": [6, 3], "max": [10, 5], "weight": 2, "hard": 0.9},
+	"cooling_tower": {"theme": "power", "min": [4, 5], "max": [6, 7], "weight": 2, "hard": 1.3},
+	"missile_silo": {"theme": "military", "min": [3, 3], "max": [4, 4], "weight": 2, "hard": 1.8},
+	"target_dummies": {"theme": "range", "min": [4, 2], "max": [7, 3], "weight": 3, "hard": 0.3},
+	"observation_tower": {"theme": "range", "min": [2, 3], "max": [3, 5], "weight": 3, "hard": 0.8},
+	"hangar_door_bunker": {"theme": "range", "min": [4, 3], "max": [6, 4], "weight": 2, "hard": 1.8},
+	"colonnade": {"theme": "arena", "min": [4, 2], "max": [8, 3], "weight": 3, "hard": 1.3},
+	"triumphal_arch": {"theme": "arena", "min": [4, 4], "max": [6, 6], "weight": 2, "hard": 1.6},
+	"gate_arch": {"theme": "arena", "min": [4, 3], "max": [6, 5], "weight": 2, "hard": 1.8},
+	"geyser_cone": {"theme": "hydrothermal", "min": [2, 3], "max": [3, 4], "weight": 3, "hard": 1.5},
 	# sci-fi (hyperfuturistic terrain on the same table)
 	"hab_dome": {"theme": "scifi", "min": [3, 3], "max": [5, 4], "weight": 3, "hard": 0.9},
 	"reactor_tower": {"theme": "scifi", "min": [2, 3], "max": [4, 5], "weight": 2, "hard": 1.3},
@@ -195,11 +219,11 @@ static func hash01(x: int, y: int, w: int, h: int) -> float:
 
 # The style to build on a w x h footprint at (x, y) for `themes`, or "ruin" for the plain grey shell. Chooses among the
 # pieces of those themes that fit best, weighted, by the footprint hash.
-static func pick(themes: Array, x: int, y: int, w: int, h: int) -> String:
+static func pick(themes: Array, x: int, y: int, w: int, h: int, plain_share: float = PLAIN_RUIN_SHARE) -> String:
 	if themes.is_empty():
 		return "ruin"
 	var h01 = hash01(x, y, w, h)
-	if h01 < PLAIN_RUIN_SHARE:
+	if h01 < plain_share:
 		return "ruin"
 	var best_gap = 1000
 	for theme in themes:
@@ -213,8 +237,25 @@ static func pick(themes: Array, x: int, y: int, w: int, h: int) -> String:
 					pool.append(n)
 	if pool.is_empty():
 		return "ruin"
-	var r = (h01 - PLAIN_RUIN_SHARE) / (1.0 - PLAIN_RUIN_SHARE)
+	var r = (h01 - plain_share) / maxf(0.0001, 1.0 - plain_share)
 	return pool[mini(pool.size() - 1, int(r * pool.size()))]
+
+# A weighted random piece from `themes` (r01 is the caller's 0..1 roll) and a random footprint inside its size range.
+static func random_piece(themes: Array, r01: float) -> String:
+	var pool: Array = []
+	for theme in themes:
+		for n in names_for_theme(theme):
+			for i in range(int(PIECES[n]["weight"])):
+				pool.append(n)
+	if pool.is_empty():
+		return "ruin"
+	return pool[mini(pool.size() - 1, int(r01 * float(pool.size())))]
+
+static func random_size(name: String, r1: float, r2: float) -> Vector2i:
+	var p: Dictionary = PIECES[name]
+	var mn: Array = p["min"]
+	var mx: Array = p["max"]
+	return Vector2i(int(mn[0]) + int(r1 * float(int(mx[0]) - int(mn[0]) + 1)), int(mn[1]) + int(r2 * float(int(mx[1]) - int(mn[1]) + 1)))
 
 static func hardness(name: String) -> float:
 	return float(PIECES[name]["hard"]) if PIECES.has(name) else 1.0

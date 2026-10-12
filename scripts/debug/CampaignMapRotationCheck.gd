@@ -97,7 +97,7 @@ func _ready():
 
 	mech.jumpjet_rarity = -1
 	_check("every OTHER map type stays available even while Water is excluded",
-		main._water_eligible_map_types().size() == MainScript.MAP_ROTATION_TYPES.size() - 1)
+		main._water_eligible_map_types().size() == MainScript.MAP_ROTATION_TYPES.size() + MainScript.NEW_ROTATION_TYPES.size() - 1)
 
 	mech.free()
 	main.player = null

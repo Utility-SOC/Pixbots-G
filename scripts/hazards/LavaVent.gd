@@ -27,6 +27,7 @@ var times_erupted: int = 0
 
 func _ready():
 	add_to_group("lava_vent")
+	add_to_group("explosion_trigger")
 	z_index = -3
 	_seed = randi()
 	_timer = SimRng.stream("combat").randf_range(MIN_PERIOD * 0.3, MAX_PERIOD) # staggered so vents don't pulse in unison
@@ -54,6 +55,9 @@ func _process(delta: float):
 func _erupt() -> void:
 	times_erupted += 1
 	Sfx.play(SfxNames, global_position)
+	for t in EntityCache.get_group("obstacle"):
+		if is_instance_valid(t) and t.has_method("ignite") and t.global_position.distance_to(global_position) <= radius * 1.2:
+			t.ignite() # an eruption lights the trees around it
 	for victim in victims():
 		victim.apply_damage(damage, "FIRE")
 		if victim.has_method("apply_status"):

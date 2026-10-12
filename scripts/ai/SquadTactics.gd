@@ -181,6 +181,8 @@ func _tick(squad: Node, player: Node2D) -> void:
 		return
 	var P: Vector2 = player.global_position
 	var defend = objective_focus(squad, P)
+	if defend == Vector2.INF:
+		defend = capture_focus(squad, P) # some squads go and take (and hold) an empty fort
 	if defend != Vector2.INF:
 		P = defend # contest the fort the player is working on instead of chasing them
 
@@ -252,6 +254,27 @@ static func objective_focus(squad: Node, player_pos: Vector2) -> Vector2:
 			continue
 		if player_pos.distance_to(obj.global_position) <= obj.radius:
 			continue # the player is inside: the normal chase already brings the squad to them
+		var d = here.distance_to(obj.global_position)
+		if d < best_d:
+			best_d = d
+			best = obj.global_position
+	return best
+
+# Enemy capture: one squad in five, when the player is far from the fort, goes and stands in the nearest hold point that
+# nobody holds (see ZoneObjective.enemy_progress). Returns Vector2.INF when there is nothing worth taking.
+const CAPTURE_RANGE = 1800.0
+const CAPTURE_PLAYER_MIN = 700.0
+static func capture_focus(squad: Node, player_pos: Vector2) -> Vector2:
+	if squad.get_instance_id() % 5 != 1 or not squad.is_inside_tree():
+		return Vector2.INF
+	var here: Vector2 = squad.get_center_position()
+	var best = Vector2.INF
+	var best_d = CAPTURE_RANGE
+	for obj in squad.get_tree().get_nodes_in_group("zone_objective"):
+		if not is_instance_valid(obj) or obj.kind != "hold" or obj.done or obj.enemy_held:
+			continue
+		if player_pos.distance_to(obj.global_position) < CAPTURE_PLAYER_MIN:
+			continue
 		var d = here.distance_to(obj.global_position)
 		if d < best_d:
 			best_d = d

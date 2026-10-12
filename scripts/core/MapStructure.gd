@@ -439,6 +439,7 @@ static func build_dungeon(m) -> void:
 	rooms = rooms.filter(func(r): return not r.intersects(spawn_room.grow(3)))
 	rooms.append(spawn_room)
 
+	m.dungeon_rooms = rooms
 	for r in rooms:
 		_carve_room(m, r)
 

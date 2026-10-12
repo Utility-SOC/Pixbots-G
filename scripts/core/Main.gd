@@ -72,6 +72,10 @@ var _tournament_bracket: Array = []
 # Per-run map rotation (design ruling, see _setup_environment) - Tabletop is
 # weighted double since it's the game's eventual identity.
 const MAP_ROTATION_TYPES = ["Tabletop", "Tabletop", "Normal", "Open Field", "Forest", "Desert", "Tundra", "Volcano", "Dungeon", "Water", "FightShovel"]
+# The data-driven map types (MapTypes), joining the rotation after the originals. Colosseum is reserved for Elite Four fights.
+const NEW_ROTATION_TYPES = [
+	"Urban", "Lakelands", "Islands", "Beach", "Swamp", "Poppy Fields", "Sports Arena", "Hydrothermal Park", "Desert Arches", "Dense Forest",
+	"Munitions Range", "Military Base", "Caves", "Crypt", "Keep", "Dreamscape"]
 
 # Per the user: "in campaign mode, the map should change every ten waves, or
 # every 3 minutes, whichever is faster. (I'd like to be able to tune that
@@ -479,6 +483,10 @@ func _setup_hud():
 	status_graph.main = self
 	hud_canvas.add_child(status_graph)
 
+	var buff_hud = CaptureBuffHud.new() # active capture-point buffs with time left
+	buff_hud.main = self
+	hud_canvas.add_child(buff_hud)
+
 	add_child(hud_canvas)
 	_update_hud()
 
@@ -771,9 +779,10 @@ func _setup_environment():
 # any run naturally falls through to "no Water" too - exactly the "pushed
 # later" the user asked for, with no separate first-map special case needed.
 func _water_eligible_map_types() -> Array:
+	var pool = MAP_ROTATION_TYPES + NEW_ROTATION_TYPES
 	if player and player.has_method("_has_jumpjets") and player._has_jumpjets():
-		return MAP_ROTATION_TYPES
-	return MAP_ROTATION_TYPES.filter(func(t): return t != "Water")
+		return pool
+	return pool.filter(func(t): return t != "Water")
 
 func _setup_live_batch_pool():
 	_live_batch_pool = ProjectileBatchPoolScript.new()

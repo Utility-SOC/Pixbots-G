@@ -142,6 +142,13 @@ func _apply_damage_body(amount: float, element: String = "RAW", source: Node = n
 	if amount > 0 and mech.status_effects.has("rent"):
 		amount *= 1.2
 
+	# DRENCHED (geysers, water): soaked armour conducts Lightning (+50%) and shrugs off Fire (-50%).
+	if amount > 0 and mech.status_effects.has("drenched"):
+		if element == "LIGHTNING":
+			amount *= 1.5
+		elif element == "FIRE":
+			amount *= 0.5
+
 	# Balanced-school Mythic Actuator: a brief post-ram "brace" window
 	# (see _process_ramming) shaves incoming damage - the utility half of
 	# that school's flavor, on top of the extra ram knockback it also gets.
@@ -468,6 +475,8 @@ func apply_status(effect_name: String, duration: float):
 		if duration < 0.03:
 			return # shrugged off entirely
 	mech.status_effects[effect_name] = duration
+	if effect_name == "drenched":
+		mech.status_effects.erase("burning") # soaked: any fire is put out
 	if effect_name == "burning" or effect_name == "poisoned" or effect_name == "frozen" or effect_name == "paralyzed":
 		load("res://scripts/visuals/StatusAura.gd").ensure_on(mech)
 

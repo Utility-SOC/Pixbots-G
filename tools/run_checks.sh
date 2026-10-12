@@ -12,10 +12,13 @@ PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 export PROJECT GODOT TMO
 NEEDS_RENDERER=" CutsceneLimbsCheck RotateLimbsCheck "
 export NEEDS_RENDERER
+SLOW_CHECKS=" MapTypesCheck MapLayoutCheck "
+export SLOW_CHECKS
 run_once() { # prints PASS, FAIL or TIMEOUT
-  local name="$1" home out rc
+  local name="$1" home out rc tmo="$TMO"
+  case " $SLOW_CHECKS " in *" $name "*) tmo=$((TMO * 3));; esac # whole-map generation checks get three times the budget
   home=$(mktemp -d); mkdir -p "$home/godot/app_userdata"
-  out=$(XDG_DATA_HOME="$home" timeout "$TMO" "$GODOT" --headless --path "$PROJECT" "res://scripts/debug/$name.tscn" --quit-after 6000 2>&1); rc=$?
+  out=$(XDG_DATA_HOME="$home" timeout "$tmo" "$GODOT" --headless --path "$PROJECT" "res://scripts/debug/$name.tscn" --quit-after 6000 2>&1); rc=$?
   rm -rf "$home"
   if [ $rc -eq 124 ]; then echo TIMEOUT
   elif [ $rc -ne 0 ] || echo "$out" | grep -q "FAIL\|SCRIPT ERROR\|Parse Error"; then echo FAIL

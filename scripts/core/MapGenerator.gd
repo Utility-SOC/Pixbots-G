@@ -39,6 +39,20 @@ var obstacles: Dictionary = {}
 var main_continent_tiles: Dictionary = {}
 var astar_grid: AStarGrid2D = AStarGrid2D.new()
 var map_type: String = "Normal" # Can be "Arena"
+# War era (SetPieceEra) for MapTypes maps: "" rolls one from the map type's weights; era_override forces it (debug menu,
+# Colosseum Elite Four fights). Only meaningful for the data-driven types in MapTypes.
+var era: String = ""
+var era_override: String = ""
+# Baked ground decoration: tile -> MapDecor kind. Painted into the chunk images (see _render_chunk_image).
+var decor: Dictionary = {}
+# Spots the hazard spawner turns into nodes for MapTypes maps: {"kind": "geyser"|"uxo", "pos": Vector2 (tiles)}.
+var hazard_spots: Array = []
+# Live tree bodies by tile (forest fire spread looks neighbours up here).
+var tree_nodes: Dictionary = {}
+# How fast fire spreads between trees on this map (1.0 normal); Dense Forest burns easily.
+var fire_spread_multiplier: float = 1.0
+# Rooms carved by MapStructure.build_dungeon (kept so interiors can be furnished).
+var dungeon_rooms: Array = []
 # Non-zero = deterministic generation (daily seed / shared run cards). The
 # global RNG is seeded for the generation window only, then re-randomized.
 var map_seed: int = 0
@@ -178,13 +192,22 @@ func _ready():
 		randomize()
 
 	if get_tree().root.has_node("ProceduralMusic"):
-		ProceduralMusic.set_biome(map_type)
+		ProceduralMusic.set_biome(MapTypes.music_key(map_type))
 
-	# Weather: Desert sandstorms, Tundra blizzards (see WeatherSystem).
-	if WeatherSystem.KIND_BY_MAP.has(map_type) and get_node_or_null("WeatherSystem") == null:
+	_ensure_weather()
+
+# Weather: Desert sandstorms, Tundra blizzards (see WeatherSystem). Safe to call again after the map type changes.
+func _ensure_weather() -> void:
+	var existing = get_node_or_null("WeatherSystem")
+	var wanted = WeatherSystem.KIND_BY_MAP.get(map_type, "")
+	if existing != null and (wanted == "" or existing.kind != wanted):
+		existing.remove_from_group("weather")
+		existing.queue_free()
+		existing = null
+	if wanted != "" and existing == null:
 		var weather = WeatherSystem.new()
 		weather.name = "WeatherSystem"
-		weather.kind = WeatherSystem.KIND_BY_MAP[map_type]
+		weather.kind = wanted
 		add_child(weather)
 
 # -----------------------------------------------------------------------------
@@ -383,6 +406,10 @@ func _generate_map():
 	if map_type == "Tabletop":
 		width = 384
 		height = 192
+	elif MapTypes.has(map_type):
+		width = MapTypes.size(map_type).x
+		height = MapTypes.size(map_type).y
+		MapKits.prepare(self)
 	else:
 		width = 400
 		height = 250
@@ -395,6 +422,9 @@ func _generate_map():
 		obstacles.clear()
 		zones = []
 		ruin_specs.clear()
+		decor.clear()
+		tree_nodes.clear()
+		fire_spread_multiplier = MapTypes.fire_spread(map_type)
 		corn_field_cells.clear()
 		var water_tile_count = 0
 		
@@ -448,6 +478,8 @@ func _generate_map():
 					# obstacle. Reuses DESERT as the base biome, same as
 					# Tabletop reusing it for the plywood mat.
 					biome = BiomeType.DESERT
+				elif MapTypes.has(map_type):
+					biome = MapKits.base_biome(self, x, y)
 				else:
 					# Normal: a handful of big contiguous regions (warped Voronoi)
 					# rather than the old noise-threshold patchwork that read as camo.
@@ -460,7 +492,7 @@ func _generate_map():
 				if map_type == "FightShovel" and biome == BiomeType.DESERT and moisture_noise.get_noise_2d(x, y) > CORN_FIELD_THRESHOLD:
 					corn_field_cells[Vector2i(x, y)] = true
 
-				if map_type not in ["Arena", "Open Field", "Tabletop"] and _should_spawn_obstacle(biome, randf(), x, y):
+				if map_type not in ["Arena", "Open Field", "Tabletop"] and not MapTypes.has(map_type) and _should_spawn_obstacle(biome, randf(), x, y):
 					if not _is_near_existing_mech(x, y):
 						obstacles[Vector2i(x, y)] = _get_obstacle_name(biome)
 			terrain.append(row)
@@ -469,6 +501,7 @@ func _generate_map():
 		# real rooms+corridors (Dungeon), before the macro layout overlay.
 		if map_type == "Dungeon":
 			MapStructure.build_dungeon(self)
+			MapKitsB.furnish(self, "dungeon") # shrines, hoards and banquet halls to fight around
 		elif map_type in MapStructure.ZONE_WEIGHTS:
 			MapStructure.build_regions(self)
 			water_tile_count = 0
@@ -489,7 +522,14 @@ func _generate_map():
 		# real game-shop table setup (see the reference photo in design
 		# notes - grey plastic ruins on a flocked mat). Also available on
 		# any other map type via force_ruins (debug menu toggle).
-		if map_type == "FightShovel":
+		if MapTypes.has(map_type):
+			MapKits.build(self)
+			water_tile_count = 0
+			for wy2 in range(height):
+				for wx2 in range(width):
+					if terrain[wy2][wx2] == BiomeType.WATER:
+						water_tile_count += 1
+		elif map_type == "FightShovel":
 			water_tile_count += _fightshovel_ponds()
 			_place_fightshovel_structures()
 			_fightshovel_tracks()
@@ -985,7 +1025,7 @@ func _place_tabletop_ruins():
 		for y in range(oy, oy + h):
 			for x in range(ox, ox + w):
 				obstacles[Vector2i(x, y)] = "RuinPart"
-		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h, "type": SetPieces.pick(SetPieces.themes_for(map_type), ox, oy, w, h)})
+		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h, "type": SetPieces.pick(SetPieces.themes_for(map_type), ox, oy, w, h), "era": "skirmish"})
 
 # Barns and farmhouses for FightShovel 1920 (Utility-SOC: "tractors, corn-
 # fields... barns and farmhouses in the shovelfight terrain"). Deliberately
@@ -1337,6 +1377,12 @@ func _render_chunk_image(cx: int, cy: int, wall_thickness: int, blue_color: Colo
 					else:
 						img.fill_rect(obs_rect, obs_color)
 
+	# Baked ground decoration (poppies, craters, wire, pools...) for MapTypes maps
+	if not decor.is_empty():
+		for dcell in decor:
+			if dcell.x >= tile_x0 and dcell.x < tile_x1 and dcell.y >= tile_y0 and dcell.y < tile_y1:
+				MapDecor.paint(img, decor[dcell], (dcell.x - tile_x0) * tile_size, (dcell.y - tile_y0) * tile_size, tile_size, dcell)
+
 	# Paint whichever outer-wall strip(s) this chunk touches
 	if tile_y0 == 0:
 		img.fill_rect(Rect2i(0, 0, img.get_width(), wall_thickness), blue_color)
@@ -1383,6 +1429,7 @@ func _build_terrain_chunk(cx: int, cy: int, wall_thickness: int, blue_color: Col
 	sprite.z_index = GROUND_Z
 	sprite.scale = Vector2(factor, factor)
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.modulate = ground_tint() # map type + war era colour wash (free on the GPU)
 	sprite.position = Vector2(tile_x0 * tile_size, tile_y0 * tile_size)
 	var ckey = Vector2i(cx, cy)
 	if _chunk_sprites.has(ckey) and is_instance_valid(_chunk_sprites[ckey]):
@@ -1491,6 +1538,7 @@ func _build_collisions_and_obstacles():
 	_ensure_corn_trail_overlay()
 	_scatter_oil_slicks()
 	_scatter_lava_vents()
+	MapKits.spawn_hazards(self)
 	_spawn_zone_objectives()
 	_place_crash_sites()
 	_build_shallow_overlay()
@@ -1505,6 +1553,8 @@ func _build_collisions_and_obstacles():
 # rather than a shotgunned biome decal.
 const OIL_SLICK_CHANCE = 0.006
 func _scatter_oil_slicks():
+	if MapTypes.has(map_type) and not MapTypes.hazard_allowed(map_type, "oil"):
+		return
 	if map_type in ["Arena", "Open Field"]:
 		return
 	for y in range(height):
@@ -1527,6 +1577,8 @@ const LAVA_VENT_CHANCE = 0.004
 const LAVA_VENT_MAX = 24
 const VENT_SPAWN_CLEAR = 10
 func _scatter_lava_vents() -> int:
+	if MapTypes.has(map_type) and not MapTypes.hazard_allowed(map_type, "vents"):
+		return 0
 	if map_type in ["Arena", "Open Field", "Tabletop", "Dungeon"]:
 		return 0
 	var placed = 0
@@ -1688,7 +1740,19 @@ func _spawn_tree(pos: Vector2):
 	# as RuinObstacle) - without this, dead trees left invisible AI walls.
 	body.map_ref = self
 	body.cell = Vector2i(int(pos.x / tile_size), int(pos.y / tile_size))
+	body.spread_multiplier = fire_spread_multiplier
+	tree_nodes[body.cell] = body
 	add_child(body)
+
+# Live trees within `r` tiles (Chebyshev) of `cell`.
+func trees_near(cell: Vector2i, r: int) -> Array:
+	var out: Array = []
+	for dy in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			var t = tree_nodes.get(Vector2i(cell.x + dx, cell.y + dy))
+			if t != null and is_instance_valid(t):
+				out.append(t)
+	return out
 
 func _spawn_destructible_obstacle(pos: Vector2, obs_name: String):
 	var body = load("res://scripts/core/DestructibleObstacle.gd").new()
@@ -1731,6 +1795,10 @@ func _create_merged_collision(start_x: int, y: int, length: int, layer: int):
 	if not _runs[layer].has(y):
 		_runs[layer][y] = []
 	_runs[layer][y].append({"x": start_x, "n": length, "body": body})
+
+# The colour wash of a MapTypes map's era (white for every other map).
+func ground_tint() -> Color:
+	return MapTypes.tint(map_type, era) if MapTypes.has(map_type) else Color.WHITE
 
 func _get_biome_color(biome: BiomeType) -> Color:
 	# Tabletop's ground reads as a painted + flocked wargaming mat (rust

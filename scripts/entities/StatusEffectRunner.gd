@@ -25,6 +25,7 @@ const BURN_BASE_DPS = 5.0
 const BURN_DPS_PER_SHOT_DAMAGE = 5.0 / 120.0 # (tune) a full-Fire 120 shot burns for 5/s, a 600 shot for 25/s
 
 # Poison and bleeding scale the same way (their old flat 4/s and 6/s are the floors).
+const SCALD_DPS = 5.0 # geyser scalding (Geyser.gd), flat
 const POISON_BASE_DPS = 4.0
 const BLEED_BASE_DPS = 6.0
 const POISON_DPS_PER_SHOT_DAMAGE = 4.0 / 120.0
@@ -82,6 +83,9 @@ func tick(delta: float) -> void:
 		elif effect == "poisoned":
 			mech.apply_damage(mech.poison_dps * delta)
 			mech.current_move_speed *= 0.8
+		elif effect == "scalded":
+			mech.apply_damage(SCALD_DPS * delta)
+			mech.current_move_speed *= 0.9
 		elif effect == "bleeding":
 			mech.apply_damage(mech.bleed_dps * delta)
 		elif effect == "paralyzed":

@@ -73,6 +73,13 @@ func victims() -> Array:
 				out.append(m)
 	return out
 
+# An Explosion nearby sets the vent off early (BiomeIdentity): idle vents start their warning. Returns true if it did.
+func trigger() -> bool:
+	if _phase != 0:
+		return false
+	start_telegraph()
+	return true
+
 # Test hook: jump straight to the telegraph.
 func start_telegraph() -> void:
 	_phase = 1

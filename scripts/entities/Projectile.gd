@@ -2181,6 +2181,9 @@ func _trigger_explosion(decay: float = 1.0):
 	for col in SimPhysics.circle_colliders(self, global_transform, blast_radius, collision_mask):
 		if col.has_method("apply_damage"):
 			col.apply_damage(damage * 0.5 * decay)
+	for vent in EntityCache.get_group("lava_vent"):
+		if is_instance_valid(vent) and vent.has_method("trigger") and vent.global_position.distance_to(global_position) <= blast_radius + vent.radius:
+			vent.trigger() # Volcano identity: an Explosion pops a vent early
 
 func _trigger_biome_explosion(radius: float, dmg: float, type: String):
 	for col in SimPhysics.circle_colliders(self, global_transform, radius, collision_mask):

@@ -2022,6 +2022,9 @@ func _apply_explosion_aoe(i: int, primary_target: Node, hit_decay: float):
 	var radius = _ProjectileScript.explosion_radius_for(ratios_for_radius, _aoe_bonus[i]) * hit_decay
 	Sfx.explosion(radius, _position[i])
 	ScorchDecals.mark(get_tree(), _position[i], radius * 0.7)
+	for vent in EntityCache.get_group("lava_vent"):
+		if is_instance_valid(vent) and vent.has_method("trigger") and vent.global_position.distance_to(_position[i]) <= radius + vent.radius:
+			vent.trigger() # Volcano identity: an Explosion pops a vent early
 	var fired_by_player = _fired_by_player[i] == 1
 	for t in _targets:
 		if not is_instance_valid(t) or t == primary_target or t.get("is_dead") == true:

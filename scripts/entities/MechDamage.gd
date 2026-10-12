@@ -462,6 +462,7 @@ func _find_disable_priority_tile(comp):
 	return null
 
 func apply_status(effect_name: String, duration: float):
+	duration = BiomeIdentity.scaled_duration(mech, effect_name, duration) # cold ground keeps Freeze, hot ground melts it...
 	if not mech.status_duration_mult.is_empty() and mech.status_duration_mult.has(effect_name):
 		duration *= mech.status_duration_mult[effect_name] # Stun/Shock/Freeze Guard
 		if duration < 0.03:

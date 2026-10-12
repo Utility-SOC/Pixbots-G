@@ -61,6 +61,12 @@ static func terrain_entries() -> Array:
 		{"name": "TUNDRA ICE", "desc": "Very low traction (%d%% of normal): you keep sliding the way you were going and steering takes a moment to bite." % int(round(TerrainEffectsScript.ICE_TRACTION * 100.0))},
 		{"name": "VOLCANIC ASH", "desc": "Walking speed %s." % _pct(TerrainEffectsScript.ASH_SPEED)},
 		{"name": "FOREST", "desc": "Undergrowth slows walking (%s). Fire shots set it off: a 200 px burst for 1.5x damage that leaves targets burning." % _pct(TerrainEffectsScript.UNDERGROWTH_SPEED)},
+		{"name": "CLIMATE", "desc": "Freeze and Burn last longer or shorter by the ground under the target. Tundra: Freeze %s, Burn %s. Desert: Freeze %s, Burn %s. Volcano: Freeze %s, Burn %s. Forest: Burn %s. Water and shallows: Burn %s (doused)." % [
+			_pct(BiomeIdentity.status_mult(BiomeIdentity.TUNDRA, "frozen")), _pct(BiomeIdentity.status_mult(BiomeIdentity.TUNDRA, "burning")),
+			_pct(BiomeIdentity.status_mult(BiomeIdentity.DESERT, "frozen")), _pct(BiomeIdentity.status_mult(BiomeIdentity.DESERT, "burning")),
+			_pct(BiomeIdentity.status_mult(BiomeIdentity.VOLCANO, "frozen")), _pct(BiomeIdentity.status_mult(BiomeIdentity.VOLCANO, "burning")),
+			_pct(BiomeIdentity.status_mult(BiomeIdentity.FOREST, "burning")), _pct(BiomeIdentity.status_mult(BiomeIdentity.WATER, "burning"))]},
+		{"name": "LAVA VENTS", "desc": "Volcano vents erupt on a timer for 30 Fire damage and a burn, to anyone in range. An Explosion near an idle vent sets it off early. Some enemies step away from a vent about to blow."},
 		{"name": "OIL SLICKS", "desc": "Any Fire shot ignites an oil slick it passes through."},
 		{"name": "JUMPJETS / AMPHIBIOUS", "desc": "Mechs that are not touching the ground ignore every ground effect above."},
 	]

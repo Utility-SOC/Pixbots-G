@@ -19,7 +19,23 @@ class_name StatusEffectRunner
 # Mech, in the same order it always ran in - only the true per-effect loop
 # below moved.
 
+# Burning used to be a flat 5 damage per second whatever lit it, which is +2% on a late-game shot. It now scales with the
+# igniting shot: dps = shot damage x fire ratio x BURN_DPS_PER_SHOT_DAMAGE, never below the old flat 5.
+const BURN_BASE_DPS = 5.0
+const BURN_DPS_PER_SHOT_DAMAGE = 5.0 / 120.0 # (tune) a full-Fire 120 shot burns for 5/s, a 600 shot for 25/s
+
 var mech: Mech
+
+static func burn_dps_for(shot_damage: float, fire_ratio: float) -> float:
+	return maxf(BURN_BASE_DPS, shot_damage * fire_ratio * BURN_DPS_PER_SHOT_DAMAGE)
+
+# Ignites `target` from a shot. A burn already running keeps the stronger of the two intensities.
+static func apply_burn(target: Node, shot_damage: float, fire_ratio: float) -> void:
+	var was_burning = target.status_effects.has("burning") if "status_effects" in target else false
+	target.apply_status("burning", 3.0 * fire_ratio)
+	if "burn_dps" in target and target.status_effects.has("burning"):
+		var dps = burn_dps_for(shot_damage, fire_ratio)
+		target.burn_dps = maxf(dps, target.burn_dps) if was_burning else dps
 
 func _init(p_mech: Mech):
 	mech = p_mech
@@ -35,7 +51,7 @@ func tick(delta: float) -> void:
 		if effect == "frozen":
 			mech.current_move_speed = mech.base_move_speed * 0.4 # 60% slow
 		elif effect == "burning":
-			mech.apply_damage(5.0 * delta) # 5 damage per second
+			mech.apply_damage(mech.burn_dps * delta)
 		elif effect == "poisoned":
 			mech.apply_damage(4.0 * delta)
 			mech.current_move_speed *= 0.8
@@ -70,3 +86,5 @@ func tick(delta: float) -> void:
 		mech.frozen_ice_energy = 0.0
 	for effect in effects_to_remove:
 		mech.status_effects.erase(effect)
+		if effect == "burning":
+			mech.burn_dps = BURN_BASE_DPS

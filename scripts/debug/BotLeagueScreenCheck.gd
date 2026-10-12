@@ -15,6 +15,7 @@ func _ready():
 	add_child(screen)
 	await get_tree().process_frame
 	_check("the lobby builds with the first quarter-final", screen.mode == "lobby" and screen.league.round_name() == "Quarter-final" and screen._lobby.get_child_count() >= 4)
+	var credits0 = screen.league.credits
 	screen.pick = 0
 	screen.stake_choice = 10
 	screen._watch()
@@ -25,7 +26,7 @@ func _ready():
 		guard += 1
 	await get_tree().process_frame
 	_check("the match ends and the bracket moves on (%d played)" % screen.league.history.size(), screen.mode == "lobby" and screen.league.history.size() == 1 and screen.league.wager.is_empty())
-	_check("credits were settled (%d)" % screen.league.credits, screen.league.credits == BotLeague.START_CREDITS + screen.league.last_wager_delta)
+	_check("credits were settled (%d)" % screen.league.credits, screen.league.credits == credits0 + screen.league.last_wager_delta)
 	guard = 0
 	while screen.league.champion < 0 and guard < 12:
 		screen.league.quick_sim()

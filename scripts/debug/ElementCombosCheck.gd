@@ -85,5 +85,8 @@ func _ready():
 	add_child(player_like)
 	player_like._recalculate_grid()
 	_check("a combo never touches the player's weapons", not _weapon_totals(player_like)["by_element"].has(E.ICE))
+	var sh = ElementCombos.retint_shield({E.FIRE: 60.0, E.ICE: 40.0}, E.LIGHTNING, 0.7)
+	_check("shield retint keeps the total and moves the share", is_equal_approx(sh[E.FIRE] + sh[E.ICE] + sh[E.LIGHTNING], 100.0) and is_equal_approx(sh[E.LIGHTNING], 70.0))
+	_check("harder difficulties counter harder", ElementCombos.shield_counter_strength(0) < ElementCombos.shield_counter_strength(3) and ElementCombos.shield_counter_chance_bonus(0) < ElementCombos.shield_counter_chance_bonus(3))
 	print("ElementCombosCheck: failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

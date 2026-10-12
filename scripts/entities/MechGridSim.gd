@@ -618,6 +618,8 @@ func _collect_weapon_mounts_and_tile_capabilities():
 				mech.reactive_plating_reflect_pct = min(mech.reactive_plating_reflect_pct + per_plate_pct, reflect_cap)
 
 func _finalize_grid_state():
+	if not mech.is_player and mech.shield_counter_element >= 0 and not mech.shield_synergies.is_empty():
+		mech.shield_synergies = ElementCombos.retint_shield(mech.shield_synergies, mech.shield_counter_element, mech.shield_counter_strength)
 	# Find dominant shield synergy
 	var max_syn_val = 0.0
 	for k in mech.shield_synergies:

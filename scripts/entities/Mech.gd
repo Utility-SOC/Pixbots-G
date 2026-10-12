@@ -2701,6 +2701,12 @@ var pending_shatter: Dictionary = {}
 var hit_kinetic_ratio: float = -1.0
 # Damage per second of the current burn; set from the igniting shot's size (StatusEffectRunner.apply_burn), reset when it ends.
 var burn_dps: float = 5.0
+# Enemy shield doctrine (SquadDirector): the element this bot's shield is tuned against, and how much of its shield energy
+# is retinted to it (MechGridSim._finalize_grid_state). -1 = none. Works wherever the shield sits in the grid.
+var shield_counter_element: int = -1
+var shield_counter_strength: float = 1.0
+var poison_dps: float = 4.0 # same idea for poison / bleeding (StatusEffectRunner.apply_poison / apply_bleed)
+var bleed_dps: float = 6.0
 # The mech whose shot is hitting this one, set/cleared alongside hit_kinetic_ratio. Part damage reaches global HP with no
 # source, so this is how a shatter knows who fired it (and spares them). Never read outside that call.
 var hit_source: Node = null

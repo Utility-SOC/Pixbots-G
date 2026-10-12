@@ -24,10 +24,37 @@ class_name StatusEffectRunner
 const BURN_BASE_DPS = 5.0
 const BURN_DPS_PER_SHOT_DAMAGE = 5.0 / 120.0 # (tune) a full-Fire 120 shot burns for 5/s, a 600 shot for 25/s
 
+# Poison and bleeding scale the same way (their old flat 4/s and 6/s are the floors).
+const POISON_BASE_DPS = 4.0
+const BLEED_BASE_DPS = 6.0
+const POISON_DPS_PER_SHOT_DAMAGE = 4.0 / 120.0
+const BLEED_DPS_PER_SHOT_DAMAGE = 6.0 / 120.0
+
 var mech: Mech
 
 static func burn_dps_for(shot_damage: float, fire_ratio: float) -> float:
 	return maxf(BURN_BASE_DPS, shot_damage * fire_ratio * BURN_DPS_PER_SHOT_DAMAGE)
+
+static func poison_dps_for(shot_damage: float, ratio: float) -> float:
+	return maxf(POISON_BASE_DPS, shot_damage * ratio * POISON_DPS_PER_SHOT_DAMAGE)
+
+static func bleed_dps_for(shot_damage: float, ratio: float) -> float:
+	return maxf(BLEED_BASE_DPS, shot_damage * ratio * BLEED_DPS_PER_SHOT_DAMAGE)
+
+# Poisons `target` from a shot; a poison already running keeps the stronger intensity.
+static func apply_poison(target: Node, shot_damage: float, ratio: float) -> void:
+	var was = target.status_effects.has("poisoned") if "status_effects" in target else false
+	target.apply_status("poisoned", 4.0 + 3.0 * ratio)
+	if "poison_dps" in target and target.status_effects.has("poisoned"):
+		var dps = poison_dps_for(shot_damage, ratio)
+		target.poison_dps = maxf(dps, target.poison_dps) if was else dps
+
+static func apply_bleed(target: Node, shot_damage: float, ratio: float) -> void:
+	var was = target.status_effects.has("bleeding") if "status_effects" in target else false
+	target.apply_status("bleeding", 3.0 + 2.0 * ratio)
+	if "bleed_dps" in target and target.status_effects.has("bleeding"):
+		var dps = bleed_dps_for(shot_damage, ratio)
+		target.bleed_dps = maxf(dps, target.bleed_dps) if was else dps
 
 # Ignites `target` from a shot. A burn already running keeps the stronger of the two intensities.
 static func apply_burn(target: Node, shot_damage: float, fire_ratio: float) -> void:
@@ -53,10 +80,10 @@ func tick(delta: float) -> void:
 		elif effect == "burning":
 			mech.apply_damage(mech.burn_dps * delta)
 		elif effect == "poisoned":
-			mech.apply_damage(4.0 * delta)
+			mech.apply_damage(mech.poison_dps * delta)
 			mech.current_move_speed *= 0.8
 		elif effect == "bleeding":
-			mech.apply_damage(6.0 * delta)
+			mech.apply_damage(mech.bleed_dps * delta)
 		elif effect == "paralyzed":
 			mech.current_move_speed = 0.0 # LIGHTNING lockup
 		elif effect == "immobilized":
@@ -88,3 +115,7 @@ func tick(delta: float) -> void:
 		mech.status_effects.erase(effect)
 		if effect == "burning":
 			mech.burn_dps = BURN_BASE_DPS
+		elif effect == "poisoned":
+			mech.poison_dps = POISON_BASE_DPS
+		elif effect == "bleeding":
+			mech.bleed_dps = BLEED_BASE_DPS

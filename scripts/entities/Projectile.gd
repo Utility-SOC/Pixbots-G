@@ -1893,6 +1893,8 @@ func _compute_hit_decay() -> float:
 		return float(pierce_count - 1) / float(_pierce_count_max - 1)
 	return 1.0
 
+var _last_dealt_hp: float = INF # hp the last direct hit removed; Vampiric never heals more than this
+
 func _handle_hit(target: Node2D):
 	if not target.has_method("apply_damage"):
 		return
@@ -1926,7 +1928,9 @@ func _handle_hit(target: Node2D):
 	if "hit_kinetic_ratio" in target:
 		target.hit_kinetic_ratio = float(ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)) # IceEffects.try_shatter, this call only
 		target.hit_source = valid_source
+	var hp_before = float(target.get("hp")) if target.get("hp") != null else -1.0
 	target.apply_damage(damage, dominant_str, valid_source, was_reflected, source_label)
+	_last_dealt_hp = maxf(0.0, hp_before - float(target.get("hp"))) if hp_before >= 0.0 and target.get("hp") != null else damage
 	if "hit_kinetic_ratio" in target:
 		target.hit_kinetic_ratio = -1.0
 		target.hit_source = null
@@ -1991,7 +1995,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 	# POISON: lingering toxin - DoT plus a mild slow
 	var rp = sr.get(EnergyPacket.SynergyType.POISON, 0.0)
 	if rp > 0.1:
-		target.apply_status("poisoned", 4.0 + 3.0 * rp)
+		StatusEffectRunner.apply_poison(target, damage, rp)
 
 	# KINETIC: stagger + physical shove along the shot's direction
 	var rk = sr.get(EnergyPacket.SynergyType.KINETIC, 0.0)
@@ -2019,7 +2023,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 	# VAMPIRIC: bleed; heavy vampiric hits can briefly immobilize
 	var rvm = sr.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
 	if rvm > 0.1:
-		target.apply_status("bleeding", 3.0 + 2.0 * rvm)
+		StatusEffectRunner.apply_bleed(target, damage, rvm)
 		if rvm > 0.5 and SimRng.stream("combat").randf() < 0.3:
 			target.apply_status("immobilized", 0.5)
 		
@@ -2041,7 +2045,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 	if ratios.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0) > 0.1 and hit_decay > 0.0:
 		var players = EntityCache.get_group("player")
 		if players.size() > 0 and is_instance_valid(players[0]) and players[0].has_method("apply_damage"):
-			players[0].apply_damage(-damage * 0.3 * ratios[EnergyPacket.SynergyType.VAMPIRIC] * hit_decay)
+			players[0].apply_damage(-minf(damage * 0.3 * ratios[EnergyPacket.SynergyType.VAMPIRIC] * hit_decay, _last_dealt_hp))
 
 	# Explosion AoE
 	if ratios.get(EnergyPacket.SynergyType.EXPLOSION, 0.0) > 0.1 and hit_decay > 0.0:

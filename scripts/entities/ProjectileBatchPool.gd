@@ -1876,7 +1876,9 @@ func _step_hit_test():
 				_handled_targets[i][target_id] = true
 				if t.has_method("apply_damage") or t.has_method("apply_part_damage"):
 					var src = _source_mech[i] if is_instance_valid(_source_mech[i]) else null
+					var hp_before = float(t.get("hp")) if t.get("hp") != null else 0.0
 					_apply_damage_to_target(t, _damage[i], _dominant_synergy_name[i], src, "Batch Test Shot", _r_kin[i])
+					_last_hit_dealt = maxf(0.0, hp_before - float(t.get("hp"))) if t.get("hp") != null else _damage[i]
 					Sfx.impact(t.has_method("apply_part_damage") or "is_dead" in t, t.global_position, t.get("blocks_pierce") == true)
 
 				# hit_decay computed BEFORE any hop/pierce decrement below,
@@ -1887,7 +1889,7 @@ func _step_hit_test():
 				# progressively taper toward zero.
 				var hit_decay = _compute_hit_decay(i)
 				_apply_status_effects(i, t)
-				_apply_vampiric_heal(i, hit_decay)
+				_apply_vampiric_heal(i, hit_decay, _last_hit_dealt)
 				_apply_explosion_aoe(i, t, hit_decay)
 				_apply_biome_triggers(i, t)
 
@@ -1969,7 +1971,7 @@ func _apply_synergy_status_effects_from_dict(i: int, target: Node, sr: Dictionar
 	if rl > 0.15 and SimRng.stream("combat").randf() < 0.35 * rl:
 		target.apply_status("paralyzed", 0.4 + 0.5 * rl)
 	if sr.get(EnergyPacket.SynergyType.POISON, 0.0) > 0.1:
-		target.apply_status("poisoned", 4.0 + 3.0 * sr[EnergyPacket.SynergyType.POISON])
+		StatusEffectRunner.apply_poison(target, _damage[i], sr[EnergyPacket.SynergyType.POISON])
 	var rk = sr.get(EnergyPacket.SynergyType.KINETIC, 0.0)
 	if rk > 0.2:
 		target.apply_status("staggered", 0.4 + 0.3 * rk)
@@ -1987,7 +1989,7 @@ func _apply_synergy_status_effects_from_dict(i: int, target: Node, sr: Dictionar
 		target.apply_status("vortexed", 0.4 + 0.6 * rv)
 	var rvm = sr.get(EnergyPacket.SynergyType.VAMPIRIC, 0.0)
 	if rvm > 0.1:
-		target.apply_status("bleeding", 3.0 + 2.0 * rvm)
+		StatusEffectRunner.apply_bleed(target, _damage[i], rvm)
 		if rvm > 0.5 and SimRng.stream("combat").randf() < 0.3:
 			target.apply_status("immobilized", 0.5)
 
@@ -1995,12 +1997,14 @@ func _apply_synergy_status_effects_from_dict(i: int, target: Node, sr: Dictionar
 # hit target, so it's its own function rather than living inside the
 # per-target status-effect loop above (the first status effect that
 # reaches outside the single target this shot actually hit).
-func _apply_vampiric_heal(i: int, hit_decay: float):
+var _last_hit_dealt: float = 0.0 # hp the last direct hit actually removed (Vampiric never heals more than this)
+
+func _apply_vampiric_heal(i: int, hit_decay: float, dealt: float = INF):
 	if _r_vamp[i] <= 0.1 or hit_decay <= 0.0:
 		return
 	var players = EntityCache.get_group("player")
 	if players.size() > 0 and is_instance_valid(players[0]) and players[0].has_method("apply_damage"):
-		players[0].apply_damage(-_damage[i] * 0.3 * _r_vamp[i] * hit_decay)
+		players[0].apply_damage(-minf(_damage[i] * 0.3 * _r_vamp[i] * hit_decay, dealt))
 
 # Mirrors Projectile.gd:1933-1935/_trigger_explosion. The real version
 # runs a PhysicsShapeQueryParameters2D scene query; this pool has no

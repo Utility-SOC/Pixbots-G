@@ -15,7 +15,7 @@ extends RefCounted
 const E = EnergyPacket.SynergyType
 
 # Chance a bot gets a combo, per difficulty (0 Casual, 1 Normal, 2 Hard, 3 top); ramps in over waves.
-const CHANCE_BY_DIFFICULTY = [0.0, 0.2, 0.55, 0.85] # (tune)
+const CHANCE_BY_DIFFICULTY = [0.0, 0.2, 0.4, 0.6] # owner-set: Casual 0, Normal 20%, Hard 40%, top 60%
 const RAMP_START_WAVE = 6
 const RAMP_WAVES = 20
 
@@ -83,6 +83,29 @@ static func retint_synergies(synergies: Dictionary, combo: Dictionary, weapon_in
 		out[k] = float(synergies[k]) * (1.0 - RETINT_STRENGTH)
 	out[lead] = float(out.get(lead, 0.0)) + total * RETINT_STRENGTH * LEAD_SHARE
 	out[other] = float(out.get(other, 0.0)) + total * RETINT_STRENGTH * (1.0 - LEAD_SHARE)
+	return out
+
+# Share of a counter-tuned enemy shield's energy that is retinted to the element it counters, by difficulty (Casual
+# keeps the old loose tuning).
+const SHIELD_COUNTER_STRENGTH = [0.5, 0.7, 0.85, 1.0]
+# Extra odds, by difficulty, that a bot commits to tuning its shield against what the player leans on.
+const SHIELD_COUNTER_CHANCE_BONUS = [0.0, 0.05, 0.12, 0.2]
+
+static func shield_counter_strength(difficulty: int) -> float:
+	return SHIELD_COUNTER_STRENGTH[clampi(difficulty, 0, SHIELD_COUNTER_STRENGTH.size() - 1)]
+
+static func shield_counter_chance_bonus(difficulty: int) -> float:
+	return SHIELD_COUNTER_CHANCE_BONUS[clampi(difficulty, 0, SHIELD_COUNTER_CHANCE_BONUS.size() - 1)]
+
+# Moves `strength` of the shield's energy onto `element`, keeping the total. Pure.
+static func retint_shield(synergies: Dictionary, element: int, strength: float) -> Dictionary:
+	var total = 0.0
+	for k in synergies:
+		total += float(synergies[k])
+	var out := {}
+	for k in synergies:
+		out[k] = float(synergies[k]) * (1.0 - strength)
+	out[element] = float(out.get(element, 0.0)) + total * strength
 	return out
 
 # Called by MechGridSim once the weapons are final (so it also survives every mid-fight grid recalculation).

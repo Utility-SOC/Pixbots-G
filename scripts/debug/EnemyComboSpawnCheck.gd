@@ -44,7 +44,7 @@ func _ready():
 	var hard = _spawn_many(director, "brawler", 14)
 	await get_tree().process_frame
 	var n = _count_combo(hard)
-	_check("Top difficulty at wave 60: most bots are combo bots (%d of %d)" % [n, hard.size()], hard.size() > 0 and n >= hard.size() / 2)
+	_check("Top difficulty at wave 60: a solid share of bots are combo bots (%d of %d)" % [n, hard.size()], hard.size() > 0 and n * 10 >= hard.size() * 3)
 	var carries_pair = 0
 	for b in hard:
 		if b.element_combo.is_empty():

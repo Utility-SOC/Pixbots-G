@@ -1249,7 +1249,11 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	# the one thing it exists for.
 	var counter_chance = counter_build_chance()
 	var commit_weapon_counter = force_full_counter or SimRng.stream("ai").randf() < counter_chance
-	var commit_shield_counter = force_full_counter or SimRng.stream("ai").randf() < counter_chance
+	var commit_shield_counter = force_full_counter or SimRng.stream("ai").randf() < minf(0.98, counter_chance + ElementCombos.shield_counter_chance_bonus(SaveManager.difficulty))
+	if commit_shield_counter and player_favored_element != -1:
+		# Retints the finished shield wherever it sits in the grid (the Microcore-adjacent retarget below rarely applies).
+		bot.shield_counter_element = player_favored_element
+		bot.shield_counter_strength = 1.0 if force_full_counter else ElementCombos.shield_counter_strength(SaveManager.difficulty)
 
 	# Element combo doctrine (see ElementCombos.gd): on higher difficulties some weapon bots carry an interacting element pair.
 	# Rolled here from the seeded AI stream so a given seed reproduces it; applied below with the other tile retargets.

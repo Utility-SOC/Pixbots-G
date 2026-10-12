@@ -676,7 +676,7 @@ func _spawn_drones_if_needed():
 
 		var drone = load("res://scripts/entities/Drone.gd").new()
 		var loadout = drone_bay.get_or_build_loadout() # also assigns visual_class if unset - must run before reading it below
-		drone.setup(player, loadout, drone_bay.rarity, drone_bay.visual_class)
+		drone.setup(player, loadout, drone_bay.rarity, drone_bay.visual_class, drone_bay)
 		# Spread multiple drones' starting positions out (and their
 		# _orbit_angle, randomized independently in Drone.gd's setup) so a
 		# multi-bay build doesn't spawn every drone stacked on the same point.

@@ -124,5 +124,37 @@ func _ready():
 	_check("a drone keeps its own full flow regardless of any owner", drone.phase_flow == 1.0 and not drone.phase_shifter_active)
 	drone.free()
 
+	# the link feeds the drone's core reactor, cut by the owner's flow
+	var core2 = CoreTile.new()
+	var base_pkts = core2.generate_energy(null)
+	var base_total = 0.0
+	for pk in base_pkts:
+		base_total += pk.magnitude
+	core2.link_energy = 60.0
+	var linked_total = 0.0
+	for pk in core2.generate_energy(null):
+		linked_total += pk.magnitude
+	_check("link energy adds to the core's output (%.1f -> %.1f)" % [base_total, linked_total], is_equal_approx(linked_total - base_total, 60.0))
+
+	var owner_m = MechScript.new()
+	owner_m.is_player = true
+	add_child(owner_m)
+	var bay2 = DroneBayTile.new()
+	bay2.rarity = HexTile.Rarity.COMMON
+	bay2.link_energy = 100.0
+	var d2 = Drone.new()
+	d2.setup(owner_m, bay2.get_or_build_loadout(), bay2.rarity, bay2.visual_class, bay2)
+	add_child(d2)
+	var d2_cores = []
+	for comp in d2.components.values():
+		for tl in comp.hex_grid.get_all_tiles():
+			if "link_energy" in tl and tl.has_method("generate_energy"):
+				d2_cores.append(tl)
+	d2._refresh_link()
+	_check("a drone's core receives the bay link (%s)" % str(d2_cores.size()), d2_cores.size() > 0 and is_equal_approx(d2_cores[0].link_energy, 100.0))
+	owner_m.phase_flow = 0.25
+	d2._refresh_link()
+	_check("the owner's drain cuts the link, not the core", is_equal_approx(d2_cores[0].link_energy, 25.0))
+
 	print("PhaseDrainCheck: failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

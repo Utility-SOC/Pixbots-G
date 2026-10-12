@@ -61,6 +61,9 @@ func get_weight() -> float:
 # its own independent Core Reactor either way (see get_or_build_loadout/
 # create_starter_drone), so an unpowered bay never grounds the drone.
 var stored_energy: float = 0.0
+# What reached the bay on the owner's last grid recalculation. This is the link: it feeds the drone's Core Reactor (see
+# Drone._refresh_link), scaled by the owner's Phase Shifter flow. Persists until the next recalculation.
+var link_energy: float = 0.0
 
 # Purely a display cache: which Drone tab this bay corresponds to (1-based,
 # matching the "Drone N" label GarageMenu._refresh_component_ui assigns -
@@ -212,7 +215,7 @@ static func spawn_drones_for(owner_mech: Node, parent_node: Node) -> Array:
 		var bay = bays[i]
 		var loadout = bay.get_or_build_loadout() # also assigns visual_class if unset
 		var drone = DroneScript.new()
-		drone.setup(owner_mech, loadout, bay.rarity, bay.visual_class)
+		drone.setup(owner_mech, loadout, bay.rarity, bay.visual_class, bay)
 		var spread_angle = (TAU / max(1, bays.size())) * i
 		drone.global_position = owner_mech.global_position + Vector2(cos(spread_angle), sin(spread_angle)) * 70.0
 		parent_node.add_child(drone)

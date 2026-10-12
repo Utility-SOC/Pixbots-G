@@ -44,9 +44,15 @@ func set_face_output(direction: int, synergy: EnergyPacket.SynergyType):
 func get_power_output() -> float:
 	return TileStatsRegistry.get_stat_by_rarity("CoreTile", "power_output_by_rarity", rarity, [10.0, 14.0, 20.0, 35.0, 55.0])
 
+# Energy delivered over a Drone Bay link (Drone.gd sets it on a drone's cores); it is added on top of the reactor's own
+# output, split evenly across the active faces. 0 for every ordinary core.
+var link_energy: float = 0.0
+
 func generate_energy(grid: Node) -> Array[EnergyPacket]:
 	var packets: Array[EnergyPacket] = []
 	var power = get_power_output()
+	if link_energy > 0.0 and not active_faces.is_empty():
+		power += link_energy / float(active_faces.size())
 	for dir in face_outputs.keys():
 		if not active_faces.has(dir): continue
 		var packet = EnergyPacket.new(0.0, null)

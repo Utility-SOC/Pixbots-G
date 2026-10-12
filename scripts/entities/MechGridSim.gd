@@ -465,6 +465,9 @@ func _collect_weapon_mounts_and_tile_capabilities():
 			if tile.tile_type == "Shield Generator" and tile.rarity == HexTile.Rarity.MYTHIC:
 				mech.shield_mythic_mode = int(tile.get("mythic_mode"))
 
+			if tile.tile_type == "Drone Bay" and tile.has_method("get_bay_energy"):
+				tile.link_energy = tile.get_bay_energy()
+
 			if tile.tile_type == "Phase Shifter" and tile.has_method("take_phase_energy"):
 				if tile.is_working(tile.take_phase_energy()):
 					mech.phase_shifter_active = true

@@ -27,6 +27,11 @@ extends Mech
 signal drone_died(rarity: int)
 
 var owner_mech: Node2D = null
+var link_bay = null # the owner's DroneBayTile this drone came from: its energy link feeds this drone's core reactor
+var _link_applied: float = -1.0
+var _link_timer: float = 0.0
+const LINK_REFRESH = 0.25
+const LINK_CHANGE_TOLERANCE = 0.05 # re-route the drone grid only when the delivered link energy moved by this share
 var drone_loadout_source: ComponentEquipment = null # the DroneBayTile's persistent data
 var drone_rarity: int = HexTile.Rarity.COMMON
 # Which procedural chassis silhouette DroneRenderer draws - see
@@ -95,8 +100,9 @@ var _chinook_heal_timer: float = 0.0
 # Must be called (by whoever instantiates this, e.g. Main.gd) before
 # add_child(), same pattern as combat_role/base_rarity/spawn_profile on
 # regular Mech instances - _ready() reads these to build the drone's body.
-func setup(p_owner: Node2D, p_loadout: ComponentEquipment, p_rarity: int, p_visual_class: int = 0):
+func setup(p_owner: Node2D, p_loadout: ComponentEquipment, p_rarity: int, p_visual_class: int = 0, p_bay = null):
 	owner_mech = p_owner
+	link_bay = p_bay
 	drone_loadout_source = p_loadout
 	drone_rarity = p_rarity
 	drone_visual_class = p_visual_class
@@ -192,6 +198,24 @@ func _ready():
 	is_grid_dirty = true
 	_recalculate_grid()
 
+# The energy the owner routes into this drone's bay arrives as extra Core Reactor output (a link), reduced by the owner's
+# Phase Shifter flow; the drone's own reactors are never drained by the owner. The grid is re-routed only when the
+# delivered amount changes meaningfully.
+func _refresh_link() -> void:
+	if link_bay == null or not is_instance_valid(link_bay) or not is_instance_valid(owner_mech):
+		return
+	var flow = float(owner_mech.get("phase_flow")) if owner_mech.get("phase_flow") != null else 1.0
+	var delivered = float(link_bay.link_energy) * flow
+	if _link_applied >= 0.0 and absf(delivered - _link_applied) <= LINK_CHANGE_TOLERANCE * maxf(_link_applied, 1.0):
+		return
+	_link_applied = delivered
+	for comp in components.values():
+		for tile in comp.hex_grid.get_all_tiles():
+			if "link_energy" in tile and tile.has_method("generate_energy"):
+				tile.link_energy = delivered
+	is_grid_dirty = true
+	_recalculate_grid() # a Drone never runs Mech's own physics loop, which is what normally re-routes a dirty grid
+
 # NOTE: Drone deliberately never calls Mech._physics_process/_execute_ai_tactics/
 # update_status_effects (this override replaces all of it), so it never
 # lazily constructs boss_brain/status_runner/player_controller (see Mech.gd's
@@ -211,6 +235,11 @@ func _physics_process(delta: float):
 	# Shifter on the drone itself drains it.
 	if phase_shifter_active or phase_flow < 1.0:
 		PhaseDrain.tick(self, delta)
+
+	_link_timer -= delta
+	if _link_timer <= 0.0:
+		_link_timer = LINK_REFRESH
+		_refresh_link()
 
 	#_update_heat(delta) # Thermal system commented out in Mech.gd - see there.
 	_tick_weapon_charges(delta)

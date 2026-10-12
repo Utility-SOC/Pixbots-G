@@ -642,7 +642,7 @@ const TILE_TYPE_BLURBS = {
 	"Drone Bay": "Deploys an independent companion Drone with its own small hex-grid loadout.",
 	"Missile Rack": "Always-indirect, ultra-long-range weapon mount - autonomously banks its fed energy into a salvo of lobbed shells aimed at the single furthest enemy in range (won't fire below its minimum range), more shells at higher rarity.",
 	"Component Link": "Internal routing tile connecting one component's grid to another - not normally placed by hand.",
-	"Anchor": "Grants vortex immunity - Mythic also reduces vortex pull and damage taken.",
+	"Anchor": "Terminal: grants immunity to your own side's vortex pull. Energy fed into it also shields you from enemy vortex pull and softens vortex damage (saturating); Mythic adds a flat floor.",
 	"Buffer Cell": "One-step delay line - releases the packet it received last time, not this one. Timing control, not power.",
 	"Passive Tap": "Copies a packet in full to a second rotatable face - the main line keeps 100% of its energy, unlike a Splitter.",
 	"Weak Mirror": "Redirects a packet's flow direction like a Reflector, but cheaper and a much less valuable disable-roll target.",

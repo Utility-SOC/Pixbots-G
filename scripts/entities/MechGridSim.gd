@@ -67,6 +67,7 @@ func _reset_grid_state():
 	mech.is_vortex_immune = false
 	mech.vortex_pull_protection_ratio = 0.0
 	mech.vortex_damage_reduction = 0.0
+	mech.anchor_energy = 0.0
 	mech.shield_recharge_delay = 3.0
 	mech.shield_recharge_rate = 0.0
 	mech.base_move_speed = 150.0 # Reset base speed for Jumpjets to calculate
@@ -457,6 +458,10 @@ func _collect_weapon_mounts_and_tile_capabilities():
 
 			if tile.tile_type == "Anchor":
 				mech.is_vortex_immune = true
+				if tile.has_method("get_anchor_energy"):
+					mech.anchor_energy += tile.get_anchor_energy()
+					mech.vortex_pull_protection_ratio = max(mech.vortex_pull_protection_ratio, AnchorTile.protection_for(mech.anchor_energy))
+					mech.vortex_damage_reduction = max(mech.vortex_damage_reduction, AnchorTile.damage_reduction_for(mech.anchor_energy))
 				if tile.rarity == HexTile.Rarity.MYTHIC:
 					mech.vortex_pull_protection_ratio = max(mech.vortex_pull_protection_ratio, 0.5)
 					mech.vortex_damage_reduction = max(mech.vortex_damage_reduction, 0.25)

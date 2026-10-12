@@ -96,6 +96,7 @@ var has_shield_generator: bool = false
 var is_vortex_immune: bool = false
 var vortex_pull_protection_ratio: float = 0.0
 var vortex_damage_reduction: float = 0.0
+var anchor_energy: float = 0.0 # total energy fed into Anchors this recalculation (see AnchorTile.protection_for)
 
 var current_move_speed: float = 200.0
 var base_move_speed: float = 200.0

@@ -208,6 +208,13 @@ static func _describe_tile(tile) -> Dictionary:
 		d["stored_energy"] = tile.stored_energy # in-place accumulation
 		d["stored_syn"] = _syn_dict_to_packed(tile.shield_synergies)
 		d["stored_syn_present"] = _syn_dict_to_present(tile.shield_synergies)
+	elif t == "Anchor":
+		# Terminal energy sink with no synergy bookkeeping (AnchorTile): the shield-store kind at a 1x multiplier.
+		d["kind"] = KIND_SHIELD_STORE
+		d["shield_mult"] = 1.0
+		d["stored_energy"] = tile.stored_energy # in-place accumulation
+		d["stored_syn"] = _syn_dict_to_packed({})
+		d["stored_syn_present"] = _syn_dict_to_present({})
 	elif t == "Accumulator":
 		var acc_mult = tile._get_power_multiplier()
 		d["kind"] = KIND_ACCUMULATOR
@@ -291,7 +298,7 @@ static func _describe_tile(tile) -> Dictionary:
 			extra.append(off.x)
 			extra.append(off.y)
 		d["extra_cells"] = extra
-	elif t == "Sensor Array" or t == "Mobility Core" or t == "Anchor" or t == "Structural Strut":
+	elif t == "Sensor Array" or t == "Mobility Core" or t == "Structural Strut":
 		d["kind"] = KIND_PASS # pure pass-through tiles
 	else:
 		return {} # anything else: unsupported, whole grid falls back
@@ -563,7 +570,7 @@ static func try_simulate(grid, starting_packets: Array, bypass_gate: bool = fals
 		var t: String = tile.tile_type
 		if t == "Magnet" and "current_magnetic_power" in tile:
 			tile.current_magnetic_power = float(st["magnetic_power"])
-		elif t == "Shield Generator":
+		elif t == "Shield Generator" or t == "Anchor":
 			if "stored_energy" in tile:
 				tile.stored_energy = float(st["stored_energy"])
 			if "shield_synergies" in tile:

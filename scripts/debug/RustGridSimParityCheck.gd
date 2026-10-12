@@ -322,6 +322,25 @@ func _build_component_e():
 	comp.hex_grid.add_tile(HexCoord.new(-1, 1), hg)
 	return comp
 
+# --- Grid F: Anchor as a terminal energy sink (2026-10-11) -------------------
+#   Core(0,0) fires W (face 3) into an Anchor at (-1,0), and E (face 0) into a second Anchor at (1,0) that is reached via a
+#   Directional Conduit-free straight shot, so both Anchors bank energy; their stored_energy must match across both sims.
+func _build_component_f():
+	var comp = ComponentEquipmentScript.new(HexTile.BodySlot.TORSO, HexTile.Rarity.COMMON)
+	var hexes: Array[HexCoord] = [HexCoord.new(0, 0), HexCoord.new(-1, 0), HexCoord.new(1, 0)]
+	comp.valid_hexes = hexes
+	comp._rebuild_valid_hex_set()
+	var core = CoreTileScript.new()
+	core.active_faces.clear()
+	for f in [0, 3]:
+		core.active_faces.append(f)
+	core.set_face_output(0, EnergyPacket.SynergyType.KINETIC)
+	core.set_face_output(3, EnergyPacket.SynergyType.ICE)
+	comp.hex_grid.add_tile(HexCoord.new(0, 0), core)
+	comp.hex_grid.add_tile(HexCoord.new(-1, 0), load("res://scripts/tiles/AnchorTile.gd").new())
+	comp.hex_grid.add_tile(HexCoord.new(1, 0), load("res://scripts/tiles/AnchorTile.gd").new())
+	return comp
+
 func _gen_packets(comp) -> Array:
 	var core = comp.hex_grid.get_tile(HexCoord.new(0, 0))
 	var pkts = core.generate_energy(comp.hex_grid)
@@ -493,6 +512,7 @@ func _ready():
 	_run_grid("mythic", _build_component_c)
 	_run_grid("catalyst_prime_cloak", _build_component_d)
 	_run_grid("passive_and_guards", _build_component_e)
+	_run_grid("anchor_sink", _build_component_f)
 
 	# Fallback correctness: every real tile type in the game is now routed
 	# (gated/inverted Catalyst, Prime Circuit, and Cloak Generator/AllyCloak

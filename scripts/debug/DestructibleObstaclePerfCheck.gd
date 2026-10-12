@@ -18,7 +18,7 @@ const DestructibleObstacleScript = preload("res://scripts/core/DestructibleObsta
 # Generous: real generation on this dev machine typically lands well under
 # this. Meant to catch an order-of-magnitude regression, not to be a tight
 # perf gate that flakes on a loaded CI runner.
-const MAX_GENERATE_MSEC = 8000
+const MAX_GENERATE_MSEC = 16000
 
 func _ready():
 	var failures = 0

@@ -992,6 +992,38 @@ func counter_build_chance() -> float:
 
 # Called once per cleared wave (Main._on_wave_cleared): decays the recency
 # memories, detects a playstyle shift, and steps the difficulty pressure.
+# --- Pressure KPIs (docs/GAME_REVIEW.md): is the player being tested? Collected per wave, printed as a "[KPI]" line at the wave's
+# end and kept in last_kpi. Targets: median squad lifetime 15-30 s, damage taken 10-30% of effective HP, >60% of squads with
+# non-zero fitness. Pure bookkeeping: nothing here changes behaviour.
+var _kpi_lifetimes: Array = []
+var _kpi_zero_fitness: int = 0
+var _kpi_squads: int = 0
+var last_kpi: Dictionary = {}
+
+func note_squad_result(lifetime_s: float, raw_fitness: float) -> void:
+	_kpi_lifetimes.append(lifetime_s)
+	_kpi_squads += 1
+	if raw_fitness <= 0.0:
+		_kpi_zero_fitness += 1
+
+static func kpi_summary(lifetimes: Array, zero_fitness: int, squads: int, damage_taken: float, ehp: float) -> Dictionary:
+	var sorted = lifetimes.duplicate()
+	sorted.sort()
+	var median = 0.0
+	if not sorted.is_empty():
+		median = float(sorted[sorted.size() / 2])
+	return {"squads": squads, "median_lifetime_s": median, "nonzero_fitness_share": 1.0 - float(zero_fitness) / float(maxi(1, squads)) if squads > 0 else 0.0,
+		"damage_taken_share": damage_taken / maxf(ehp, 1.0)}
+
+func _kpi_flush(damage_taken: float, ehp: float, wave: int) -> void:
+	last_kpi = kpi_summary(_kpi_lifetimes, _kpi_zero_fitness, _kpi_squads, damage_taken, ehp)
+	last_kpi["wave"] = wave
+	if _kpi_squads > 0:
+		print("[KPI] wave %d: %d squads, median lifetime %.1f s, %d%% with non-zero fitness, damage taken %.1f%% of effective HP" % [wave, _kpi_squads, last_kpi["median_lifetime_s"], int(100.0 * float(last_kpi["nonzero_fitness_share"])), 100.0 * float(last_kpi["damage_taken_share"])])
+	_kpi_lifetimes.clear()
+	_kpi_zero_fitness = 0
+	_kpi_squads = 0
+
 func end_of_wave_update() -> Dictionary:
 	var ehp = 100.0
 	var players = get_tree().get_nodes_in_group("player") if is_inside_tree() else []
@@ -1000,6 +1032,8 @@ func end_of_wave_update() -> Dictionary:
 		ehp = float(p.max_hp) if "max_hp" in p else 100.0
 		if "max_shield_hp" in p:
 			ehp += float(p.max_shield_hp)
+	var main_node = get_tree().current_scene if is_inside_tree() else null
+	_kpi_flush(total_damage_taken - _wave_start_damage_taken, ehp, int(main_node.current_wave) if main_node != null and "current_wave" in main_node else 0)
 	var result = player_model.end_wave(total_damage_taken - _wave_start_damage_taken, ehp)
 	_wave_start_damage_taken = total_damage_taken
 	if result["shifted"]:
@@ -1904,6 +1938,7 @@ func _on_squad_defeated(squad: Squad, fitness_score: float):
 	active_squads.erase(squad)
 	orders.post("wipe", squad.template.template_name if squad.template else "", squad.get_instance_id())
 
+	note_squad_result(squad.time_alive, fitness_score)
 	var t = squad.template
 	# Squad fitness sums over members, so a 5-bot squad outscores a 2-bot one
 	# just by headcount, and raw scale drifts with wave HP. Judge per member

@@ -59,6 +59,10 @@ func _erupt() -> void:
 		if victim.has_method("apply_status"):
 			victim.apply_status("burning", 3.0)
 
+# True from the moment the warning ring appears until the burst ends (what a wary bot steps away from).
+func is_dangerous() -> bool:
+	return _phase != 0
+
 # Everyone currently inside the blast circle.
 func victims() -> Array:
 	var out: Array = []

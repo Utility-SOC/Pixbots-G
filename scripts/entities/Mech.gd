@@ -427,6 +427,11 @@ var tactic_path_clear: bool = false
 var tactic_hold: bool = false
 var tactic_label: String = ""
 var suppress_pos: Vector2 = Vector2.ZERO # SquadTactics: aim here (the rock the player hides behind) instead of at the player
+var _hazard_wary_cached: int = -1 # -1 unknown, 0 careless, 1 wary (HazardSense; fixed per bot)
+func _hazard_wary() -> bool:
+	if _hazard_wary_cached < 0:
+		_hazard_wary_cached = 1 if HazardSense.is_wary(get_instance_id(), SaveManager.difficulty) else 0
+	return _hazard_wary_cached == 1
 var cover_brain = null # CoverBrain (lazy, enemies only): peek-and-hide behaviour under pressure
 var is_boss: bool = false
 # Set by Main._spawn_boss right after director._spawn_bot_for_role (same
@@ -2645,6 +2650,12 @@ func _execute_ai_tactics(delta):
 			_perf_orbit_raycast_usec += Time.get_ticks_usec() - _t_orbit
 
 			velocity = tangent * current_move_speed * (speed_modifier * 0.5)
+
+		# Hazard sense (see HazardSense): wary bots leave or avoid a vent about to erupt / a burning slick.
+		if not is_boss and not is_amphibious and _hazard_wary():
+			var haz_push = HazardSense.push(global_position, velocity, EntityCache.get_group("lava_vent"), EntityCache.get_group("oil_slick"))
+			if haz_push != Vector2.ZERO:
+				velocity = haz_push * maxf(velocity.length(), current_move_speed * speed_modifier)
 
 		# Separation nudge - see the field comment above for why this exists.
 		# _cached_separation is now written by SeparationBatcher.gd, which

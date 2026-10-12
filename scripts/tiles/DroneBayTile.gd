@@ -17,7 +17,23 @@ const ComponentEquipmentClass = preload("res://scripts/core/ComponentEquipment.g
 # `components` dict - see HexTile.BodySlot.DRONE's comment for why that
 # separation matters, and Drone.gd for how it gets equipped onto the actual
 # flying unit.
-var drone_loadout: ComponentEquipmentClass = null
+# ComponentEquipment is a Node, so it is NOT freed when the tile (a Resource) is: dropping the tile, or replacing the loadout,
+# used to leak one orphan Node pair per drone bay (about 28 orphans per 300 ticks of a wave-34 fight, growing to ~800 over a long
+# session). A loadout that is currently equipped by a live Drone has a parent and is that Drone's to free, so only free it
+# when nothing holds it in the tree.
+var drone_loadout: ComponentEquipmentClass = null:
+	set(value):
+		if value != drone_loadout:
+			_free_loadout_if_unheld(drone_loadout)
+		drone_loadout = value
+
+static func _free_loadout_if_unheld(comp) -> void:
+	if comp != null and is_instance_valid(comp) and comp.get_parent() == null and not comp.is_inside_tree():
+		comp.free()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		_free_loadout_if_unheld(drone_loadout)
 
 # Which procedural chassis silhouette (see DroneRenderer.DRONE_CLASSES) this
 # bay's drone renders as. Picked once and persisted (not re-rolled every

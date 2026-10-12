@@ -577,6 +577,9 @@ func _fixed_report(enemies: int) -> void:
 	print("BENCH_FIXED score=%.3f per_enemy=%.4f phys_med=%.3f phys_mean=%.3f phys_p95=%.3f proc_med=%.3f proc_mean=%.3f proc_p95=%.3f enemies=%d ticks=%d frames=%d nodes=%d wave=%d seed=%d" % [
 		score, score / max(float(enemies), 1.0), _pct(ph, 0.5), ph_sum / max(ph.size(), 1), _pct(ph, 0.95), _pct(pr, 0.5), pr_sum / max(pr.size(), 1), _pct(pr, 0.95),
 		enemies, ph.size(), pr.size(), get_tree().get_node_count(), _wave, _seed])
+	print("BENCH_FIXED_ORPHANS orphans=%d nodes=%d resources=%d" % [int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT)), get_tree().get_node_count(), int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT))])
+	if OS.get_cmdline_user_args().has("--orphans"):
+		Node.print_orphan_nodes() # debug builds: lists each orphan's class and path
 	print("BENCH_FIXED_PARTS ms/tick: ", _fixed_parts_line(ph.size()))
 	get_tree().quit(0)
 

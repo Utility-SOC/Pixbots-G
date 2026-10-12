@@ -1891,6 +1891,12 @@ func _spawn_rival(director, force_rarity = -1, force_name = ""):
 	if profile:
 		role = profile.base_role
 		mech_count = profile.mech_count
+
+	# The Elite Four fight in the Colosseum (the fourth in its hypertech twin): move the battle there first.
+	var elite_idx = SaveManager.ELITE_FOUR_NAMES.find(rival_name)
+	var elite_arena = "Hyper Colosseum" if elite_idx >= 3 else "Colosseum"
+	if elite_idx >= 0 and is_instance_valid(map) and map.map_type != elite_arena:
+		_rotate_campaign_map(elite_arena, "prewar")
 		
 	for i in range(mech_count):
 		var role_to_spawn = role
@@ -2494,7 +2500,7 @@ func _should_rotate_map() -> bool:
 # no such self-heal (their AI/pickup state is meaningless on a different
 # layout anyway), so those get cleared instead - same pattern
 # _on_player_died() already uses for its own "clear the field" cleanup.
-func _rotate_campaign_map():
+func _rotate_campaign_map(forced_type: String = "", forced_era: String = ""):
 	for loot in get_tree().get_nodes_in_group("loot"):
 		if is_instance_valid(loot):
 			loot.queue_free()
@@ -2515,6 +2521,9 @@ func _rotate_campaign_map():
 	var pool = _water_eligible_map_types()
 	var choices = pool.filter(func(t): return t != old_type)
 	map.map_type = choices[SimRng.stream("map").randi() % choices.size()] if not choices.is_empty() else pool[SimRng.stream("map").randi() % pool.size()]
+	if forced_type != "":
+		map.map_type = forced_type # Elite Four fights are held in the Colosseum
+		map.era_override = forced_era
 	map.name = "GameMap"
 	world.add_child(map)
 	# Draw order among equal-z siblings is child order: limbs sit at z=0 like the

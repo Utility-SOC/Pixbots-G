@@ -17,8 +17,8 @@ const MetaProgress = preload("res://scripts/core/MetaProgress.gd")
 var DROP_RATES = {
 	0: 0.30,  # COMMON
 	1: 0.18,  # UNCOMMON
-	2: 0.09,  # RARE
-	3: 0.02,  # LEGENDARY
+	2: 0.12,  # RARE (was 0.09: rarer tiles were arriving too slowly)
+	3: 0.03,  # LEGENDARY (was 0.02)
 	4: 0.005, # MYTHIC - baseline; see _get_mythic_drop_rate() for the wave-scaled version actually used
 }
 
@@ -189,7 +189,7 @@ func generate_loot_for_mech(mech: Node):
 				pack = comp_script.create_drone_backpack(HexTile.Rarity.RARE)
 
 		if pack == null:
-			var rarity = HexTile.Rarity.LEGENDARY if is_25th_wave_boss else HexTile.Rarity.RARE
+			var rarity = HexTile.Rarity.LEGENDARY if (is_25th_wave_boss or SimRng.stream("loot").randf() < 0.3) else HexTile.Rarity.RARE
 			pack = _create_procedural_component(rarity, mech, "Boss")
 
 		if pack != null:
@@ -359,7 +359,25 @@ func _spawn_component_drop(mech: Node, pack):
 	if mech.get_parent():
 		mech.get_parent().call_deferred("add_child", drop)
 
+# A dropped tile can come out a tier (rarely two) better than the enemy carried it: rarer gear was arriving too slowly. The
+# chance climbs a little with the wave; Mythic stays Mythic. Pure so it can be tested.
+const BOOST_BASE = 0.08
+const BOOST_PER_WAVE = 0.0015
+const BOOST_MAX = 0.28
+static func boosted_rarity(rarity: int, wave: int, r1: float, r2: float) -> int:
+	if rarity >= HexTile.Rarity.MYTHIC:
+		return rarity
+	var chance = clampf(BOOST_BASE + BOOST_PER_WAVE * float(wave), BOOST_BASE, BOOST_MAX)
+	if r1 >= chance:
+		return rarity
+	var out = rarity + 1
+	if out < HexTile.Rarity.MYTHIC and r2 < chance * 0.35:
+		out += 1
+	return out
+
 func _spawn_loot_drop(mech: Node, tile: HexTile):
+	if not is_structural(tile.tile_type):
+		tile.rarity = boosted_rarity(int(tile.rarity), current_wave, SimRng.stream("loot").randf(), SimRng.stream("loot").randf())
 	var drop = load("res://scripts/entities/LootPickup.gd").new()
 	drop.tile_data = tile
 	drop.global_position = mech.global_position + Vector2(SimRng.stream("loot").randf_range(-30, 30), SimRng.stream("loot").randf_range(-30, 30))

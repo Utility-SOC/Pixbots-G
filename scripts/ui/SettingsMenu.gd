@@ -206,6 +206,21 @@ func _setup_ui():
 	check_overcharge.toggled.connect(func(pressed): SaveManager.set_overcharge_loops(pressed))
 	visuals_tab.add_child(check_overcharge)
 
+	var scrap_label = Label.new()
+	scrap_label.text = "Auto-scrap on pickup"
+	visuals_tab.add_child(scrap_label)
+	var scrap_hint = Label.new()
+	scrap_hint.text = "Trash you have already discovered turns into scrap the moment you pick it up (new tile types are always kept). The Garage keeps the things that matter."
+	scrap_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	scrap_hint.modulate = Color(0.7, 0.7, 0.7)
+	visuals_tab.add_child(scrap_hint)
+	var opt_scrap = OptionButton.new()
+	for n in AutoScrap.MODE_NAMES:
+		opt_scrap.add_item(n)
+	opt_scrap.selected = SaveManager.auto_scrap_mode
+	opt_scrap.item_selected.connect(func(index): SaveManager.set_auto_scrap_mode(index))
+	visuals_tab.add_child(opt_scrap)
+
 	# PROFILE TAB
 	var profile_tab = VBoxContainer.new()
 	profile_tab.name = "Profile"

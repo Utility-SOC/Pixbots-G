@@ -935,5 +935,13 @@
 		"I'd tell you not to get attached, but she picked you. That's how it works.",
 		"If anyone asks, the cat is not part of the Corp-approved training kit.",
 		"She's a better judge of character than the sponsorship board. Let her sit with you a minute."
+	],
+	"forced_garage_lines": [
+		"Ten waves. Corp rules: every machine gets a service stop. Come in, I'll put the kettle on.",
+		"That's the tenth. I'm told it's policy. I'm also told the policy was written by someone who has never been shot at. In you come.",
+		"Time to service the chassis. Yes, mandatory. Yes, I know. Sit.",
+		"Ten waves in the field means ten waves of dust in the joints. Garage. Now. Please.",
+		"The inspector says nobody goes past a tenth wave without a checkup. I said you'd be fine. The inspector said 'maintenance'.",
+		"Look at the state of you. Inside. I'll find the good wrench."
 	]
 }

@@ -68,6 +68,11 @@ func get_death_footer() -> String:
 		return _draw_no_repeat("death_footers", dialogue_data["death_footers"])
 	return ""
 
+func get_forced_garage_line() -> String:
+	if dialogue_data.has("forced_garage_lines"):
+		return _draw_no_repeat("forced_garage_lines", dialogue_data["forced_garage_lines"])
+	return "Mandatory maintenance. Come inside."
+
 func get_shop_cat_line() -> String:
 	if dialogue_data.has("shop_cat_lines"):
 		return _draw_no_repeat("shop_cat_lines", dialogue_data["shop_cat_lines"])

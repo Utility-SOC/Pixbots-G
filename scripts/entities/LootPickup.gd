@@ -119,6 +119,14 @@ func _on_body_entered(body: Node2D):
 			if main and "player_modifier_chips" in main:
 				main.player_modifier_chips.append(chip_data)
 				if main.has_method("note_haul"): main.note_haul("chip", chip_data)
+		elif equipment_data and AutoScrap.should_scrap_component(int(equipment_data.rarity), AutoScrap.max_rarity()) \
+				and body.get_tree().current_scene != null and body.get_tree().current_scene.get("player_scrap") != null:
+			var scrap_main = body.get_tree().current_scene
+			var gained = AutoScrap.component_value(int(equipment_data.rarity))
+			scrap_main.player_scrap += gained
+			if body.has_method("_show_floating_text"):
+				body._show_floating_text("+%d scrap" % gained, Color(0.75, 0.85, 0.95))
+			equipment_data.free() # a Node: never leave the converted part orphaned
 		elif equipment_data:
 			print("Player picked up equipment: ", equipment_data.component_name)
 			var main = body.get_tree().current_scene
@@ -126,6 +134,13 @@ func _on_body_entered(body: Node2D):
 				load("res://scripts/core/ComponentViability.gd").ensure(equipment_data) # never hand over a non-routable part
 				main.player_component_inventory.append(equipment_data)
 				if main.has_method("note_haul"): main.note_haul("component", equipment_data)
+		elif tile_data and AutoScrap.should_scrap_tile(int(tile_data.rarity), SaveManager.discovered_tile_types.has(tile_data.tile_type), AutoScrap.max_rarity()) \
+				and body.get_tree().current_scene != null and body.get_tree().current_scene.get("player_scrap") != null:
+			var scrap_main2 = body.get_tree().current_scene
+			var gained2 = AutoScrap.tile_scrap_value(int(tile_data.rarity))
+			scrap_main2.player_scrap += gained2
+			if body.has_method("_show_floating_text"):
+				body._show_floating_text("+%d scrap" % gained2, Color(0.75, 0.85, 0.95))
 		elif tile_data:
 			print("Player picked up tile: ", tile_data.tile_type)
 			var main = body.get_tree().current_scene

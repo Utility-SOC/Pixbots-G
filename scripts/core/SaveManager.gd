@@ -235,6 +235,15 @@ static func wave_hp_multiplier(p_difficulty: int, wave: int) -> float:
 
 var difficulty: int = 1
 
+# Auto-scrap of trash loot on pickup (AutoScrap): index into AutoScrap.MODE_NAMES. Default Common + Uncommon.
+var auto_scrap_mode: int = 2
+func set_auto_scrap_mode(mode: int) -> void:
+	auto_scrap_mode = clampi(mode, 0, 3)
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("Game", "AutoScrapMode", auto_scrap_mode)
+	config.save(SETTINGS_PATH)
+
 # --- Frank's Challenges (best clear time per challenge id, in seconds) ---------------------------------------------
 var pending_challenge: String = ""
 
@@ -466,6 +475,7 @@ func _ready():
 	if config.load(SETTINGS_PATH) == OK:
 		difficulty = clamp(int(config.get_value("Game", "Difficulty", 1)), 0, 3)
 		pilot_name = str(config.get_value("Game", "PilotName", "Unknown Pilot"))
+		auto_scrap_mode = clampi(int(config.get_value("Game", "AutoScrapMode", 2)), 0, 3)
 		batch_render_mode = clamp(int(config.get_value("Rendering", "BatchRenderMode", 0)), 0, 4)
 		batch_renderer_in_combat = bool(config.get_value("Rendering", "BatchInCombat", true))
 		projectile_size_mode = clamp(int(config.get_value("Rendering", "ProjectileSizeMode", 1)), 0, 2)

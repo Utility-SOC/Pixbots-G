@@ -967,6 +967,31 @@ func _initialize_starter_inventory():
 	for tile in player_inventory:
 		SaveManager.note_tile_discovered(tile.tile_type)
 
+# What boss-class fight a wave carries: every fifth wave has one (a plain boss, or a rival on the tens, a nemesis on every 20th,
+# a megaboss on every 25th). "" = an ordinary wave.
+static func encounter_for_wave(wave: int) -> String:
+	if wave <= 0 or wave % 5 != 0:
+		return ""
+	if wave % NEMESIS_BOUNTY_WAVE_INTERVAL == 0:
+		return "nemesis"
+	if wave % 25 == 0:
+		return "megaboss"
+	if wave % 10 == 0:
+		return "rival"
+	return "boss"
+
+# In the core wave modes the game drops you into the Garage after every tenth wave: a forced stop to repair, rebuild and spend.
+const FORCED_GARAGE_EVERY = 10
+static func forced_garage_due(cleared_wave: int, mode: String) -> bool:
+	return (mode == "campaign" or mode == "endless") and cleared_wave > 0 and cleared_wave % FORCED_GARAGE_EVERY == 0
+
+func _after_wave_beat() -> void:
+	if forced_garage_due(current_wave - 1, SaveManager.current_game_mode):
+		show_dialogue("Shopkeeper", DialogueManager.get_forced_garage_line(), Color(0.7, 0.85, 1.0), 6.0)
+		_open_garage()
+	else:
+		_start_intermission()
+
 func _start_intermission():
 	_ensure_wager().open_window(current_wave)
 	show_dialogue("Shopkeeper", DialogueManager.get_intermission_quip(), Color(0.7, 0.85, 1.0), 5.0)
@@ -1351,16 +1376,17 @@ func _start_wave():
 	# those, this is a one-off boss built specifically to counter the
 	# player's own damage log (see SquadDirector.build_nemesis_profile /
 	# _spawn_nemesis below), not a fitness-evolving pool pick.
-	if current_wave > 0 and current_wave % NEMESIS_BOUNTY_WAVE_INTERVAL == 0:
+	var encounter = encounter_for_wave(current_wave)
+	if encounter == "nemesis":
 		_spawn_nemesis(director)
 	# Megaboss Wave Check (Every 25 waves)
-	elif current_wave > 0 and current_wave % 25 == 0:
+	elif encounter == "megaboss":
 		_spawn_boss(director, true)
 	# Rival Challenge (every 10 waves)
-	elif current_wave > 0 and current_wave % 10 == 0:
+	elif encounter == "rival":
 		_spawn_rival(director)
 	# Boss Wave Check (Every 5 waves)
-	elif current_wave > 0 and current_wave % 5 == 0:
+	elif encounter == "boss":
 		_spawn_boss(director, false)
 	# Traveling Champion (PvP ghost): on ordinary waves, an imported
 	# champion sometimes shows up at the shop to challenge you - "counted
@@ -2441,10 +2467,10 @@ func _on_wave_cleared():
 	# when it finishes or gets skipped - no scene mapped means zero change.
 	var cutscene = CutscenePlayer.maybe_create_for_wave(current_wave)
 	if cutscene:
-		cutscene.finished.connect(_start_intermission)
+		cutscene.finished.connect(_after_wave_beat)
 		add_child(cutscene)
 	else:
-		_start_intermission()
+		_after_wave_beat()
 	if tell_director:
 		tell_director.presolve_upcoming_stock_builds()
 		_refill_pool_for_wave(tell_director)

@@ -111,6 +111,8 @@ func _on_change(key: String, old, new):
 # Things that must hold for the hero's body to be on screen.
 func _check_invariants(s: Node):
 	var p = s.player
+	if p.is_dead:
+		return # a dead hero is hidden by design (game over); nothing to check
 	var r = p._renderer
 	var bad: PackedStringArray = []
 	if not is_instance_valid(r):

@@ -205,7 +205,7 @@ func _refresh_link() -> void:
 	if link_bay == null or not is_instance_valid(link_bay) or not is_instance_valid(owner_mech):
 		return
 	var flow = float(owner_mech.get("phase_flow")) if owner_mech.get("phase_flow") != null else 1.0
-	var delivered = float(link_bay.link_energy) * flow
+	var delivered = minf(float(link_bay.link_energy) * flow, DroneBayTile.link_cap_for(drone_rarity)) # capped by bay rarity
 	if _link_applied >= 0.0 and absf(delivered - _link_applied) <= LINK_CHANGE_TOLERANCE * maxf(_link_applied, 1.0):
 		return
 	_link_applied = delivered

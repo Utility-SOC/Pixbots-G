@@ -65,6 +65,11 @@ var stored_energy: float = 0.0
 # Drone._refresh_link), scaled by the owner's Phase Shifter flow. Persists until the next recalculation.
 var link_energy: float = 0.0
 
+# The most link energy a drone of this bay rarity can take (COMMON..MYTHIC). (tune)
+const LINK_CAP_BY_RARITY = [50.0, 100.0, 200.0, 400.0, 800.0]
+static func link_cap_for(rarity: int) -> float:
+	return LINK_CAP_BY_RARITY[clampi(rarity, 0, LINK_CAP_BY_RARITY.size() - 1)]
+
 # Purely a display cache: which Drone tab this bay corresponds to (1-based,
 # matching the "Drone N" label GarageMenu._refresh_component_ui assigns -
 # see that function's drone-tab loop, the single source of truth this gets

@@ -563,7 +563,7 @@ func _solve_impl(component: Node, inventory: Array, profile: SolverProfile = nul
 			
 			if entry_dir == exit_dir:
 				# Straight path -> Amplifier, Catalyst, Infuser
-				var tile_types = _straight_tile_priority(profile, int(component.slot_type))
+				var tile_types = _straight_tile_priority(profile, int(component.slot_type), _has_drone_bay_sink(component))
 				var idx = _find_tile_index_by_priority(inventory, tile_types)
 
 				if idx >= 0:
@@ -788,7 +788,21 @@ func _subtree_reaches(v: Vector2i, goal_set: Dictionary, tree_nodes: Dictionary,
 # so burying it behind Amplifier/Catalyst (as the original fixed order did)
 # meant profiles could almost never express themselves even when the
 # inventory had the right tiles.
-func _straight_tile_priority(profile: SolverProfile, slot_type: int = -1) -> Array:
+# True for a backpack whose fixed sinks include a Drone Bay: its energy is a LINK that adds to the drone's core reactor.
+func _has_drone_bay_sink(component: Node) -> bool:
+	if not component or not component.hex_grid or not ("fixed_sinks" in component):
+		return false
+	for s in component.fixed_sinks:
+		var t = component.hex_grid.get_tile(s)
+		if t and t.tile_type == "Drone Bay":
+			return true
+	return false
+
+func _straight_tile_priority(profile: SolverProfile, slot_type: int = -1, feeds_drone_link: bool = false) -> Array:
+	# A Drone Bay link is pure magnitude (the drone keeps its own reactor's element), up to the bay rarity's cap
+	# (DroneBayTile.link_cap_for), so Amplifiers lead; Catalysts still follow for the Torso Return branch.
+	if feeds_drone_link and slot_type == HexTile.BodySlot.BACKPACK:
+		return ["Amplifier", "Catalyst", "Elemental Infuser", "Splitter"]
 	# Head and Backpack exist to CONDITION energy on its way back to the torso
 	# (their Torso Return feeds the Accessory Return): Catalysts first so the
 	# element is set, then boosters.

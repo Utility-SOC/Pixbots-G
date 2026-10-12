@@ -119,6 +119,7 @@ func open_popup():
 
 	garage.add_child(popup)
 	popup.popup_centered(Vector2(620, 480))
+	UiFx.pop_in_popup(popup)
 	popup.popup_hide.connect(func(): popup.queue_free())
 
 # --- Full bots ---------------------------------------------------------

@@ -33,6 +33,7 @@ func _init(p_garage: GarageMenu):
 func _show_popup(popup: PopupPanel, size: Vector2):
 	garage.add_child(popup)
 	popup.popup_centered(size)
+	UiFx.pop_in_popup(popup)
 	popup.popup_hide.connect(func(): popup.queue_free())
 	popup.focus_exited.connect(func():
 		if not is_instance_valid(popup):

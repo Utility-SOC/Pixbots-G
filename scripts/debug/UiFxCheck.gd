@@ -38,6 +38,21 @@ func _ready():
 	_check("layer child restored", is_equal_approx(inner.modulate.a, 1.0))
 	_check("null control is ignored", UiFx.pop_in(null) == null)
 
+	# Popup windows: the content fades (a Window itself has no modulate), a non-Control child is ignored, null is safe.
+	var win := Window.new()
+	win.size = Vector2i(200, 100)
+	var content := VBoxContainer.new()
+	win.add_child(content)
+	win.add_child(Node.new())
+	add_child(win)
+	UiFx.pop_in_popup(win, 0.05)
+	_check("popup content fades in from transparent", content.modulate.a == 0.0)
+	await get_tree().create_timer(0.2, true, false, true).timeout
+	_check("popup content ends at its resting alpha", is_equal_approx(content.modulate.a, 1.0))
+	UiFx.pop_in_popup(null)
+	_check("a null popup is ignored", true)
+	win.queue_free()
+
 	get_tree().paused = false
 	print("UiFxCheck: failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

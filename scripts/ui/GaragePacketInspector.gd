@@ -109,6 +109,7 @@ func on_tile_clicked(tile: HexTile):
 
 	garage.add_child(popup)
 	popup.popup_centered(Vector2(400, 560))
+	UiFx.pop_in_popup(popup)
 	popup.popup_hide.connect(func(): popup.queue_free())
 
 func _format_synergy_breakdown(synergies: Dictionary) -> String:

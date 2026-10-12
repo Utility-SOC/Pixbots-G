@@ -37,3 +37,11 @@ static func pop_in_layer(layer: CanvasLayer, duration: float = DURATION) -> void
 	for ch in layer.get_children():
 		if ch is Control:
 			pop_in(ch, duration, false)
+
+# Popup windows (PopupPanel etc.) are not Controls, so fade the content they were given. Call right after popup_centered().
+static func pop_in_popup(w: Window, duration: float = DURATION) -> void:
+	if w == null or not w.is_inside_tree():
+		return
+	for ch in w.get_children():
+		if ch is Control:
+			pop_in(ch, duration, false)

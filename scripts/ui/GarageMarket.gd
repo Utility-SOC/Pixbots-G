@@ -113,6 +113,7 @@ func open_popup():
 
 	garage.add_child(popup)
 	popup.popup_centered(Vector2(640, 220))
+	UiFx.pop_in_popup(popup)
 	popup.popup_hide.connect(func(): popup.queue_free())
 
 func _build_component(offer: Dictionary):

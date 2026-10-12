@@ -55,6 +55,7 @@ func show_popup():
 		_popup = _build_popup()
 		garage.add_child(_popup)
 	_popup.popup_centered(Vector2(460, 520))
+	UiFx.pop_in_popup(_popup)
 
 func _build_popup() -> PopupPanel:
 	var popup = PopupPanel.new()

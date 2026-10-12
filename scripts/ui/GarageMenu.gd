@@ -160,6 +160,7 @@ func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("garage_menu") # lets TutorialManager know the Garage is open
 	_setup_ui()
+	UiFx.pop_in_layer.call_deferred(self)
 	
 	# Hook up the player's components if they exist
 	if get_parent() and get_parent().get("player") != null:
@@ -1027,6 +1028,7 @@ func _on_swap_component_pressed():
 	)
 	add_child(popup)
 	popup.popup_centered(Vector2(300, 400))
+	UiFx.pop_in_popup(popup)
 
 func _on_infuse_component_pressed():
 	if not active_component: return
@@ -1088,6 +1090,7 @@ func _on_infuse_component_pressed():
 	)
 	add_child(popup)
 	popup.popup_centered(Vector2(300, 400))
+	UiFx.pop_in_popup(popup)
 
 func _on_codex_pressed():
 	if not synergy_codex_popup:
@@ -1099,6 +1102,7 @@ func _show_warning(msg: String):
 	dialog.dialog_text = msg
 	add_child(dialog)
 	dialog.popup_centered()
+	UiFx.pop_in_popup(dialog)
 
 # Drone template (see GarageUIBuilder's Drone->All button): clone the open
 # drone tab's loadout onto every other installed bay - serialize round trip
@@ -1195,6 +1199,7 @@ func _on_blueprint_pressed():
 
 	add_child(popup)
 	popup.popup_centered(Vector2(360, 120 + (cards.size() + demo_count) * 40))
+	UiFx.pop_in_popup(popup)
 	popup.popup_hide.connect(func(): popup.queue_free())
 
 func _apply_demo_build(data: Dictionary):
@@ -1229,6 +1234,7 @@ func _on_test_range_pressed():
 	range_popup.setup(main.player)
 	add_child(range_popup)
 	range_popup.popup_centered(Vector2(940, 540))
+	UiFx.pop_in_popup(range_popup)
 
 # Same reuse-a-single-instance pattern as MainMenu._on_war_room_pressed -
 # toggles an existing instance back open instead of stacking duplicates.
@@ -1373,6 +1379,7 @@ func _open_slot_manager(full_build: bool):
 
 	add_child(popup)
 	popup.popup_centered(Vector2(440, 400))
+	UiFx.pop_in_popup(popup)
 	popup.popup_hide.connect(func(): popup.queue_free())
 
 func _apply_blueprint(payload: Dictionary):

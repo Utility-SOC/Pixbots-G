@@ -97,6 +97,7 @@ func _on_save():
 	
 	add_child(popup)
 	popup.popup_centered(Vector2(300, 150))
+	UiFx.pop_in_popup(popup)
 
 func _on_load():
 	var popup = PopupPanel.new()
@@ -133,6 +134,7 @@ func _on_load():
 	
 	add_child(popup)
 	popup.popup_centered(Vector2(300, 300))
+	UiFx.pop_in_popup(popup)
 
 func _on_settings_pressed():
 	# Reuse a single instance across repeat presses - without this guard, a

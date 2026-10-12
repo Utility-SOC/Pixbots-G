@@ -87,6 +87,7 @@ func open_popup():
 
 	garage.add_child(popup)
 	popup.popup_centered(Vector2(680, 560))
+	UiFx.pop_in_popup(popup)
 	popup.popup_hide.connect(func(): popup.queue_free())
 
 func _make_banner(main: Node, brand_id: String, is_current: bool, popup: PopupPanel) -> Control:

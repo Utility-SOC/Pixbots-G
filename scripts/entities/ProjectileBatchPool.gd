@@ -33,6 +33,43 @@ var _free_indices: Array[int] = []
 
 # --- Flat per-slot state (index-parallel arrays, not one Object per shot) ---
 var _alive: PackedByteArray
+# Terrain heights (Hilly / Mountains): each shot remembers the ground level it left from; ground more than BLOCK_LEVELS above that
+# stops it. _hm is the map's height data cached for the loop (empty on every other map, which then skips the whole check).
+var _launch_h: PackedByteArray
+var _hm: PackedByteArray = PackedByteArray()
+var _hm_w: int = 0
+var _hm_h: int = 0
+var _hm_ts: float = 32.0
+var _hm_check_t: float = 0.0
+
+func _refresh_height_cache(delta: float) -> void:
+	_hm_check_t -= delta
+	if _hm_check_t > 0.0:
+		return
+	_hm_check_t = 1.5
+	var maps = EntityCache.get_group("map_generator")
+	if maps.size() > 0 and is_instance_valid(maps[0]) and maps[0].get("has_heights") == true:
+		_hm = maps[0].heights
+		_hm_w = maps[0].width
+		_hm_h = maps[0].height
+		_hm_ts = maps[0].tile_size
+	else:
+		_hm = PackedByteArray()
+
+func _ground_level(p: Vector2) -> int:
+	var x = int(floor(p.x / _hm_ts))
+	var y = int(floor(p.y / _hm_ts))
+	if x < 0 or y < 0 or x >= _hm_w or y >= _hm_h:
+		return 0
+	return _hm[y * _hm_w + x]
+
+# Despawns shots that have flown into ground higher than where they were fired from.
+func _step_terrain_block() -> void:
+	for i in range(_highest_active + 1):
+		if _alive[i] == 0 or _is_mine[i] == 1:
+			continue
+		if _ground_level(_position[i]) > _launch_h[i] + 1:
+			despawn(i)
 var _position: PackedVector2Array
 var _direction: PackedVector2Array
 var _speed: PackedFloat32Array
@@ -354,6 +391,7 @@ var _tapered_trail_points: Dictionary = {} # synergy int -> PackedVector2Array
 func _init(p_capacity: int = DEFAULT_CAPACITY):
 	capacity = p_capacity
 	_alive.resize(capacity)
+	_launch_h.resize(capacity)
 	_position.resize(capacity)
 	_prev_position.resize(capacity)
 	_direction.resize(capacity)
@@ -681,6 +719,7 @@ func _spawn_impl(pos: Vector2, dir: Vector2, speed: float, dmg: float, radius: f
 		return -1
 	var i = _free_indices.pop_back()
 	_alive[i] = 1
+	_launch_h[i] = _ground_level(pos) if not _hm.is_empty() else 0
 	_position[i] = pos
 	_prev_position[i] = pos
 	_direction[i] = dir.normalized() if dir != Vector2.ZERO else Vector2.RIGHT
@@ -897,7 +936,10 @@ static var _perf_hit_count: int = 0
 
 func _process(delta):
 	var _t0 = Time.get_ticks_usec()
+	_refresh_height_cache(delta)
 	_step_simulate(delta)
+	if not _hm.is_empty():
+		_step_terrain_block()
 	var _t1 = Time.get_ticks_usec()
 	_step_hit_test()
 	_perf_sim_usec += _t1 - _t0
@@ -2026,6 +2068,10 @@ func _apply_explosion_aoe(i: int, primary_target: Node, hit_decay: float):
 		if is_instance_valid(vent) and vent.has_method("trigger") and vent.global_position.distance_to(_position[i]) <= radius + vent.radius:
 			vent.trigger() # Volcano identity: an Explosion pops a vent early
 	var fired_by_player = _fired_by_player[i] == 1
+	var hmap = null
+	if not _hm.is_empty():
+		var maps2 = EntityCache.get_group("map_generator")
+		hmap = maps2[0] if maps2.size() > 0 and is_instance_valid(maps2[0]) else null
 	for t in _targets:
 		if not is_instance_valid(t) or t == primary_target or t.get("is_dead") == true:
 			continue
@@ -2034,6 +2080,8 @@ func _apply_explosion_aoe(i: int, primary_target: Node, hit_decay: float):
 		if not t.has_method("apply_damage") and not t.has_method("apply_part_damage"):
 			continue
 		if t.global_position.distance_to(_position[i]) <= radius:
+			if hmap != null and not hmap.los_clear(_position[i], t.global_position):
+				continue # the blast stays in its valley (plus what it can see)
 			_apply_damage_to_target(t, _damage[i] * 0.5 * hit_decay, "RAW")
 
 # Mirrors Projectile._trigger_poison_mine_detonation (Projectile.gd:1547-

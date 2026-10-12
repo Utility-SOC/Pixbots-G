@@ -82,7 +82,7 @@ func handle_input(delta: float):
 	total_mult = min(total_mult, 3.8) # User requested max 3.8x for both combined
 
 	var actual_move_speed = mech.current_move_speed * total_mult
-	var target_vel = input_dir * actual_move_speed * mech.terrain_speed_mult
+	var target_vel = input_dir * actual_move_speed * mech.terrain_speed_mult * mech.slope_weather_mult(input_dir)
 
 	# Scale acceleration much slower to give a feeling of weight
 	var accel = 600.0

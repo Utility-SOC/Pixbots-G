@@ -49,6 +49,8 @@ static func build(m) -> void:
 		"Crypt": MapKitsB.interior(m, "crypt")
 		"Keep": MapKitsB.interior(m, "keep")
 		"Dreamscape": MapKitsB.dreamscape(m)
+		"Hilly": MapKitsC.hilly(m)
+		"Mountains": MapKitsC.mountains(m)
 
 # ---- shared helpers -----------------------------------------------------------------------------------------------
 
@@ -235,6 +237,13 @@ static func themes(map_type: String, era: String) -> Array:
 		"Crypt": t = ["dungeon", "gothic"]
 		"Keep": t = ["dungeon", "gothic"]
 		"Dreamscape": t = ["surreal", "kitbash"]
+		"Hilly":
+			t = ["agricultural", "gothic", "camp"]
+			if era in ["skirmish", "no_mans_land"]: t += ["fortification", "wreck"]
+			if era == "apocalypse": t += ["wreck", "apocalypse_relic"]
+		"Mountains":
+			t = ["fortification", "camp", "ancient"]
+			if era != "prewar": t += ["wreck"]
 		_:
 			t = ["urban"]
 	return t

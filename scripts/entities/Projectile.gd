@@ -2178,8 +2178,12 @@ func _trigger_explosion(decay: float = 1.0):
 	var blast_radius = explosion_radius_for(ratios, aoe_bonus) * decay
 	Sfx.explosion(blast_radius, global_position)
 	ScorchDecals.mark(get_tree(), global_position, blast_radius * 0.7)
+	var hmaps = EntityCache.get_group("map_generator")
+	var hmap = hmaps[0] if hmaps.size() > 0 and is_instance_valid(hmaps[0]) and hmaps[0].get("has_heights") == true else null
 	for col in SimPhysics.circle_colliders(self, global_transform, blast_radius, collision_mask):
 		if col.has_method("apply_damage"):
+			if hmap != null and col is Node2D and not hmap.los_clear(global_position, col.global_position):
+				continue # the blast stays in its valley
 			col.apply_damage(damage * 0.5 * decay)
 	for vent in EntityCache.get_group("explosion_trigger"):
 		if is_instance_valid(vent) and vent.has_method("trigger") and vent.global_position.distance_to(global_position) <= blast_radius + vent.radius:

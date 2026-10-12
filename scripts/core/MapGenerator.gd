@@ -51,6 +51,14 @@ var decor: Dictionary = {}
 var hazard_spots: Array = []
 # Live tree bodies by tile (forest fire spread looks neighbours up here).
 var tree_nodes: Dictionary = {}
+# Terrain height (Hilly, Mountains): one level 0..9 per tile, row-major (y * width + x). Heights change how fast mechs climb
+# and descend (slope_mult), stop shots fired from lower ground (see ProjectileBatchPool) and clip explosions (los_clear).
+var heights: PackedByteArray = PackedByteArray()
+var has_heights: bool = false
+# Tundra snow drifts (and mountain snow): tile -> true; they slow walking (TerrainEffects.SNOW_SPEED) and are painted as decor.
+var snow_cells: Dictionary = {}
+const SLOPE_PER_LEVEL = 0.10 # speed lost per level climbed over one tile (and gained going down)
+const BLOCK_LEVELS = 1 # a shot is stopped by ground more than this many levels above where it was fired from
 # How fast fire spreads between trees on this map (1.0 normal); Dense Forest burns easily.
 var fire_spread_multiplier: float = 1.0
 # Rooms carved by MapStructure.build_dungeon (kept so interiors can be furnished).
@@ -426,6 +434,9 @@ func _generate_map():
 		ruin_specs.clear()
 		decor.clear()
 		tree_nodes.clear()
+		heights = PackedByteArray()
+		has_heights = false
+		snow_cells.clear()
 		fire_spread_multiplier = MapTypes.fire_spread(map_type)
 		corn_field_cells.clear()
 		var water_tile_count = 0
@@ -541,6 +552,14 @@ func _generate_map():
 			_tabletop_forest_bases()
 		elif map_type == "Open Field":
 			_open_field_cover()
+
+		# Tundra snow drifts: slow ground, painted white (TerrainEffects.SNOW_SPEED)
+		if map_type == "Tundra":
+			for sy in range(2, height - 2):
+				for sx in range(2, width - 2):
+					if terrain[sy][sx] == BiomeType.TUNDRA and not obstacles.has(Vector2i(sx, sy)) and noise.get_noise_2d(sx * 1.7 + 300.0, sy * 1.7) > 0.3:
+						snow_cells[Vector2i(sx, sy)] = true
+						decor[Vector2i(sx, sy)] = "snow"
 
 		# Connectivity guarantee (play report: "no meaningful gaps - easy to
 		# get boxed in and unable to advance" on Forest/Volcano). Obstacle
@@ -1379,6 +1398,10 @@ func _render_chunk_image(cx: int, cy: int, wall_thickness: int, blue_color: Colo
 					else:
 						img.fill_rect(obs_rect, obs_color)
 
+	# Terrain height shading (lighter higher up, a dark edge where the ground drops away) for Hilly / Mountains
+	if has_heights:
+		_paint_heights(img, tile_x0, tile_y0, tile_x1, tile_y1)
+
 	# Baked ground decoration (poppies, craters, wire, pools...) for MapTypes maps
 	if not decor.is_empty():
 		for dcell in decor:
@@ -1746,6 +1769,43 @@ func _spawn_tree(pos: Vector2):
 	tree_nodes[body.cell] = body
 	add_child(body)
 
+# ---- terrain height ----------------------------------------------------------------------------------------------------
+func init_heights() -> void:
+	heights = PackedByteArray()
+	heights.resize(width * height)
+	has_heights = true
+
+func set_height(x: int, y: int, level: int) -> void:
+	if x >= 0 and y >= 0 and x < width and y < height and has_heights:
+		heights[y * width + x] = clampi(level, 0, 9)
+
+func height_level(x: int, y: int) -> int:
+	if not has_heights or x < 0 or y < 0 or x >= width or y >= height:
+		return 0
+	return heights[y * width + x]
+
+func height_at(pos: Vector2) -> int:
+	return height_level(int(floor(pos.x / tile_size)), int(floor(pos.y / tile_size)))
+
+# Walking speed factor for moving along `dir` from `pos`: slower uphill, faster downhill (one tile ahead).
+func slope_mult(pos: Vector2, dir: Vector2) -> float:
+	if not has_heights or dir == Vector2.ZERO:
+		return 1.0
+	var dh = height_at(pos + dir.normalized() * tile_size) - height_at(pos)
+	return clampf(1.0 - SLOPE_PER_LEVEL * float(dh), 0.55, 1.25)
+
+# True when nothing between a and b rises more than BLOCK_LEVELS above the higher of the two ends (explosions use this: a blast
+# stays in its valley plus whatever it can see).
+func los_clear(a: Vector2, b: Vector2) -> bool:
+	if not has_heights:
+		return true
+	var ceiling = maxi(height_at(a), height_at(b)) + BLOCK_LEVELS
+	var steps = int(a.distance_to(b) / (tile_size * 0.5))
+	for i in range(1, steps):
+		if height_at(a.lerp(b, float(i) / float(steps))) > ceiling:
+			return false
+	return true
+
 # Live trees within `r` tiles (Chebyshev) of `cell`.
 func trees_near(cell: Vector2i, r: int) -> Array:
 	var out: Array = []
@@ -1797,6 +1857,29 @@ func _create_merged_collision(start_x: int, y: int, length: int, layer: int):
 	if not _runs[layer].has(y):
 		_runs[layer][y] = []
 	_runs[layer][y].append({"x": start_x, "n": length, "body": body})
+
+func _paint_heights(img: Image, tile_x0: int, tile_y0: int, tile_x1: int, tile_y1: int) -> void:
+	var t = tile_size
+	var light: Array = []
+	for lvl in range(10):
+		var o = Image.create(t, t, false, Image.FORMAT_RGBA8)
+		o.fill(Color(1.0, 1.0, 0.92, 0.05 * float(lvl)))
+		light.append(o)
+	var edge_h = Image.create(t, 3, false, Image.FORMAT_RGBA8)
+	edge_h.fill(Color(0.1, 0.08, 0.05, 0.45))
+	var edge_v = Image.create(3, t, false, Image.FORMAT_RGBA8)
+	edge_v.fill(Color(0.1, 0.08, 0.05, 0.45))
+	for ty in range(tile_y0, tile_y1):
+		for tx in range(tile_x0, tile_x1):
+			var h = height_level(tx, ty)
+			var px = (tx - tile_x0) * t
+			var py = (ty - tile_y0) * t
+			if h > 0:
+				img.blend_rect(light[h], Rect2i(0, 0, t, t), Vector2i(px, py))
+			if height_level(tx, ty + 1) < h:
+				img.blend_rect(edge_h, Rect2i(0, 0, t, 3), Vector2i(px, py + t - 3))
+			if height_level(tx + 1, ty) < h:
+				img.blend_rect(edge_v, Rect2i(0, 0, 3, t), Vector2i(px + t - 3, py))
 
 # The colour wash of a MapTypes map's era (white for every other map).
 func ground_tint() -> Color:

@@ -281,6 +281,13 @@ func _wipe_terrain():
 # landing zone with zero reimplementation. Other victims inside the ring
 # take falloff splash (the element's own spread mechanics - arcs, blasts -
 # already reach them the same way direct fire would).
+# The map, when it has terrain heights (Hilly / Mountains); null otherwise.
+func _height_map():
+	var maps = EntityCache.get_group("map_generator")
+	if maps.size() > 0 and is_instance_valid(maps[0]) and maps[0].get("has_heights") == true:
+		return maps[0]
+	return null
+
 func _detonate():
 	var world = get_parent()
 	Sfx.play("boom" if _blast_radius_hint() >= 120.0 else "boom_small", global_position)
@@ -305,9 +312,12 @@ func _detonate():
 	var direct_target = null
 	var direct_dist = effective_radius
 	var splash: Array = []
+	var hmap = _height_map()
 	for v in victims:
 		if not is_instance_valid(v) or v.get("is_dead"):
 			continue
+		if hmap != null and not hmap.los_clear(target_pos, v.global_position):
+			continue # a missile's blast stays in the valley it lands in (plus what it can see)
 		var dist = v.global_position.distance_to(target_pos)
 		if dist > effective_radius:
 			continue
@@ -368,10 +378,11 @@ func _detonate():
 # mode's.
 func _detonate_equal_split(victims: Array, world: Node) -> void:
 	var struck: Array = []
+	var hmap = _height_map()
 	for v in victims:
 		if not is_instance_valid(v) or v.get("is_dead"):
 			continue
-		if v.global_position.distance_to(target_pos) <= effective_radius:
+		if v.global_position.distance_to(target_pos) <= effective_radius and (hmap == null or hmap.los_clear(target_pos, v.global_position)):
 			struck.append(v)
 
 	if struck.is_empty() or not world:

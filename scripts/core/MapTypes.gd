@@ -30,6 +30,8 @@ const TYPES = {
 	"Caves": {"size": Vector2i(300, 200), "tint": Color(0.7, 0.75, 0.95), "era_weights": [1, 1, 1, 1], "hazards": [], "music": "Dungeon"},
 	"Crypt": {"size": Vector2i(300, 200), "tint": Color(0.75, 0.8, 0.85), "era_weights": [1, 1, 1, 1], "hazards": [], "music": "Dungeon"},
 	"Keep": {"size": Vector2i(300, 200), "tint": Color(0.95, 0.88, 0.8), "era_weights": [3, 2, 1, 2], "hazards": [], "music": "Dungeon"},
+	"Hilly": {"size": Vector2i(400, 250), "tint": Color(1.0, 1.0, 0.97), "era_weights": [4, 2, 2, 2], "hazards": [], "music": "Normal"},
+	"Mountains": {"size": Vector2i(400, 250), "tint": Color(0.93, 0.95, 1.0), "era_weights": [3, 2, 2, 3], "hazards": [], "music": "Tundra"},
 	"Dreamscape": {"size": Vector2i(400, 250), "tint": Color(1.0, 0.9, 1.0), "era_weights": [1, 1, 1, 1], "hazards": [], "music": "Tundra"},
 }
 

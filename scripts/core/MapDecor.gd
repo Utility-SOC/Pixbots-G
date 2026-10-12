@@ -6,7 +6,7 @@ extends RefCounted
 # at runtime. `decor` maps a tile (Vector2i) to a kind string; each kind draws inside its tile only.
 
 const KINDS = ["poppy", "poppy_dense", "crater", "wire", "bones", "tracks", "debris", "yellow_road", "flowers", "pool_deep", "pool_blue",
-	"pool_green", "pool_yellow", "pool_orange", "ripple", "moss", "cracks", "scorch", "sandbags", "blood_moon_glow", "grass_tuft", "ice_crack", "ash", "neon_bloom", "circuit", "hardlight", "neon_lane", "hex_plate"]
+	"pool_green", "pool_yellow", "pool_orange", "ripple", "moss", "cracks", "scorch", "sandbags", "blood_moon_glow", "grass_tuft", "ice_crack", "ash", "neon_bloom", "circuit", "hardlight", "neon_lane", "hex_plate", "snow"]
 
 static func _h(cell: Vector2i, salt: int) -> int:
 	return posmod(cell.x * 73856093 ^ cell.y * 19349663 ^ salt * 83492791, 100003)
@@ -114,6 +114,12 @@ static func paint(img: Image, kind: String, ox: int, oy: int, t: int, cell: Vect
 				var x = ox + _h(cell, i * 2 + 1) % (t - 3)
 				var y = oy + _h(cell, i * 2 + 2) % (t - 3)
 				img.fill_rect(Rect2i(x, y, 3, 3), Color(0.3, 0.3, 0.32))
+		"snow":
+			for i in range(9):
+				var x = ox + _h(cell, i * 2 + 1) % (t - 6)
+				var y = oy + _h(cell, i * 2 + 2) % (t - 4)
+				img.fill_rect(Rect2i(x, y, 6, 3), Color(0.95, 0.97, 1.0))
+				img.fill_rect(Rect2i(x + 1, y + 3, 4, 1), Color(0.78, 0.85, 0.95))
 		"neon_bloom":
 			for i in range(6):
 				var x = ox + 2 + _h(cell, i * 2 + 1) % (t - 6)

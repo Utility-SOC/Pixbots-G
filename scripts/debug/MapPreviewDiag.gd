@@ -25,9 +25,13 @@ func _ready():
 	for ty in range(m.height):
 		for tx in range(m.width):
 			var c: Color = m._get_biome_color(m.terrain[ty][tx]) * tint
+			if m.has_heights:
+				c = c.lightened(0.07 * float(m.height_level(tx, ty)))
 			var dk = m.decor.get(Vector2i(tx, ty), "")
 			if dk.begins_with("poppy"):
 				c = c.lerp(Color(0.85, 0.15, 0.1), 0.45)
+			elif dk == "snow":
+				c = c.lerp(Color(0.95, 0.97, 1.0), 0.6)
 			elif dk == "yellow_road":
 				c = Color(0.95, 0.8, 0.2)
 			elif dk.begins_with("pool_"):

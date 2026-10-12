@@ -90,6 +90,15 @@ static func sight_mult(tree: SceneTree) -> float:
 		return 1.0
 	return nodes[0].current_sight_mult()
 
+# Walking speed factor from the weather in play: a blizzard drags at everyone (down to 85% at full strength), a sandstorm does not.
+static func move_mult(tree: SceneTree) -> float:
+	if tree == null:
+		return 1.0
+	var nodes = EntityCache.get_group("weather")
+	if nodes.is_empty() or not is_instance_valid(nodes[0]) or nodes[0].kind != "blizzard":
+		return 1.0
+	return 1.0 - 0.15 * nodes[0].intensity
+
 func _build_veil() -> void:
 	_layer = CanvasLayer.new()
 	_layer.layer = 3 # above the world (0), below the HUD (5)

@@ -15,6 +15,7 @@ const UNDERGROWTH_SPEED = 0.92
 const ICE_TRACTION = 0.18
 const SHALLOW_SPEED = 0.6
 const SHALLOW_TRACTION = 0.75
+const SNOW_SPEED = 0.85 # a snow drift (Tundra, mountain tops): walking speed
 
 static func speed(biome: int) -> float:
 	match biome:

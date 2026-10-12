@@ -1577,12 +1577,22 @@ func pull_towards(target_pos: Vector2, delta: float, strength: float = 600.0):
 # Ground effects from the biome underfoot (see TerrainEffects); refreshed with the water state each tick.
 var terrain_speed_mult: float = 1.0
 var terrain_traction: float = 1.0
+var _height_map_ref = null # the map, when it has terrain heights (Hilly / Mountains): slopes change walking speed
+
+# Walking-speed factor from slope and weather for moving along `dir` (1.0 for jets/amphibious and on flat, clear ground).
+func slope_weather_mult(dir: Vector2) -> float:
+	var m = WeatherSystem.move_mult(get_tree()) if is_inside_tree() else 1.0
+	if _height_map_ref != null and is_instance_valid(_height_map_ref) and not is_amphibious and not _has_jumpjets():
+		m *= _height_map_ref.slope_mult(global_position, dir)
+	return m
 var _slide_velocity: Vector2 = Vector2.ZERO
 
 # AI branches set velocity outright; scale it by the ground and, on ice, let the old heading bleed off.
 func _apply_terrain_to_ai_velocity(delta: float) -> void:
 	if terrain_speed_mult != 1.0:
 		velocity *= terrain_speed_mult
+	if velocity != Vector2.ZERO:
+		velocity *= slope_weather_mult(velocity)
 	if terrain_traction < 1.0:
 		velocity = TerrainEffects.slide(_slide_velocity, velocity, terrain_traction, delta)
 	_slide_velocity = velocity
@@ -1616,6 +1626,9 @@ func _refresh_water_state():
 			else:
 				terrain_speed_mult = TerrainEffects.speed(biome_here)
 				terrain_traction = TerrainEffects.traction(biome_here)
+				if not map.snow_cells.is_empty() and map.snow_cells.has(grid_pos):
+					terrain_speed_mult *= TerrainEffects.SNOW_SPEED
+		_height_map_ref = map if map.has_heights else null
 		# FightShovel corn trampling (Utility-SOC: "corn-fields that leave
 		# trails when walked through") - same per-mech-per-tick terrain
 		# lookup this function already does, one dictionary check further.

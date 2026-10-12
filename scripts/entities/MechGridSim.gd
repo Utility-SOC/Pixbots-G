@@ -257,6 +257,7 @@ func _simulate_energy_flow(torso):
 			c.hex_grid.flow_ready = true
 
 func _collect_weapon_mounts_and_tile_capabilities():
+	var magnet_unfiltered = false
 	for comp in mech.components.values():
 		if comp.is_broken:
 			continue # destroyed limb: no weapons, no tile abilities
@@ -435,13 +436,18 @@ func _collect_weapon_mounts_and_tile_capabilities():
 			if tile.has_method("get_speed_bonus"):
 				mech.base_move_speed += tile.get_speed_bonus()
 
+			var magnet_power_here = 0.0
 			if tile.has_method("get_magnetic_power"):
-				mech.total_magnetic_power += tile.get_magnetic_power()
+				magnet_power_here = tile.get_magnetic_power()
+				mech.total_magnetic_power += magnet_power_here
 
-			if tile.has_method("get_min_attract_rarity"):
+			if tile.has_method("get_min_attract_rarity") and magnet_power_here > 0.0:
+				# Most permissive combination if powered magnets disagree: a magnet with no filter takes everything,
+				# so one filtered magnet must not narrow the whole mech (that used to hide Common loot from all of them).
 				var filter_rarity = tile.get_min_attract_rarity()
-				if filter_rarity >= 0:
-					# Most permissive combination if multiple magnets disagree
+				if filter_rarity < 0:
+					magnet_unfiltered = true
+				else:
 					mech.min_loot_attract_rarity = filter_rarity if mech.min_loot_attract_rarity < 0 else min(mech.min_loot_attract_rarity, filter_rarity)
 
 			# Mythic Magnet in Repel mode / Mythic Jumpjet in Blink mode
@@ -616,6 +622,8 @@ func _collect_weapon_mounts_and_tile_capabilities():
 					+ (tile.rarity * TileStatsRegistry.get_stat("ReactivePlatingTile", "reflect_pct_rarity_coeff", 0.05))
 				var reflect_cap = TileStatsRegistry.get_stat("ReactivePlatingTile", "reflect_pct_cap", 0.6)
 				mech.reactive_plating_reflect_pct = min(mech.reactive_plating_reflect_pct + per_plate_pct, reflect_cap)
+	if magnet_unfiltered:
+		mech.min_loot_attract_rarity = -1 # at least one powered magnet takes every rarity
 
 func _finalize_grid_state():
 	if not mech.is_player and mech.shield_counter_element >= 0 and not mech.shield_synergies.is_empty():

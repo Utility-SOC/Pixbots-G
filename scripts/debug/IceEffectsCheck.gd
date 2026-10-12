@@ -42,6 +42,20 @@ func _ready():
 	_check("small kinetic leaves it frozen", m.status_effects.has("frozen") and m.pending_shatter.is_empty())
 	IceEffects.try_shatter(m, "FIRE", 500.0, null)
 	_check("non-kinetic never shatters", m.status_effects.has("frozen"))
+	# A mixed shot's Kinetic share does the shattering: 50% Kinetic of a 500 hit is 250, big enough; of a 60 hit it is 30, too small.
+	m.hit_kinetic_ratio = 0.5
+	IceEffects.try_shatter(m, "ICE", 60.0, null)
+	_check("mixed shot below the kinetic threshold leaves it frozen", m.status_effects.has("frozen") and m.pending_shatter.is_empty())
+	IceEffects.try_shatter(m, "ICE", 500.0, null)
+	_check("mixed Ice+Kinetic shot shatters a frozen target (dominant element is not Kinetic)", not m.status_effects.has("frozen") and not m.pending_shatter.is_empty())
+	_check("shatter remembers who fired it", m.pending_shatter.has("source"))
+	m.hit_kinetic_ratio = -1.0
+	m.pending_shatter = {}
+	IceEffects.apply_hit(m, 1.0, 200.0)
+	m.hit_kinetic_ratio = 0.0
+	IceEffects.try_shatter(m, "KINETIC", 500.0, null)
+	_check("a zero-Kinetic-share hit never shatters even if the element name says KINETIC", m.status_effects.has("frozen"))
+	m.hit_kinetic_ratio = -1.0
 	IceEffects.try_shatter(m, "KINETIC", 500.0, null)
 	_check("big kinetic shatters: thaws and queues collateral", not m.status_effects.has("frozen") and not m.pending_shatter.is_empty() and m.embrittle_timer == 0.0)
 	m.free()

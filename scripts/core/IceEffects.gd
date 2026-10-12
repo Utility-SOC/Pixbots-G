@@ -52,9 +52,17 @@ static func apply_hit(target: Node, ice_ratio: float, damage: float) -> void:
 
 # Called from MechDamage.apply_damage before hp is reduced. Shatters a frozen mech on a big kinetic hit.
 static func try_shatter(victim, element: String, amount: float, source) -> void:
-	if element != "KINETIC" or victim.frozen_ice_energy <= 0.0 or not victim.status_effects.has("frozen"):
+	if victim.frozen_ice_energy <= 0.0 or not victim.status_effects.has("frozen"):
 		return
-	var s = shatter(victim.frozen_ice_energy, amount)
+	# The Kinetic part of the hit does the shattering: all of it for a pure Kinetic shot, its share for a mixed
+	# Ice+Kinetic shot (so one gun carrying both works, against a target an earlier bullet froze), none otherwise.
+	var ratio: float = victim.hit_kinetic_ratio
+	if ratio < 0.0:
+		ratio = 1.0 if element == "KINETIC" else 0.0
+	var kinetic = amount * ratio
+	if kinetic <= 0.0:
+		return
+	var s = shatter(victim.frozen_ice_energy, kinetic)
 	if s["radius"] <= 0.0:
 		return
 	victim.status_effects.erase("frozen")
@@ -72,6 +80,8 @@ static func resolve_shatter(victim) -> void:
 	for c in SimPhysics.circle_colliders(victim, Transform2D(0.0, victim.global_position), ps["radius"], mask, 24):
 		if c == victim or not is_instance_valid(c) or not c.has_method("apply_damage"):
 			continue
+		if c == ps["source"]:
+			continue # cryo shards never harm the mech that fired them
 		var d = victim.global_position.distance_to(c.global_position)
 		var falloff = clampf(1.0 - d / ps["radius"], 0.2, 1.0)
 		c.apply_damage(ps["damage"] * falloff, "ICE", victim, true, "SHATTER")

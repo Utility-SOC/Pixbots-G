@@ -254,7 +254,8 @@ func _apply_damage_body(amount: float, element: String = "RAW", source: Node = n
 		# the display doesn't turn into a wall of flickering micro-numbers.
 		_show_floating_text(str(int(round(amount))), Color(1.0, 0.9, 0.3) if mech.is_player else Color(1.0, 1.0, 1.0))
 
-	IceEffects.try_shatter(mech, element, amount, source)
+	var shatter_source = source if is_instance_valid(source) else (mech.hit_source if is_instance_valid(mech.hit_source) else null)
+	IceEffects.try_shatter(mech, element, amount, shatter_source)
 	mech.hp -= amount
 	if not mech.pending_shatter.is_empty():
 		IceEffects.resolve_shatter(mech)

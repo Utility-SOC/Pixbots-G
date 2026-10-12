@@ -118,7 +118,7 @@ func _run(weapons: Array, layout: String, shot_damage: float, volleys_only: bool
 				# touches it, so it is laid right in front of the victims rather than fired from the muzzle.
 				var is_static_mine = float(w.get(E.POISON, 0.0)) > 0.15 and float(w.get(E.KINETIC, 0.0)) <= 0.0
 				var origin = Vector2(TARGET_X - 30.0, 0) if is_static_mine else MUZZLE
-				pool.spawn(origin, Vector2.RIGHT, shot_speed(w), shot_damage, 20.0, 5.0, Color.WHITE, 1.0, true, null, dominant(w), w)
+				pool.spawn(origin, Vector2.RIGHT, shot_speed(w), shot_damage, 20.0, 5.0, Color.WHITE, 1.0, true, shooter, dominant(w), w)
 		EntityCache._stamp = -2 # the cache keys on engine frame counters, which this synchronous loop never advances
 		pool._step_simulate(STEP)
 		pool._step_hit_test()

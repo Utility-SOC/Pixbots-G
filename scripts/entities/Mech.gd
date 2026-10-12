@@ -2691,6 +2691,14 @@ var embrittle_timer: float = 0.0
 var embrittle_block: float = 0.0
 var frozen_ice_energy: float = 0.0
 var pending_shatter: Dictionary = {}
+# Share of the incoming hit that is Kinetic (0..1), set by the shot just before it calls apply_damage and cleared right after;
+# -1 = unknown (derive from the element name). Lets a mixed Ice+Kinetic shot shatter a frozen target (IceEffects.try_shatter).
+var hit_kinetic_ratio: float = -1.0
+# Damage per second of the current burn; set from the igniting shot's size (StatusEffectRunner.apply_burn), reset when it ends.
+var burn_dps: float = 5.0
+# The mech whose shot is hitting this one, set/cleared alongside hit_kinetic_ratio. Part damage reaches global HP with no
+# source, so this is how a shatter knows who fired it (and spares them). Never read outside that call.
+var hit_source: Node = null
 var reactive_plating_reflect_pct: float = 0.0 # % of incoming (post-mitigation) damage reflected back to the attacker
 # Per-attacker cooldown (mirrors _ram_cooldowns' shape) - without this, a
 # sustained beam/DoT source standing close would eat a reactive counter-hit

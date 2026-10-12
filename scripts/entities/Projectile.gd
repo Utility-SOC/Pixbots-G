@@ -1923,7 +1923,13 @@ func _handle_hit(target: Node2D):
 	# further downstream (_log_incoming_damage), which never gets the
 	# chance to run.
 	var valid_source = source_mech if is_instance_valid(source_mech) else null
+	if "hit_kinetic_ratio" in target:
+		target.hit_kinetic_ratio = float(ratios.get(EnergyPacket.SynergyType.KINETIC, 0.0)) # IceEffects.try_shatter, this call only
+		target.hit_source = valid_source
 	target.apply_damage(damage, dominant_str, valid_source, was_reflected, source_label)
+	if "hit_kinetic_ratio" in target:
+		target.hit_kinetic_ratio = -1.0
+		target.hit_source = null
 	
 	# Massive Damage Screen Shake on Hit
 	if fired_by_player and target.is_in_group("enemy") and damage >= 10000000.0:
@@ -1973,7 +1979,7 @@ func _apply_synergy_status_effects(target: Node, sr: Dictionary):
 		return
 
 	if sr.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1:
-		target.apply_status("burning", 3.0 * sr[EnergyPacket.SynergyType.FIRE])
+		StatusEffectRunner.apply_burn(target, damage, sr[EnergyPacket.SynergyType.FIRE])
 	if sr.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1:
 		IceEffects.apply_hit(target, sr[EnergyPacket.SynergyType.ICE], damage)
 

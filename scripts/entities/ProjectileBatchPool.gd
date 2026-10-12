@@ -1735,8 +1735,19 @@ func _find_nearest_target(pos: Vector2, max_dist: float, slot_idx: int) -> Node:
 # that context for the global-HP portion of a part-routed hit (its own
 # internal apply_damage(amount*0.2, element) call passes neither), so
 # dropping them here isn't a new simplification, it matches real behavior.
-func _apply_damage_to_target(target: Node, amount: float, element: String, src: Node = null, source_label: String = "Batch Test Shot"):
+func _apply_damage_to_target(target: Node, amount: float, element: String, src: Node = null, source_label: String = "Batch Test Shot", kinetic_ratio: float = -1.0):
 	_perf_hit_count += 1
+	if kinetic_ratio >= 0.0 and "hit_kinetic_ratio" in target:
+		# Read by IceEffects.try_shatter during this call only (Kinetic share, and who fired it).
+		target.hit_kinetic_ratio = kinetic_ratio
+		target.hit_source = src
+		_apply_damage_to_target_inner(target, amount, element, src, source_label)
+		target.hit_kinetic_ratio = -1.0
+		target.hit_source = null
+		return
+	_apply_damage_to_target_inner(target, amount, element, src, source_label)
+
+func _apply_damage_to_target_inner(target: Node, amount: float, element: String, src: Node, source_label: String):
 	if target.has_method("apply_part_damage") and "components" in target and not target.components.is_empty():
 		var slots = target.components.keys()
 		var slot = slots[SimRng.stream("combat").randi() % slots.size()]
@@ -1865,7 +1876,7 @@ func _step_hit_test():
 				_handled_targets[i][target_id] = true
 				if t.has_method("apply_damage") or t.has_method("apply_part_damage"):
 					var src = _source_mech[i] if is_instance_valid(_source_mech[i]) else null
-					_apply_damage_to_target(t, _damage[i], _dominant_synergy_name[i], src, "Batch Test Shot")
+					_apply_damage_to_target(t, _damage[i], _dominant_synergy_name[i], src, "Batch Test Shot", _r_kin[i])
 					Sfx.impact(t.has_method("apply_part_damage") or "is_dead" in t, t.global_position, t.get("blocks_pierce") == true)
 
 				# hit_decay computed BEFORE any hop/pierce decrement below,
@@ -1951,7 +1962,7 @@ func _apply_status_effects(i: int, target: Node):
 
 func _apply_synergy_status_effects_from_dict(i: int, target: Node, sr: Dictionary):
 	if sr.get(EnergyPacket.SynergyType.FIRE, 0.0) > 0.1:
-		target.apply_status("burning", 3.0 * sr[EnergyPacket.SynergyType.FIRE])
+		StatusEffectRunner.apply_burn(target, _damage[i], sr[EnergyPacket.SynergyType.FIRE])
 	if sr.get(EnergyPacket.SynergyType.ICE, 0.0) > 0.1:
 		IceEffects.apply_hit(target, sr[EnergyPacket.SynergyType.ICE], _damage[i])
 	var rl = sr.get(EnergyPacket.SynergyType.LIGHTNING, 0.0)

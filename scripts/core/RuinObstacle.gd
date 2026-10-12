@@ -33,7 +33,7 @@ func _ready():
 	# 150/tile (was 60) - the user wanted ruins to read as genuinely tough
 	# terrain, not something that melts in a couple of hits like a Tree
 	# (30 HP flat). A small 2x2 kit now sits at 600 HP, a big 5x3 at 2250.
-	max_hp = 150.0 * size_tiles.x * size_tiles.y
+	max_hp = 150.0 * size_tiles.x * size_tiles.y * SetPieces.hardness(structure_type)
 	hp = max_hp
 	_visual_seed = randi()
 	z_index = 5
@@ -46,6 +46,11 @@ func _ready():
 	broadphase_radius = rect.size.length() / 2.0
 
 func _draw():
+	if SetPieceArt.has_style(structure_type):
+		var half_fp = footprint / 2.0
+		for r in SetPieceArt.rects(structure_type, footprint, _visual_seed):
+			draw_rect(Rect2(r[0].position - half_fp, r[0].size), r[1])
+		return
 	match structure_type:
 		"barn":
 			_draw_barn()

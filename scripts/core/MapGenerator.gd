@@ -985,7 +985,7 @@ func _place_tabletop_ruins():
 		for y in range(oy, oy + h):
 			for x in range(ox, ox + w):
 				obstacles[Vector2i(x, y)] = "RuinPart"
-		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h})
+		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h, "type": SetPieces.pick(SetPieces.themes_for(map_type), ox, oy, w, h)})
 
 # Barns and farmhouses for FightShovel 1920 (Utility-SOC: "tractors, corn-
 # fields... barns and farmhouses in the shovelfight terrain"). Deliberately
@@ -1105,7 +1105,8 @@ func _place_fightshovel_structures():
 		for y in range(oy, oy + h):
 			for x in range(ox, ox + w):
 				obstacles[Vector2i(x, y)] = "RuinPart"
-		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h, "type": structure_type})
+		var fs_style = SetPieces.pick(SetPieces.themes_for(map_type), ox, oy, w, h)
+		ruin_specs.append({"x": ox, "y": oy, "w": w, "h": h, "type": fs_style if fs_style != "ruin" else structure_type})
 
 # Edge treelines + sparse interior copses (redesigned 2026-08-05 per user
 # report: the old tendril-band scatter below made obstacles "mostly a

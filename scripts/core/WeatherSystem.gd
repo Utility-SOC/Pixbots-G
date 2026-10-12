@@ -12,9 +12,9 @@ enum State { CLEAR, RAMP_UP, HOLD, FADE }
 
 const KINDS = {
 	"sandstorm": {"first": Vector2(25.0, 60.0), "gap": Vector2(70.0, 140.0), "ramp": 6.0, "hold": Vector2(18.0, 30.0), "fade": 8.0,
-		"min_sight": 0.35, "tint": Color(0.85, 0.65, 0.35), "max_alpha": 0.5, "warn": "SANDSTORM", "once_in": 1},
+		"min_sight": 0.2, "ebb_depth": 0.55, "ebb_period": 7.0, "tint": Color(0.85, 0.65, 0.35), "max_alpha": 0.55, "warn": "SANDSTORM", "once_in": 1},
 	"blizzard": {"first": Vector2(90.0, 180.0), "gap": Vector2(120.0, 240.0), "ramp": 7.0, "hold": Vector2(15.0, 25.0), "fade": 9.0,
-		"min_sight": 0.3, "tint": Color(0.9, 0.95, 1.0), "max_alpha": 0.55, "warn": "BLIZZARD", "once_in": 3},
+		"min_sight": 0.15, "ebb_depth": 0.5, "ebb_period": 9.0, "tint": Color(0.9, 0.95, 1.0), "max_alpha": 0.6, "warn": "BLIZZARD", "once_in": 3},
 }
 const KIND_BY_MAP = {"Desert": "sandstorm", "Tundra": "blizzard"}
 
@@ -22,6 +22,7 @@ var kind: String = "sandstorm"
 var state: int = State.CLEAR
 var intensity: float = 0.0 # 0 clear .. 1 full storm
 var _timer: float = 0.0
+var _hold_t: float = 0.0 # seconds into the HOLD phase (drives the ebb and flow)
 var _rng: RandomNumberGenerator = null
 var storms_started: int = 0
 var _veil: ColorRect = null
@@ -61,13 +62,17 @@ func advance(delta: float) -> void:
 			if _timer <= 0.0:
 				intensity = 1.0
 				state = State.HOLD
+				_hold_t = 0.0
 				_timer = _roll(k["hold"])
 		State.HOLD:
+			# The storm ebbs and flows: it peaks at full strength, thins by ebb_depth, and swells again.
+			_hold_t += delta
+			intensity = 1.0 - float(k["ebb_depth"]) * (0.5 - 0.5 * cos(TAU * _hold_t / float(k["ebb_period"])))
 			if _timer <= 0.0:
 				state = State.FADE
 				_timer = float(k["fade"])
 		State.FADE:
-			intensity = clampf(_timer / float(k["fade"]), 0.0, 1.0)
+			intensity = minf(intensity, clampf(_timer / float(k["fade"]), 0.0, 1.0)) # never swells while fading
 			if _timer <= 0.0:
 				intensity = 0.0
 				state = State.CLEAR

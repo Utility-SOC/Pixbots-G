@@ -52,12 +52,37 @@ func _ready():
 	var again = _run("sandstorm", 11, 1500.0)
 	_check("a seed reproduces the same weather", again.storms_started == sand.storms_started)
 
+	# ebb and flow: sight rises and falls again within one held storm
+	SimRng.seed_all(5)
+	var e = WeatherSystem.new()
+	e.kind = "sandstorm"
+	add_child(e)
+	while e.state != WeatherSystem.State.HOLD:
+		e.advance(0.25)
+	var lo = 1.0
+	var hi = 0.0
+	var flips = 0
+	var last = e.intensity
+	var dir = 0
+	for i in range(int(10.0 / 0.25)):
+		if e.state != WeatherSystem.State.HOLD:
+			break
+		e.advance(0.25)
+		lo = minf(lo, e.intensity)
+		hi = maxf(hi, e.intensity)
+		var d = signi(int(sign(e.intensity - last) * 1.0))
+		if d != 0 and d != dir:
+			flips += 1
+			dir = d
+		last = e.intensity
+	_check("a held storm thins and swells (%.2f..%.2f, %d turns)" % [lo, hi, flips], hi > lo + 0.3 and flips >= 2)
+	e.remove_from_group("weather")
 	for old in [w, sand, blizz, again]:
 		old.remove_from_group("weather")
 	var live = WeatherSystem.new()
 	live.kind = "sandstorm"
 	add_child(live)
 	live.intensity = 1.0
-	_check("the sight gate reads the live weather", is_equal_approx(WeatherSystem.sight_mult(get_tree()), 0.35))
+	_check("the sight gate reads the live weather", is_equal_approx(WeatherSystem.sight_mult(get_tree()), 0.2))
 	print("WeatherSystemCheck: failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

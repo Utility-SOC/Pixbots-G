@@ -112,6 +112,24 @@ func _setup_ui():
 	opt_limb.item_selected.connect(func(index): SaveManager.set_broken_limb_style(index))
 	visuals_tab.add_child(opt_limb)
 
+	var renderer_label = Label.new()
+	renderer_label.text = "Renderer (restart required)"
+	visuals_tab.add_child(renderer_label)
+	var renderer_hint = Label.new()
+	renderer_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	renderer_hint.modulate = Color(0.7, 0.7, 0.7)
+	var current_method = RenderingServer.get_current_rendering_method()
+	renderer_hint.text = "Running now: %s. Auto uses OpenGL on GPUs with incomplete Vulkan drivers (e.g. Intel HD 4000 on Linux), which avoids GPU hangs." % ("OpenGL (Compatibility)" if current_method == RendererPref.METHOD_OPENGL else "Vulkan (%s)" % current_method)
+	visuals_tab.add_child(renderer_hint)
+	var opt_renderer = OptionButton.new()
+	for n in RendererPref.NAMES:
+		opt_renderer.add_item(n)
+	opt_renderer.selected = RendererPref.VALUES.find(SaveManager.renderer_pref)
+	opt_renderer.item_selected.connect(func(index):
+		SaveManager.set_renderer_pref(RendererPref.VALUES[index])
+		renderer_hint.text = "Saved. Restart the game to switch renderer.")
+	visuals_tab.add_child(opt_renderer)
+
 	var render_mode_label = Label.new()
 	render_mode_label.text = "Projectile Render Mode"
 	visuals_tab.add_child(render_mode_label)

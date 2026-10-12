@@ -67,3 +67,6 @@ templates*.zip
 # build_installer.ps1 (downloaded fresh from Microsoft's aka.ms permanent
 # link each build) - a ~25MB third-party binary, not project source.
 installer/vc_redist.x64.exe
+
+# Machine-specific renderer override written by RendererPref (see scripts/core/RendererPref.gd)
+override.cfg

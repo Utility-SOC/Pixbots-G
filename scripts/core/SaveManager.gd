@@ -277,6 +277,17 @@ func set_fullscreen(on: bool, persist: bool = true) -> void:
 func toggle_fullscreen() -> void:
 	set_fullscreen(not fullscreen)
 
+# --- Renderer (Vulkan / OpenGL / Auto; see RendererPref.gd). Takes effect on the next launch. Saved in settings.cfg [Display].
+var renderer_pref: String = RendererPref.AUTO
+
+func set_renderer_pref(pref: String) -> void:
+	renderer_pref = RendererPref.normalize(pref)
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH) # keep existing sections if present
+	config.set_value("Display", "Renderer", renderer_pref)
+	config.save(SETTINGS_PATH)
+	RendererPref.apply(renderer_pref)
+
 # --- Overcharge loops (Auto-Equip may build bounded, cap-hitting energy loops; see SolverRefiner._loop_pass) ---
 var overcharge_loops: bool = true
 
@@ -433,8 +444,11 @@ func _ready():
 		overcharge_loops = bool(config.get_value("Game", "OverchargeLoops", true))
 		fullscreen = bool(config.get_value("Display", "Fullscreen", false))
 		show_status_graph = bool(config.get_value("Display", "StatusGraph", true))
+		renderer_pref = RendererPref.normalize(str(config.get_value("Display", "Renderer", RendererPref.AUTO)))
 		if fullscreen:
 			_apply_window_mode() # saved preference; the default (maximized) is the project setting
+	# Keep override.cfg matching the renderer pref for the next launch (Auto picks OpenGL on weak-Vulkan GPUs).
+	RendererPref.apply(renderer_pref)
 
 # SAVE FORMAT VERSION LOG (bump on any schema change; loaders are
 # has()-guarded so old saves keep working, this is for humans + future

@@ -563,7 +563,7 @@ func _solve_impl(component: Node, inventory: Array, profile: SolverProfile = nul
 			
 			if entry_dir == exit_dir:
 				# Straight path -> Amplifier, Catalyst, Infuser
-				var tile_types = _straight_tile_priority(profile, int(component.slot_type), _has_drone_bay_sink(component))
+				var tile_types = _straight_tile_priority(profile, int(component.slot_type), _has_drone_bay_sink(component), _mech_has_drone_bay(component))
 				var idx = _find_tile_index_by_priority(inventory, tile_types)
 
 				if idx >= 0:
@@ -798,9 +798,19 @@ func _has_drone_bay_sink(component: Node) -> bool:
 			return true
 	return false
 
-func _straight_tile_priority(profile: SolverProfile, slot_type: int = -1, feeds_drone_link: bool = false) -> Array:
-	# A Drone Bay link is pure magnitude (the drone keeps its own reactor's element), up to the bay rarity's cap
-	# (DroneBayTile.link_cap_for), so Amplifiers lead; Catalysts still follow for the Torso Return branch.
+# True when the Mech this component is equipped on carries a Drone Bay anywhere: the Torso should amplify BEFORE the
+# energy leaves for the backpack link, since the bay's drone gets a share of whatever magnitude arrives.
+func _mech_has_drone_bay(component: Node) -> bool:
+	var m = component.get_parent() if component else null
+	if m == null or not ("components" in m):
+		return false
+	return not DroneBayTile.find_all_in_mech(m.components).is_empty()
+
+func _straight_tile_priority(profile: SolverProfile, slot_type: int = -1, feeds_drone_link: bool = false, mech_has_bay: bool = false) -> Array:
+	if mech_has_bay and slot_type == HexTile.BodySlot.TORSO:
+		return ["Amplifier", "Elemental Infuser", "Catalyst", "Splitter"]
+	# A Drone Bay link is pure magnitude (the drone keeps its own reactor's element), of which only the bay rarity's
+	# transmission share survives (DroneBayTile.link_efficiency_for), so Amplifiers lead; Catalysts still follow for the Torso Return branch.
 	if feeds_drone_link and slot_type == HexTile.BodySlot.BACKPACK:
 		return ["Amplifier", "Catalyst", "Elemental Infuser", "Splitter"]
 	# Head and Backpack exist to CONDITION energy on its way back to the torso

@@ -65,10 +65,11 @@ var stored_energy: float = 0.0
 # Drone._refresh_link), scaled by the owner's Phase Shifter flow. Persists until the next recalculation.
 var link_energy: float = 0.0
 
-# The most link energy a drone of this bay rarity can take (COMMON..MYTHIC). (tune)
-const LINK_CAP_BY_RARITY = [50.0, 100.0, 200.0, 400.0, 800.0]
-static func link_cap_for(rarity: int) -> float:
-	return LINK_CAP_BY_RARITY[clampi(rarity, 0, LINK_CAP_BY_RARITY.size() - 1)]
+# Share of the link energy that survives transmission to the drone's core (COMMON..MYTHIC; owner numbers). There is no
+# absolute ceiling: a Mythic bay is uncapped, it just loses 10% on the way.
+const LINK_EFFICIENCY_BY_RARITY = [0.10, 0.25, 0.50, 0.75, 0.90]
+static func link_efficiency_for(rarity: int) -> float:
+	return LINK_EFFICIENCY_BY_RARITY[clampi(rarity, 0, LINK_EFFICIENCY_BY_RARITY.size() - 1)]
 
 # Purely a display cache: which Drone tab this bay corresponds to (1-based,
 # matching the "Drone N" label GarageMenu._refresh_component_ui assigns -
@@ -191,7 +192,7 @@ static func find_all_in_mech(components: Dictionary) -> Array[DroneBayTile]:
 # Clones inherit everything on the template, including any Jammer Module
 # ensured onto it (JammerModuleTile.ensure_on_component), which is what
 # compounds the swarm's fields into one huge blanket.
-static func spawn_drone_swarm(owner_mech: Node, parent_node: Node, template_loadout, count: int, p_rarity: int, p_visual_class: int = 0) -> Array:
+static func spawn_drone_swarm(owner_mech: Node, parent_node: Node, template_loadout, count: int, p_rarity: int, p_visual_class: int = 0, p_bay = null) -> Array:
 	var spawned: Array = []
 	if count <= 0 or not template_loadout:
 		return spawned
@@ -201,7 +202,8 @@ static func spawn_drone_swarm(owner_mech: Node, parent_node: Node, template_load
 	for i in range(count):
 		var loadout_copy = sm._deserialize_component(serialized)
 		var drone = DroneScript.new()
-		drone.setup(owner_mech, loadout_copy, p_rarity, p_visual_class)
+		drone.setup(owner_mech, loadout_copy, p_rarity, p_visual_class, p_bay)
+		drone.link_divisor = float(count + 1)
 		# Two staggered rings so the swarm reads as a cloud, not a line.
 		var a = TAU * float(i) / max(1, count)
 		var ring = 90.0 + 50.0 * (i % 2)

@@ -4,6 +4,7 @@ extends Node
 # bay backpack and leads its path filler with Amplifiers; the cap table rises with rarity.
 
 const ComponentEquipmentScript = preload("res://scripts/core/ComponentEquipment.gd")
+const SolverProfile = preload("res://scripts/ai/SolverProfile.gd")
 const AutoEquipSolverScript = preload("res://scripts/core/AutoEquipSolver.gd")
 
 var failures = 0
@@ -20,6 +21,7 @@ func _ready():
 	var plain = ComponentEquipmentScript.create_starter_torso()
 	_check("a torso is not", not solver._has_drone_bay_sink(plain))
 	_check("the bay link leads with Amplifiers", solver._straight_tile_priority(null, HexTile.BodySlot.BACKPACK, true)[0] == "Amplifier")
+	_check("a torso on a mech with a bay amplifies first, even with a profile", solver._straight_tile_priority(SolverProfile.new(), HexTile.BodySlot.TORSO, false, true)[0] == "Amplifier")
 	_check("a plain backpack keeps Catalyst first", solver._straight_tile_priority(null, HexTile.BodySlot.BACKPACK, false)[0] == "Catalyst")
 	var inv: Array = []
 	for i in range(3):
@@ -40,11 +42,11 @@ func _ready():
 			amp_placed = true
 	_check("solving keeps the Drone Bay in place", bay_ok)
 	_check("an Amplifier is placed on the backpack's path", amp_placed)
-	var caps = DroneBayTile.LINK_CAP_BY_RARITY
+	var eff = DroneBayTile.LINK_EFFICIENCY_BY_RARITY
 	var rising = true
-	for i in range(1, caps.size()):
-		if caps[i] <= caps[i - 1]:
+	for i in range(1, eff.size()):
+		if eff[i] <= eff[i - 1]:
 			rising = false
-	_check("link caps rise with rarity", rising and caps.size() == 5)
+	_check("transmission efficiency rises with rarity", rising and eff.size() == 5 and eff[4] < 1.0)
 	print("AutoEquipDroneLinkCheck: failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

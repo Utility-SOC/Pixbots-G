@@ -28,6 +28,7 @@ signal drone_died(rarity: int)
 
 var owner_mech: Node2D = null
 var link_bay = null # the owner's DroneBayTile this drone came from: its energy link feeds this drone's core reactor
+var link_divisor: float = 1.0 # a megaswarm clone shares the bay link with its siblings
 var _link_applied: float = -1.0
 var _link_timer: float = 0.0
 const LINK_REFRESH = 0.25
@@ -205,7 +206,7 @@ func _refresh_link() -> void:
 	if link_bay == null or not is_instance_valid(link_bay) or not is_instance_valid(owner_mech):
 		return
 	var flow = float(owner_mech.get("phase_flow")) if owner_mech.get("phase_flow") != null else 1.0
-	var delivered = minf(float(link_bay.link_energy) * flow, DroneBayTile.link_cap_for(drone_rarity)) # capped by bay rarity
+	var delivered = float(link_bay.link_energy) * flow * DroneBayTile.link_efficiency_for(drone_rarity) / maxf(1.0, link_divisor)
 	if _link_applied >= 0.0 and absf(delivered - _link_applied) <= LINK_CHANGE_TOLERANCE * maxf(_link_applied, 1.0):
 		return
 	_link_applied = delivered

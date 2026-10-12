@@ -141,7 +141,7 @@ func _ready():
 	add_child(owner_m)
 	var bay2 = DroneBayTile.new()
 	bay2.rarity = HexTile.Rarity.COMMON
-	bay2.link_energy = 40.0
+	bay2.link_energy = 400.0
 	var d2 = Drone.new()
 	d2.setup(owner_m, bay2.get_or_build_loadout(), bay2.rarity, bay2.visual_class, bay2)
 	add_child(d2)
@@ -151,14 +151,20 @@ func _ready():
 			if "link_energy" in tl and tl.has_method("generate_energy"):
 				d2_cores.append(tl)
 	d2._refresh_link()
-	_check("a drone's core receives the bay link (%s)" % str(d2_cores.size()), d2_cores.size() > 0 and is_equal_approx(d2_cores[0].link_energy, 40.0))
+	_check("a drone's core receives the bay link (%s)" % str(d2_cores.size()), d2_cores.size() > 0 and is_equal_approx(d2_cores[0].link_energy, 40.0))  # Common bay: 10% survives
 	owner_m.phase_flow = 0.25
 	d2._refresh_link()
 	_check("the owner's drain cuts the link, not the core", is_equal_approx(d2_cores[0].link_energy, 10.0))
 	owner_m.phase_flow = 1.0
 	bay2.link_energy = 1.0e9
 	d2._refresh_link()
-	_check("the link is capped by bay rarity (%.0f)" % d2_cores[0].link_energy, is_equal_approx(d2_cores[0].link_energy, DroneBayTile.link_cap_for(d2.drone_rarity)) and DroneBayTile.link_cap_for(4) > DroneBayTile.link_cap_for(0))
+	_check("no absolute ceiling: link scales with energy (%.0f)" % d2_cores[0].link_energy, is_equal_approx(d2_cores[0].link_energy, 1.0e9 * 0.10))
+	var eff = DroneBayTile.LINK_EFFICIENCY_BY_RARITY
+	_check("transmission efficiency is 10/25/50/75/90 percent", eff == [0.10, 0.25, 0.50, 0.75, 0.90])
+	d2.link_divisor = 4.0
+	bay2.link_energy = 400.0
+	d2._refresh_link()
+	_check("a swarm clone shares the link with its siblings", is_equal_approx(d2_cores[0].link_energy, 10.0))
 
 	print("PhaseDrainCheck: failures=%d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)

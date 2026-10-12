@@ -1955,7 +1955,7 @@ func _apply_rival_drone_profile(rival, profile):
 		if not bays.is_empty():
 			var bay = bays[0]
 			DroneBayTile.spawn_drone_swarm(rival, director, bay.get_or_build_loadout(),
-				profile.drone_swarm_count - live_drones, bay.rarity, bay.visual_class)
+				profile.drone_swarm_count - live_drones, bay.rarity, bay.visual_class, bay)
 
 func _on_rival_defeated(rival):
 	# Guaranteed decent-quality drop (matches the "earn merchandise" story

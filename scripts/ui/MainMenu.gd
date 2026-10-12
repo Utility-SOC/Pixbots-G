@@ -126,6 +126,7 @@ func _setup_ui():
 	var btn_boss_rush = _create_button("Boss Rush", _on_play_boss_rush)
 	left.add_child(btn_boss_rush)
 	left.add_child(_create_button("Frank's Challenges", _on_play_challenges))
+	left.add_child(_create_button("Bot League (spectate)", _on_play_bot_league))
 
 	# Tournament arc (the user: "Tournament mode is rounds of fights against
 	# the other players and the four champions"). Always enabled, same as
@@ -188,6 +189,10 @@ func _on_play_boss_rush():
 	print("Opening Boss Rush Menu...")
 	var boss_rush = load("res://scripts/ui/BossRushMenu.gd").new()
 	add_child(boss_rush)
+
+func _on_play_bot_league():
+	var screen = load("res://scripts/ui/BotLeagueScreen.gd").new()
+	add_child(screen)
 
 func _on_play_challenges():
 	var menu = load("res://scripts/ui/ChallengesMenu.gd").new()

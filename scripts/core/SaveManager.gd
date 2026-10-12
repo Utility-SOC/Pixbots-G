@@ -238,6 +238,18 @@ var difficulty: int = 1
 # --- Frank's Challenges (best clear time per challenge id, in seconds) ---------------------------------------------
 var pending_challenge: String = ""
 
+# --- Bot League spectator credits (a separate pot from scrap; persists between seasons) ------------------------------
+func league_credits() -> int:
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	return int(config.get_value("League", "credits", 100))
+
+func set_league_credits(v: int) -> void:
+	var config = ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("League", "credits", maxi(v, 20)) # never broke: a floor of 20 keeps the league playable
+	config.save(SETTINGS_PATH)
+
 func challenge_record(id: String) -> float:
 	var config = ConfigFile.new()
 	config.load(SETTINGS_PATH)

@@ -33,6 +33,7 @@ func _setup_ui():
 	bg.color = Color(0.1, 0.1, 0.15)
 	bg.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	add_child(bg)
+	add_child(ShopBackdrop.frame("back", 0.55)) # the back of the shop, behind the menu
 	
 	# Main Container
 	var center = CenterContainer.new()

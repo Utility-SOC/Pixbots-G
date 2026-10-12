@@ -123,7 +123,7 @@ func _ready():
 		bg_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		bg_tex.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		add_child(bg_tex)
-	elif str(bg_data.get("scene", "")) == "shop":
+	elif str(bg_data.get("scene", "")) in ["shop", "shop_tables", "shop_back"]:
 		# Shared procedural backdrop (per the user: "use the same background
 		# for all in shop cinematics?") - every Frank scene was either a flat
 		# color or (tutorial_welcome) two floating prop rectangles with
@@ -131,7 +131,8 @@ func _ready():
 		# generated texture, reused by every in-shop cutscene JSON via
 		# "background": {"scene": "shop"} - no per-file art needed.
 		var bg_tex = TextureRect.new()
-		bg_tex.texture = _make_shop_background_texture()
+		var scene_name = str(bg_data.get("scene", "shop"))
+		bg_tex.texture = ShopBackdrop.make({"shop": "register", "shop_tables": "tables", "shop_back": "back"}[scene_name])
 		bg_tex.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		bg_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		bg_tex.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

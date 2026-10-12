@@ -63,10 +63,14 @@ func _ready():
 		war_room_key.physical_keycode = KEY_TAB
 		InputMap.action_add_event("toggle_war_room", war_room_key)
 
+	var war_backdrop = ShopBackdrop.frame("tables", 0.35) # the AI's doctrine, studied over the shop's tables
+	war_backdrop.hide()
+	add_child(war_backdrop)
 	root_panel = PanelContainer.new()
 	root_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root_panel.visibility_changed.connect(func(): war_backdrop.visible = root_panel.visible)
 	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.07, 0.08, 0.11, 0.97)
+	style.bg_color = Color(0.07, 0.08, 0.11, 0.9)
 	root_panel.add_theme_stylebox_override("panel", style)
 	root_panel.hide()
 	add_child(root_panel)

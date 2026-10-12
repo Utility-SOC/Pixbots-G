@@ -24,8 +24,9 @@ func _ready():
 	UiFx.pop_in_layer.call_deferred(self)
 
 func _setup_ui():
+	add_child(ShopBackdrop.frame("back", 0.3))
 	var bg = ColorRect.new()
-	bg.color = Color(0, 0, 0, 0.8)
+	bg.color = Color(0, 0, 0, 0.55)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 	

@@ -38,6 +38,7 @@ func _init(p_garage: GarageMenu):
 func build():
 	garage.layer = 10
 
+	garage.add_child(ShopBackdrop.frame("register", 0.5)) # the Garage is the shop's front counter
 	var bg = ColorRect.new()
 	bg.color = Color(0.05, 0.05, 0.08, 0.4) # Mostly transparent
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

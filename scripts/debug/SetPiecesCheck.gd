@@ -12,13 +12,13 @@ func _check(l: String, c: bool):
 		failures += 1
 
 func _ready():
-	var art = SetPieceArt.styles()
+	var art = SetPieceArt.all_styles()
 	var cat = SetPieces.PIECES.keys()
 	var missing_art = cat.filter(func(n): return not (n in art))
 	var missing_row = art.filter(func(n): return not SetPieces.has_piece(n))
 	_check("every piece has art (%s)" % str(missing_art), missing_art.is_empty())
 	_check("every art style has a catalogue row (%s)" % str(missing_row), missing_row.is_empty())
-	_check("the library is broad: at least 12 pieces over 4+ themes", cat.size() >= 12 and _themes().size() >= 4)
+	_check("the library is broad: at least 60 pieces over 10+ themes (%d / %d)" % [cat.size(), _themes().size()], cat.size() >= 60 and _themes().size() >= 10)
 
 	var bad = []
 	for n in cat:
@@ -54,7 +54,20 @@ func _ready():
 	_check("selection is stable", SetPieces.pick(["gothic"], 7, 9, 5, 4) == SetPieces.pick(["gothic"], 7, 9, 5, 4))
 	var share = float(plain) / float(total)
 	_check("about a third of placements stay plain ruins (%.2f)" % share, share > 0.2 and share < 0.4)
-	_check("every Tabletop piece shows up somewhere (%d styles)" % picks.size(), picks.size() >= 10)
+	var tt = SetPieces.themes_for("Tabletop")
+	var unreachable = []
+	for n in cat:
+		if not (SetPieces.PIECES[n]["theme"] in tt):
+			continue
+		var p2: Dictionary = SetPieces.PIECES[n]
+		var seen = false
+		for k in range(300):
+			if SetPieces.pick(tt, 3 + k * 7, 5 + k * 3, int(p2["min"][0]), int(p2["min"][1])) == n:
+				seen = true
+				break
+		if not seen:
+			unreachable.append(n)
+	_check("every Tabletop piece can be placed at its own size (%s)" % str(unreachable), unreachable.is_empty())
 	_check("no themes means a plain ruin", SetPieces.pick([], 5, 5, 4, 4) == "ruin")
 	var agri_ok = true
 	for x in range(3, 40, 3):

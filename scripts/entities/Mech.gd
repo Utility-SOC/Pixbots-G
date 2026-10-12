@@ -221,6 +221,8 @@ var sensor_sight_bonus: float = 0.0
 var kinetic_sight_bonus: float = 0.0
 # Enemy element doctrine from the director (ElementCombos): {name, a, b} or {} for none; MechGridSim retints the weapons with it.
 var element_combo: Dictionary = {}
+# Timed buffs from capturing map objectives: type -> seconds left (see CaptureBuffs).
+var capture_buffs: Dictionary = {}
 
 # Corporate Sponsorships (task #17): Aegis Dynamics' AegisJammerShieldTile
 # capacity fields. has_elemental_aegis is checked directly in

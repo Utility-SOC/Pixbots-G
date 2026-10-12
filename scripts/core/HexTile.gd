@@ -675,6 +675,8 @@ func _fire_via_live_batch_pool(mech, packet: EnergyPacket, base_damage: float, d
 	# crack at the result inside spawn()); the pierce-floor-of-4 and
 	# range*1.6 are applied inside spawn() itself via the is_beam param.
 	var fire_damage = base_damage * 1.2 if is_beam else base_damage
+	if not mech.capture_buffs.is_empty():
+		fire_damage *= CaptureBuffs.weapons_mult(mech) # capture-point weapons buff
 	var fire_speed = LIVE_BATCH_SPEED * 2.5 if is_beam else LIVE_BATCH_SPEED
 
 	if step > 0:

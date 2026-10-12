@@ -20,6 +20,7 @@ var progress: float = 0.0
 var contested: bool = false
 var done: bool = false
 var reward_rarity_override: int = -1 # tests
+var buff_type: String = "" # hold points only: the CaptureBuffs type granted on capture ("" = none); set by MapGenerator
 var rewards_given: int = 0
 
 var _linger := 0.0
@@ -87,6 +88,10 @@ func _complete() -> void:
 		var pack = loot._create_procedural_component(rarity, self, "Cache")
 		loot._spawn_component_drop(self, pack)
 		rewards_given += 1
+	if kind == "hold" and buff_type != "":
+		var players = EntityCache.get_group("player")
+		if players.size() > 0 and is_instance_valid(players[0]) and CaptureBuffs.grant(players[0], buff_type) and players[0].has_method("_show_floating_text"):
+			players[0]._show_floating_text(CaptureBuffs.LABELS[buff_type], CaptureBuffs.COLORS[buff_type])
 	Sfx.play("pickup", global_position, 3.0)
 	queue_redraw()
 
@@ -98,6 +103,8 @@ func _draw():
 		draw_line(Vector2(-9, -1), Vector2(9, -1), c, 2.0)
 		return
 	var col = Color(0.4, 0.9, 0.5) if not contested else Color(1.0, 0.45, 0.35)
+	if buff_type != "" and not contested and not done:
+		col = CaptureBuffs.COLORS[buff_type] # the ring shows which buff this point offers
 	if done:
 		col = Color(0.6, 0.9, 1.0)
 	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 64, Color(col.r, col.g, col.b, 0.25), 3.0)

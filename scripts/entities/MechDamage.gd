@@ -148,6 +148,10 @@ func _apply_damage_body(amount: float, element: String = "RAW", source: Node = n
 	if amount > 0 and mech._brace_timer > 0.0:
 		amount *= 0.75
 
+	# Capture-point armour buff (CaptureBuffs): a timed cut to damage taken.
+	if amount > 0 and not mech.capture_buffs.is_empty():
+		amount *= CaptureBuffs.damage_taken_mult(mech)
+
 	# Corporate Sponsorships: Keeneye Sensing's Counter-Cloak tile. Cloak
 	# itself never gates targeting/visibility anywhere in this codebase (it's
 	# purely a modulate.a fade plus the attacker's own ambush damage
@@ -501,6 +505,10 @@ func update_status_effects(delta: float):
 	if mech._rally_speed_timer > 0.0:
 		mech._rally_speed_timer -= delta
 		mech.current_move_speed *= Mech.RALLY_SPEED_MULT
+
+	if not mech.capture_buffs.is_empty():
+		CaptureBuffs.tick(mech, delta)
+		mech.current_move_speed *= CaptureBuffs.speed_mult(mech)
 
 	if not mech.jammed_synergies.is_empty():
 		var synergies_to_clear = []

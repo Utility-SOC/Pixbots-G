@@ -1640,6 +1640,8 @@ func _spawn_zone_objectives() -> int:
 		obj.kind = "hold" if z.kind == "fort" else "cache"
 		obj.radius = tile_size * 5.0
 		obj.global_position = Vector2(z.pos.x * tile_size, z.pos.y * tile_size)
+		if obj.kind == "hold":
+			obj.buff_type = CaptureBuffs.type_for_position(obj.global_position)
 		add_child(obj)
 		made += 1
 	return made

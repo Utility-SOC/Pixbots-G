@@ -219,6 +219,8 @@ var sensor_sight_bonus: float = 0.0
 # with it. Only ever set on bots the Director deliberately kitted with
 # Kinetic weapons for exactly this reason.
 var kinetic_sight_bonus: float = 0.0
+# Enemy element doctrine from the director (ElementCombos): {name, a, b} or {} for none; MechGridSim retints the weapons with it.
+var element_combo: Dictionary = {}
 
 # Corporate Sponsorships (task #17): Aegis Dynamics' AegisJammerShieldTile
 # capacity fields. has_elemental_aegis is checked directly in

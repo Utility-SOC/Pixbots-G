@@ -647,6 +647,10 @@ func _finalize_grid_state():
 	#heat_ltg_frac = (_syn_totals.get(EnergyPacket.SynergyType.LIGHTNING, 0.0) / _syn_sum) if _syn_sum > 0.0 else 0.0
 	#heat_rate *= (1.0 - 2.0 * heat_ice_frac)
 
+	# Enemy element doctrine (ElementCombos): a combo bot's finished weapons lean into its interacting element pair.
+	if not mech.is_player and not mech.element_combo.is_empty():
+		ElementCombos.retint_weapons(mech)
+
 	# Enemies deploy mostly pre-primed (70-100% charged): a fresh squad
 	# shouldn't spend its opening seconds unable to shoot, and the player
 	# shouldn't get a free alpha-strike window on every spawn. Once only -

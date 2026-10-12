@@ -1251,6 +1251,13 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 	var commit_weapon_counter = force_full_counter or SimRng.stream("ai").randf() < counter_chance
 	var commit_shield_counter = force_full_counter or SimRng.stream("ai").randf() < counter_chance
 
+	# Element combo doctrine (see ElementCombos.gd): on higher difficulties some weapon bots carry an interacting element pair.
+	# Rolled here from the seeded AI stream so a given seed reproduces it; applied below with the other tile retargets.
+	var combo_main = get_tree().current_scene
+	var combo_wave = int(combo_main.current_wave) if combo_main and "current_wave" in combo_main else 0
+	var combo = ElementCombos.roll(role, SaveManager.difficulty, combo_wave, SimRng.stream("ai").randf(), SimRng.stream("ai").randf(),
+		counter_element if (counter_element != -1 and commit_weapon_counter) else -1)
+
 	# Apply generated synergies to bot's components
 	bot.ready.connect(func():
 		var counter_fitted = false
@@ -1290,6 +1297,13 @@ func _spawn_bot_for_role(role: String, has_shields: bool = false, p_rarity: int 
 						if is_shield_feeder and player_favored_element != -1 and commit_shield_counter:
 							tile.set_face_output(d, player_favored_element)
 							tiles_changed = true
+		if not combo.is_empty():
+			bot.element_combo = combo
+			tiles_changed = true
+			if (int(combo["a"]) == EnergyPacket.SynergyType.KINETIC or int(combo["b"]) == EnergyPacket.SynergyType.KINETIC) and bot.kinetic_sight_bonus <= 0.0:
+				bot.kinetic_sight_bonus = KINETIC_COUNTER_SIGHT_BONUS
+			if bot.has_method("_show_floating_text"):
+				bot._show_floating_text(str(combo["name"]).to_upper(), Color(0.4, 0.9, 1.0))
 		# Only invalidate the grid the bot's own _ready() already computed
 		# (stock-replay cached) when a counter tweak above changed a tile -
 		# an unconditional dirty here forced a full ~35ms energy simulation

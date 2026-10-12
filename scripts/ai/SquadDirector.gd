@@ -1567,12 +1567,17 @@ func _mythic_milestone_pending() -> bool:
 
 # Per-bot HP/shield growth for the current wave (+ near-peer scaling on hard). Cached
 # briefly: activation runs once per bot and the near-peer term walks the player's tiles.
+# Enemy HP multiplier from an accepted "ironclad" wager (WagerWaves); 1.0 otherwise.
+func _wager_hp_mult(main) -> float:
+	var w = main.get("wager") if main != null else null
+	return w.hp_mult() if w != null and is_instance_valid(w) else 1.0
+
 func _wave_multiplier() -> float:
 	var main = get_tree().current_scene
 	var wave = int(main.current_wave) if main and "current_wave" in main else 0
 	var now = Time.get_ticks_usec()
 	if int(_wm_cache["wave"]) == wave and now - int(_wm_cache["usec"]) < 1000000:
-		return float(_wm_cache["value"])
+		return float(_wm_cache["value"]) * _wager_hp_mult(main)
 	var difficulty = SaveManager.difficulty
 	var wave_multiplier = 1.0
 	if main and "current_wave" in main:
@@ -1581,7 +1586,7 @@ func _wave_multiplier() -> float:
 		var peer_exp = 0.85 if difficulty >= 3 else 0.5
 		wave_multiplier *= max(1.0, pow(_estimate_player_power() / NEAR_PEER_BASELINE, peer_exp))
 	_wm_cache = {"wave": wave, "usec": now, "value": wave_multiplier}
-	return wave_multiplier
+	return wave_multiplier * _wager_hp_mult(main)
 
 # Energy-output multiplier for bots deployed this wave: 1.0 at the rebuild wave, +2%
 # per wave after, no cap. Applied to the packets a bot fires (HexTile._fire_combined_

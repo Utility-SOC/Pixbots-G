@@ -98,6 +98,7 @@ var player: Mech
 var player_inventory: Array = []
 var player_component_inventory: Array = []
 var player_scrap: int = 0
+var wager: WagerWaves = null # Wager Waves: the opt-in harder wave for scrap (see WagerWaves.gd)
 # Extracted stat modifiers waiting to be equipped onto a part (feature 5).
 # Each entry: {"traits": Array[{"stat": String, "value": float}]} (task:
 # Chip Splicing) - a plain chip has 1 trait, a Corrupted (spliced) chip
@@ -966,13 +967,21 @@ func _initialize_starter_inventory():
 		SaveManager.note_tile_discovered(tile.tile_type)
 
 func _start_intermission():
+	_ensure_wager().open_window(current_wave)
 	show_dialogue("Shopkeeper", DialogueManager.get_intermission_quip(), Color(0.7, 0.85, 1.0), 5.0)
 	_show_countdown()
+
+func _ensure_wager() -> WagerWaves:
+	if wager == null or not is_instance_valid(wager):
+		wager = WagerWaves.new()
+		wager.main = self
+		hud_canvas.add_child(wager)
+	return wager
 
 func _show_countdown():
 	print("--- Wave ", current_wave, " starting in 5 seconds! ---")
 	var timer = Timer.new()
-	timer.wait_time = 5.0
+	timer.wait_time = 8.0 if wager != null and is_instance_valid(wager) and wager.window_open else 5.0 # a wager window gets a little longer
 	timer.one_shot = true
 	timer.timeout.connect(_start_wave)
 	add_child(timer)
@@ -1192,6 +1201,7 @@ func _start_wave():
 		_clear_stale_wave_enemies()
 	_update_hud()
 	print("--- WAVE ", current_wave, " COMMENCING ---")
+	_ensure_wager().begin_wave()
 	ShopCat.maybe_spawn(self) # a very rare visitor (see ShopCat.gd)
 	LootManager.current_wave = current_wave
 	_wave_guaranteed_mythic_used = false
@@ -1345,7 +1355,7 @@ func _start_wave():
 
 	var plan = _wave_plan(director)
 	print("[POOL] wave %d start: stock=%d missing=%d drafted_squads=%d target=%d hits=%d misses=%d" % [current_wave, director.pool_stock(), director.pool_missing_count(), director._draft_queue.size(), plan["target"], director.pool_hits, director.pool_misses])
-	var target_enemy_count: int = plan["target"]
+	var target_enemy_count: int = int(plan["target"] * wager.count_mult()) if wager != null and is_instance_valid(wager) else plan["target"]
 	var allowed_templates: Array = plan["allowed"]
 	_wave_plan_cache.erase(current_wave)
 
@@ -2144,6 +2154,8 @@ func _apply_haul_loss(fraction: float) -> int:
 	return lose
 
 func _on_player_died():
+	if wager != null and is_instance_valid(wager):
+		wager.resolve(false)
 	# Extra life: respawn in place instead of the full death sequence.
 	# Lives = RESPAWNS REMAINING: any death while at least one remains
 	# consumes it; only a death at 0 falls through to the real game over.
@@ -2374,6 +2386,8 @@ func _show_death_report(log: Array):
 
 func _on_wave_cleared():
 	print("--- WAVE CLEARED ---")
+	if wager != null and is_instance_valid(wager):
+		wager.resolve(true)
 	AudioManager.set_combat_state(false) # back to the ambient loop
 	# Occasional post-wave debrief when the director just logged a lopsided
 	# kill pattern (see SquadDirector.get_debrief_line's gating).

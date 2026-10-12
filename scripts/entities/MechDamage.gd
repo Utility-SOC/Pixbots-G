@@ -155,6 +155,9 @@ func _apply_damage_body(amount: float, element: String = "RAW", source: Node = n
 	if amount > 0 and mech._brace_timer > 0.0:
 		amount *= 0.75
 
+	if amount > 0 and mech.wager_damage_taken_mult != 1.0:
+		amount *= mech.wager_damage_taken_mult # a "glass" wager
+
 	# Capture-point armour buff (CaptureBuffs): a timed cut to damage taken.
 	if amount > 0 and not mech.capture_buffs.is_empty():
 		amount *= CaptureBuffs.damage_taken_mult(mech)

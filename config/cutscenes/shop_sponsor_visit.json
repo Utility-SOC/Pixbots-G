@@ -1,0 +1,122 @@
+{
+	"_comment": "shop_sponsor_visit",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"suit": {
+			"placeholder_color": "#8a8f9c",
+			"scale": 5
+		},
+		"case": {
+			"kind": "prop",
+			"prop_type": "case",
+			"placeholder_color": "#5f7a8a",
+			"scale": 2
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "case",
+			"from": [
+				0.58,
+				0.64
+			],
+			"to": [
+				0.58,
+				0.64
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.28,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Don't look now. Sponsorship board.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "enter",
+			"actor": "suit",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.7,
+				0.62
+			],
+			"duration": 1.1
+		},
+		{
+			"cmd": "say",
+			"actor": "suit",
+			"name": "Board",
+			"text": "Pilot. We have reviewed your footage. It was thorough.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "suit",
+			"name": "Board",
+			"text": "We would like to remind you that logos are visible from orbit.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "They mean the stickers. Put the stickers on.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "shake",
+			"actor": "suit",
+			"duration": 0.3,
+			"strength": 3
+		},
+		{
+			"cmd": "say",
+			"actor": "suit",
+			"name": "Board",
+			"text": "Keep winning. The numbers like it.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "suit",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

@@ -1,0 +1,76 @@
+{
+	"_comment": "shop_frank_confession",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"case": {
+			"kind": "prop",
+			"prop_type": "case",
+			"placeholder_color": "#5f7a8a",
+			"scale": 2
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "case",
+			"from": [
+				0.58,
+				0.64
+			],
+			"to": [
+				0.58,
+				0.64
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.3,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "I lost the first twenty matches I ever played. Twenty. In a row.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "The twenty-first, I ran out of ideas and just built something stupid. It worked.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Everything you've made out there started as someone's stupid idea. Keep going.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

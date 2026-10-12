@@ -1044,7 +1044,7 @@ func get_debrief_line() -> String:
 	# Only when the pattern is genuinely lopsided, and not every time -
 	# the debrief should feel like being noticed, not like a ticker.
 	if best_el != "RAW" and best_el != "" and best_delta >= 8 and SimRng.stream("ai").randf() < 0.4:
-		return "It logged every one of those %d %s kills just now. It'll remember." % [best_delta, str(best_el).capitalize()]
+		return "The Trainer just logged all %d of those %s kills. It will remember." % [best_delta, str(best_el).capitalize()]
 	return ""
 
 # Same counter pairing already used for shield bonus damage in

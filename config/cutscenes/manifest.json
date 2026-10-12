@@ -4,6 +4,12 @@
 		"2": "frank_scrap_pitch.json",
 		"5": "frank_wave5_tip.json",
 		"10": "frank_wave10_tip.json",
-		"15": "frank_wave15_tip.json"
+		"15": "frank_wave15_tip.json",
+		"20": "shop_sponsor_visit.json",
+		"25": "shop_cat_intro.json",
+		"30": "shop_inspector.json",
+		"35": "shop_trainer_intro.json",
+		"60": "shop_frank_confession.json",
+		"100": "shop_before_tournament.json"
 	}
 }

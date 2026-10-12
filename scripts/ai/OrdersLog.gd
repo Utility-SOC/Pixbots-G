@@ -18,18 +18,20 @@ const HISTORY_CAP = 50
 
 const PRIORITY = {"wipe": 5, "replan": 4, "casualty": 3, "commit": 2, "plan": 1}
 
+# Voice: the Trainer, the Corp's training AI that runs the enemy squads. Clinical, polite, faintly bureaucratic, a little too
+# pleased with itself; it never panics and never shouts. (The Shopkeeper is the warm, wry human voice; see docs/VOICE.md.)
 const PLAN_LINES = {
-	"swarm": ["%s: all units, rush the target.", "%s: no tricks - overwhelm them."],
-	"synchronized_strike": ["%s: hold position... wait for the signal.", "%s: staging for a synchronized strike."],
-	"pincer": ["%s: split left and right, pinch them.", "%s: pincer - take both sides."],
-	"hammer_anvil": ["%s: anvil pins, hammer swings around behind.", "%s: fix them in place, flank from the rear."],
-	"encircle": ["%s: surround the target, close the ring.", "%s: form a ring - no gaps."],
-	"bait_flank": ["%s: bait forward, the rest circle behind.", "%s: draw their fire - flankers move in."],
+	"swarm": ["%s: Approach vector: direct. Subtlety module not installed.", "%s: Plan one of six. Everyone, at once."],
+	"synchronized_strike": ["%s: Staging. Fire on my mark. Mark pending.", "%s: Holding for coordinated fire. Subject is asked to remain stationary."],
+	"pincer": ["%s: Splitting left and right. Subject's attention budget: exceeded.", "%s: Pincer. Both sides. Courtesy of geometry."],
+	"hammer_anvil": ["%s: One unit holds the line. The rest are relocating behind you.", "%s: Anvil pins. Hammer arrives shortly. Please do not move."],
+	"encircle": ["%s: Forming a ring. Gaps are discouraged.", "%s: Closing the circle."],
+	"bait_flank": ["%s: Bait deployed. Bait has been informed.", "%s: Decoy forward. Flankers in transit."],
 }
-const COMMIT_LINES = ["%s: GO GO GO!", "%s: committing now!", "%s: in position - engage!"]
-const REPLAN_LINES = ["%s: this isn't working - changing plan.", "%s: they've adapted. Switching tactics.", "%s: fall back to plan B."]
-const CASUALTY_LINES = ["%s: we've lost one!", "%s: man down - tighten up.", "%s: taking losses."]
-const WIPE_LINES = ["%s: squad is down.", "%s: lost contact with the whole unit."]
+const COMMIT_LINES = ["%s: Committing. Good luck to someone.", "%s: Engaging. Paperwork later.", "%s: In position. Engage."]
+const REPLAN_LINES = ["%s: Current plan underperforming. Revising.", "%s: Subject has adapted. So will we.", "%s: Plan B. There is a plan C."]
+const CASUALTY_LINES = ["%s: Unit lost. Noted.", "%s: One fewer. Tightening up.", "%s: Casualty logged. Efficiency down."]
+const WIPE_LINES = ["%s: Squad offline. Filing a complaint.", "%s: Contact lost with every unit. Learning from this."]
 
 var history: Array = []
 var _pending: Array = []

@@ -246,7 +246,35 @@ static func _make_placeholder_texture(body: Color) -> ImageTexture:
 static func _make_prop_placeholder_texture(body: Color, prop_type: String = "case") -> ImageTexture:
 	if prop_type == "register":
 		return _make_register_texture(body)
+	if prop_type == "cat":
+		return _make_cat_texture(body)
 	return _make_case_texture(body)
+
+# The Shopkeeper's cat: a small sitting tabby (tail curled round the front), tinted by `body`.
+static func _make_cat_texture(body: Color) -> ImageTexture:
+	var img = Image.create(20, 18, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var dark = body.darkened(0.4)
+	var cream = Color(0.98, 0.92, 0.8)
+	for y in range(8, 18): # body
+		for x in range(5, 15):
+			img.set_pixel(x, y, body if (y % 3) != 0 else dark)
+	for y in range(2, 9): # head
+		for x in range(6, 14):
+			img.set_pixel(x, y, body)
+	img.set_pixel(6, 1, dark)
+	img.set_pixel(7, 1, dark)
+	img.set_pixel(12, 1, dark)
+	img.set_pixel(13, 1, dark)
+	img.set_pixel(8, 4, Color(0.1, 0.1, 0.1))
+	img.set_pixel(11, 4, Color(0.1, 0.1, 0.1))
+	img.set_pixel(9, 6, cream)
+	img.set_pixel(10, 6, cream)
+	for x in range(3, 8): # curled tail
+		img.set_pixel(x, 16, dark)
+	img.set_pixel(3, 15, dark)
+	img.set_pixel(2, 14, dark)
+	return ImageTexture.create_from_image(img)
 
 # Glass display counter, waist-high on the shop floor and MUCH longer than
 # a single small case - per the user: "half as tall as Frank" (still) but

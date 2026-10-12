@@ -1,0 +1,97 @@
+{
+	"_comment": "shop_trainer_intro",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"trainer": {
+			"placeholder_color": "#33d6c9",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.28,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "That's the Trainer. The thing that runs the other side. It's polite. That's the scary part.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "enter",
+			"actor": "trainer",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.7,
+				0.62
+			],
+			"duration": 1.1
+		},
+		{
+			"cmd": "say",
+			"actor": "trainer",
+			"name": "Trainer",
+			"text": "Greetings, pilot. I have been studying your preferences.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "trainer",
+			"name": "Trainer",
+			"text": "I want you to know this is not personal. It is educational.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "It means it's going to beat you with your own tricks.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "trainer",
+			"name": "Trainer",
+			"text": "Correct. Please continue to be consistent.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "trainer",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

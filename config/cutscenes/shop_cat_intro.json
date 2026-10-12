@@ -1,0 +1,95 @@
+{
+	"_comment": "shop_cat_intro",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"cat": {
+			"kind": "prop",
+			"prop_type": "cat",
+			"placeholder_color": "#e08c33",
+			"scale": 4
+		},
+		"case": {
+			"kind": "prop",
+			"prop_type": "case",
+			"placeholder_color": "#5f7a8a",
+			"scale": 2
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "case",
+			"from": [
+				0.58,
+				0.64
+			],
+			"to": [
+				0.58,
+				0.64
+			],
+			"duration": 0.01
+		},
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.3,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Quick question. Have you seen an orange cat? Answers to nothing. Eats everything.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "enter",
+			"actor": "cat",
+			"from": [
+				0.62,
+				0.7
+			],
+			"to": [
+				0.6,
+				0.66
+			],
+			"duration": 0.6
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "...that one. She gets into the cargo bay. Out on the field, too. Don't ask how.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "If she finds you out there, sit with her a minute. It's good luck. Official policy. I just made it official.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

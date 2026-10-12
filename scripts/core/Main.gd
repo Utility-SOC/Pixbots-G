@@ -1192,6 +1192,7 @@ func _start_wave():
 		_clear_stale_wave_enemies()
 	_update_hud()
 	print("--- WAVE ", current_wave, " COMMENCING ---")
+	ShopCat.maybe_spawn(self) # a very rare visitor (see ShopCat.gd)
 	LootManager.current_wave = current_wave
 	_wave_guaranteed_mythic_used = false
 	# Reactive music: combat loop (faster arps + drums) for the wave.

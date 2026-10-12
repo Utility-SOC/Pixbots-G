@@ -1,0 +1,116 @@
+{
+	"_comment": "shop_inspector",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"inspector": {
+			"placeholder_color": "#b0956a",
+			"scale": 5
+		},
+		"cat": {
+			"kind": "prop",
+			"prop_type": "cat",
+			"placeholder_color": "#e08c33",
+			"scale": 4
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.28,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "enter",
+			"actor": "inspector",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.72,
+				0.62
+			],
+			"duration": 1.1
+		},
+		{
+			"cmd": "say",
+			"actor": "inspector",
+			"name": "Inspector",
+			"text": "Routine inspection. Are there any animals on the premises.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "No.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "enter",
+			"actor": "cat",
+			"from": [
+				0.45,
+				0.7
+			],
+			"to": [
+				0.46,
+				0.66
+			],
+			"duration": 0.5
+		},
+		{
+			"cmd": "say",
+			"actor": "inspector",
+			"name": "Inspector",
+			"text": "There is a cat.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "That's inventory.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "inspector",
+			"name": "Inspector",
+			"text": "...Noted. Inventory.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "inspector",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

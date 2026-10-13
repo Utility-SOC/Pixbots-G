@@ -106,8 +106,18 @@ func get_rarity() -> int:
 		return tile_data.rarity
 	return -1
 
+var _claimed := false
+
+# A dropped component is a stray Node: if the pickup expires, is cleared by a wave/map change, or is never collected,
+# free it with the pickup (claimed ones now belong to the inventory).
+func _exit_tree() -> void:
+	if not _claimed and equipment_data != null and is_instance_valid(equipment_data) and equipment_data.get_parent() == null:
+		equipment_data.free()
+		equipment_data = null
+
 func _on_body_entered(body: Node2D):
 	if body.has_method("equip_component") and "is_player" in body and body.is_player:
+		_claimed = true
 		Sfx.play("pickup")
 		# NOTE: was body.get_parent() - that broke when the player mech moved
 		# from being a direct child of Main to a child of Main.world (the

@@ -1286,8 +1286,30 @@ var _chunk_sprites: Dictionary = {}
 # can be carved out of a run at runtime (TerrainEditor).
 var _runs: Dictionary = {}
 
+# Every destructible obstacle is its own canvas item plus a physics body. The classic Desert on some seeds rolled ~14,000
+# cacti, which corrupted the engine heap on the GL renderer (same family as the Dense Forest crash), so the count is
+# capped by thinning deterministically (position hash, no RNG draws) before anything is built or pathed.
+const MAX_DESTRUCTIBLES = 3500
+
+func _thin_destructibles() -> int:
+	var cells: Array = []
+	for pos in obstacles:
+		if DestructibleObstacleScript.OBSTACLE_STATS.has(obstacles[pos]):
+			cells.append(pos)
+	if cells.size() <= MAX_DESTRUCTIBLES:
+		return 0
+	var keep = float(MAX_DESTRUCTIBLES) / float(cells.size())
+	var dropped = 0
+	for pos in cells:
+		var h = ((pos.x * 73856093) ^ (pos.y * 19349663)) & 0xffff
+		if float(h) / 65536.0 >= keep:
+			obstacles.erase(pos)
+			dropped += 1
+	return dropped
+
 func _draw_map_to_texture():
 	terrain_version += 1
+	_thin_destructibles()
 	_chunk_sprites.clear()
 	_runs.clear()
 	# CRITICAL for regeneration: every child of MapGenerator is generated

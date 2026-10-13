@@ -199,3 +199,9 @@ Everything shipped, measured-and-reverted, or closed before 2026-10-05 lives in 
 - `TableSettingScreen`: the "Setting the table..." loading card shown while a campaign map rotation regenerates (the big maps take 4-7 s on the HD 4000). Elite Four arena swaps stay synchronous.
 - `docs/WORLD.md`: writer's bible (the shop, Frank, the Corp, the Trainer, the cat, the running cast). Intermission quips replaced (622 mixed-tone lines -> ~190 curated) and split by run stage (`intermission_stage.early/mid/late` + evergreen); boss-defeat and generic rival win/loss lines rewritten in Frank's voice.
 - Eight more shop cutscenes (waves 8, 40, 45, 50, 55, 70, 80, 90) on the register/tables/back backdrops.
+
+## Desert crash and orphan leaks
+- Classic Desert on some seeds rolled ~14,000 destructible obstacles (seed 2: 14,151); in the real GL renderer that corrupted the heap (random segfaults, 2 fps). `MapGenerator._thin_destructibles` caps them at `MAX_DESTRUCTIBLES = 3500` (deterministic position hash) before building/pathing. `DestructibleCapCheck`.
+- Orphan-node leaks fixed: unclaimed component drops (`LootPickup._exit_tree`) and tile-discovery preview holders.
+- `scripts/debug/SoakDiag.tscn`: soak the real Main through wave/map-rotation cycles, logging nodes/orphans/objects/memory per cycle.
+- Known flake (pre-existing, random seeds): `MapConnectivityCheck` fails intermittently on Normal maps.

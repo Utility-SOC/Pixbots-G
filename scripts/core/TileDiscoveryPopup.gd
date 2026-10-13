@@ -136,6 +136,9 @@ func _populate_card(tile):
 	hbox.add_child(icon_view)
 	icon_view.setup(preview_holder.hex_grid, null)
 	icon_view.active_component = preview_holder
+	icon_view.tree_exited.connect(func():
+		if is_instance_valid(preview_holder):
+			preview_holder.free()) # a Node: never leave the throwaway preview orphaned
 	icon_view.camera_offset = icon_view.custom_minimum_size / 2.0
 	icon_view.zoom = 1.6 # a lone tile in an otherwise-empty 1-hex frame reads small at the default zoom
 

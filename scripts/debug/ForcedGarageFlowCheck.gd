@@ -33,7 +33,10 @@ func _ready():
 	_check("clearing wave 9 does not force the Garage", main.garage_ui == null or not is_instance_valid(main.garage_ui))
 	main.current_wave = 10
 	main._on_wave_cleared()
-	await get_tree().process_frame
+	var settle = 0
+	while (main.garage_ui == null or not is_instance_valid(main.garage_ui)) and settle < 300:
+		await get_tree().process_frame # a map rotation (loading card) may sit between the clear and the garage
+		settle += 1
 	_check("clearing wave 10 forces the Garage open", main.garage_ui != null and is_instance_valid(main.garage_ui))
 	_check("and pauses the game", get_tree().paused)
 	print("ForcedGarageFlowCheck: failures=%d" % failures)

@@ -24,12 +24,20 @@ func _ready():
 		DialogueManager.dialogue_data.has("intermission_quips"))
 
 	var quips: Array = DialogueManager.dialogue_data.get("intermission_quips", [])
-	_check("intermission_quips grew well past the old 27-line pool (300+ new lines)",
-		quips.size() >= 300)
+	var staged: Dictionary = DialogueManager.dialogue_data.get("intermission_stage", {})
+	var total = quips.size()
+	for k in staged:
+		total += staged[k].size()
+	_check("quip pools (evergreen + early/mid/late) hold 150+ curated lines", total >= 150)
+	_check("all three stage pools exist and are non-trivial", staged.size() == 3 and staged["early"].size() >= 25 and staged["mid"].size() >= 25 and staged["late"].size() >= 25)
+	_check("quip_stage buckets waves", DialogueManager.quip_stage(1) == "early" and DialogueManager.quip_stage(10) == "mid" and DialogueManager.quip_stage(30) == "late")
 
 	var seen := {}
 	var dupes = 0
-	for q in quips:
+	var every_line: Array = quips.duplicate()
+	for k in staged:
+		every_line.append_array(staged[k])
+	for q in every_line:
 		if seen.has(q):
 			dupes += 1
 		seen[q] = true

@@ -1,0 +1,111 @@
+{
+	"_comment": "shop_after_hours",
+	"background": {
+		"scene": "shop_tables"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"trainer": {
+			"placeholder_color": "#7fd1ff",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.3,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Lights out in ten. The table's already asleep.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "enter",
+			"actor": "trainer",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.75,
+				0.62
+			],
+			"duration": 1.3
+		},
+		{
+			"cmd": "say",
+			"actor": "trainer",
+			"name": "Trainer",
+			"text": "Good evening. I have been reviewing the pilot's last session.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Good evening. It's after hours. We said no business after close.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "trainer",
+			"name": "Trainer",
+			"text": "This is not business. This is admiration.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "...You're not allowed to say that. It's unsettling.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "trainer",
+			"name": "Trainer",
+			"text": "Noted. I will say it more quietly.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "trainer",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.2
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "It's learning manners. I think. Lights.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

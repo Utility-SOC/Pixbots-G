@@ -110,7 +110,7 @@ func _ready():
 	_check("_process accumulates elapsed time only in campaign mode",
 		main_source.contains("if SaveManager.current_game_mode == \"campaign\":\n\t\t_map_rotation_elapsed += delta"))
 	_check("_on_wave_cleared checks and triggers rotation after incrementing current_wave",
-		main_source.contains("if _should_rotate_map():\n\t\t_rotate_campaign_map()"))
+		main_source.contains("if _should_rotate_map():\n\t\tawait _rotate_campaign_map()"))
 	_check("rotation clears existing loot (tied to the old, now-gone layout)",
 		main_source.contains("get_nodes_in_group(\"loot\")"))
 	_check("rotation clears existing enemies and resets active_enemies",

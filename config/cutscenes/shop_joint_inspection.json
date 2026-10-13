@@ -1,0 +1,137 @@
+{
+	"_comment": "shop_joint_inspection",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"inspector": {
+			"placeholder_color": "#b0956a",
+			"scale": 5
+		},
+		"board": {
+			"placeholder_color": "#7a7a8a",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.25,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "enter",
+			"actor": "inspector",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.62,
+				0.62
+			],
+			"duration": 1.2
+		},
+		{
+			"cmd": "enter",
+			"actor": "board",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.85,
+				0.62
+			],
+			"duration": 1.2
+		},
+		{
+			"cmd": "say",
+			"actor": "inspector",
+			"name": "Inspector",
+			"text": "Joint inspection. The Corp requests a count of all animals.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "board",
+			"name": "Board",
+			"text": "The Corp requests a count of all logos. Visible from orbit.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "One cat. Inventory. One logo. On the bot. Please stop looking at my ceiling.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "inspector",
+			"name": "Inspector",
+			"text": "The cat has a tag.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "It says 'inventory.' I did the lettering.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "board",
+			"name": "Board",
+			"text": "Approved.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "inspector",
+			"name": "Inspector",
+			"text": "...Approved.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "board",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "exit",
+			"actor": "inspector",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

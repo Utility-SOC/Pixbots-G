@@ -1,0 +1,89 @@
+{
+	"_comment": "shop_vending_cat",
+	"background": {
+		"scene": "shop"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"cat": {
+			"kind": "prop",
+			"prop_type": "cat",
+			"placeholder_color": "#e08c33",
+			"scale": 4
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.35,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "The vending machine ate a dollar. Again. Nobody kick it.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "shake",
+			"actor": "frank",
+			"duration": 0.4,
+			"strength": 6
+		},
+		{
+			"cmd": "enter",
+			"actor": "cat",
+			"from": [
+				0.9,
+				0.7
+			],
+			"to": [
+				0.7,
+				0.66
+			],
+			"duration": 0.8
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "You don't have a dollar. You are a cat. Step away from the machine.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "...That was a nice noise. What did you do? Don't answer that.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "It gave me two dollars back. I'm not asking. Nobody's asking.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

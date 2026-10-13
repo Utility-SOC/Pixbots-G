@@ -994,7 +994,7 @@ func _after_wave_beat() -> void:
 
 func _start_intermission():
 	_ensure_wager().open_window(current_wave)
-	show_dialogue("Shopkeeper", DialogueManager.get_intermission_quip(), Color(0.7, 0.85, 1.0), 5.0)
+	show_dialogue("Shopkeeper", DialogueManager.get_intermission_quip(current_wave), Color(0.7, 0.85, 1.0), 5.0)
 	_show_countdown()
 
 # Frank's Challenge mode (ChallengesMenu): one scripted scenario replaces the wave loop.
@@ -1922,7 +1922,7 @@ func _spawn_rival(director, force_rarity = -1, force_name = ""):
 	var elite_idx = SaveManager.ELITE_FOUR_NAMES.find(rival_name)
 	var elite_arena = "Hyper Colosseum" if elite_idx >= 3 else "Colosseum"
 	if elite_idx >= 0 and is_instance_valid(map) and map.map_type != elite_arena:
-		_rotate_campaign_map(elite_arena, "prewar")
+		_rotate_campaign_map_now(elite_arena, "prewar") # synchronous: the rival spawns right after
 		
 	for i in range(mech_count):
 		var role_to_spawn = role
@@ -2460,7 +2460,7 @@ func _on_wave_cleared():
 	if current_wave >= 100:
 		SaveManager.tournament_arc_unlocked = true
 	if _should_rotate_map():
-		_rotate_campaign_map()
+		await _rotate_campaign_map()
 	# Pixel-art cutscene beat, if the manifest maps one to the upcoming
 	# wave (config/cutscenes/manifest.json). Plays once per session,
 	# pauses the tree itself, and hands off to the normal intermission
@@ -2526,7 +2526,22 @@ func _should_rotate_map() -> bool:
 # no such self-heal (their AI/pickup state is meaningless on a different
 # layout anyway), so those get cleared instead - same pattern
 # _on_player_died() already uses for its own "clear the field" cleanup.
+var _rotating_map: bool = false
+
 func _rotate_campaign_map(forced_type: String = "", forced_era: String = ""):
+	if _rotating_map:
+		return
+	_rotating_map = true
+	# Big maps take seconds to build on weak GPUs: put the loading card up and let it draw before the work starts.
+	var card = TableSettingScreen.show_over(self)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_rotate_campaign_map_now(forced_type, forced_era)
+	if is_instance_valid(card):
+		card.finish()
+	_rotating_map = false
+
+func _rotate_campaign_map_now(forced_type: String, forced_era: String):
 	for loot in get_tree().get_nodes_in_group("loot"):
 		if is_instance_valid(loot):
 			loot.queue_free()

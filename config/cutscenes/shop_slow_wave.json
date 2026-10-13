@@ -1,0 +1,90 @@
+{
+	"_comment": "shop_slow_wave",
+	"background": {
+		"scene": "shop_tables"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"rudy": {
+			"placeholder_color": "#a55",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.28,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Slow wave. Good. I wanted to say something.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Lots of regulars are gone by now. You aren't. That means something to me.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "enter",
+			"actor": "rudy",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.72,
+				0.62
+			],
+			"duration": 1.2
+		},
+		{
+			"cmd": "say",
+			"actor": "rudy",
+			"name": "Rudy",
+			"text": "Hey, Frank. I'm told I'm not to be discussed.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "You're not. Go sit. There's tea.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "rudy",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

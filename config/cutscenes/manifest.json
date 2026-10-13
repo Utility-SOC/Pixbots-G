@@ -3,13 +3,21 @@
 	"waves": {
 		"2": "frank_scrap_pitch.json",
 		"5": "frank_wave5_tip.json",
+		"8": "shop_arthur_felt.json",
 		"10": "frank_wave10_tip.json",
 		"15": "frank_wave15_tip.json",
 		"20": "shop_sponsor_visit.json",
 		"25": "shop_cat_intro.json",
 		"30": "shop_inspector.json",
 		"35": "shop_trainer_intro.json",
+		"40": "shop_silas_case.json",
+		"45": "shop_regulars_book.json",
+		"50": "shop_vending_cat.json",
+		"55": "shop_after_hours.json",
 		"60": "shop_frank_confession.json",
+		"70": "shop_joint_inspection.json",
+		"80": "shop_the_window.json",
+		"90": "shop_slow_wave.json",
 		"100": "shop_before_tournament.json"
 	}
 }

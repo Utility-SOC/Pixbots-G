@@ -1,0 +1,124 @@
+{
+	"_comment": "shop_arthur_felt",
+	"background": {
+		"scene": "shop_tables"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"arthur": {
+			"placeholder_color": "#c9a227",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.3,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "enter",
+			"actor": "arthur",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.7,
+				0.62
+			],
+			"duration": 1.2
+		},
+		{
+			"cmd": "say",
+			"actor": "arthur",
+			"name": "Arthur",
+			"text": "Frank. The felt has a stain.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "It's oil. It's a pilot's oil. It's earned.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "arthur",
+			"name": "Arthur",
+			"text": "My father would have it replaced.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Your father has never played on this table. You have. How's the bot?",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "arthur",
+			"name": "Arthur",
+			"text": "...Fine. Perfectly adequate. Why do you ask.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Because you put a new coat of paint on it. I noticed. It looks good.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "shake",
+			"actor": "arthur",
+			"duration": 0.4,
+			"strength": 6
+		},
+		{
+			"cmd": "say",
+			"actor": "arthur",
+			"name": "Arthur",
+			"text": "It is not paint. It is a finish.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "arthur",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "He's getting better. Don't tell him I said so.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

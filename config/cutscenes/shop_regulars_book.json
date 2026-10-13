@@ -1,0 +1,137 @@
+{
+	"_comment": "shop_regulars_book",
+	"background": {
+		"scene": "shop_back"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"beatrice": {
+			"placeholder_color": "#8e5ec9",
+			"scale": 5
+		},
+		"grog": {
+			"placeholder_color": "#6b8e3d",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.2,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "enter",
+			"actor": "beatrice",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.55,
+				0.62
+			],
+			"duration": 1.2
+		},
+		{
+			"cmd": "enter",
+			"actor": "grog",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.8,
+				0.62
+			],
+			"duration": 1.2
+		},
+		{
+			"cmd": "say",
+			"actor": "beatrice",
+			"name": "Beatrice",
+			"text": "I have calculated the odds of your pilot reaching wave one hundred. They are rising.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "grog",
+			"name": "Grog",
+			"text": "Grog bet five dollars. Grog say pilot make it.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "You two are running a book in my shop?",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "beatrice",
+			"name": "Beatrice",
+			"text": "It is a probability pool. Entirely educational.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "I'll allow it. I put in twenty.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "grog",
+			"name": "Grog",
+			"text": "Frank bet twenty. Frank believe.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "Frank believes in the snack bar and in whoever's still standing. Go play.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "beatrice",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "exit",
+			"actor": "grog",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}

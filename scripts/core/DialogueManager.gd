@@ -53,7 +53,21 @@ func _draw_no_repeat(pool_key: String, pool: Array) -> String:
 	_last_drawn[pool_key] = line
 	return line
 
-func get_intermission_quip() -> String:
+# Stage of the run a wave number belongs to; picks the intermission pool (see docs/WORLD.md).
+static func quip_stage(wave: int) -> String:
+	if wave >= 30:
+		return "late"
+	if wave >= 10:
+		return "mid"
+	return "early"
+
+# wave < 0 draws from the evergreen pool only. Otherwise ~65% of toasts come from the wave's stage pool.
+func get_intermission_quip(wave: int = -1) -> String:
+	var stages: Dictionary = dialogue_data.get("intermission_stage", {})
+	if wave >= 0 and not stages.is_empty() and randf() < 0.65:
+		var stage = quip_stage(wave)
+		if stages.has(stage):
+			return _draw_no_repeat("intermission_" + stage, stages[stage])
 	if dialogue_data.has("intermission_quips"):
 		return _draw_no_repeat("intermission_quips", dialogue_data["intermission_quips"])
 	return ""

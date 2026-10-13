@@ -1,0 +1,111 @@
+{
+	"_comment": "shop_silas_case",
+	"background": {
+		"scene": "shop_back"
+	},
+	"actors": {
+		"frank": {
+			"placeholder_color": "#4d8bd4",
+			"scale": 5
+		},
+		"silas": {
+			"placeholder_color": "#4a4a52",
+			"scale": 5
+		}
+	},
+	"steps": [
+		{
+			"cmd": "enter",
+			"actor": "frank",
+			"from": [
+				-0.08,
+				0.62
+			],
+			"to": [
+				0.25,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "enter",
+			"actor": "silas",
+			"from": [
+				1.1,
+				0.62
+			],
+			"to": [
+				0.72,
+				0.62
+			],
+			"duration": 1.2
+		},
+		{
+			"cmd": "say",
+			"actor": "silas",
+			"name": "Silas",
+			"text": "I have something. You will not want to know where I got it.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "I don't. Put it on the table. Not that table. The one that's mine.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "silas",
+			"name": "Silas",
+			"text": "It's a Mythic tile. It has... opinions.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "They all do, Silas. It's a hex of crystal and a bad attitude.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "silas",
+			"name": "Silas",
+			"text": "Warranty is: it exists.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "That's the best warranty you've ever offered. Take it to the kid. Not for free.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "silas",
+			"to": [
+				1.1,
+				0.62
+			],
+			"duration": 1.0
+		},
+		{
+			"cmd": "say",
+			"actor": "frank",
+			"name": "Frank",
+			"text": "If it explodes, it's not my case. It's his case. I run a clean shop.",
+			"auto": 4.5
+		},
+		{
+			"cmd": "exit",
+			"actor": "frank",
+			"to": [
+				-0.1,
+				0.62
+			],
+			"duration": 1.0
+		}
+	]
+}
